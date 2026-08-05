@@ -63,7 +63,7 @@ Dir.mktmpdir do |d|
   Wave1Fixture.build(d)
   run_split(d, ['--folder', 'fold-x', '--quiet'])
   full = File.read(File.join(d, 'migrate-full.log'))
-  check(full.include?('PRE-BUILD CHECKPOINT (ONE stop: gaps + decisions + consent + cost)'),
+  check(full.include?('PRE-BUILD CHECKPOINT (ONE stop: gaps + decisions + cost)'),
         'checkpoint banner preserved in the sidecar', fails)
   check(full.include?('── Phase 1/6 · Discover ──'), 'phase banners preserved in the sidecar', fails)
   check(full.include?('PHASE TIMINGS'), 'phase-timings summary preserved in the sidecar', fails)
@@ -74,7 +74,7 @@ Dir.mktmpdir do |d|
   Wave1Fixture.build(d)
   out, _err, st = run_split(d, ['--folder', 'fold-x'])
   check(st.exitstatus == 10, "default stop exit 10 (got #{st.exitstatus})", fails)
-  check(out.include?('PRE-BUILD CHECKPOINT (ONE stop: gaps + decisions + consent + cost)'),
+  check(out.include?('PRE-BUILD CHECKPOINT (ONE stop: gaps + decisions + cost)'),
         'banner on stdout by default', fails)
   check(out.lines.none? { |l| l.start_with?('{"ev":') }, 'no machine event lines by default', fails)
   check(!File.exist?(File.join(d, 'migrate-full.log')), 'no sidecar log by default', fails)

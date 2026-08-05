@@ -58,8 +58,7 @@ check(src =~ /PhaseMetrics\.record\(workdir: WORK, phase: key, wall_s: seg, at: 
 puts 'T3 — machine-local contract'
 gitignore = File.read(File.expand_path('../../../../../.gitignore', __dir__))
 check(gitignore.include?('phase-metrics.jsonl'), 'phase-metrics.jsonl is gitignored (never committed)', fails)
-check(gitignore.include?('decisions.jsonl') && gitignore.include?('consent-answer.json') &&
-      gitignore.include?('migrate-full.log'),
+check(gitignore.include?('decisions.jsonl') && gitignore.include?('migrate-full.log'),
       'the other wave-1 local-state artifacts are gitignored too', fails)
 
 puts
