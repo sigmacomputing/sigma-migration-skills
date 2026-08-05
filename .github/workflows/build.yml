@@ -1,0 +1,33 @@
+name: Build
+
+# Required status check for `main` (branch protection). Creds-free, network-free
+# "does the repo hang together" gate: shared-lib drift + skill/lints + hygiene +
+# the offline corpus regression. The deeper per-suite tests run in corpus-check.yml
+# and hygiene.yml; require those too if you want them to gate merges.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install offline Python deps (looker dashboard parser)
+        run: python3 -m pip install --quiet pyyaml
+      - name: Governance checks (shared-lib drift, skill lint, hygiene, tree-litter, ESM/encoding, agent-variants, bundle freshness)
+        run: bash .githooks/run-governance-checks.sh
+      - name: Corpus regression (creds-free goldens)
+        run: ./corpus/run-corpus.sh --check
