@@ -1,0 +1,527 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<!-- Synthetic field-twin (invented names, no customer data): the JOIN ELISION
+     / FAN-OUT shape. A federated LEFT JOIN from the fact to a dim on a
+     NON-UNIQUE, low-cardinality FLAG key (fact.ACTIVE_FLAG =
+     SEGMENT_DIM.CURRENT_FLAG) where NO joined dim column appears on any
+     shelf — the join "looks removable", but the flag key is massively
+     duplicated, so deleting it (or keeping it) changes row counts: fan-out
+     either way, only provable by measuring the right side's key cardinality.
+     Plus: a wide Measure-Names crosstab, two line charts, a heat map, and a
+     SECOND independent published datasource feeding its own worksheet (the
+     converter collapses to the primary and silently drops it). -->
+<workbook locale='en_US' original-version='18.1' source-build='2026.1.5 (20261.26.0512.1609)' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <preferences />
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Date Level' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Week&quot;'>
+        <calculation class='tableau' formula='&quot;Week&quot;' />
+        <members>
+          <member value='&quot;Day&quot;' />
+          <member value='&quot;Week&quot;' />
+          <member value='&quot;Month&quot;' />
+        </members>
+      </column>
+    </datasource>
+    <datasource caption='Channel Activity Monitor' inline='true' name='federated.0jef0activity01' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake demo' name='snowflake.0jef0activity01'>
+            <connection class='snowflake' dbname='DEMO_DB' schema='ANALYTICS' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[SALES_FACT].[ACTIVE_FLAG]' />
+              <expression op='[SEGMENT_DIM].[CURRENT_FLAG]' />
+            </expression>
+          </clause>
+          <relation connection='snowflake.0jef0activity01' name='SALES_FACT' table='[ANALYTICS].[SALES_FACT]' type='table'>
+            <columns>
+              <column datatype='date' name='SALE_DATE' />
+              <column datatype='string' name='CHANNEL_CODE' />
+              <column datatype='real' name='NET_AMOUNT' />
+              <column datatype='real' name='GROSS_AMOUNT' />
+              <column datatype='real' name='REBATE_AMOUNT' />
+              <column datatype='real' name='TAX_AMOUNT' />
+              <column datatype='real' name='FREIGHT_AMOUNT' />
+              <column datatype='real' name='NET_EARNINGS' />
+              <column datatype='integer' name='BUYER_KEY' />
+              <column datatype='integer' name='ACTIVE_FLAG' />
+            </columns>
+          </relation>
+          <relation connection='snowflake.0jef0activity01' name='SEGMENT_DIM' table='[ANALYTICS].[SEGMENT_DIM]' type='table'>
+            <columns>
+              <column datatype='integer' name='CURRENT_FLAG' />
+              <column datatype='string' name='SEGMENT_NAME' />
+              <column datatype='string' name='REGION_NAME' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+      <aliases enabled='yes' />
+      <column datatype='string' name='[:Measure Names]' role='dimension' type='nominal' />
+      <column caption='Sale Date' datatype='date' name='[SALE_DATE]' role='dimension' type='ordinal' />
+      <column caption='Channel Code' datatype='string' name='[CHANNEL_CODE]' role='dimension' type='nominal' />
+      <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Gross Amount' datatype='real' name='[GROSS_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Rebate Amount' datatype='real' name='[REBATE_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Tax Amount' datatype='real' name='[TAX_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Freight Amount' datatype='real' name='[FREIGHT_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Net Earnings' datatype='real' name='[NET_EARNINGS]' role='measure' type='quantitative' />
+      <column caption='Buyer Key' datatype='integer' name='[BUYER_KEY]' role='measure' type='quantitative' />
+      <column caption='Active Flag' datatype='integer' name='[ACTIVE_FLAG]' role='measure' type='quantitative' />
+      <column caption='Current Flag' datatype='integer' name='[CURRENT_FLAG]' role='measure' type='quantitative' />
+      <column caption='Segment Name' datatype='string' name='[SEGMENT_NAME]' role='dimension' type='nominal' />
+      <column caption='Region Name' datatype='string' name='[REGION_NAME]' role='dimension' type='nominal' />
+      <column caption='Sale Date (Level)' datatype='date' name='[Calculation_JEF_DateLevel]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &quot;Day&quot; THEN DATETRUNC(&apos;day&apos;, [SALE_DATE]) WHEN &quot;Month&quot; THEN DATETRUNC(&apos;month&apos;, [SALE_DATE]) ELSE DATETRUNC(&apos;week&apos;, [SALE_DATE]) END' />
+      </column>
+      <column caption='Earn Ratio' datatype='real' default-format='p0.0%' name='[Calculation_JEF_EarnRatio]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='IIF([NET_AMOUNT] != 0, [NET_EARNINGS] / [NET_AMOUNT], NULL)' />
+      </column>
+      <column caption='WoW Change Pct' datatype='real' default-format='p0.0%' name='[Calculation_JEF_WoWChangePct]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='(ZN(SUM([NET_AMOUNT])) - LOOKUP(ZN(SUM([NET_AMOUNT])), -1)) / ABS(LOOKUP(ZN(SUM([NET_AMOUNT])), -1))' />
+      </column>
+      <column caption='Trend Flag' datatype='string' name='[Calculation_JEF_TrendFlag]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [Calculation_JEF_WoWChangePct] &lt; -0.5 THEN &quot;Drop&quot; ELSEIF [Calculation_JEF_WoWChangePct] &gt; 0.5 THEN &quot;Spike&quot; ELSE &quot;Stable&quot; END' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' show-structure='true' />
+    </datasource>
+    <datasource caption='Reference Notes' inline='true' name='sqlproxy.0jef0refnotes01' version='18.1'>
+      <connection channel='https' class='sqlproxy' dbname='Reference-Notes' port='443' server='example.online.tableau.com' username='' workgroup-auth-mode='prompt'>
+        <relation name='sqlproxy' table='[sqlproxy]' type='table' />
+      </connection>
+      <column datatype='string' name='[Topic]' role='dimension' type='nominal' />
+      <column datatype='real' name='[Note Value]' role='measure' type='quantitative' />
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' show-structure='true' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Channel Crosstab'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Channel Behavior by Week (last 8 weeks)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Channel Activity Monitor' name='federated.0jef0activity01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0jef0activity01'>
+            <column datatype='string' name='[:Measure Names]' role='dimension' type='nominal' />
+            <column caption='Sale Date' datatype='date' name='[SALE_DATE]' role='dimension' type='ordinal' />
+            <column caption='Channel Code' datatype='string' name='[CHANNEL_CODE]' role='dimension' type='nominal' />
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Gross Amount' datatype='real' name='[GROSS_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Rebate Amount' datatype='real' name='[REBATE_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Tax Amount' datatype='real' name='[TAX_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Freight Amount' datatype='real' name='[FREIGHT_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='WoW Change Pct' datatype='real' default-format='p0.0%' name='[Calculation_JEF_WoWChangePct]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='(ZN(SUM([NET_AMOUNT])) - LOOKUP(ZN(SUM([NET_AMOUNT])), -1)) / ABS(LOOKUP(ZN(SUM([NET_AMOUNT])), -1))' />
+            </column>
+            <column-instance column='[CHANNEL_CODE]' derivation='None' name='[none:CHANNEL_CODE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SALE_DATE]' derivation='Week-Trunc' name='[twk:SALE_DATE:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[SALE_DATE]' derivation='None' name='[none:SALE_DATE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_AMOUNT]' derivation='Sum' name='[sum:NET_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[GROSS_AMOUNT]' derivation='Sum' name='[sum:GROSS_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[REBATE_AMOUNT]' derivation='Sum' name='[sum:REBATE_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[TAX_AMOUNT]' derivation='Sum' name='[sum:TAX_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[FREIGHT_AMOUNT]' derivation='Sum' name='[sum:FREIGHT_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_WoWChangePct]' derivation='User' name='[usr:Calculation_JEF_WoWChangePct:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0jef0activity01].[:Measure Names]'>
+            <groupfilter function='union' user:ui-domain='relevant' user:ui-enumeration='inclusive' user:ui-marker='enumerate' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[sum:NET_AMOUNT:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[sum:GROSS_AMOUNT:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[sum:REBATE_AMOUNT:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[sum:TAX_AMOUNT:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[sum:FREIGHT_AMOUNT:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]&quot;' />
+            </groupfilter>
+          </filter>
+          <filter class='categorical' column='[federated.0jef0activity01].[twk:SALE_DATE:ok]'>
+            <groupfilter count='8' end='top' function='end' units='records' user:ui-enumeration='top' user:ui-marker='enumerate' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter direction='DESC' expression='MAX([SALE_DATE])' function='order'>
+                <groupfilter function='level-members' level='[twk:SALE_DATE:ok]' />
+              </groupfilter>
+            </groupfilter>
+          </filter>
+          <filter class='quantitative' column='[federated.0jef0activity01].[none:SALE_DATE:qk]' included-values='non-null' />
+          <filter class='categorical' column='[federated.0jef0activity01].[none:CHANNEL_CODE:nk]'>
+            <groupfilter function='level-members' level='[none:CHANNEL_CODE:nk]' user:ui-domain='database' user:ui-enumeration='all' user:ui-marker='enumerate' xmlns:user='http://www.tableausoftware.com/xml/user' />
+          </filter>
+          <slices>
+            <column>[federated.0jef0activity01].[none:CHANNEL_CODE:nk]</column>
+            <column>[federated.0jef0activity01].[twk:SALE_DATE:ok]</column>
+            <column>[federated.0jef0activity01].[:Measure Names]</column>
+            <column>[federated.0jef0activity01].[Multiple Values]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='header'>
+            <format attr='col-width' field='[federated.0jef0activity01].[:Measure Names]' value='34' />
+          </style-rule>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0jef0activity01].[sum:NET_AMOUNT:qk]' value='n&quot;$&quot;#,##0.00' />
+            <format attr='text-format' field='[federated.0jef0activity01].[sum:GROSS_AMOUNT:qk]' value='n&quot;$&quot;#,##0.00' />
+            <format attr='text-format' field='[federated.0jef0activity01].[sum:REBATE_AMOUNT:qk]' value='n&quot;$&quot;#,##0.00' />
+            <format attr='text-format' field='[federated.0jef0activity01].[sum:TAX_AMOUNT:qk]' value='n&quot;$&quot;#,##0.00' />
+            <format attr='text-format' field='[federated.0jef0activity01].[sum:FREIGHT_AMOUNT:qk]' value='n&quot;$&quot;#,##0.00' />
+            <format attr='text-format' field='[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]' value='p0.0%' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Text' />
+            <encodings>
+              <text column='[federated.0jef0activity01].[Multiple Values]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0jef0activity01].[none:CHANNEL_CODE:nk]</rows>
+        <cols>([federated.0jef0activity01].[twk:SALE_DATE:ok] / [federated.0jef0activity01].[:Measure Names])</cols>
+      </table>
+      <simple-id uuid='{BD200001-0000-4000-8000-000000000001}' />
+    </worksheet>
+    <worksheet name='Amount Trend'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Net Amount Trend by Channel (Top 5)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Channel Activity Monitor' name='federated.0jef0activity01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0jef0activity01'>
+            <column caption='Sale Date' datatype='date' name='[SALE_DATE]' role='dimension' type='ordinal' />
+            <column caption='Channel Code' datatype='string' name='[CHANNEL_CODE]' role='dimension' type='nominal' />
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Sale Date (Level)' datatype='date' name='[Calculation_JEF_DateLevel]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &quot;Day&quot; THEN DATETRUNC(&apos;day&apos;, [SALE_DATE]) WHEN &quot;Month&quot; THEN DATETRUNC(&apos;month&apos;, [SALE_DATE]) ELSE DATETRUNC(&apos;week&apos;, [SALE_DATE]) END' />
+            </column>
+            <column-instance column='[CHANNEL_CODE]' derivation='None' name='[none:CHANNEL_CODE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SALE_DATE]' derivation='None' name='[none:SALE_DATE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_DateLevel]' derivation='None' name='[none:Calculation_JEF_DateLevel:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_AMOUNT]' derivation='Sum' name='[sum:NET_AMOUNT:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0jef0activity01].[none:CHANNEL_CODE:nk]'>
+            <groupfilter count='5' end='top' function='end' units='records' user:ui-enumeration='top' user:ui-marker='enumerate' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter direction='DESC' expression='SUM([NET_AMOUNT])' function='order'>
+                <groupfilter function='level-members' level='[none:CHANNEL_CODE:nk]' />
+              </groupfilter>
+            </groupfilter>
+          </filter>
+          <filter class='quantitative' column='[federated.0jef0activity01].[none:SALE_DATE:qk]' included-values='non-null' />
+          <slices>
+            <column>[federated.0jef0activity01].[none:Calculation_JEF_DateLevel:qk]</column>
+            <column>[federated.0jef0activity01].[sum:NET_AMOUNT:qk]</column>
+            <column>[federated.0jef0activity01].[none:CHANNEL_CODE:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+            <encodings>
+              <color column='[federated.0jef0activity01].[none:CHANNEL_CODE:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0jef0activity01].[sum:NET_AMOUNT:qk]</rows>
+        <cols>[federated.0jef0activity01].[none:Calculation_JEF_DateLevel:qk]</cols>
+      </table>
+      <simple-id uuid='{BD200002-0000-4000-8000-000000000002}' />
+    </worksheet>
+    <worksheet name='Earn Ratio Trend'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Avg Earn Ratio Trend</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Channel Activity Monitor' name='federated.0jef0activity01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0jef0activity01'>
+            <column caption='Sale Date' datatype='date' name='[SALE_DATE]' role='dimension' type='ordinal' />
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Net Earnings' datatype='real' name='[NET_EARNINGS]' role='measure' type='quantitative' />
+            <column caption='Sale Date (Level)' datatype='date' name='[Calculation_JEF_DateLevel]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &quot;Day&quot; THEN DATETRUNC(&apos;day&apos;, [SALE_DATE]) WHEN &quot;Month&quot; THEN DATETRUNC(&apos;month&apos;, [SALE_DATE]) ELSE DATETRUNC(&apos;week&apos;, [SALE_DATE]) END' />
+            </column>
+            <column caption='Earn Ratio' datatype='real' default-format='p0.0%' name='[Calculation_JEF_EarnRatio]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='IIF([NET_AMOUNT] != 0, [NET_EARNINGS] / [NET_AMOUNT], NULL)' />
+            </column>
+            <column-instance column='[SALE_DATE]' derivation='None' name='[none:SALE_DATE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_DateLevel]' derivation='None' name='[none:Calculation_JEF_DateLevel:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_EarnRatio]' derivation='Avg' name='[avg:Calculation_JEF_EarnRatio:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='quantitative' column='[federated.0jef0activity01].[none:SALE_DATE:qk]' included-values='non-null' />
+          <slices>
+            <column>[federated.0jef0activity01].[none:Calculation_JEF_DateLevel:qk]</column>
+            <column>[federated.0jef0activity01].[avg:Calculation_JEF_EarnRatio:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0jef0activity01].[avg:Calculation_JEF_EarnRatio:qk]' value='p0.0%' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+          </pane>
+        </panes>
+        <rows>[federated.0jef0activity01].[avg:Calculation_JEF_EarnRatio:qk]</rows>
+        <cols>[federated.0jef0activity01].[none:Calculation_JEF_DateLevel:qk]</cols>
+      </table>
+      <simple-id uuid='{BD200003-0000-4000-8000-000000000003}' />
+    </worksheet>
+    <worksheet name='Change Heat'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>WoW Change Pct Heat (Channel x Week)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Channel Activity Monitor' name='federated.0jef0activity01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0jef0activity01'>
+            <column caption='Sale Date' datatype='date' name='[SALE_DATE]' role='dimension' type='ordinal' />
+            <column caption='Channel Code' datatype='string' name='[CHANNEL_CODE]' role='dimension' type='nominal' />
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='WoW Change Pct' datatype='real' default-format='p0.0%' name='[Calculation_JEF_WoWChangePct]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='(ZN(SUM([NET_AMOUNT])) - LOOKUP(ZN(SUM([NET_AMOUNT])), -1)) / ABS(LOOKUP(ZN(SUM([NET_AMOUNT])), -1))' />
+            </column>
+            <column caption='Trend Flag' datatype='string' name='[Calculation_JEF_TrendFlag]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [Calculation_JEF_WoWChangePct] &lt; -0.5 THEN &quot;Drop&quot; ELSEIF [Calculation_JEF_WoWChangePct] &gt; 0.5 THEN &quot;Spike&quot; ELSE &quot;Stable&quot; END' />
+            </column>
+            <column-instance column='[CHANNEL_CODE]' derivation='None' name='[none:CHANNEL_CODE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SALE_DATE]' derivation='Week-Trunc' name='[twk:SALE_DATE:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[SALE_DATE]' derivation='None' name='[none:SALE_DATE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_WoWChangePct]' derivation='User' name='[usr:Calculation_JEF_WoWChangePct:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_JEF_TrendFlag]' derivation='User' name='[usr:Calculation_JEF_TrendFlag:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0jef0activity01].[twk:SALE_DATE:ok]'>
+            <groupfilter count='8' end='top' function='end' units='records' user:ui-enumeration='top' user:ui-marker='enumerate' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter direction='DESC' expression='MAX([SALE_DATE])' function='order'>
+                <groupfilter function='level-members' level='[twk:SALE_DATE:ok]' />
+              </groupfilter>
+            </groupfilter>
+          </filter>
+          <filter class='quantitative' column='[federated.0jef0activity01].[none:SALE_DATE:qk]' included-values='non-null' />
+          <slices>
+            <column>[federated.0jef0activity01].[none:CHANNEL_CODE:nk]</column>
+            <column>[federated.0jef0activity01].[twk:SALE_DATE:ok]</column>
+            <column>[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]' value='p0.0%' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Square' />
+            <encodings>
+              <color column='[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]' />
+              <text column='[federated.0jef0activity01].[usr:Calculation_JEF_WoWChangePct:qk]' />
+              <tooltip column='[federated.0jef0activity01].[usr:Calculation_JEF_TrendFlag:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0jef0activity01].[none:CHANNEL_CODE:nk]</rows>
+        <cols>[federated.0jef0activity01].[twk:SALE_DATE:ok]</cols>
+      </table>
+      <simple-id uuid='{BD200004-0000-4000-8000-000000000004}' />
+    </worksheet>
+    <worksheet name='Reference Notes'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Reference Notes (Published Source)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Reference Notes' name='sqlproxy.0jef0refnotes01' />
+          </datasources>
+          <datasource-dependencies datasource='sqlproxy.0jef0refnotes01'>
+            <column datatype='string' name='[Topic]' role='dimension' type='nominal' />
+            <column datatype='real' name='[Note Value]' role='measure' type='quantitative' />
+            <column-instance column='[Topic]' derivation='None' name='[none:Topic:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Note Value]' derivation='Sum' name='[sum:Note Value:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[sqlproxy.0jef0refnotes01].[none:Topic:nk]</column>
+            <column>[sqlproxy.0jef0refnotes01].[sum:Note Value:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[sqlproxy.0jef0refnotes01].[sum:Note Value:qk]' value='n#,##0' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Text' />
+            <encodings>
+              <text column='[sqlproxy.0jef0refnotes01].[sum:Note Value:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[sqlproxy.0jef0refnotes01].[none:Topic:nk]</rows>
+        <cols />
+      </table>
+      <simple-id uuid='{BD200005-0000-4000-8000-000000000005}' />
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard enable-sort-zone-taborder='true' name='Activity Monitor'>
+      <style />
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Channel Activity Monitor' name='federated.0jef0activity01' />
+        <datasource caption='Reference Notes' name='sqlproxy.0jef0refnotes01' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='200' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='210' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='211' param='vert' type-v2='layout-flow' w='70000' x='0' y='0'>
+              <zone h='55000' id='201' name='Channel Crosstab' w='70000' x='0' y='0'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+              <zone h='45000' id='202' name='Change Heat' w='70000' x='0' y='55000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='100000' id='212' param='vert' type-v2='layout-flow' w='30000' x='70000' y='0'>
+              <zone h='5000' id='203' mode='compact' param='[Parameters].[Parameter 1]' type-v2='paramctrl' w='30000' x='70000' y='0'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                  <format attr='background-color' value='#f5f5f5' />
+                </zone-style>
+              </zone>
+              <zone h='5500' id='204' name='Amount Trend' param='[federated.0jef0activity01].[none:SALE_DATE:qk]' type-v2='filter' w='30000' x='70000' y='5000'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                  <format attr='background-color' value='#f5f5f5' />
+                </zone-style>
+              </zone>
+              <zone h='8000' id='205' mode='checklist' name='Channel Crosstab' param='[federated.0jef0activity01].[none:CHANNEL_CODE:nk]' type-v2='filter' w='30000' x='70000' y='10500'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                  <format attr='background-color' value='#f5f5f5' />
+                </zone-style>
+              </zone>
+              <zone h='27500' id='206' name='Amount Trend' show-title='false' w='30000' x='70000' y='18500'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+              <zone h='27000' id='207' name='Earn Ratio Trend' show-title='false' w='30000' x='70000' y='46000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+              <zone h='27000' id='208' name='Reference Notes' show-title='false' w='30000' x='70000' y='73000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+      <simple-id uuid='{BD200010-0000-4000-8000-000000000010}' />
+    </dashboard>
+  </dashboards>
+  <windows source-height='30'>
+    <window class='dashboard' maximized='true' name='Activity Monitor'>
+      <viewpoints>
+        <viewpoint name='Channel Crosstab'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Change Heat'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Amount Trend'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Earn Ratio Trend'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Reference Notes'>
+          <zoom type='entire-view' />
+        </viewpoint>
+      </viewpoints>
+      <active id='-1' />
+      <simple-id uuid='{BD200011-0000-4000-8000-000000000011}' />
+    </window>
+  </windows>
+</workbook>

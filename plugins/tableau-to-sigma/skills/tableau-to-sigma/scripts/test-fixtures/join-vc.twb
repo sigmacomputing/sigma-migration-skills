@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-join-plan.rb (invented names, no customer data):
+     a workbook backed by a Tableau PUBLISHED / VIRTUAL connection. The shapes
+     that broke the live probe: no metadata-records; relation labels carry the
+     physical path in parens ('NAME (SCHEMA.TABLE)'); the named-connection
+     dbname is the VC inode GUID; the join keys are Tableau field GUIDs whose
+     captions are the only handle on the physical columns. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Rev VC' name='federated.vc01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='vconn' name='vconn.vc01'>
+            <connection class='vconn' dbname='ab12cd34-1111-4222-8333-944444444444' server='example.online.tableau.com' />
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[REV_PRIMARY (LEDGERSRC.REV_PRIMARY)].[0a1b2c3d-4e5f-4677-8899-aabbccddee00]' />
+              <expression op='[REV_OFFSET (LEDGERSRC.REV_OFFSET)].[9f8e7d6c-5b4a-4392-8171-605f4e3d2c1b]' />
+            </expression>
+          </clause>
+          <relation connection='vconn.vc01' name='REV_PRIMARY (LEDGERSRC.REV_PRIMARY)' table='[REV_PRIMARY (LEDGERSRC.REV_PRIMARY)]' type='table' />
+          <relation connection='vconn.vc01' name='REV_OFFSET (LEDGERSRC.REV_OFFSET)' table='[REV_OFFSET (LEDGERSRC.REV_OFFSET)]' type='table' />
+        </relation>
+      </connection>
+      <column caption='Entity Id' datatype='integer' name='[0a1b2c3d-4e5f-4677-8899-aabbccddee00]' role='dimension' type='ordinal' />
+      <column caption='Entity Id' datatype='integer' name='[9f8e7d6c-5b4a-4392-8171-605f4e3d2c1b]' role='dimension' type='ordinal' />
+      <column caption='Offset Amt' datatype='real' name='[1234abcd-0000-4000-8000-1234567890ab]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+</workbook>

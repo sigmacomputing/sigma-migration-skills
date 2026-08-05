@@ -1,0 +1,21 @@
+msal>=1.28,<1.32
+requests
+truststore>=0.9,<0.11
+
+# OPTIONAL — LOCAL .pbix model extraction ONLY (extract-model-pbix.py /
+# migrate-powerbi.rb --pbix). Deliberately NOT installed by the default
+# `pip install -r requirements.txt` / run.sh bootstrap: pbixray depends on
+# `xpress9` and `xmhuffman`, whose PyPI sdists are BROKEN and must be built
+# FROM SOURCE, which is not robust on every CI runner. Install by hand when you
+# actually have a local .pbix (see refs/local-pbix.md); doctor.sh reports it:
+#   pip install apsw pandas xpress8 \
+#     "git+https://github.com/Hugoberry/xpress9-python@main" \
+#     "git+https://github.com/Hugoberry/xmhuffman-cython@main" \
+#     pbixray
+# Nothing else in this skill needs pbixray — the report front door
+# (extract-report-classic.py --pbix) and the Fabric --tmsl path are stdlib-only.
+# Phase 5e source render: rasterize the ExportToFile PDF -> per-page PNGs in
+# export-pbi-pages.py so the agent's `Read` needs no poppler/pdftoppm. pypdfium2
+# ships portable abi3 wheels (BSD/Apache); Pillow writes the PNGs.
+pypdfium2>=4.30,<5
+Pillow>=10.4,<12

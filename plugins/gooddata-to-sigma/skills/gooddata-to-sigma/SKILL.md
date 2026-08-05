@@ -1,0 +1,178 @@
+---
+name: gooddata-to-sigma
+description: >-
+  Migrate GoodData Cloud / GoodData.CN workspaces to Sigma. Use when the user
+  has a GoodData workspace — datasets, MAQL metrics, insights, and analytical
+  dashboards — and wants to recreate it in Sigma. Exports the workspace via the
+  declarative layout API (logicalModel + analyticsModel), maps the LDM
+  (datasets / attributes / facts / references) to a Sigma data model, translates
+  MAQL metrics to Sigma formulas, maps insights to workbook charts/KPIs/pivots
+  and dashboards to pages + layout, ports user data filters (RLS) to Sigma user
+  attributes, and verifies parity against the same warehouse. Translates what
+  maps cleanly and flags what doesn't (compute-engine-only metrics, exotic MAQL
+  context, unsupported widgets) instead of emitting wrong logic. Also handles the
+  legacy GoodData Platform (classic "bear", /gdc metadata API, SST/TT auth) for
+  discovery + assessment — one identity sweeps every project under a domain — with
+  DM/workbook conversion still Cloud-only (refs/gooddata-platform-api.md).
+user-invocable: true
+---
+
+# GoodData → Sigma
+
+> **Windows / first run — run the environment doctor before anything else:**
+> `bash scripts/doctor.sh` (macOS/Linux/Git Bash) or `powershell -ExecutionPolicy Bypass -File scripts\doctor.ps1` (Windows).
+> It checks Ruby/Python/Node/bash and flags the Python "Store stub" + CRLF with exact fixes. Details: `refs/environment.md`.
+> **Modeling strategy — `refs/modeling-strategy.md`**: faithful reproduction of the source model is the DEFAULT (parity is the gate); an upstream OBT or Sigma-native materialization is an OPT-IN optimization for hot, join-heavy dashboards, re-verified against the same parity oracle. The converter never auto-flattens.
+
+> **Status: LIVE-VALIDATED — exact parity, data model + workbook.**
+> Proven end-to-end on a GoodData Cloud trial → Sigma (both on Snowflake): a
+> workspace (LDM + MAQL metrics + insights + dashboard) migrated to a Sigma data
+> model + workbook with **exact parity** on metrics and the relationship-backed
+> by-region breakdown; the `BY ALL` share metric was correctly flagged. Build
+> order, risks, and remaining work (live FOR-PREVIOUS date-intel) are in
+> `refs/design-notes.md`. Still: **never claim a specific conversion works until
+> it passes live parity for that workspace.**
+
+Recreate a GoodData workspace in Sigma, in the same phase structure as the
+sibling converters (Tableau, Power BI, Qlik, Cognos, MicroStrategy, SSRS, …).
+This skill defers all workbook-spec authoring to the **sigma-workbooks** skill
+and all data-model authoring to **sigma-data-models**.
+
+## Read these first
+
+- `refs/gooddata-api.md` — Cloud/.CN declarative export API, auth, LDM + analytics shape.
+- `refs/gooddata-platform-api.md` — legacy Platform (`/gdc`) API, SST/TT auth, classic MAQL.
+- `refs/maql-mapping.md` — MAQL → Sigma formula contract (the hard part).
+- `refs/viz-type-mapping.md` — insight + dashboard → Sigma element mapping.
+- `refs/design-notes.md` — full architecture, parity, RLS, risks, build order.
+
+## Converter architecture (read if you know the other migration skills)
+
+Unlike the **Group-A** converters (tableau, powerbi, qlik, quicksight, looker,
+thoughtspot, cognos) — which share the vendored `sigma-data-model-mcp` engine
+(`converter/*.mjs`, with the hosted `convert_*` MCP tool as a fallback) — this
+skill uses a **self-contained Python converter that ships in `scripts/`**
+(`convert.py` + `maql.py`). It runs locally via `python3`; there is **no vendored
+`.mjs` bundle, no `convert_gooddata_to_sigma` MCP tool, and no `--converter` /
+`*_MCP_DIR` override** — those concepts do not apply here. Nothing about the model
+conversion leaves your machine.
+
+## Phases
+
+> ## ⛔ THE ONE PATH (do not ship an unverified/empty workbook)
+> Run the phases below **in order** and finish with **Phase 4 (`verify-warehouse.rb`)**. Rules:
+> - **NEVER hand-author a DM/workbook JSON off this flow, and never ship empty
+>   "placeholder" pages.** POST only the specs `convert.py` / `build_workbook.py`
+>   produce. If GoodData isn't reachable (no token), **STOP and tell the user to
+>   authenticate** (`get-token.sh`) — don't build a shell.
+> - **`verify-warehouse.rb` must PASS (exit 0) with REAL elements before you're
+>   done** — it fails when an element returns no rows / errors AND when there are
+>   **0 elements** (`total > 0` guard), so an empty/placeholder workbook cannot
+>   pass. Running it is mandatory, not optional. "Done" is that gate green, not
+>   "pages exist."
+
+**Phase 0 — Assess.** Run the `gooddata-assessment` skill for an inventory +
+readiness readout before committing to a conversion.
+
+**Phase 1 — Discover.** `eval "$(scripts/get-token.sh)"` then
+`python3 scripts/discover.py --workspace <id>` → `workspace_layout.json`
+(full LDM + analytics model). Confirm counts and the MAQL-keyword / insight-type
+histograms it prints.
+
+**Phase 1b — Gap-scout (measure MAQL coverage first).**
+`python3 scripts/scan_gaps.py --workspace gd_workspace.json` reports coverage by
+category — AUTO (data-model metric), TIME_INTEL (→ workbook DateLookback),
+CONTEXT (→ workbook grouping/Level), UNHANDLED (logged to learned-rules). Run
+this before converting so coverage is known, not assumed.
+
+**Phase 1c — Reuse check (avoid DM sprawl).** Before creating a new data model,
+**reuse-check**: look for an existing Sigma DM with the same signature (same
+connection + tables) and reuse/pick it (`find-or-pick-dm`) rather than POSTing a
+duplicate. Only build a fresh DM when no match exists.
+
+**Phase 2 — Data model.** `scripts/convert.py` maps LDM datasets → Sigma
+warehouse-table elements (dim-before-fact; recover the path from the data-source
+db/schema so parity runs on the same warehouse), attributes/facts → columns,
+references → relationships, MAQL metrics → DM metrics (via `maql.py`); flagged
+metrics go to `flags.json`. POST the emitted spec to `/v2/dataModels/spec`
+(needs top-level `schemaVersion` + `folderId`), then **read back** the created
+DM (`GET /v2/dataModels/{id}/spec`) to capture the real, server-assigned
+element/column ids — a hard gate before any workbook work (POST reassigns ids).
+```
+python3 scripts/convert.py --workspace gd_workspace.json \
+  --connection-id <sigma-conn-uuid> --db <DB> --schema <SCHEMA> \
+  --folder-id <sigma-folder> --out dm_spec.json --flags flags.json
+```
+
+**Phase 3 — Workbook.** `scripts/build_workbook.py` maps insights →
+kpi-chart/bar-chart (each sourcing the migrated DM fact element; charts
+auto-aggregate by axis), recursively inlines metric MAQL into measure formulas,
+and resolves a related-dataset `view` attribute to a cross-element reference
+`[FACT/REL_NAME/Dim]` (exercises the migrated relationship). POST to
+`/v2/workbooks/spec`. Defers chart/layout/theming idioms to **sigma-workbooks**.
+```
+python3 scripts/build_workbook.py --workspace gd_workspace.json \
+  --data-model-id <dm-uuid> --fact-element <elId> --fact-name <TABLE> \
+  --rel-name <REL_NAME> --fact-dataset <ds-id> --folder-id <folder> \
+  --dm-spec dm_spec.json --out wb_spec.json
+```
+**DM metric references (leverage the semantic layer, don't duplicate it).** Pass
+`--dm-spec dm_spec.json` (the Phase-2 `convert.py` output) and a measure column
+prefers a governed **`[Metrics/<name>]`** reference over re-deriving the aggregation
+inline, when its translated inline aggregate matches a metric on the fact element
+(formula-equivalence match via the shared binder `scripts/lib/metric_binding.py` —
+strip the `Data` master prefix so `Sum([Data/Net Revenue])` equals a metric's
+`Sum([Net Revenue])`). SAFE: `BY ALL`/`FOR` context measures (already flagged),
+metric-of-metric ratios (workbook expands them; the DM keeps `[MetricName]` refs),
+and any non-match fall back to inline. `--fact-element` must be the DM element id
+`convert.py` assigned (CREATE preserves ids), so it keys into the spec's elements.
+No `--dm-spec` → inline, byte-identical. Verified: `tests/test_metric_reference.py`.
+Apply the dashboard grid **layout as the LAST write** (after all elements exist;
+a bare spec PUT wipes layout) — match GoodData's section/widget arrangement.
+
+**Phase 4 — Parity.** Query the migrated DM/workbook elements vs the **same
+warehouse** truth. NOTE: sigma-mcp-v2 `metric('<id>', t)` returns "Missing
+Metric" (a known MCP bug) — parity-query the columns/formulas directly instead.
+
+**Phase 5 — Repoint.** Finalize workbook element sources onto the built DM —
+never skip.
+
+**Phase 6 — RLS + enhance.** Port user data filters → Sigma user attributes via
+the consolidated RLS gate; apply theme via the theme registry; final visual-QA.
+
+## Contract: flag, never fake
+
+Surface — never silently mis-convert — these (log to gap-scout / learned-rules,
+opt-in escalate):
+- MAQL with no clean warehouse equivalent (FlexQuery / compute-only).
+- `BY` / `BY ALL` / `WITHIN` context that can't be reconstructed from insight grain.
+- Exotic visualizations (funnel / sankey / waterfall / treemap …) → flagged table.
+- `sql`-backed datasets and anything the MAQL parser tags `UNHANDLED`.
+
+## Scope
+
+GoodData **Cloud / .CN** (`/api/v1` declarative API) — full path: discover → DM →
+workbook → parity → RLS.
+
+Legacy **GoodData Platform** (classic "bear", `/gdc`) — **discovery + assessment
+built; conversion not yet.** Different product, different API (SST/TT auth, `/gdc`
+metadata API, MUF). See `refs/gooddata-platform-api.md`. Use it when the customer's
+URLs/docs point at `help.gooddata.com/doc/enterprise` or a `/gdc/...` API rather
+than `<org>.cloud.gooddata.com` + `/api/v1`.
+
+```bash
+# Platform auth is SST/TT (username/password), NOT a Bearer token:
+export GOODDATA_PLATFORM_HOST=https://acme.on.gooddata.com
+export GOODDATA_PLATFORM_USER=...  GOODDATA_PLATFORM_PASSWORD=...
+python3 scripts/platform_auth.py --check                 # login + list accessible projects
+python3 scripts/discover_platform.py --list              # every project the user can see (one token)
+python3 scripts/discover_platform.py --project <pid>     # -> platform_layout.json (normalized to Cloud shape)
+```
+
+The classic multi-"instance" story: instances are **projects under one domain**, so
+one identity/token sweeps them all (`--list` / assessment `--all`) — unlike Cloud,
+where each org is a separate host+token. Classic MAQL is normalized into the same
+`maql.py` translator, so coverage scoring is shared. **Not built for Platform yet:**
+LDM→DM conversion (Platform data often isn't a customer-owned warehouse → parity
+caveat) and MUF→RLS extraction — both flagged as manual. Details + honest limits in
+`refs/gooddata-platform-api.md`.

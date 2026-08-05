@@ -1,0 +1,14 @@
+{
+  "dimension": "number-format",
+  "source_tool": "powerbi",
+  "authoritative_doc": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-custom-format-strings",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/data-types-and-formats",
+  "on_unmapped_default": "nil — ship the value UNFORMATTED (benign; the builder never invents a concrete format and never name-substring guesses)",
+  "description": "Power BI numeric format CATEGORY -> Sigma column format object. VERBATIM extraction of build-workbook-from-pbir.rb's PBI_FMT hash: `source` is the format category and `sigma` is the d3-format string that goes into { kind:'number', formatString:<sigma> } (Sigma rejects raw Excel masks like '#,##0'). The builder's sigma_format(hint) is a COMPOSITIONAL parser over the PBI format-HINT string (from signals 'formats' / master-map field 'format' — NOT the column name), so it stays as cited code; it only ever RETURNS one of these catalog entries, and falls back to nil (unformatted) when no hint matches. There is no silent concrete default to kill here — this dimension is graded 'light' — but PBI_FMT is grounded so the four format strings can never drift from the doc.",
+  "rows": [
+    {"source": "currency", "sigma": "$,.0f", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-custom-format-strings", "sigma_verified": {"status": "n"}, "on_unmapped": "nil (unformatted)", "notes": "Matched by hint =~ /\\$|currency|USD/i. d3 '$,.0f' = leading $, thousands sep, 0 decimals."},
+    {"source": "percent", "sigma": ".1%", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-custom-format-strings", "sigma_verified": {"status": "n"}, "on_unmapped": "nil (unformatted)", "notes": "Matched by hint =~ /%|percent/i. d3 '%' multiplies by 100 like PBI."},
+    {"source": "comma", "sigma": ",.1f", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-custom-format-strings", "sigma_verified": {"status": "n"}, "on_unmapped": "nil (unformatted)", "notes": "Matched by hint =~ /#,##0|,/. Thousands sep, 1 decimal."},
+    {"source": "integer", "sigma": ",.0f", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-custom-format-strings", "sigma_verified": {"status": "n"}, "on_unmapped": "nil (unformatted)", "notes": "Matched by hint =~ /^#,?#?0$|integer|whole/i. Thousands sep, no decimals."}
+  ]
+}

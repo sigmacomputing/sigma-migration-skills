@@ -1,0 +1,45 @@
+{
+  "datasources": [
+    {
+      "name": "federated.primary",
+      "caption": "Orders (DEMO_DB.DEMO)",
+      "connections": [
+        {
+          "class": "snowflake",
+          "server": "gxb98765.snowflakecomputing.com",
+          "dbname": "DEMO_DB",
+          "schema": "DEMO"
+        }
+      ]
+    },
+    {
+      "name": "federated.secondary",
+      "caption": "Region Targets (Sheet)",
+      "connections": [
+        {
+          "class": "textscan",
+          "filename": "region_targets.csv"
+        }
+      ]
+    }
+  ],
+  "blends": [
+    {
+      "worksheet": "Attainment by Region",
+      "primary": "federated.primary",
+      "primary_caption": "Orders (DEMO_DB.DEMO)",
+      "secondary": "federated.secondary",
+      "secondary_caption": "Region Targets (Sheet)",
+      "linking_fields": [
+        "Region"
+      ],
+      "secondary_fields": [
+        "Region",
+        "Target"
+      ],
+      "route": "materialize-via-vds",
+      "recommendation": "secondary is not in the warehouse — run the tableau-vds-to-cdw skill to land it in the primary's warehouse FIRST, then convert as a same-warehouse blend"
+    }
+  ],
+  "workbook": "workbook-content.twb"
+}

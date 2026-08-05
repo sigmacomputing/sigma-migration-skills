@@ -1,0 +1,2919 @@
+#!/usr/bin/env ruby
+# build-workbook-from-pbir.rb — map normalized PBIR signals -> Sigma workbook spec.
+#
+# Power BI analog of tableau-to-sigma's build-charts-from-signals.rb. Input is
+# extract-pbir.py's signals.json (per-visual kind + role bindings + position).
+# Output is a complete Sigma workbook spec (Data page of hidden masters + a
+# page of chart elements) ready for POST /v2/workbooks/spec via
+# post-and-readback.rb, plus a 24-col grid layout string for put-layout.rb.
+#
+# It applies the measure-translation patterns documented in
+# refs/measure-patterns.md:
+#   - line charts default to a SINGLE series (no color split) unless a Series/
+#     Legend role is bound (beads-sigma-c07);
+#   - PBI measure refs ("EMPLOYEES.Total Salary") map to a measure formula via a
+#     measure-map (Sum/Count/CountDistinct/…); dimensions map to bare/master refs;
+#   - kpi/bar/line/pie/donut/table/pivot-table element shapes per spec-fixups.md.
+#
+# Usage:
+#   ruby scripts/build-workbook-from-pbir.rb \
+#     --signals /tmp/pbir/signals.json \
+#     --master-map /tmp/pbir/master-map.json \
+#     --data-model <dataModelId> \
+#     --out /tmp/pbir/workbook-spec.json \
+#     --layout-out /tmp/pbir/layout.xml \
+#     [--name "Workforce KitchenSink (from Power BI)"] \
+#     [--folder-id <uuid>]
+#
+# master-map.json shape — maps each PBI "Entity" to a Data-page master table and
+# each "Entity.Field" queryRef to {ref, agg}. `ref` is the Sigma column path
+# (e.g. "[EMP/Annual Salary]"); `agg` is the Sigma aggregator name for measures
+# (Sum/Count/CountDistinct/Avg/Min/Max) or null for a dimension. Example:
+#   {
+#     "masters": {
+#       "EMP": {"id":"master-emp","element_id":"<dmElementId>","data_model":"<dmId>",
+#               "columns":[{"id":"me-salary","name":"Annual Salary","formula":"[EMPLOYEES/Annual Salary]"}, ...]}
+#     },
+#     "fields": {
+#       "EMPLOYEES.DEPARTMENT":   {"master":"EMP","ref":"[EMP/Department]","agg":null},
+#       "EMPLOYEES.Total Salary": {"master":"EMP","ref":"[EMP/Annual Salary]","agg":"Sum"},
+#       "EMPLOYEES.Headcount":    {"master":"EMP","ref":"[EMP/Employee Id]","agg":"Count"},
+#       "SAFETY_INCIDENTS.Incident Count": {"master":"INC","ref":"[INC/Incident Id]","agg":"CountDistinct"}
+#     }
+#   }
+#
+# The master-map is the one PBI-specific artifact the agent authors (it encodes
+# the DM element ids + the DAX-measure→Sigma-aggregator decisions). Everything
+# else is mechanical. Idempotent: deterministic ids from visual_id, re-runnable.
+
+require 'json'
+require 'optparse'
+require_relative 'lib/layout'
+require_relative 'lib/pbi_theme'
+require_relative 'lib/pbi_pivot_sort'
+require_relative 'lib/pbi_style'
+require_relative 'lib/pbi_conditional_formats'
+require_relative 'lib/coverage_catalog'
+require_relative 'lib/trellis_emit' # shared native-trellis emitter (supported-kind gate + fallbacks)
+require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+require_relative 'lib/pbi_reportbuild' # report-build hardening: one-base-table-per-page, boolean controls, friendly names
+include SigmaLayout
+
+# ---------------------------------------------------------------------------
+# Documentation-grounded mapping catalogs (beads-sigma-kvza). The dashboard
+# classifier's enumerable maps are LOADED from refs/catalogs/*.json (the single
+# source of truth, cited to Power BI + Sigma docs) rather than hardcoded here —
+# so the human-readable matrix in refs/powerbi-coverage.md can never drift and
+# every unmapped construct gets a LOUD fallback, never a silent wrong-default.
+# Loader: shared/lib/coverage_catalog.rb (synced to scripts/lib/). Mirrors the
+# beads-sigma-93ps contract: catalog = data, code = thin resolver/predicates.
+_CAT_DIR = Coverage.default_catalog_dir(__FILE__)
+VIZ_CAT = Coverage.load(_CAT_DIR, 'viz-kind')      # PBI kind token   -> Sigma element kind
+FMT_CAT = Coverage.load(_CAT_DIR, 'number-format') # PBI format cat.  -> Sigma d3 format string
+CTL_CAT = Coverage.load(_CAT_DIR, 'control')       # PBI slicer       -> Sigma control kind
+# aggregation.json is documentation-only (no hash to load: measure_formula reads
+# the aggregator from the master-map's explicit `agg`, never fabricates one).
+
+opts = {}
+OptionParser.new do |p|
+  p.on('--signals PATH')     { |v| opts[:sig] = v }
+  p.on('--master-map PATH')  { |v| opts[:mmap] = v }
+  p.on('--bim PATH', 'model.bim — geo dataCategory lookup so PBI map visuals emit real Sigma region/point maps') { |v| opts[:bim] = v }
+  p.on('--image-map PATH', 'JSON {registeredResourceName: hostedUrl} — PBI image visuals become Sigma image elements (no map: skipped with a note)') { |v| opts[:imap] = v }
+  p.on('--layout MODE', 'clean (default: opinionated Sigma-native grid — dark header, KPI row, uniform 2-up chart grid) | pbi (flat canvas-proportional, matches the PBI page 1:1) | banded (legacy row-band containers)') { |v| opts[:layout_mode] = v }
+  p.on('--data-model ID')    { |v| opts[:dm] = v }
+  p.on('--out PATH')         { |v| opts[:out] = v }
+  p.on('--layout-out PATH')  { |v| opts[:layout_out] = v }
+  p.on('--name NAME')        { |v| opts[:name] = v }
+  # The SOURCE report/dashboard display name (e.g. "EMPLOYEE DASHBOARD") —
+  # header-band title fallback when a page has no promotable title textbox and
+  # its own name is a generic auto-name ("Page 1"). See resolve_header_title.
+  p.on('--source-title NAME') { |v| opts[:source_title] = v }
+  p.on('--folder-id ID')     { |v| opts[:folder] = v }
+  # Control-targeting wave (workstream B): the TMSL model (model.bim / .tmsl)
+  # supplies the relationships a PBI slicer's filter flows through, so each
+  # control can be wired to EVERY master whose table the slicer reaches —
+  # not just the master the sliced column lives on. Optional: without it,
+  # slicers wire same-table masters only (a WARN says the scope was reduced).
+  p.on('--model PATH')       { |v| opts[:model] = v }
+  # Where the intended-scope contract lands (consumed by workstream A's lint).
+  # Default: control-scope.json next to --out.
+  p.on('--control-scope-out PATH') { |v| opts[:scope_out] = v }
+  # Where the migration COVERAGE report lands (the aggregated drop/approx ledger
+  # migrate-powerbi.rb surfaces + assert-visual-compare.rb gates on). Default:
+  # coverage.json next to --out.
+  p.on('--coverage-out PATH') { |v| opts[:coverage_out] = v }
+  # REPORT-BUILD hardening (default 'page-base'): every visual on a page SOURCES
+  # one base table (the master resolving the most of the page's fields) and each
+  # page control targets THAT base table's column, so the filter propagates to
+  # every visual — the tableau/qlik source-propagation pattern. 'per-visual' is
+  # the legacy escape (each visual picks its own master; controls multi-target).
+  p.on('--source-mode MODE', %w[page-base per-visual],
+       "page-base (default): one base table per page + control-targets-base propagation; " \
+       'per-visual: legacy per-visual master selection') { |v| opts[:source_mode] = v }
+end.parse!
+%i[sig mmap out].each { |k| abort("missing --#{k.to_s.tr('_','-')}") unless opts[k] }
+opts[:source_mode] ||= 'page-base'
+$page_base_mode = (opts[:source_mode] == 'page-base')
+
+signals = JSON.parse(File.read(opts[:sig]))
+# Style fidelity: the PBI report's base theme -> Sigma workbook theme. `signals['theme']`
+# is the themeCollection.baseTheme name captured by extract-pbir.py (nil -> PBI default
+# palette). $pbi_accent (scheme[0]) colors single-series charts + KPI card values.
+$pbi_theme  = signals['theme']
+$pbi_accent = PbiTheme.accent($pbi_theme)
+$image_map = (opts[:imap] && File.exist?(opts[:imap])) ? JSON.parse(File.read(opts[:imap])) : {}
+if opts[:bim] && File.exist?(opts[:bim])
+  $geo_categories ||= {}
+  $sort_by_column ||= {}
+  _bim = JSON.parse(File.read(opts[:bim]))
+  _model = _bim['model'] || _bim
+  (_model['tables'] || []).each do |t|
+    (t['columns'] || []).each do |c|
+      $geo_categories["#{t['name']}.#{c['name']}".downcase] = c['dataCategory'] if c['dataCategory']
+      # PBI sort-by-column ("FiscalMonth" sorts by "Period") — without it Sigma
+      # sorts month names ALPHABETICALLY (Apr, Aug, Feb…), a top complaint on
+      # converted dashboards. Recorded as 'table.field' -> 'table.sortfield'.
+      $sort_by_column["#{t['name']}.#{c['name']}".downcase] = "#{t['name']}.#{c['sortByColumn']}" if c['sortByColumn']
+    end
+  end
+  warn "[build-workbook] geo metadata: #{$geo_categories.length} dataCategory, #{$sort_by_column.length} sortByColumn column(s) from #{opts[:bim]}"
+end
+mmap    = JSON.parse(File.read(opts[:mmap]))
+fields  = mmap['fields'] || {}
+masters = mmap['masters'] || {}
+# Bridge the per-master DM metrics to measure_formula (a top-level def that can't see
+# this local). A measure prefers a governed [Metrics/<name>] ref over its inline
+# aggregate when they match by formula equivalence; absent metrics → inline.
+$PBI_MASTERS = masters
+
+# ---------------------------------------------------------------------------
+# Slicer relationship scope (control-targeting wave, workstream B).
+# A PBI slicer filters its page ACROSS related tables: the filter flows from
+# the sliced table along model relationships (one side -> many side; both ways
+# when crossFilteringBehavior is bothDirections; inactive rels don't flow).
+# ---------------------------------------------------------------------------
+_tmsl = opts[:model] && File.exist?(opts[:model]) ? (JSON.parse(File.read(opts[:model])) rescue nil) : nil
+_tmodel = _tmsl && (_tmsl['model'] || _tmsl)
+MODEL_RELATIONSHIPS = _tmodel ? (_tmodel['relationships'] || []) : []
+MODEL_TABLES_FULL = _tmodel ? (_tmodel['tables'] || []) : []
+MODEL_TABLES = MODEL_TABLES_FULL.map { |t| t['name'].to_s }
+warn '[build-workbook] NOTE: no --model TMSL given — slicer controls wire same-table masters only ' \
+     '(relationship-scoped targets need the model).' if _tmodel.nil?
+
+# Tables reachable by a filter applied on `entity` (always includes entity).
+def reachable_entities(entity)
+  adj = Hash.new { |h, k| h[k] = [] }
+  MODEL_RELATIONSHIPS.each do |r|
+    next if r['isActive'] == false                       # inactive: no filter flow
+    from = r['fromTable'].to_s                           # many side
+    to   = r['toTable'].to_s                             # one side
+    adj[to] << from                                      # one filters many (PBI default)
+    adj[from] << to if r['crossFilteringBehavior'].to_s =~ /both/i
+  end
+  seen = [entity]
+  queue = [entity]
+  until queue.empty?
+    adj[queue.shift].each do |t|
+      next if seen.include?(t)
+      seen << t
+      queue << t
+    end
+  end
+  seen
+end
+
+# entity -> masters that can resolve at least one of its fields (primary + alts).
+# Derived/restructured elements (Dense Rank …, time-intel, Custom SQL calc
+# tables) surface as PSEUDO entities here — names that are not TMSL tables.
+def entity_master_coverage(fields)
+  cov = Hash.new { |h, k| h[k] = [] }
+  fields.each do |k, v|
+    ent = k.to_s.split('.').first
+    ([v['master']] + Array(v['alts']).map { |a| a['master'] }).compact.each do |m|
+      cov[ent] << m unless cov[ent].include?(m)
+    end
+  end
+  cov
+end
+
+# Find the column on a master matching the sliced leaf. Exact (case/​separator-
+# insensitive) name match wins; else a disambiguated "Leaf (ENTITY)" view column
+# — preferring the sliced entity's own. Returns the column hash or nil. NEVER
+# falls back to an arbitrary column (that was the silent wrong-column bug).
+def match_master_column(mrec, leaf, prefer_entity = nil)
+  norm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
+  cols = mrec['columns'] || []
+  nl = norm.call(leaf)
+  exact = cols.find { |c| norm.call(c['name']) == nl }
+  return exact if exact
+  cands = cols.select do |c|
+    m = c['name'].to_s.match(/\A(.+?)\s+\(([^)]+)\)\s*\z/)
+    m && norm.call(m[1]) == nl
+  end
+  preferred = prefer_entity && cands.find do |c|
+    c['name'].to_s =~ /\(\s*#{Regexp.escape(prefer_entity)}\s*\)\s*\z/i
+  end
+  preferred || cands.first
+end
+
+# Intended-scope contract accumulators -> control-scope.json (the sidecar
+# workstream A's control lint consumes — schema in lib/control_lint.rb header
+# CONTRACT + refs/control-parity.md). `$control_scope` gets one entry per
+# EMITTED control ({controlId, sourceName, scope:[element ids], excluded:[...]});
+# `$control_unbound` records slicers that produced NO control element (an
+# unresolvable column is dropped LOUDLY, never wired to a wrong column and
+# never shipped dead) so the sidecar carries the full source-signal story.
+$control_scope = []
+$control_unbound = []
+$used_control_ids = Hash.new(0)
+
+# coverage.json accumulator (bead beads-sigma-cov). Every visual/field the build
+# could NOT carry over faithfully is recorded here so migrate-powerbi.rb can show
+# ONE consolidated coverage report + an assistance gate instead of leaving these
+# as scattered STDERR warnings the user has to reconstruct by hand (customer
+# feedback, 2026-06-25: "silently drops components it cannot resolve"). The build
+# ALREADY warns loudly at each site — this just AGGREGATES the same facts.
+# Entry schema: {visual, pbi_type, sigma_kind, severity, detail, recoverable, action,
+#                role_class, field_bindings}.
+#   severity: 'dropped'      — nothing built for this visual/field
+#             'degraded'     — element built, but a role/field/sort was lost
+#             'approximated' — built as a different (best-effort) Sigma kind
+# recoverable: true  -> a concrete user/agent action recovers it (surfaced as a
+#                       decision in migrate-powerbi.rb + a hard visual-compare gate)
+#              false -> a genuine Sigma spec limitation (informational only)
+$unresolved = []
+# visual_id -> the visual's full field_bindings ledger, computed ONCE (task 4,
+# see compute_field_bindings! below) and consumed by the FIRST record_unresolved
+# call site that fires for that visual — see `visual_id:` below. A visual with
+# nothing wrong never touches this (its bindings are still tallied into
+# $source_bindings_total / $resolved_bindings_total so the summary is complete).
+$pending_field_bindings = {}
+def record_unresolved(visual:, severity:, detail:, pbi_type: nil, sigma_kind: nil,
+                      recoverable: false, action: nil, entity: nil, role_class: nil,
+                      visual_id: nil)
+  # `entity` = the PBI table/entity the dropped ref pointed at (e.g. "Dim Region"),
+  # so migrate-powerbi.rb can attribute the drop to an ungranted schema for the
+  # cause-grouped coverage readout (CoverageGate.classify_causes).
+  # `role_class` = the visual's role_class (control|kpi|chart|table|decoration|
+  # unsupported) from the viz-kind/custom-visual catalogs (task 1), so the
+  # coverage gate can weigh a FUNCTIONAL loss (control/kpi/chart/table) against
+  # a cosmetic one (decoration) instead of treating every entry the same.
+  # LOAD-BEARING (task 5 brief): every call site below stamps role_class — a
+  # measured live run showed the two genuinely-dropped functional visuals (a
+  # KPI card + a table) carrying role_class None, which would let
+  # CoverageGate.gate! (keys on role_class ∈ GATE_ROLES) PASS a migration that
+  # silently dropped a KPI and a table. See test-role-class-on-drop.rb.
+  #
+  # `visual_id` = rec['visual_id'], when the call site has one. It is STORED on the
+  # entry and the field_bindings ledger is attached later, when coverage.json is
+  # written — NOT here. Attaching at record time silently missed any entry that
+  # fires BEFORE compute_field_bindings! can run (resolve_map_kind warns while
+  # `master` is still being settled); measured on a real report, an azureMap entry
+  # came out with no field_bindings at all. Deferring makes it order-independent.
+  entry = { 'visual' => visual.to_s, 'pbi_type' => pbi_type, 'sigma_kind' => sigma_kind,
+            'severity' => severity, 'detail' => detail.to_s,
+            'recoverable' => recoverable, 'action' => action, 'entity' => entity,
+            'role_class' => role_class, 'visual_id' => visual_id }
+  $unresolved << entry
+end
+
+# ── Per-visual FIELD-BINDING coverage (task 4). The visual-level headline
+# ("12/12 carried over") hid reports that lost 33-54% of their FIELD bindings —
+# a table shipping 3 of 8 columns is merely 'degraded', and 'degraded' counts as
+# carried over. This tallies, for EVERY visual, the resolution status of EVERY
+# queryRef it bound, so CoverageGate.binding_totals/binding_loss/gate! (already
+# landed in lib/coverage_gate.rb, consumed read-only here) can gate on FIELD
+# loss, not just visual loss.
+#   resolved — the queryRef has a master-map entry reachable from this visual's
+#              chosen element (it ships as a real column)
+#   dropped  — the queryRef has NO master-map entry anywhere (a ghost ref that
+#              would compile to a literal [Entity.Leaf] and get pruned by
+#              drop_unresolved_columns!), or this visual never resolved a
+#              master at all (nothing built for it)
+#   degraded — the queryRef DOES resolve elsewhere in the DM, just not on the
+#              single master this element sources (mirrors the 'not reachable'
+#              warning in build_element) — present in the model, absent here
+$source_bindings_total = 0
+$resolved_bindings_total = 0
+def field_binding_status(qr, fields, master)
+  fs = field_spec(qr, fields)
+  return 'dropped' if fs['master'].nil? || master.nil?
+  return 'resolved' if fs['master'] == master || Array(fs['alts']).any? { |a| a['master'] == master }
+  'degraded'
+end
+
+# Compute + tally a visual's full field-binding ledger and stash it in
+# $pending_field_bindings[vid] for the visual's own coverage entry (whichever
+# one fires, if any — see record_unresolved's `visual_id:`) to pick up. ALWAYS
+# tallies $source_bindings_total / $resolved_bindings_total, even for a visual
+# that resolves 100% and never touches record_unresolved, so the coverage.json
+# summary reflects EVERY bound field, not just the ones with problems.
+# A degradation site that DISCARDS specific queryRefs calls this so the ledger tells
+# the truth. Without it a ref that RESOLVED against the master-map but was then
+# thrown away by the builder still counted as 'resolved' — measured on a real report,
+# a 4-level date hierarchy reduced to 1 level reported 5/5 bindings resolved while its
+# own detail said "deeper levels dropped". A binding ledger that over-reports is the
+# exact failure this whole task exists to remove, so drops must be recorded here.
+def mark_bindings_dropped!(vid, refs)
+  fb = $pending_field_bindings[vid]
+  return if fb.nil? || refs.nil?
+  wanted = Array(refs).map(&:to_s)
+  fb.each do |b|
+    next unless wanted.include?(b['queryRef'])
+    next if b['status'] == 'dropped'                 # idempotent
+    $resolved_bindings_total -= 1 if b['status'] == 'resolved'
+    b['status'] = 'dropped'
+  end
+end
+
+def compute_field_bindings!(vid, rec, fields, master, role_class)
+  refs = (rec['bindings'] || {}).values.flatten.compact
+  return if refs.empty?
+  fb = refs.map do |qr|
+    { 'queryRef' => qr.to_s, 'status' => field_binding_status(qr, fields, master),
+      'role_class' => role_class }
+  end
+  $source_bindings_total += fb.size
+  $resolved_bindings_total += fb.count { |b| b['status'] == 'resolved' }
+  $pending_field_bindings[vid] = fb
+end
+
+# ---------------------------------------------------------------------------
+# Report/page/visual FILTER APPLICATION (beads-sigma-3tx6, Track 3b).
+# extract-pbir.py (Track 3a) emits normalized filter signals on each visual, each
+# page, and the report (signals[..]['filters']; shape in refs/pbi-filter-spec.md).
+# Here we turn each into a Sigma element-level `filters[]` entry.
+#
+# VERIFIED element-filter shapes (live PUT+GET round-trip 2026-07-17; memory
+# reference_sigma_element_filter_shapes):
+#   list         -> {id, columnId, kind:list, mode:include|exclude, values}
+#   number-range -> {id, columnId, kind:number-range, min?, max?}   NOTE: min/max,
+#                   NOT the control's low/high (those + positional value[] are
+#                   silently dropped on an ELEMENT filter). Needs a NUMERIC target.
+#   top-n        -> {id, columnId, kind:top-n, rankingFunction:rank, mode:top-n, rowCount}
+#
+# PLACEMENT (refs/pbi-filter-spec.md §2 + the 5 open-Q decisions, this PR):
+#   visual filter  -> the built element's own filters[] (verified enforced on
+#                     table/bar/kpi). pivot-table element filters are SILENTLY
+#                     DROPPED by Sigma (memory sigma-pivot-filter-silently-dropped)
+#                     -> route to coverage.
+#   page/report    -> the source MASTER element(s) carrying the column; every
+#                     element sourcing them inherits it (page-filter semantics;
+#                     memory sigma-source-element-filter-propagates). Same pattern
+#                     as build-bookmark-workbooks.py _bake_filters. A page filter
+#                     is applied ONLY to masters used solely by that page (a shared
+#                     master can't be isolated to one page -> coverage); a report
+#                     filter applies to every master carrying the column.
+#
+# COVERAGE (never a broken/inert filter): date-range (Sigma has no static element
+#   date filter — needs a date-range control, the documented fast-follow), measure
+#   (HAVING), multi-column key, text/unmodeled conditions, page/report Top-N (would
+#   cap every element off the shared master), unresolved/non-projected targets, and
+#   pivot element filters. Empty slots (predicate:none) = a faithful no-op (the PBI
+#   filter field carried no selection) — noted, never fabricated.
+# ---------------------------------------------------------------------------
+$used_filter_ids = {}
+def uniq_filter_id(seed)
+  base = "flt-#{seed.to_s.gsub(/[^A-Za-z0-9]/, '')}"[0, 28]
+  base = 'flt' if base == 'flt-'
+  # Register the EMITTED string (not just the base): a later seed whose base
+  # equals a prior suffix (e.g. 'Region2' after 'Region' twice) must not collide.
+  cand = base
+  n = 1
+  while $used_filter_ids[cand]
+    n += 1
+    cand = "#{base}#{n}"
+  end
+  $used_filter_ids[cand] = true
+  cand
+end
+
+# number-range condition [{op,value},...] -> [min, max]. Sigma element bounds are
+# inclusive; an exclusive PBI bound (>, <) is applied inclusively (a boundary-row
+# nuance on a continuous measure, not a category-membership change).
+def number_range_bounds(condition)
+  mn = mx = nil
+  Array(condition).each do |c|
+    num = Float(c['value']) rescue nil
+    next if num.nil?
+    num = num.to_i if num == num.floor
+    case c['op']
+    when '>', '>=' then mn = num
+    when '<', '<=' then mx = num
+    when '=' then mn = mx = num
+    end
+  end
+  [mn, mx]
+end
+
+# Decide how a signal is handled at `scope` (visual|page|report): :apply, or a
+# coverage-reason symbol. Does NOT resolve a target column (the caller does that).
+def filter_route(sig, scope)
+  return :empty_slot if sig['predicate'] == 'none'
+  case sig['type']
+  when 'list'
+    return :multi_column if sig['unsupported']
+    # An include-list with NO values matches zero rows (would blank the element);
+    # an exclude-list with none is a no-op. Either way apply nothing (never blank).
+    Array(sig['values']).empty? ? :empty_slot : :apply
+  when 'number-range'
+    cond = sig['condition']
+    return :unmodeled_condition unless cond.is_a?(Array) && !cond.empty?
+    mn, mx = number_range_bounds(cond)
+    # A comparison whose literal isn't numeric (absolute-date / text advanced
+    # filter the extractor still tags number-range) parses to no bound — that is a
+    # REAL dropped predicate, not an empty slot. Route it to honest coverage.
+    (mn.nil? && mx.nil?) ? :number_range_nonnumeric : :apply
+  when 'top-n'
+    return :top_n_page_scope unless scope == 'visual'  # a shared-master top-n caps everything
+    return :empty_slot unless sig['n'].to_i.positive?
+    # Bottom-N (ascending rank): Sigma's element top-n ranks descending only, so a
+    # PBI Bottom-N must NOT ship as a Top-N (that keeps the WRONG rows) — coverage.
+    sig['direction'].to_s == 'asc' ? :top_n_direction : :apply
+  when 'date-range'    then :date_range
+  when 'measure-filter' then :measure_filter
+  else                      # condition (contains/starts-with), unmodeled trees
+    sig['unsupported'] ? :unsupported_condition : :unmodeled_condition
+  end
+end
+
+# Build the Sigma element-filter hash for an :apply signal + a resolved columnId.
+def build_filter(sig, column_id)
+  fid = uniq_filter_id(qr_leaf(sig['target'], 'f'))
+  case sig['type']
+  when 'list'
+    { 'id' => fid, 'columnId' => column_id, 'kind' => 'list',
+      'mode' => (sig['mode'] == 'exclude' ? 'exclude' : 'include'), 'values' => Array(sig['values']) }
+  when 'number-range'
+    mn, mx = number_range_bounds(sig['condition'])
+    f = { 'id' => fid, 'columnId' => column_id, 'kind' => 'number-range' }
+    f['min'] = mn unless mn.nil?
+    f['max'] = mx unless mx.nil?
+    f
+  when 'top-n'
+    { 'id' => fid, 'columnId' => column_id, 'kind' => 'top-n',
+      'rankingFunction' => 'rank', 'mode' => 'top-n', 'rowCount' => sig['n'].to_i }
+  end
+end
+
+# One coverage entry per un-applied filter — same loud/aggregated discipline as
+# every other drop (customer feedback: never silently drop). `reason` is a
+# filter_route symbol (or :unresolved_target / :not_projected / :pivot_element /
+# :page_shared_master decided by the caller).
+FILTER_COVERAGE_META = {
+  empty_slot:           ['degraded', false, 'empty filter slot (no predicate selected in the source) — nothing applied, a faithful no-op',
+                         'No action — the Power BI filter field carried no selection.'],
+  multi_column:         ['degraded', false, 'multi-column (composite-key) filter — not element-authorable in Sigma',
+                         'Recreate as per-column filters if the AND-of-tuples semantics allow, or accept the wider result.'],
+  date_range:           ['degraded', true,  'relative/absolute date-range filter — Sigma has no static element date filter',
+                         'Add a date-range control (%WINDOW%) on this column, targeting the source table.'],
+  measure_filter:       ['degraded', false, 'measure (post-aggregate / HAVING) filter — not element-authorable',
+                         'Recreate via a calc column + row filter or a data-model metric filter.'],
+  unsupported_condition:['degraded', true,  'text/condition filter (contains / starts-with) — no verified element filter kind',
+                         'Add a text control (contains / starts-with) targeting the source table.'],
+  unmodeled_condition:  ['degraded', false, 'filter condition shape not modeled by the extractor',
+                         'Inspect the source filter and recreate it manually if material.'],
+  number_range_nonnumeric: ['degraded', true, 'numeric-comparison filter on a non-numeric (date/text) column — Sigma number-range needs a numeric target',
+                         'For a date column add a date-range control; for text use a text/list filter. Recreate and re-run.'],
+  top_n_direction:      ['degraded', true,  'Bottom-N filter (ascending rank) — Sigma element top-n ranks descending only; shipping it as Top-N would keep the wrong rows',
+                         'Recreate as a Bottom-N in Sigma (sort ascending, then Top-N), or accept a Top-N.'],
+  top_n_rankby:         ['degraded', true,  'Top-N rank-by measure is not projected on this element, so it cannot rank correctly',
+                         'Add the ranking measure to the visual (or fix the master-map) so the Top-N can rank by it, then re-run.'],
+  top_n_page_scope:     ['degraded', true,  'page/report-scope Top-N — a Top-N on a shared master caps every element sourcing it',
+                         'Apply the Top-N on the specific element(s) it should bound, not the shared source.'],
+  unresolved_target:    ['degraded', true,  'filter target resolves to no master/element column',
+                         'Add the column to the master-map / master element (or fix the queryRef) and re-run.'],
+  not_projected:        ['degraded', true,  'visual filter targets a column the element does not project',
+                         'Add the column to the visual, or apply it as a page filter, and re-run.'],
+  pivot_element:        ['degraded', true,  'element filter on a pivot-table is silently dropped by Sigma',
+                         "Apply the filter to the pivot's source table (a page filter) instead."],
+  page_shared_master:   ['degraded', true,  'page filter targets a master shared by other pages — cannot be isolated to one page',
+                         'Split the master per page, or convert the page filter to a control, then re-run.']
+}.freeze
+def record_filter_coverage(reason, sig, label, scope)
+  meta = FILTER_COVERAGE_META[reason] or return
+  sev, rec, detail, action = meta
+  if reason == :date_range && sig['window'].is_a?(Hash)
+    w = sig['window']
+    win = "#{w['anchor']} #{w['n']} #{w['unit']}#{w['includeToday'] ? ', incl. today' : ''}".strip
+    action = action.sub('%WINDOW%', win)
+  end
+  tgt = sig['target']
+  record_unresolved(visual: "#{label} [#{scope} filter]", pbi_type: "filter:#{sig['type']}",
+                    sigma_kind: 'filter', severity: sev, recoverable: rec,
+                    role_class: role_class_for_kind('filter'),
+                    detail: "#{detail} (target #{tgt.inspect})", action: action,
+                    entity: tgt.to_s.split('.').first)
+end
+
+# Apply a visual's filter signals onto its built element. columnId must resolve to
+# a column the element PROJECTS (element filters reference the element's own
+# columns) — matched via the queryRef->column-id map build_element stashes on
+# `_qr_cids`. pivot-table -> coverage (Sigma silently drops its element filters).
+def apply_visual_filters!(el, sigs, label)
+  return unless sigs.is_a?(Array) && !sigs.empty?
+  return if %w[control text image].include?(el['kind'])
+  col_ids = (el['columns'] || []).map { |c| c['id'] }
+  norm = ->(s) { s.to_s.downcase.gsub(/[_\s]+/, ' ').strip }
+  idx = {}                              # normalized queryRef -> projected column id
+  (el['_qr_cids'] || {}).each { |qr, cid| idx[norm.call(qr)] ||= cid if col_ids.include?(cid) }
+  name_idx = {}                         # normalized column NAME -> id (for top-n rankBy, a bare measure name)
+  (el['columns'] || []).each { |c| name_idx[norm.call(c['name'])] ||= c['id'] if c['name'] }
+  sigs.each do |sig|
+    if el['kind'] == 'pivot-table'
+      record_filter_coverage(:pivot_element, sig, label, 'visual'); next
+    end
+    route = filter_route(sig, 'visual')
+    if route != :apply
+      record_filter_coverage(route, sig, label, 'visual'); next
+    end
+    if sig['type'] == 'top-n'
+      # Sigma top-n ranks BY the filter's columnId (tables.md: columnId=the measure),
+      # NOT the limited dimension — resolve rankBy to a projected measure column so
+      # "top 5 States by Claim Count" ranks by Claim Count, not the State name.
+      rcid = sig['rankBy'] && name_idx[norm.call(qr_leaf(sig['rankBy'], ''))]
+      rcid ||= sig['rankBy'] && idx[norm.call(sig['rankBy'])]
+      unless rcid
+        record_filter_coverage(:top_n_rankby, sig, label, 'visual'); next
+      end
+      (el['filters'] ||= []) << build_filter(sig, rcid); next
+    end
+    cid = sig['target'] && idx[norm.call(sig['target'])]
+    unless cid
+      record_filter_coverage(sig['target'] ? :not_projected : :unresolved_target, sig, label, 'visual'); next
+    end
+    (el['filters'] ||= []) << build_filter(sig, cid)
+  end
+end
+
+# Apply page/report filter signals onto the source master element(s). The target
+# is resolved through field_spec to its AUTHORITATIVE master(s) (primary + alts) —
+# NOT by scanning every master for a same-NAME column, which fail-opens onto an
+# unrelated role-playing entity ("Order Year" landing on a "Ship Date" master) or a
+# name-colliding master (Region on two unrelated facts). `allowed_ids` = nil
+# (report: every authoritative master) or the master ids exclusive to this page
+# (page scope); a target on no allowed master -> coverage, never a wrong column.
+def apply_source_filters!(sigs, scope, label, data_elements, allowed_ids, fields, masters)
+  return 0 unless sigs.is_a?(Array) && !sigs.empty?
+  by_id = data_elements.each_with_object({}) { |de, h| h[de['id']] = de }
+  applied = 0
+  sigs.each do |sig|
+    route = filter_route(sig, scope)
+    if route != :apply
+      record_filter_coverage(route, sig, label, scope); next
+    end
+    tgt = sig['target']
+    unless tgt
+      record_filter_coverage(:unresolved_target, sig, label, scope); next
+    end
+    fs = field_spec(tgt, fields)
+    master_names = ([fs['master']] + Array(fs['alts']).map { |a| a['master'] }).compact.uniq
+    cand_ids = master_names.map { |mn| masters.dig(mn, 'id') }.compact
+    if cand_ids.empty?
+      record_filter_coverage(:unresolved_target, sig, label, scope); next
+    end
+    ids = allowed_ids.nil? ? cand_ids : (cand_ids & allowed_ids)
+    if ids.empty?
+      record_filter_coverage(:page_shared_master, sig, label, scope); next
+    end
+    leaf = qr_leaf(tgt, nil); ent = tgt.to_s.split('.').first
+    hit = false
+    ids.each do |id|
+      de = by_id[id] or next
+      col = match_master_column(de, leaf, ent) or next  # entity-scoped: the right master's column
+      (de['filters'] ||= []) << build_filter(sig, col['id'])
+      applied += 1; hit = true
+    end
+    record_filter_coverage(:unresolved_target, sig, label, scope) unless hit
+  end
+  applied
+end
+
+# TMSL column type for ENTITY.LEAF — date-typed slicers must become date-range
+# controls: a `list` control bound to a datetime column posts fine but Sigma
+# SILENTLY STRIPS its filter targets (known estate-repair gotcha).
+def tmsl_date_column?(ent, leaf)
+  return false if MODEL_TABLES.empty?
+  tmodel_tables = MODEL_TABLES_FULL
+  t = tmodel_tables.find { |tb| tb['name'].to_s == ent.to_s }
+  c = t && (t['columns'] || []).find { |col| col['name'].to_s.casecmp(leaf.to_s).zero? }
+  !!(c && c['dataType'].to_s =~ /date/i)
+end
+
+# TMSL column type for ENTITY.LEAF — boolean-typed slicers need boolean-aware
+# control handling: a `list` + `mode:include` + `values:[]` template (correct
+# for a STRING slicer, where an empty selection = no filter) ZEROES a boolean
+# target — Sigma treats an unset boolean `include` list as "include nothing".
+# Detect real boolean columns from the TMSL model (dataType boolean/bit) so we
+# can seed the control's default with the full boolean domain (= no filter when
+# unset). Falls back to PbiReportBuild.boolean_leaf? (name shape) when no model.
+def tmsl_boolean_column?(ent, leaf)
+  unless MODEL_TABLES.empty?
+    t = MODEL_TABLES_FULL.find { |tb| tb['name'].to_s == ent.to_s }
+    c = t && (t['columns'] || []).find { |col| col['name'].to_s.casecmp(leaf.to_s).zero? }
+    return true if c && c['dataType'].to_s =~ /bool|bit/i
+    return false if c # a modeled non-boolean column is authoritative — do NOT guess from its name
+  end
+  PbiReportBuild.boolean_leaf?(leaf)
+end
+
+# PBI visualTypes that map 1:1 to a native Sigma element kind. `rec['approximate']`
+# from the viz-kind/custom-visual catalogs (task 1) is the AUTHORITATIVE signal
+# for the "approximated" record in build_element and is consulted first; this
+# allowlist is used ONLY as the fallback default for a record that predates task
+# 1 entirely (no 'approximate' key at all — a pre-task-1 extract, or re-running
+# only the build step against an old signals.json), so that legacy path keeps
+# recording an approximation for e.g. a bare `treemap` instead of silently
+# recording none. Anything NOT on this list, for such a legacy record, is
+# treated as approximated — the original behavior. beads-sigma-kvza.
+NATIVE_VISUAL_TYPES = %w[card multiRowCard kpi textbox actionButton lineChart areaChart
+                         stackedAreaChart barChart clusteredBarChart stackedBarChart columnChart
+                         clusteredColumnChart stackedColumnChart hundredPercentStackedColumnChart
+                         hundredPercentStackedBarChart lineClusteredColumnComboChart
+                         lineStackedColumnComboChart pieChart donutChart scatterChart tableEx
+                         pivotTable matrix slicer map filledMap shapeMap azureMap image].freeze
+
+# PBI kind token -> Sigma element kind. DERIVED from refs/catalogs/viz-kind.json
+# (the SIGMA_KIND hash was extracted VERBATIM into that catalog; these are the
+# same source->target pairs). The loud fallback on an unmapped/blank token lives
+# at the USE site (build_element), not here. beads-sigma-kvza.
+SIGMA_KIND = VIZ_CAT.rows.each_with_object({}) { |r, h| h[r['source']] = r['sigma'] }.freeze
+
+# PBI role -> (dim_role?, value_role?) per visual kind handled below.
+# A field_map entry may carry `alts` — alternative {master, ref[, agg]} resolutions
+# on OTHER masters (used for time-intel: a field can live on both the View and a
+# grouped prior-year element). When the visual has chosen a master, prefer the
+# alt that lives on it so all of the visual's columns resolve on one element.
+def field_spec(queryref, fields, chosen_master = nil)
+  fs = fields[queryref]
+  # Case-insensitive fallback: PBIR queryRefs may carry the RAW warehouse column
+  # name ("EMPLOYEES.DEPARTMENT") while the master-map keys on the Sigma display
+  # name ("EMPLOYEES.Department"). Match ignoring case so the dimension resolves
+  # instead of leaking a literal [EMPLOYEES.DEPARTMENT] ref that error-types.
+  if fs.nil? && queryref
+    # Normalize case AND underscore/space so a raw warehouse queryRef
+    # ("ABSENCE_RECORDS.ABSENCE_TYPE") matches a display-name key
+    # ("ABSENCE_RECORDS.Absence Type").
+    norm = ->(s) { s.to_s.downcase.gsub(/[_\s]+/, ' ').strip }
+    @ci_index ||= fields.each_with_object({}) { |(k, v), h| h[norm.call(k)] ||= v }
+    fs = @ci_index[norm.call(queryref)]
+  end
+  fs ||= { 'master' => nil, 'ref' => "[#{queryref}]", 'agg' => nil }
+  if chosen_master && fs['master'] != chosen_master && fs['alts'].is_a?(Array)
+    alt = fs['alts'].find { |a| a['master'] == chosen_master }
+    if alt
+      merged = fs.merge(alt)
+      # A verbatim `formula` on the PRIMARY resolution references the primary
+      # master's columns — it is invalid on the alt's master (bead 525l). Drop it
+      # unless the alt carries its own.
+      merged.delete('formula') unless alt.key?('formula')
+      return merged
+    end
+  end
+  # CROSS-MASTER guard (report-build hardening, BUG 1/2): when a page base master
+  # is forced (chosen_master) but this field resolves ONLY on a DIFFERENT master
+  # (non-nil, and no alt lives on the chosen one), do NOT return the foreign-master
+  # `fs` — its ref/formula points at a master the element does not SOURCE, and
+  # Sigma compiles that cross-master column to type "error", breaking the whole
+  # element. Return an unresolvable marker (dot-bracket) so drop_unresolved_columns!
+  # actually DROPS the column — making the emission match the "will be DROPPED"
+  # warning instead of shipping a broken cross-master formula.
+  if chosen_master && fs['master'] && fs['master'] != chosen_master &&
+     Array(fs['alts']).none? { |a| a['master'] == chosen_master }
+    return { 'master' => nil, 'ref' => "[#{queryref}]", 'agg' => nil }
+  end
+  fs
+end
+
+# bead hjke(b): display-name leaf from a queryRef. Classic-report queryRefs can
+# carry the AGGREGATED form "Sum(TABLE.COL)" — a naive split('.').last leaves a
+# trailing paren ("COL)"). Unwrap any Func( ... ) wrapper(s) first, then take
+# the dotted leaf.
+def qr_leaf(qr, fallback = 'Value')
+  s = qr.to_s.strip
+  s = Regexp.last_match(1).strip while s =~ /\A[A-Za-z_][A-Za-z0-9_ ]*\(\s*(.*)\s*\)\z/
+  leaf = s.split('.').last.to_s
+  # bead c2kf: a '/' (or bracket) inside a generated column NAME breaks the
+  # [Element/Col] cross-element ref path — "Avg $/Unit TY" parses as a
+  # two-segment path and the referencing column compiles to type "error".
+  # Sanitize at this single chokepoint so names and refs stay in sync.
+  leaf = leaf.tr('[]', '').tr('/', '-')
+  leaf.empty? ? fallback : leaf
+end
+
+# A control's sliced-column binding role, in preference order. The known PBI
+# roles come first (unchanged behavior — a native slicer's column has always
+# lived under one of these). Custom visuals name their OWN binding roles for
+# the exact same semantic slot: MEASURED fact — 21 third-party Powerviz
+# date-picker slicers across 3 of 4 real customer reports (R1-R4) bind their
+# date column under a custom role (e.g. `categories`), never under
+# Values/Category/Fields.
+# A future custom visual needs NO code change here: control_slice_qr (below)
+# already falls through to every OTHER binding role after this list.
+KNOWN_CONTROL_ROLES = %w[Values Category Fields].freeze
+
+# True when a queryRef is an AGGREGATE-WRAPPED ref ("Avg(T.Flag)", "Sum(...)")
+# rather than a bare column ref. Same leading-"Func(...)" shape qr_leaf already
+# unwraps for display. A custom visual's "preset"/measure role (e.g. Powerviz's
+# `presets`) carries refs shaped exactly like this — it is a MEASURE bound for
+# display, never the column the control filters on.
+def aggregate_wrapper?(qr)
+  !!(qr.to_s.strip =~ /\A[A-Za-z_][A-Za-z0-9_ ]*\(\s*.*\s*\)\z/)
+end
+
+# Find the queryRef a control slices on across ALL its binding roles, not just
+# the known PBI ones. Preference: (1) Values/Category/Fields, in that order,
+# exactly as before; (2) any OTHER role, preferring a BARE column ref over an
+# aggregate-wrapper ref (a preset/measure is never the filtered column). If
+# every remaining candidate is aggregate-wrapped, return nil so the existing
+# loud "column does not resolve" skip fires — never silently wire a measure in
+# place of the sliced column.
+def control_slice_qr(bindings)
+  b = bindings || {}
+  KNOWN_CONTROL_ROLES.each do |role|
+    qr = Array(b[role]).first
+    return qr if qr
+  end
+  other = (b.keys - KNOWN_CONTROL_ROLES).flat_map { |role| Array(b[role]) }.compact
+  other.find { |qr| !aggregate_wrapper?(qr) }
+end
+
+# ---------------------------------------------------------------------------
+# Derived element titles (phase-e layout-quality fix): classic report.json
+# visuals routinely carry NO objects.title, and the old fallback surfaced the
+# RAW visual id ("291ef87d16c50d7a3808") as the chart's display name. Derive a
+# human title from the visual's projections instead — a raw id must NEVER
+# surface as a display name (layout_lint.rb fails the build if one does).
+# ---------------------------------------------------------------------------
+
+# Humanized leaf for titles: strip agg wrappers + date-hierarchy "Variation"
+# tails, underscores -> spaces, ALL-CAPS warehouse names -> Title Case (short
+# acronyms like ZIP/ID stay upcased).
+def title_leaf(qr, fallback = nil)
+  s = qr.to_s.strip
+  # "T.COL.Variation.Date Hierarchy.Month" -> the base column "T.COL"
+  s = Regexp.last_match(1) if s =~ /\A(.+?)\.Variation\..+\z/i
+  leaf = qr_leaf(s, nil)
+  return fallback if leaf.nil? || leaf.empty?
+  words = leaf.gsub(/_+/, ' ').strip.split(/\s+/)
+  words.map { |w| w =~ /\A[A-Z0-9]+\z/ && w.length > 3 ? w.capitalize : w }.join(' ')
+end
+
+# True when a dimension queryRef is date-shaped (date hierarchy / date-named
+# column) — those visuals read better as "<Measure> Over Time".
+def dateish_qr?(qr)
+  qr.to_s =~ /variation|hierarchy|\b(date|month|year|quarter|week|day)\b/i
+end
+
+# "Absence Count by Department" / "Hours by Location" / "Hires Over Time" —
+# derived purely from the visual's role projections. Returns nil only when the
+# visual has no usable bindings (caller falls back to the kind label).
+def derived_title(rec, kind)
+  b = rec['bindings'] || {}
+  vals = b['Values'] || b['Y'] || []
+  dims = b['Category'] || b['Axis'] || b['X'] || b['Group'] || b['Rows'] || b['Fields'] || []
+  case kind
+  when 'kpi-chart'
+    title_leaf(vals.first || dims.first)
+  when 'table'
+    leaves = (b['Values'] || []).map { |q| title_leaf(q) }.compact.uniq
+    return nil if leaves.empty?
+    leaves.length > 3 ? "#{leaves.first(3).join(', ')} +#{leaves.length - 3}" : leaves.join(', ')
+  when 'pivot-table'
+    v = title_leaf(vals.first)
+    r = title_leaf((b['Rows'] || b['Category'] || []).first)
+    c = title_leaf((b['Columns'] || []).first)
+    return nil unless v
+    [v, r && "by #{r}", c && "and #{c}"].compact.join(' ')
+  when 'scatter-chart'
+    x = title_leaf((b['X'] || b['Values'] || []).first)
+    y = title_leaf((b['Y'] || []).first)
+    x && y ? "#{y} vs #{x}" : (y || x)
+  else # bar/line/area/combo/pie/donut
+    dim = dims.first || (b['Legend'] || []).first
+    v = title_leaf(vals.first || (b['Y2'] || []).first)
+    d = title_leaf(dim)
+    return v || d if v.nil? || d.nil?
+    dateish_qr?(dim) ? "#{v} Over Time" : "#{v} by #{d}"
+  end
+end
+
+# Last-resort label per Sigma kind — still human-readable, never an id.
+KIND_LABEL = {
+  'kpi-chart' => 'KPI', 'bar-chart' => 'Bar Chart', 'line-chart' => 'Line Chart',
+  'area-chart' => 'Area Chart', 'combo-chart' => 'Combo Chart',
+  'scatter-chart' => 'Scatter Plot', 'pie-chart' => 'Pie Chart',
+  'donut-chart' => 'Donut Chart', 'table' => 'Table', 'pivot-table' => 'Pivot Table'
+}.freeze
+
+# PBI numeric format string (from signals 'formats' or master-map field 'format')
+# -> Sigma column format hash. Best-effort; only emits when a format is known.
+# Sigma column format shape is { kind, formatString } (matches the converter's
+# metric.format output). NOT { type, ... } — POST rejects a missing `kind`.
+# Sigma format strings are d3-format syntax (e.g. ",.0f", "$,.0f", ".1%"),
+# NOT Excel masks ("#,##0") — the latter is rejected as "Invalid number format
+# string". Matches the converter's metric.format output (",.0f").
+# PBI format category -> Sigma column format object. DERIVED from
+# refs/catalogs/number-format.json (the PBI_FMT hash was extracted verbatim;
+# `sigma` is the d3 formatString). beads-sigma-kvza.
+PBI_FMT = FMT_CAT.rows.each_with_object({}) do |r, h|
+  h[r['source']] = { 'format' => { 'kind' => 'number', 'formatString' => r['sigma'] } }
+end.freeze
+# COMPOSITIONAL predicate (stays as cited code, per beads-sigma-kvza): parses the
+# PBI format-HINT string (from signals 'formats' / master-map field 'format' — NOT
+# the column NAME, so this is not name-substring guessing) and returns one of the
+# grounded PBI_FMT entries above, or nil (ship unformatted — a benign default, no
+# silent concrete format is ever invented). The regexes classify the hint into a
+# catalog category; the actual d3 strings come only from number-format.json.
+def sigma_format(hint)
+  return nil if hint.nil? || hint.to_s.empty?
+  h = hint.to_s
+  return PBI_FMT['currency'] if h =~ /\$|currency|USD/i
+  return PBI_FMT['percent']  if h =~ /%|percent/i
+  return PBI_FMT['integer']  if h =~ /^#,?#?0$|integer|whole/i
+  return PBI_FMT['comma']    if h =~ /#,##0|,/
+  nil
+end
+
+# Apply a resolved format onto a column hash (mutates + returns it).
+def apply_fmt(col, queryref, fields, vfmts)
+  hint = (fields[queryref] || {})['format'] || (vfmts || {})[queryref]
+  f = sigma_format(hint)
+  col.merge!(f) if f
+  col
+end
+
+# PBI matrices/tableEx show a bold Grand Total row by default — reproduce it
+# (style fidelity). Shared by the pivot-table emit and the grouped-table->pivot
+# re-expression (a grouped Sigma `table` can't render a grand-total row).
+def pbi_totals_block
+  { 'showGrandTotals' => 'shown', 'grandTotalFontWeight' => 'bold', 'totalPosition' => 'last' }
+end
+
+# A field spec is a MEASURE unless it is a bare stored-column reference. The
+# old `agg`/`formula`-emptiness test misclassified auto-derived master-map
+# metrics (always agg:nil with the full expression in `ref`, e.g.
+# "Median([m/Annual Salary])") as dimensions — tables then built UNGROUPED
+# (1 row per source row) and scatters skipped their grouped source (ry0n).
+def measure_ref?(fs)
+  return true unless fs['agg'].to_s.empty? && fs['formula'].to_s.empty?
+  !(fs['ref'].to_s =~ /\A\[[^\]]+\]\z/)
+end
+
+# Prefer a governed [Metrics/<name>] ref over an inline aggregate `f`, when `f`
+# matches a DM metric on the measure's master (strip the master `id` prefix, then
+# formula-equivalence via the shared binder). Safe no-op when no metrics / no match.
+def bind_metric_formula(f, fs)
+  m = ($PBI_MASTERS || {})[fs['master']] || {}
+  mets = m['metrics'] || []
+  return f if mets.empty?
+  MetricBinding.metric_ref_or_inline(f, m['id'].to_s, mets)
+end
+
+def measure_formula(fs)
+  # bead qb2i: an explicit `formula` wins — lets the master-map emit a verbatim
+  # Sigma expression (e.g. a window calc "Lag(Sum([X/v]), 1)" / "Rank(Sum([X/v]),
+  # \"desc\")" / percent-of-total "Sum([X/v]) / GrandTotal(Sum([X/v]))") the
+  # agg/`?` encodings can't express, instead of falling back to a wrong stub.
+  f =
+    if fs['formula'].is_a?(String) && !fs['formula'].empty?
+      fs['formula']
+    elsif (agg = fs['agg']).nil? || (agg.respond_to?(:empty?) && agg.empty?)
+      fs['ref']
+    # Multi-arg aggregator support (bead 14w c): PercentileCont(col, 0.9), etc.
+    # Two encodings are honored, both keeping the extra arg(s) verbatim:
+    #   1. fs['agg'] contains a '?' placeholder -> substitute the column ref.
+    #      e.g. agg="PercentileCont(?, 0.9)" -> "PercentileCont([EMP/Salary], 0.9)"
+    #   2. fs['agg_args'] is an array of extra args appended after the column ref.
+    #      e.g. agg="PercentileCont", agg_args=["0.9"] -> "PercentileCont([EMP/Salary], 0.9)"
+    # We never fabricate an aggregator from a measure *label* — the agg comes only
+    # from the master-map's explicit decision.
+    elsif agg.to_s.include?('?')
+      agg.to_s.gsub('?', fs['ref'])
+    elsif fs['agg_args'].is_a?(Array) && !fs['agg_args'].empty?
+      "#{agg}(#{([fs['ref']] + fs['agg_args']).join(', ')})"
+    else
+      "#{agg}(#{fs['ref']})"
+    end
+  bind_metric_formula(f, fs)
+end
+
+# bead (A) reference lines: PBI analytics-pane constant lines (rec['ref_lines'],
+# captured by extract-pbir._reference_lines) -> Sigma `refMarks`. VERIFIED shape
+# (ported from build-charts-from-signals.rb + qlik-to-sigma qlik_refmarks,
+# 2026-06-15): `value` MUST be the wrapped object form ({type:formula,formula} —
+# a bare number 400s; value.type:column is rejected too, so a column threshold
+# goes through `formula`), and `label.visibility` MUST be 'shown' (the docs'
+# bare-number/string forms are rejected by the live API). axis is carried from
+# the PBI axis ('series' for y-axis lines, 'axis' for x). Only emitted for the
+# cartesian kinds Sigma supports refMarks on.
+def build_ref_marks(rec)
+  Array(rec['ref_lines']).map do |rl|
+    val = rl['value']
+    # constant numbers go through verbatim; anything else is treated as a Sigma
+    # formula (a measure-bound threshold the agent can refine).
+    formula = val.to_s
+    next nil if formula.strip.empty?
+    rm = { 'type' => 'line', 'axis' => (rl['axis'] || 'series'),
+           'value' => { 'type' => 'formula', 'formula' => formula } }
+    line = {}
+    line['color'] = rl['color'] if rl['color']
+    rm['line'] = line.merge('width' => 2) unless line.empty?
+    label = { 'visibility' => 'shown' }
+    label['text'] = rl['label'] if rl['label'] && !rl['label'].to_s.empty?
+    rm['label'] = label
+    rm
+  end.compact
+end
+
+# bead (A) trend line: PBI 'Trend line' analytics toggle -> Sigma trendlines[].
+# The verified shape (build-charts-from-signals.rb) keys the trendline to a
+# value column id with model + shown label/value. PBI offers only a linear trend.
+def build_trendlines(rec, ycids)
+  return [] unless rec['trend_line'] && ycids && !ycids.empty?
+  model = (rec['trend_line']['model'] || 'linear').to_s
+  ycids.map do |cid|
+    real = cid.is_a?(Hash) ? cid['columnId'] : cid   # combo: {columnId,type} form
+    { 'columnId' => real, 'model' => model,
+      'label' => { 'visibility' => 'shown' }, 'value' => { 'visibility' => 'shown' } }
+  end
+end
+
+# bead (B) by-measure color: PBI 'Color saturation' / FX fill-by-value
+# (rec['measure_color'] = {queryRef, scheme[], reverse}) -> Sigma
+# color:{by:scale, column:<dup measure>, scheme}. Ported from qlik-to-sigma's
+# qlik_color: a Sigma column can't be on BOTH yAxis and color, so the driving
+# measure is DUPLICATED into a new (hidden) column referenced by the scale.
+# Mutates `cols` (appends the dup column) and returns the color hash, or nil.
+def measure_color_channel(rec, fields, master, vfmts, eid, cols, ycids)
+  mc = rec['measure_color']
+  return nil unless mc && mc['queryRef'] && ycids && !ycids.empty?
+  fs = field_spec(mc['queryRef'], fields, master)
+  scheme = Array(mc['scheme']).dup
+  scheme = ['#ffffcc', '#fd8d3c', '#bd0026'] if scheme.empty?
+  scheme.reverse! if mc['reverse']
+  base_cid = ycids.first.is_a?(Hash) ? ycids.first['columnId'] : ycids.first
+  base = cols.find { |c| c['id'] == base_cid }
+  cid = "#{eid}-clr"
+  dup = { 'id' => cid, 'name' => "#{qr_leaf(mc['queryRef'], 'Value')} (color)",
+          'formula' => (base ? base['formula'] : measure_formula(fs)), 'hidden' => true }
+  apply_fmt(dup, mc['queryRef'], fields, vfmts)
+  cols << dup
+  { 'by' => 'scale', 'column' => cid, 'scheme' => scheme }
+end
+
+# Table/matrix conditional formatting (rec['conditional_formats'] from
+# extract-pbir) -> Sigma element-level `conditionalFormats`. The mapping lives in
+# lib/pbi_conditional_formats.rb (pure + unit-tested); here we just resolve the
+# CF records against the built column ids and route any non-mappable modes
+# (field-value measures, rules) to coverage — never silently dropped.
+def build_conditional_formats(rec, qr_cids, name, kind)
+  cfs = rec['conditional_formats']
+  return nil unless cfs.is_a?(Array) && !cfs.empty?
+  res = PbiConditionalFormats.build(cfs, qr_cids, name, kind)
+  res['coverage'].each { |c| record_unresolved(**c, role_class: rec['role_class'], visual_id: rec['visual_id']) }
+  res['formats'].empty? ? nil : res['formats']
+end
+
+# Deterministic, collision-free short id from a PBIR visual id. PBIR visual ids
+# often share a long common prefix (e.g. a1b2c3d4e5f60001 / ...0002), so a naive
+# prefix-truncate collides. Take a stable suffix of the sanitized id plus a short
+# hash of the full id to guarantee uniqueness across visuals.
+require 'digest'
+def short(id)
+  clean = id.to_s.gsub(/[^a-zA-Z0-9]/, '')
+  h = Digest::SHA1.hexdigest(id.to_s)[0, 6]
+  "#{clean[-6, 6] || clean}#{h}"
+end
+
+# Resolve which master a visual sources from. A Sigma chart can only reference
+# columns on ONE element, so pick the master that can satisfy the MOST of the
+# visual's bound fields (counting `alts` — a field reachable on multiple masters).
+# This makes a Year×NetRev×NetRevPY chart source from the grouped prior-year
+# element (which carries all three) instead of the View (missing the PY column).
+# Ties break toward the FIRST field's master (preserves prior behavior).
+def visual_master(rec, fields)
+  qrs = rec['bindings'].values.flatten.compact
+  return nil if qrs.empty?
+  # candidate masters a field can resolve on (primary + alts). Use field_spec so
+  # the case-insensitive fallback applies here too.
+  masters_for = lambda do |qr|
+    fs = field_spec(qr, fields)
+    ms = []
+    ms << fs['master'] if fs['master']
+    Array(fs['alts']).each { |a| ms << a['master'] if a['master'] }
+    ms.uniq
+  end
+  counts = Hash.new(0)
+  qrs.each { |qr| masters_for.call(qr).each { |m| counts[m] += 1 } }
+  return nil if counts.empty?
+  first_master = qrs.map { |qr| field_spec(qr, fields)['master'] }.compact.first
+  best = counts.max_by { |m, c| [c, (m == first_master ? 1 : 0)] }
+  best && best[0]
+end
+
+# The ONE base master a whole PAGE sources (report-build hardening). Aggregates
+# field coverage across EVERY visual on the page (controls included, so the
+# sliced column counts) and returns the master resolving the most. Every visual
+# is then pointed at this base and each page control targets its column, so a
+# single control target propagates to all visuals — no per-visual targeting, no
+# passthrough columns. Delegates the pure tally to PbiReportBuild.page_base_master.
+def page_base_master(visuals, fields)
+  masters_for = lambda do |qr|
+    fs = field_spec(qr, fields)
+    ([fs['master']] + Array(fs['alts']).map { |a| a['master'] }).compact.uniq
+  end
+  PbiReportBuild.page_base_master(visuals, masters_for)
+end
+
+# bead f972: PBI sort carry. rec['sort'] = {queryRef, direction asc|desc} from the
+# extractors (PBIR query.sortDefinition / classic prototypeQuery.OrderBy). Resolve
+# the sorted queryRef to the element column built for it (qr_cids, recorded as each
+# branch builds its columns) and emit the VERIFIED Sigma sort shapes:
+#   bar/line/area/combo : xAxis.sort = { by: <colId>, direction }
+#   pie/donut           : color.sort = { by: <colId>, direction }
+#   table (grouped)     : groupings[0].sort = [{ columnId, direction }] — element-
+#                         level sort is REJECTED ("Sort column not found") on a
+#                         grouped table; the sort must nest INSIDE the grouping
+#                         (qlik-to-sigma refs/sigma-build-gotchas.md, verified 2026-06-10)
+#   table (ungrouped)   : sort = [{ columnId, direction }]
+#   pivot-table         : rowsBy[0].sort = { by: <colId>, direction } — the outer
+#                         row grouping is sorted by the resolved column. VERIFIED
+#                         accepted + round-tripped + rendered 2026-07-15; the old
+#                         "pivot-table sort is not spec-expressible, set it in the
+#                         UI" punt was wrong and dropped every matrix/tableEx sort.
+# NOTE: dispatch on el['kind'] (not the caller's `kind`) — a grouped `table` with a
+# Grand Total row is re-expressed as a pivot-table upstream (el['kind'] flips to
+# 'pivot-table' while the caller still passes kind='table'), so its sort must route
+# to the pivot branch, not the grouped-table branch.
+# direction must be the full word "ascending"/"descending" — the API rejects
+# "asc"/"desc" (validate-spec.rb guards this too).
+def apply_sort(el, kind, rec, qr_cids, name, cols = nil)
+  srt = rec['sort']
+  return unless srt.is_a?(Hash) && srt['queryRef']
+  dir = srt['direction'].to_s.start_with?('desc') ? 'descending' : 'ascending'
+  norm = ->(s) { s.to_s.downcase.gsub(/[_\s]+/, ' ').strip }
+  pair = qr_cids.find { |qr, _| norm.call(qr) == norm.call(srt['queryRef']) }
+  cid = qr_cids[srt['queryRef']] || (pair && pair[1])
+  rc = rec['role_class']
+  vid = rec['visual_id']
+  case (el['kind'] || kind)
+  when 'bar-chart', 'line-chart', 'area-chart', 'combo-chart'
+    return warn_sort_miss(name, srt, role_class: rc, visual_id: vid) unless cid
+    # A visual-level sort BY THE DIM ITSELF must not clobber the model's
+    # sortByColumn axis order (PBI sorts FiscalMonth via Period; re-sorting by
+    # the month NAME would go alphabetical).
+    return if cid == el.dig('xAxis', 'columnId') && el.dig('xAxis', 'sort', 'by').to_s.end_with?('-sortcol')
+    (el['xAxis'] ||= {})['sort'] = { 'by' => cid, 'direction' => dir }
+  when 'pie-chart', 'donut-chart'
+    return warn_sort_miss(name, srt, role_class: rc, visual_id: vid) unless cid
+    (el['color'] ||= {})['sort'] = { 'by' => cid, 'direction' => dir }
+  when 'table'
+    return warn_sort_miss(name, srt, role_class: rc, visual_id: vid) unless cid
+    if el['groupings'].is_a?(Array) && !el['groupings'].empty?
+      el['groupings'][0]['sort'] = [{ 'columnId' => cid, 'direction' => dir }]
+    else
+      el['sort'] = [{ 'columnId' => cid, 'direction' => dir }]
+    end
+  when 'pivot-table'
+    return warn_sort_miss(name, srt, role_class: rc, visual_id: vid) unless cid
+    # rowsBy[0].sort {by,direction}; coalesce-blank-first when sorting the dim
+    # ascending (see lib/pbi_pivot_sort.rb — the old "not spec-expressible" punt
+    # was wrong and dropped every matrix/tableEx sort).
+    applied = PbiPivotSort.apply!(rows_by: el['rowsBy'], cols: cols, cid: cid, dir: dir)
+    unless applied
+      warn "[build-workbook] WARN visual '#{name}': pivot-table has no rowsBy to sort — skipped."
+      record_unresolved(visual: name, severity: 'degraded', recoverable: true,
+                        role_class: rc, visual_id: vid,
+                        detail: 'pivot-table sort could not be applied (no rowsBy)',
+                        action: 'Set the sort on the pivot in the Sigma UI after migration.')
+    end
+  end
+end
+
+def warn_sort_miss(name, srt, role_class: nil, visual_id: nil)
+  warn "[build-workbook] WARN visual '#{name}': sort field '#{srt['queryRef']}' is not among " \
+       'the built columns — sort skipped.'
+  record_unresolved(visual: name, severity: 'degraded', recoverable: true,
+                    role_class: role_class, visual_id: visual_id,
+                    detail: "sort field '#{srt['queryRef']}' is not among the built columns — sort skipped",
+                    action: "Add '#{srt['queryRef']}' to the visual's fields in master-map.json so the sort can resolve.")
+end
+
+# Build chart element from a normalized visual record. `extra_data` is an
+# accumulator array: branches that need a HIDDEN helper element on the Data page
+# (bead ry0n: the scatter grouped-source table) push it there; the page assembly
+# appends extra_data to the Data page's elements.
+# PBI dataCategory -> Sigma region-map regionType. Loaded from --bim into
+# $geo_categories ('table.field' downcased -> dataCategory). PBI geocodes
+# arbitrary place text via Bing at render time; Sigma matches region NAMES to
+# built-in shapes — so only category-tagged columns can become real maps.
+GEO_REGION_TYPE = {
+  'postalcode' => 'us-zipcode', 'city' => 'us-postal-place', 'place' => 'us-postal-place',
+  'stateorprovince' => 'us-state', 'county' => 'us-county',
+  'country' => 'country', 'countryregion' => 'country'
+}.freeze
+$geo_categories ||= {}
+$sort_by_column ||= {}
+
+# Resolve a 'map' visual to region-map / point-map / bar-chart fallback.
+# Mutates rec['bindings'] for the fallback (legend becomes the bar category,
+# matching the old downgrade behavior).
+def resolve_map_kind(rec, name)
+  b = rec['bindings'] || {}
+  lat = (b['Latitude'] || []).first
+  lng = (b['Longitude'] || []).first
+  return 'point-map' if lat && lng
+  loc = (b['Category'] || b['Location'] || []).first
+  cat = loc && $geo_categories[loc.to_s.downcase]
+  rt  = cat && GEO_REGION_TYPE[cat.to_s.downcase]
+  if rt
+    rec['_region_type'] = rt
+    warn "[build-workbook] visual '#{name}': PBI map -> Sigma region-map (#{rt}) on '#{loc}'"          "#{rt.start_with?('us-') ? ' — US region layer assumed (PBI dataCategory carries no country)' : ''}."
+    return 'region-map'
+  end
+  why = loc.nil? ? 'no location binding' : ($geo_categories.empty? ? 'no --bim geo metadata supplied' : "'#{loc}' has no geocodable dataCategory")
+  warn "[build-workbook] WARN visual '#{name}': PBI map downgraded to bar chart — #{why}. "        'Sigma maps need a region-typed column (country/state/county/zip/place) or lat+long; '        'PBI relied on Bing geocoding which Sigma does not do.'
+  record_unresolved(visual: name, pbi_type: 'map', sigma_kind: 'bar-chart',
+                    severity: 'approximated', recoverable: true,
+                    role_class: rec['role_class'], visual_id: rec['visual_id'],
+                    detail: "PBI map downgraded to bar chart — #{why}",
+                    action: 'Supply a region-typed column (country/state/county/zip/place) via --bim dataCategory, ' \
+                            'or lat+long bindings, to render a real Sigma map — or accept the bar approximation.')
+  series = (b['Series'] || b['Legend'] || []).first
+  b['Category'] = [series] if series  # old downgrade kept the legend as the bar category
+  'bar-chart'
+end
+
+# bead miu7: a column formula whose bracket holds a DOT ("[EMPLOYEES.Ghost]") is
+# field_spec's line-259 fallback for a queryRef ABSENT from the master-map. A valid
+# Sigma ref is [id/Name] or [Name] (slash, never a dot), so this form ALWAYS
+# compiles to a type=error column. The old code recorded it as "dropped" in
+# coverage but still SHIPPED the broken column (the lie the customer hit). This
+# matcher detects exactly that fallback so we can actually drop it.
+UNRESOLVED_REF = %r{\A\[[^\]/]*\.[^\]]*\]\z}.freeze
+
+# Prune a set of column ids from an element: remove them from `columns` AND from
+# every role reference build_element emits (value / xAxis(+sort) / yAxis(2) /
+# groupings / rowsBy / columnsBy / values). Shared by the unresolved-ref drop and
+# the cross-master drop so both prune identically.
+def prune_columns!(el, bad_ids)
+  return if bad_ids.empty?
+  has_bad = ->(x) { bad_ids.include?(x.is_a?(Hash) ? (x['columnId'] || x['id']) : x) }
+  el['columns'] = Array(el['columns']).reject { |c| bad_ids.include?(c['id']) }
+  el.delete('value') if bad_ids.include?(el.dig('value', 'columnId')) || bad_ids.include?(el.dig('value', 'id'))
+  if el['xAxis'].is_a?(Hash)
+    el['xAxis'].delete('sort') if bad_ids.include?(el.dig('xAxis', 'sort', 'by'))
+    el.delete('xAxis') if bad_ids.include?(el['xAxis']['columnId'])
+  end
+  %w[yAxis yAxis2].each do |ax|
+    next unless el[ax].is_a?(Hash) && el[ax]['columnIds'].is_a?(Array)
+    el[ax]['columnIds'] = el[ax]['columnIds'].reject(&has_bad)
+    el.delete(ax) if el[ax]['columnIds'].empty?
+  end
+  if el['color'].is_a?(Hash) && (bad_ids.include?(el['color']['column']) || bad_ids.include?(el['color']['id']))
+    el.delete('color')
+  end
+  Array(el['groupings']).each do |g|
+    g['groupBy'] = Array(g['groupBy']).reject(&has_bad) if g['groupBy']
+    g['calculations'] = Array(g['calculations']).reject(&has_bad) if g['calculations']
+  end
+  el['groupings']&.reject! { |g| Array(g['groupBy']).empty? && Array(g['calculations']).empty? }
+  %w[rowsBy columnsBy].each do |k|
+    next unless el[k].is_a?(Array)
+    el[k] = el[k].reject(&has_bad)
+    el.delete(k) if el[k].empty?
+  end
+  el['values'] = Array(el['values']).reject(&has_bad) if el['values'].is_a?(Array)
+end
+
+# GUARANTEE no element ships an unresolved literal-ref column (bead miu7; mirrors
+# the slicer dropout). Drops every such column from `el` AND prunes its id from
+# every role reference, then records ONE honest 'dropped' entry.
+# The tile degrades (a role may lose a column) instead of carrying a broken one.
+def drop_unresolved_columns!(el, rec, kind)
+  cols = el['columns']
+  return unless cols.is_a?(Array)
+  bad = cols.select { |c| c['formula'].to_s =~ UNRESOLVED_REF }
+  return if bad.empty?
+  bad_ids = bad.map { |c| c['id'] }
+  prune_columns!(el, bad_ids)
+  leaves = bad.map { |c| c['name'] }.compact.join(', ')
+  # Entity = the part before the first dot in the unresolved `[Entity.Leaf]` ref
+  # (e.g. "Dim Region"), used to attribute the drop to an ungranted schema.
+  entities = bad.map { |c| c['formula'].to_s[/\A\[([^\]\/.]+)\./, 1] }.compact.uniq.join(', ')
+  record_unresolved(visual: (rec['title'] || rec['visual_id']), pbi_type: rec['visual_type'],
+                    sigma_kind: kind, severity: 'dropped', recoverable: true, entity: entities,
+                    role_class: rec['role_class'], visual_id: rec['visual_id'],
+                    detail: "field(s) #{leaves} could not be resolved to a master column — dropped " \
+                            '(would have shipped as a type=error column)',
+                    action: "Map the PBI queryRef(s) for #{leaves} to a master column in master-map.json and re-run.")
+end
+
+# Sigma element kind -> role_class, for the (rare) coverage call sites below
+# that only have the BUILT element (not the source PBI visual record) in scope
+# — the cross-master column gate runs on already-assembled elements after every
+# page is built, well past build_element's own `rec`. Kept in lock-step with
+# build_element's role routing: every kind reachable here is value-driven
+# (kpi/chart/table); both callers already skip 'control' before reaching it.
+def role_class_for_kind(kind)
+  return 'kpi' if kind == 'kpi-chart'
+  return 'table' if %w[table pivot-table].include?(kind)
+  return 'control' if kind == 'control'
+  return 'chart' if %w[bar-chart line-chart area-chart combo-chart scatter-chart
+                        pie-chart donut-chart region-map point-map].include?(kind)
+  # Non-visual coverage subjects that still represent FUNCTIONAL loss, so gate! must
+  # fire on them: a dropped FILTER means the report lost filtering (same class as a
+  # lost control), and a 'page' entry means every data visual on that page failed to
+  # build. Mapping them to nil would make the gate silently ignore both.
+  return 'control' if kind == 'filter'
+  return 'chart' if kind == 'page'
+  nil
+end
+
+# HARD GATE (report-build hardening): no element may ship a column whose formula
+# references a MASTER other than the element's own `source` — a cross-master ref
+# from an element sourcing master A to `[master-B/Col]` compiles to Sigma type
+# "error" and breaks the whole element. Drop every such column (pruning its role
+# references) with a loud warning + coverage entry, so the tile degrades honestly
+# instead of erroring. `master_ids` = the set of Data-page master element ids;
+# `by_name` maps master DISPLAY NAMES -> id (refs can use either). Returns the
+# list of dropped column names (for the per-element re-check). This is the
+# belt-and-suspenders net behind field_spec's cross-master guard: it catches a
+# leak from ANY path (sort-by, measure-color dup, metric binding, a stale ref).
+def drop_cross_master_columns!(el, name, master_ids, by_name)
+  cols = el['columns']
+  return [] unless cols.is_a?(Array) && !cols.empty?
+  src = el.dig('source', 'elementId') || el.dig('source', 'source', 'elementId')
+  # Only elements that SOURCE a master table can leak a cross-master ref; a master
+  # itself (data-model source) and source-less elements are exempt.
+  return [] unless src
+  bad = cols.select do |c|
+    foreign = PbiReportBuild.foreign_master_refs(c['formula'], src, master_ids, by_name)
+    !foreign.empty?
+  end
+  return [] if bad.empty?
+  prune_columns!(el, bad.map { |c| c['id'] })
+  leaves = bad.map { |c| c['name'] }.compact.uniq.join(', ')
+  warn "[build-workbook] WARN visual '#{name}': column(s) #{leaves} referenced a DIFFERENT master than " \
+       "the element's source (#{src}) — cross-master formulas compile to type \"error\" in Sigma, so they " \
+       'were DROPPED (the tile degrades instead of breaking). Bring the field onto this element\'s source ' \
+       'master (a joined base) to keep it.'
+  record_unresolved(visual: name, pbi_type: 'cross-master', sigma_kind: el['kind'],
+                    severity: 'dropped', recoverable: true, role_class: role_class_for_kind(el['kind']),
+                    detail: "column(s) #{leaves} referenced a master other than the element's source — " \
+                            'dropped (cross-master formula would compile to type=error)',
+                    action: 'Add the field to this element\'s source master (or build a joined page base ' \
+                            'that carries every measure the page\'s visuals reference), then re-run.')
+  bad.map { |c| c['name'] }
+end
+
+# Power BI "Small multiples" field well -> Sigma NATIVE element `trellis`
+# (rowsBy / columnsBy), via the shared converter-agnostic emitter
+# (shared/lib/trellis_emit.rb). SUPERSEDES the stale "trellis is Sigma UI-only"
+# note (measure-patterns.md): the rowsBy/columnsBy form binds the facet from spec
+# on the readback-safe kinds (docs/sigma-trellis-chart-support.md).
+#
+# DETECTION: a PBIR visual carries its small-multiples facet as a `SmallMultiples`
+# projection role in visual.query.queryState; extract-pbir.py's _role_bindings
+# passes every role through verbatim, so it arrives here as
+# rec['bindings']['SmallMultiples'] -> the facet dimension's queryRef. No geometry
+# inference: it is an explicit source property. Detection-gated — a visual with NO
+# SmallMultiples role takes an early `return nil` and is built byte-identically to
+# origin/main.
+#
+# EMISSION: one Sigma element (the base viz) with the facet added as a column, then
+# TrellisEmit.apply sets element['trellis']. The emitter is the single source of
+# truth for (a) the readback-safe kinds (bar/line/area/combo/scatter/donut), which
+# it trellises, and (b) the fallbacks on the rest — pie->donut (flipped in place),
+# and kpi/pivot/table left flat (Sigma returns 200 then SILENTLY STRIPS the key on
+# those, so we must not emit it). Every emitted trellis is recorded in
+# $native_trellis_records -> the native-trellis-emitted.json round-trip sidecar,
+# which verify-trellis-survived.rb re-checks against the readback spec.
+#
+# ORIENTATION: a Power BI small multiple is a SINGLE dimension tiled into a grid
+# (the grid's row/column counts are a layout detail, not a second facet field).
+# Sigma wraps a single-facet `columnsBy` into exactly that tile grid, so columnsBy
+# is the faithful mapping. A true 2-D Sigma grid (rowsBy AND columnsBy) needs two
+# DISTINCT facet columns, which a PBI small multiple never supplies — so we never
+# emit both. (Deferred: honoring an explicit single-column PBI layout as rowsBy;
+# the grid default is correct for the common case.)
+def apply_small_multiples!(el, rec, fields, master, eid, qr_cids)
+  b = rec['bindings'] || {}
+  facet_qr = (b['SmallMultiples'] || b['smallMultiples'] || []).first
+  return nil unless facet_qr # detection-gated: no small-multiples role -> byte-identical build
+
+  kind = el['kind']
+  name = el['name'].is_a?(Hash) ? el['name']['text'] : el['name'].to_s
+
+  # Gate to the kinds whose native `trellis` survives readback. On kpi/pivot/table
+  # Sigma accepts the POST (200) then drops the key and renders flat — emitting it
+  # there would be a silent lie, so leave those flat and record the documented
+  # fallback (kpi -> N sibling KPIs, pivot -> its own shelves, table -> flat).
+  unless TrellisEmit.trellises?(kind)
+    disp = TrellisEmit.disposition(kind)
+    fallback = case disp
+               when :needs_sibling_fanout then 'fan out to N per-member KPI tiles (no native KPI trellis)'
+               when :needs_pivot_shelves  then "use the pivot's own rowsBy/columnsBy cross-tab shelves"
+               else 'model the facet as an extra grouping/row dimension, or build small multiples post-publish'
+               end
+    warn "[build-workbook] WARN visual '#{name}': PBI Small multiples facet '#{facet_qr}' on a #{kind} — " \
+         "Sigma has no native trellis for that kind (silently stripped on readback); facet left off."
+    record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: kind,
+                      severity: 'degraded', recoverable: true,
+                      role_class: rec['role_class'], visual_id: rec['visual_id'],
+                      detail: "Small multiples facet '#{facet_qr}' dropped — #{kind} has no native Sigma trellis",
+                      action: "Sigma strips a #{kind} trellis on readback; #{fallback}.")
+    return nil
+  end
+
+  # The facet must resolve on the element's chosen master (a Sigma element sources
+  # exactly one master). If it can't, adding the column would leak an unresolved
+  # literal ref that drop_unresolved_columns! prunes, leaving a dangling trellis.
+  fs = field_spec(facet_qr, fields, master)
+  reachable = master && (fs['master'] == master ||
+                         Array(fs['alts']).any? { |a| a['master'] == master })
+  unless reachable
+    warn "[build-workbook] WARN visual '#{name}': Small multiples facet '#{facet_qr}' does not resolve on " \
+         "master '#{master.inspect}' — trellis NOT emitted (a Sigma element sources one master)."
+    record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: kind,
+                      severity: 'degraded', recoverable: true,
+                      role_class: rec['role_class'], visual_id: rec['visual_id'],
+                      detail: "Small multiples facet '#{facet_qr}' not reachable on master '#{master}' — trellis dropped",
+                      action: "Add '#{facet_qr}' to master '#{master}' (or a single joined master) so the facet binds, then re-run.")
+    return nil
+  end
+
+  # Add the facet as a real column and face it via the shared emitter. A single
+  # PBI facet -> columnsBy (Sigma tile grid; see ORIENTATION above).
+  fcid = "#{eid}-sm"
+  (el['columns'] ||= []) << { 'id' => fcid, 'formula' => fs['ref'], 'name' => qr_leaf(facet_qr, 'Facet') }
+  qr_cids[facet_qr] = fcid
+  was_pie = (kind == 'pie-chart')
+  result  = TrellisEmit.apply(el, facet_column_id: fcid, orientation: :cols)
+  axis = el['trellis'].keys.first
+
+  # Round-trip guard record (Sigma silently strips an unsupported trellis; the
+  # post-publish verifier re-reads the spec and asserts each of these survived).
+  ($native_trellis_records ||= []) << {
+    'element_id' => el['id'], 'kind' => el['kind'], 'name' => name,
+    'axis' => axis, 'columnId' => fcid, 'visual_id' => rec['visual_id']
+  }
+  if was_pie
+    warn "[build-workbook] visual '#{name}': PBI small-multiples PIE -> Sigma DONUT + trellis.#{axis} " \
+         '(pie silently strips the trellis key on readback; donut supports it).'
+  end
+  warn "[build-workbook] visual '#{name}': PBI Small multiples '#{facet_qr}' -> ONE #{el['kind']} element " \
+       "'#{el['id']}' with trellis.#{axis} (facet column #{fcid})."
+  result
+end
+
+def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
+  # role_class (from the viz-kind/custom-visual catalogs via the extractor,
+  # task 1) says what the visual DOES: filter (control), show a number (kpi),
+  # plot a series (chart), list rows (table), decorate (decoration), or
+  # nothing Sigma can render (unsupported). Route on it BEFORE the sigma_kind
+  # switch below so a third-party slicer becomes a real control instead of a
+  # phantom chart, and so a lost control/kpi/chart/table is recorded as a
+  # FUNCTIONAL loss the coverage gate can fail on — never silently folded into
+  # 'approximated', which the coverage headline counts as carried over.
+  # beads-sigma-kvza / role_class.
+  role = rec['role_class'].to_s
+  vt   = rec['visual_type'].to_s
+  shown_vt = vt.empty? ? 'unknown/blank' : vt
+  label = rec['title'].to_s.strip.empty? ? rec['visual_id'] : rec['title']
+  if role == 'decoration'
+    # Cosmetic only — nothing built, and NOT a functional loss. Recorded at
+    # severity 'approximated' (the coverage headline's "carried over" bucket)
+    # purely so every source visual is accounted for; it never trips the
+    # recoverable-loss gate the way 'dropped' does.
+    deco_action = rec['viz_guidance'].to_s.empty? ? 'Cosmetic-only visual; no Sigma element ' \
+                  'is needed and there is nothing to configure.' : rec['viz_guidance'].to_s
+    record_unresolved(visual: label, pbi_type: shown_vt, sigma_kind: nil,
+                      severity: 'approximated', recoverable: false, role_class: role,
+                      detail: "#{shown_vt} is decorative (no data binding) — no Sigma element needed",
+                      action: deco_action)
+    return nil
+  elsif role == 'unsupported'
+    warn "[build-workbook] WARN visual '#{label}': PBI visualType '#{shown_vt}' has no Sigma " \
+         'equivalent — recorded as dropped, element SKIPPED.'
+    unsup_action = rec['viz_guidance'].to_s.empty? ? "Sigma has no equivalent for #{shown_vt}; " \
+                   'hand-build the closest element, or accept the drop.' : rec['viz_guidance'].to_s
+    record_unresolved(visual: label, pbi_type: shown_vt, sigma_kind: nil,
+                      severity: 'dropped', recoverable: true, role_class: role,
+                      detail: "#{shown_vt} has no Sigma equivalent that preserves its semantics",
+                      action: unsup_action)
+    return nil
+  end
+
+  # viz-kind resolution (grounded by refs/catalogs/viz-kind.json; SIGMA_KIND is
+  # derived from it). An UNMAPPED/blank kind token used to SILENTLY become a
+  # bar-chart via "|| 'bar-chart'". Now the miss WARNS before the explicit
+  # bar-chart fallback, and the substitution is RECORDED as an honest
+  # 'approximated' coverage entry below (gated on rec['approximate'], which
+  # also fires for the empty/unknown visualType this token would carry). This
+  # is the loud counterpart to extract-pbir.py's upstream
+  # VISUAL_KIND.get(vtype,'bar') coercion. beads-sigma-kvza.
+  #
+  # No role_class special-casing here: every catalog path that resolves
+  # role_class 'control' (viz-kind's `control` row, every custom-visual row,
+  # and the slicer/filter heuristic) always emits sigma_kind 'control' too,
+  # and SIGMA_KIND['control'] => 'control' — so the plain lookup already
+  # yields the right kind. A `control`-role record with some OTHER sigma_kind
+  # would be a catalog authoring bug, not something to paper over here.
+  kind = SIGMA_KIND[rec['sigma_kind']]
+  if kind.nil?
+    warn "[build-workbook] WARN visual '#{rec['title'] || rec['visual_id']}': no documented " \
+         "viz-kind mapping for sigma_kind #{rec['sigma_kind'].inspect} (PBI visualType '#{shown_vt}') " \
+         '— approximated as bar-chart. Add a cited row to refs/catalogs/viz-kind.json if this ' \
+         'is a real Power BI visual.'
+    kind = 'bar-chart'
+  end
+  if kind == 'map'
+    t0 = rec['title'].to_s.strip
+    kind = resolve_map_kind(rec, t0.empty? ? rec['visual_id'] : t0)
+  end
+  vid  = rec['visual_id']
+  eid  = "el-#{short(vid)}"
+  vfmts = rec['formats'] || {}
+  # bead 14w(e): element name comes from the PBI visual title, not the raw id.
+  # When the source visual has no explicit title (the classic-report norm),
+  # derive one from its projections — NEVER surface the raw visual id as the
+  # display name (phase-e layout-quality fix; layout_lint.rb gates this).
+  title = rec['title'].to_s.strip
+  # Friendly naming: a PBI visual's OWN title wins verbatim (task: "use the PBI
+  # visual's own title when present"). Only a DERIVED title (untitled visual) is
+  # run through friendly_label so a raw projection leaf ("SUBMISSION_KEY by
+  # LEVEL_1_NAME") reads as a human name and never surfaces as a raw column.
+  name  = title.empty? ? (PbiReportBuild.friendly_label(derived_title(rec, kind)) || KIND_LABEL[kind] || 'Chart') : title
+
+  if kind == 'text'
+    # Size-aware: PBI textboxes are titles OR small decorative labels
+    # (copyright lines, urls). Rendering every one as an H2 made tiny footer
+    # text huge and overlapping (customer QS feedback). Boxes under ~60px tall
+    # render as plain body text.
+    txt = rec['text'].to_s
+    body = (rec['h'].to_f >= 60 ? "## #{txt}" : txt)
+    return { 'id' => eid, 'kind' => 'text', 'body' => body.empty? ? ' ' : body }
+  end
+
+  if kind == 'image'
+    url = ($image_map || {})[rec['resource']]
+    unless url
+      warn "[build-workbook] visual '#{rec['visual_id']}': image asset '#{rec['resource']}' " \
+           'skipped — supply --image-map {resource: hostedUrl} to embed it (Sigma images are URL-only).'
+      record_unresolved(visual: (rec['title'].to_s.strip.empty? ? rec['visual_id'] : rec['title']),
+                        pbi_type: 'image', severity: 'dropped', recoverable: true, role_class: 'image',
+                        detail: "image asset '#{rec['resource']}' skipped (Sigma images are URL-only)",
+                        action: "Supply --image-map '{\"#{rec['resource']}\": \"<hostedUrl>\"}' and re-run to embed it.")
+      return nil
+    end
+    return { 'id' => eid, 'kind' => 'image', 'url' => url }
+  end
+
+  # Report-build hardening: in page-base mode every visual sources the PAGE's one
+  # base master (forced_master) so a single control target propagates to all —
+  # but only when at least one of the visual's own fields resolves on that base
+  # (else a genuinely different-fact visual would lose all its data; it keeps its
+  # own master and is surfaced as out-of-scope for the page control instead).
+  resolves_on = lambda do |m|
+    (rec['bindings'] || {}).values.flatten.compact.any? do |qr|
+      fs = field_spec(qr, fields)
+      fs['master'] == m || Array(fs['alts']).any? { |a| a['master'] == m }
+    end
+  end
+  master =
+    if forced_master && masters[forced_master] && resolves_on.call(forced_master)
+      forced_master
+    else
+      visual_master(rec, fields)
+    end
+  # Task 4 (field-binding coverage): tally this visual's FULL field-binding
+  # ledger now that `master` is settled, so the summary's sourceBindings /
+  # resolvedBindings account for every bound queryRef — not just the ones a
+  # later warning happens to mention. Whichever coverage entry fires below (if
+  # any) for THIS visual_id picks up the ledger; a visual that resolves 100%
+  # never touches it beyond the running totals.
+  compute_field_bindings!(vid, rec, fields, master, role.empty? ? nil : role)
+  # E-06: a value-driven visual with NO resolvable field binding would emit a
+  # source-less element with a "[]" formula column (an empty PBI `kpi {}` or a
+  # cardVisual->bar approximation), which the API rejects with
+  # `source: Invalid value: undefined`. Skip it loudly rather than ship a broken
+  # element. (control/text/image are handled elsewhere and legitimately carry no
+  # value binding, so they are NOT in this set.)
+  value_driven = %w[kpi-chart bar-chart line-chart area-chart combo-chart
+                    scatter-chart pie-chart donut-chart region-map point-map
+                    table pivot-table].include?(kind)
+  if value_driven
+    all_qrs = (rec['bindings'] || {}).values.flatten.compact
+    if all_qrs.empty? || master.nil?
+      why = all_qrs.empty? ? 'no field bindings' : 'no resolvable master element'
+      warn "[build-workbook] WARN visual '#{rec['title'] || rec['visual_id']}' (#{kind}) has " \
+           "#{why} — element SKIPPED (would emit a source-less \"[]\" column the API rejects)."
+      record_unresolved(visual: (rec['title'] || rec['visual_id']), pbi_type: rec['visual_type'],
+                        sigma_kind: kind, severity: 'dropped', recoverable: !all_qrs.empty?,
+                        role_class: (role.empty? ? nil : role), visual_id: vid,
+                        detail: "#{kind} has #{why} — element skipped",
+                        action: (all_qrs.empty? ? 'Source visual carries no field bindings; nothing to recover.' \
+                                                : 'Add a resolvable master element for this visual in master-map.json and re-run.'))
+      return nil
+    end
+  end
+  # bead 8vzj: a Sigma element sources exactly ONE master. visual_master picks the
+  # one covering the MOST fields, but any bound field that cannot resolve on it
+  # (not its master and not among its `alts`) is silently DROPPED. Warn loudly so
+  # the agent supplies a single joined master (or per-field override) for those.
+  if master
+    unreachable = rec['bindings'].values.flatten.compact.reject do |qr|
+      fs = field_spec(qr, fields)
+      # master nil = absent from the master-map entirely; that case is owned by
+      # drop_unresolved_columns! (recorded as 'dropped', not double-counted here).
+      fs['master'].nil? ||
+        fs['master'] == master || Array(fs['alts']).any? { |a| a['master'] == master }
+    end.map { |qr| qr.to_s }.uniq
+    unless unreachable.empty?
+      warn "[build-workbook] WARN visual '#{(rec['title'] || rec['visual_id'])}' has field(s) " \
+           "#{unreachable.join(', ')} not reachable on the chosen master '#{master}'; a Sigma element " \
+           "sources only one master, so they will be DROPPED — point them at a single joined master element."
+      record_unresolved(visual: (rec['title'] || rec['visual_id']), pbi_type: rec['visual_type'],
+                        sigma_kind: kind, severity: 'degraded', recoverable: true,
+                        role_class: (role.empty? ? nil : role), visual_id: vid,
+                        detail: "field(s) #{unreachable.join(', ')} not reachable on master '#{master}' — dropped",
+                        action: "Add a single joined master element covering #{unreachable.join(', ')} " \
+                                'in master-map.json (a Sigma element sources exactly one master).')
+    end
+  end
+  # Record a non-native APPROXIMATION (e.g. treemap/funnel/gauge/kpiMatrix ->
+  # bar/kpi). `image` has its own dedicated coverage entry above and ALWAYS
+  # returns early (built, or recorded 'dropped') before reaching this point, so
+  # it never falls through to here. This is what makes the coverage report
+  # honest about "looks like the source" vs "same numbers".
+  #
+  # Gated on rec['approximate'] when present (the catalogs' authoritative
+  # signal, task 1) — NOT on visualType membership in an allowlist, which
+  # mis-flagged control-class visuals (a third-party slicer's visualType is
+  # never "native") and modern PBI types the catalog already resolves
+  # losslessly (e.g. cardVisual). A record with NO 'approximate' key at all
+  # predates task 1 (an old signals.json, or the build step re-run standalone)
+  # and falls back to the original NATIVE_VISUAL_TYPES allowlist so it keeps
+  # recording legacy approximations (e.g. a bare `treemap`) instead of silently
+  # recording none. A `control` is NEVER approximated here regardless of either
+  # signal — losing or substituting a filter is a functional loss (see the
+  # 'dropped' skip above), never a cosmetic "looks a little different" one.
+  # beads-sigma-kvza.
+  approximated = rec.key?('approximate') ? rec['approximate'] : !NATIVE_VISUAL_TYPES.include?(vt)
+  if approximated && role != 'control'
+    warn "[build-workbook] WARN visual '#{name}': PBI visualType '#{shown_vt}' has no native " \
+         "Sigma element kind — approximated as #{kind}."
+    fallback_action = "Sigma has no native #{shown_vt}; the data is preserved as a #{kind}. " \
+                       'Accept or pick a different Sigma chart.'
+    record_unresolved(visual: name, pbi_type: shown_vt, sigma_kind: kind,
+                      severity: 'approximated', recoverable: false,
+                      role_class: (role.empty? ? nil : role), visual_id: vid,
+                      detail: "#{shown_vt} has no native Sigma element kind — approximated as #{kind}",
+                      action: (rec['viz_guidance'].to_s.empty? ? fallback_action : rec['viz_guidance'].to_s))
+  end
+  master_id = master && masters[master] ? masters[master]['id'] : nil
+  el = { 'id' => eid, 'kind' => kind, 'name' => name }
+  el['source'] = { 'elementId' => master_id, 'kind' => 'table' } if master_id
+  cols = []
+  qr_cids = {} # bead f972: queryRef -> built column id (for sort resolution)
+  b = rec['bindings']
+
+  case kind
+  when 'control'
+    # bead 14w(a)/6z5 + control-targeting wave (workstream B): a PBI slicer -> a
+    # Sigma `list` control bound to the sliced column on its master element.
+    # Valid shape (controls.md): controlType:list + controlId + mode +
+    # selectionMode + values[] + source{kind:source,...} + filters[]. The control
+    # defines NO columns of its own — it references master columns by id.
+    #
+    # TARGETING: a PBI slicer filters its whole page ACROSS related tables, so
+    # the control's filters[] gets one entry per master the slicer's filter
+    # reaches: the sliced table's own master(s) always, plus every master
+    # covering a table reachable via model relationships (one->many flow;
+    # bothDirections adds the reverse), plus derived/restructured elements
+    # (pseudo entities) that carry the sliced column. A slicer column that
+    # cannot be resolved to a real master column SKIPS the control with a LOUD
+    # warning — never silently wires the wrong column (the old `|| mcols.first`).
+    #
+    # role_class routing (above) means `kind` can be 'control' for a visual
+    # whose visualType is a third-party custom visual — those name their OWN
+    # binding roles for the sliced column (see control_slice_qr / beads-sigma-
+    # kvza), so the lookup is NOT hardcoded to the known PBI roles alone.
+    qr = control_slice_qr(b)
+    leaf = qr_leaf(qr, 'Filter')
+    ent  = qr.to_s.split('.').first
+    fs = qr && field_spec(qr, fields)
+    pmaster = fs && fs['master']
+    pm = pmaster && masters[pmaster]
+    pcol = pm && match_master_column(pm, leaf, ent)
+    if pm.nil? || pcol.nil?
+      warn "[build-workbook] ERROR slicer '#{name}' (#{vid}): column '#{qr}' does not resolve to a " \
+           "column on any master (resolved master=#{pmaster.inspect}) — control SKIPPED. " \
+           'Fix the master-map (or add the column to the master) and re-run; a control must ' \
+           'never be silently wired to the wrong column.'
+      $control_unbound << { 'sourceName' => "slicer #{name} (#{vid}) column #{qr}",
+                            'status' => 'unbound',
+                            'reason' => "column '#{qr}' resolves to no master column " \
+                                        "(master=#{pmaster.inspect}); dropped loudly rather than " \
+                                        'wired to a wrong column or shipped dead' }
+      record_unresolved(visual: name, pbi_type: 'slicer', sigma_kind: 'control',
+                        severity: 'dropped', recoverable: true, role_class: 'control', visual_id: vid,
+                        detail: "slicer column '#{qr}' resolves to no master column — control skipped",
+                        action: "Add column '#{qr}' to a master (or fix master-map.json) so the slicer can wire, then re-run.")
+      return nil
+    end
+    reach = MODEL_RELATIONSHIPS.any? || MODEL_TABLES.any? ? reachable_entities(ent) : [ent]
+    cov = entity_master_coverage(fields)
+    filters, wired, unwired = [], [], []
+    # PAGE-BASE targeting (report-build hardening): the page's ONE base master
+    # (forced_master) is what every visual on the page sources, so the control
+    # targets JUST the base table's column — the filter PROPAGATES to every
+    # visual for free. This replaces per-visual/multi-master targeting (which
+    # left KPIs/charts unfiltered) and the "passthrough column per visual" hack
+    # (which corrupted chart/pivot grouping → "No data"). NEVER add a passthrough
+    # column to a chart/pivot: source propagation carries the filter instead.
+    bbase = ($page_base_mode && forced_master && master == forced_master) ? masters[forced_master] : nil
+    bcol  = bbase && match_master_column(bbase, leaf, ent)
+    src_master, src_col = pm, pcol
+    if bbase && bcol
+      filters << { 'source' => { 'kind' => 'table', 'elementId' => bbase['id'] }, 'columnId' => bcol['id'] }
+      wired << forced_master
+      src_master, src_col = bbase, bcol
+    else
+      # Legacy / fallback: the base doesn't carry the sliced column (or per-visual
+      # mode) — wire every relationship-reachable master that carries it.
+      masters.each do |mname, mrec|
+        ents = cov.select { |_e, ms| ms.include?(mname) }.keys
+        real = MODEL_TABLES.any? ? (ents & MODEL_TABLES) : ents
+        pseudo = MODEL_TABLES.any? && real.empty?      # derived/restructured element
+        in_scope = (real & reach).any? || mname == pmaster
+        col = match_master_column(mrec, leaf, ent)
+        # pseudo elements: only when they actually carry the sliced column —
+        # column-name evidence is the best provenance we have for restructured
+        # (Dense Rank / time-intel / calc-table SQL) elements.
+        in_scope ||= pseudo && !col.nil?
+        next unless in_scope
+        if col.nil?
+          unwired << mname
+          next
+        end
+        filters << { 'source' => { 'kind' => 'table', 'elementId' => mrec['id'] }, 'columnId' => col['id'] }
+        wired << mname
+      end
+      if $page_base_mode && bbase.nil?
+        warn "[build-workbook] WARN slicer '#{name}': page base master does not carry sliced column " \
+             "'#{leaf}' — control falls back to multi-master targeting; page-base propagation will not " \
+             'cover visuals whose fields live only on the base. Add the sliced column to the base master.'
+      end
+    end
+    unless unwired.empty?
+      warn "[build-workbook] WARN slicer '#{name}': master(s) #{unwired.join(', ')} are in the " \
+           "slicer's relationship scope but carry no column matching '#{leaf}' — NOT wired. " \
+           'Charts on those masters will not respond to this control; add the related column ' \
+           'to the master (cross-element ref) to wire it.'
+    end
+    ctl_id = (title_leaf(qr) || leaf).gsub(/[^A-Za-z0-9]/, '') + 'Filter'
+    n = ($used_control_ids[ctl_id] += 1)
+    ctl_id = "#{ctl_id}#{n}" if n > 1     # two slicers on one column: unique ids
+    el['kind'] = 'control'
+    el['controlId'] = ctl_id
+    # Friendly naming: a slicer's label is routinely the RAW warehouse column
+    # ("IS Active IND"); Title-Case it ("Is Active Ind"). Explicit human titles
+    # and preserved acronyms (Customer ID) pass through unchanged.
+    el['name'] = PbiReportBuild.friendly_label(name)
+    # Control kind is COMPOSITIONAL (list vs date-range depends on the sliced
+    # column's TMSL type), so it stays as code — but the two target kinds are
+    # grounded in refs/catalogs/control.json (CTL_CAT), cited to the PBI slicer
+    # + Sigma control docs, so the literals can't drift. beads-sigma-kvza.
+    #
+    # A custom visual's `sigma_target` (viz-kind/custom-visual catalog) can
+    # supply a date-range classification when no --model TMSL is available to
+    # answer from the column's real type. But it can also come from the
+    # generic NAME heuristic (pbi_viz_kind's slicer/date hint regex), which is
+    # deliberately conservative and can mismatch — same rule as
+    # tmsl_boolean_column? above ("a modeled non-boolean column is
+    # authoritative — do NOT guess from its name"): the TMSL model, when
+    # present, is authoritative and checked FIRST; the catalog's classification
+    # is trusted ONLY as a fallback when there is no model to consult at all.
+    if tmsl_date_column?(ent, leaf) || (MODEL_TABLES.empty? && rec['sigma_target'] == 'date-range')
+      # date-typed slicer -> date-range control. A `list` control bound to a
+      # datetime column gets its filter targets SILENTLY STRIPPED by Sigma
+      # (estate-repair gotcha) — the control posts, then filters nothing.
+      # date-range needs no `source` (columns come from `filters`) but DOES
+      # require a flat `mode` — without it the POST 400s with the misleading
+      # "Invalid kind: control" (live-verified 2026-06-12).
+      el['controlType'] = CTL_CAT.target('slicer:date') # -> 'date-range'
+      el['mode'] = 'between'
+      el['includeNulls'] = 'when-no-value-is-selected'
+    else
+      el['controlType'] = CTL_CAT.target('slicer')      # -> 'list' (documented default)
+      el['mode'] = 'include'
+      el['selectionMode'] = 'multiple'
+      # BOOLEAN-AWARE default (report-build hardening): a boolean-typed slicer
+      # must NOT ship the string-slicer template `mode:include + values:[]` —
+      # Sigma treats an unset boolean `include` list as "include NOTHING" and
+      # ZEROES every targeted element (verified on live migrations). Seed the
+      # full boolean domain (true/false) so an unset control includes everything
+      # = no filter, matching a PBI boolean slicer with nothing selected. String
+      # slicers keep the empty default (there, empty `include` correctly = all).
+      if tmsl_boolean_column?(ent, leaf)
+        el['values'] = PbiReportBuild.boolean_domain_values
+        warn "[build-workbook] slicer '#{name}': boolean column '#{leaf}' -> list control seeded with " \
+             'the full boolean domain (true/false) so an unset control does NOT zero its targets ' \
+             '(an empty boolean include list means "include nothing" in Sigma).'
+      else
+        el['values'] = []
+      end
+      el['source'] = { 'kind' => 'source', 'source' => { 'kind' => 'table', 'elementId' => src_master['id'] }, 'columnId' => src_col['id'] }
+    end
+    el['filters'] = filters
+    $control_scope << { 'controlId' => ctl_id,
+                        'sourceName' => "slicer #{name} (#{vid}) column #{qr}",
+                        'status' => 'wired',
+                        'reachableTables' => reach,
+                        'wiredMasters' => wired,
+                        'unwiredMasters' => unwired,
+                        # internal (stripped before write): resolved to the
+                        # scope allowlist + excluded[] at page assembly.
+                        '_visual_id' => vid,
+                        '_leaf' => leaf,
+                        '_wired_ids' => filters.map { |f| f.dig('source', 'elementId') },
+                        'scope' => [], 'excluded' => [] }
+  when 'kpi-chart'
+    # A single-value PBI card -> kpi-chart. A multiRowCard (multiple Values) ->
+    # ONE kpi-chart tile per measure (bead x81l: a kpi-chart renders only
+    # value.id, so a flat table or single-value KPI would drop the rest).
+    # Returns an ARRAY here; the page/layout assembly flattens + tiles them.
+    vals = (b['Values'] || b['Y'] || [])
+    if vals.length > 1
+      return vals.each_with_index.map do |qr, i|
+        fs = field_spec(qr, fields, master)
+        kid = "#{eid}-k#{i}"
+        col = { 'id' => "#{kid}-v", 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+        apply_fmt(col, qr, fields, vfmts)
+        e = { 'id' => kid, 'kind' => 'kpi-chart', 'name' => qr_leaf(qr),
+              'columns' => [col], 'value' => { 'columnId' => "#{kid}-v" },
+              'layout' => { 'titleOrient' => 'bottom', 'anchor' => PbiStyle.kpi_anchor(rec['value_align']) } }
+        e['source'] = { 'elementId' => master_id, 'kind' => 'table' } if master_id
+        # Style fidelity: abbreviate the card value (early return skips the tail).
+        PbiStyle.abbreviate_measures!(e, rec['display_units'], 'kpi-chart')
+        e
+      end
+    end
+    qr = vals.first
+    fs = field_spec(qr, fields, master)
+    cid = "#{eid}-v"
+    col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr, 'Value') }
+    apply_fmt(col, qr, fields, vfmts)
+    cols << col
+    # KPI value binds by `columnId` (the API rejects `{id}` -> "value.columnId:
+    # Invalid string"; live readback also normalizes to columnId). NB: pie/donut
+    # `value` uses `{id}` — do not change that one.
+    el['value'] = { 'columnId' => cid }
+    # Style fidelity — reproduce the PBI card look: value in the theme accent
+    # (PBI card `labels.color`, captured as rec['value_color']; else the palette
+    # accent), with the caption in neutral gray BELOW the value (titleOrient).
+    el['value']['color'] = rec['value_color'] || $pbi_accent
+    # BUG 3: an element `name` MUST be a plain String — a {text:, color:} Hash
+    # crashes validate-spec.rb (String vs Hash compare) and is not a valid spec
+    # shape. Emit the caption as a String; the value color above already carries
+    # the styling, so the neutral caption color is dropped (matches the
+    # multiRowCard branch, which also names its KPIs with a plain String).
+    el['name'] = qr_leaf(qr, 'Value')
+    # Style fidelity: caption below the value (titleOrient), and CENTER the card
+    # contents (anchor) — PBI stat cards center; overridable from a PBI alignment
+    # signal. Abbreviation of the value column happens in the shared tail below.
+    el['layout'] = { 'titleOrient' => 'bottom', 'anchor' => PbiStyle.kpi_anchor(rec['value_align']) }
+  when 'region-map'
+    loc = (b['Category'] || b['Location'] || []).first
+    meas = (b['Y'] || b['Values'] || []).first
+    dfs = field_spec(loc, fields, master)
+    dcid = "#{eid}-r"
+    cols << { 'id' => dcid, 'formula' => dfs['ref'], 'name' => qr_leaf(loc, 'Region') }
+    qr_cids[loc] = dcid
+    el['region'] = { 'id' => dcid, 'regionType' => rec['_region_type'] }
+    if meas
+      fs = field_spec(meas, fields, master)
+      vcid = "#{eid}-v"
+      col = { 'id' => vcid, 'formula' => measure_formula(fs), 'name' => qr_leaf(meas) }
+      apply_fmt(col, meas, fields, vfmts)
+      cols << col
+      qr_cids[meas] = vcid
+      el['color'] = { 'by' => 'scale', 'column' => vcid }
+    end
+    if (srs = (b['Series'] || b['Legend'] || []).first)
+      warn "[build-workbook] WARN visual '#{name}': region-map colors by the measure scale — "            "PBI legend '#{srs}' dropped (no categorical legend on a Sigma region map)."
+      record_unresolved(visual: name, pbi_type: 'map', sigma_kind: 'region-map',
+                        severity: 'degraded', recoverable: false,
+                        role_class: rec['role_class'], visual_id: rec['visual_id'],
+                        detail: "categorical legend '#{srs}' dropped — Sigma region maps color by a measure scale only",
+                        action: 'Sigma region maps have no categorical legend; the map colors by the measure scale instead.')
+    end
+  when 'point-map'
+    latq = (b['Latitude'] || []).first
+    lngq = (b['Longitude'] || []).first
+    lfs = field_spec(latq, fields, master); gfs = field_spec(lngq, fields, master)
+    lcid = "#{eid}-lat"; gcid = "#{eid}-lng"
+    cols << { 'id' => lcid, 'formula' => lfs['ref'], 'name' => qr_leaf(latq, 'Latitude') }
+    cols << { 'id' => gcid, 'formula' => gfs['ref'], 'name' => qr_leaf(lngq, 'Longitude') }
+    el['latitude'] = { 'id' => lcid }
+    el['longitude'] = { 'id' => gcid }
+    if (szq = (b['Size'] || b['Y'] || b['Values'] || []).first)
+      fs = field_spec(szq, fields, master)
+      scid = "#{eid}-sz"
+      col = { 'id' => scid, 'formula' => measure_formula(fs), 'name' => qr_leaf(szq, 'Size') }
+      apply_fmt(col, szq, fields, vfmts)
+      cols << col
+      el['size'] = { 'id' => scid }
+    end
+  when 'bar-chart', 'line-chart', 'area-chart'
+    # b['Group'] is the treemap/funnel category role (1zh9) — alias it to the dim
+    # so a treemap-as-bar fallback keeps its category instead of emitting '[]'.
+    dim_role = (b['Category'] || b['Axis'] || b['X'] || b['Group'] || [])
+    dim = dim_role.first
+    # bead hjke(c): a PBI date-hierarchy role carries one queryRef PER LEVEL
+    # (Year/Quarter/Month/Day). The extractors keep only the ACTIVE drill level
+    # when the report records one (activeProjections / active flag); if multiple
+    # levels still arrive here we can only bind the first — warn that the drill
+    # depth was reduced so the agent can re-point the dim at the intended level.
+    if dim_role.length > 1 &&
+       dim_role.all? { |q| q.to_s =~ /hierarchy/i || q.to_s =~ /\.(Year|Quarter|Month|Week|Day|Date)\s*\z/i }
+      warn "[build-workbook] WARN visual '#{name}': date hierarchy with #{dim_role.length} levels " \
+           "reduced to '#{dim}' — deeper drill levels (#{dim_role[1..].join(', ')}) dropped."
+      # the deeper levels are genuinely DISCARDED — tell the binding ledger, or it
+      # reports them 'resolved' and the gate under-counts the loss.
+      mark_bindings_dropped!(rec['visual_id'], dim_role[1..])
+      record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: kind,
+                        severity: 'degraded', recoverable: true,
+                        role_class: rec['role_class'], visual_id: rec['visual_id'],
+                        detail: "date hierarchy reduced to '#{dim}' — deeper levels (#{dim_role[1..].join(', ')}) dropped",
+                        action: "Re-point the axis dim at the intended drill level in master-map.json; " \
+                                'deeper PBI drill-down levels map to Sigma UI drill, not a single chart.')
+    end
+    meas = (b['Y'] || b['Values'] || [])
+    series = (b['Series'] || b['Legend'] || []).first
+    dfs = field_spec(dim, fields, master)
+    dcid = "#{eid}-x"
+    cols << { 'id' => dcid, 'formula' => dfs['ref'], 'name' => qr_leaf(dim, 'Dim') }
+    qr_cids[dim] = dcid if dim
+    ycids = []
+    meas.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master)
+      cid = "#{eid}-y#{i}"
+      col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+      apply_fmt(col, qr, fields, vfmts)
+      cols << col
+      ycids << cid
+      qr_cids[qr] = cid
+    end
+    el['xAxis'] = { 'columnId' => dcid }
+    el['yAxis'] = { 'columnIds' => ycids }
+    # PBI sort-by-column: bind the hidden sort field and order the axis by it
+    # (model FiscalMonth sorts by Period; alphabetical months otherwise).
+    if dim && (sort_qr = ($sort_by_column || {})[dim.to_s.downcase])
+      sfs = fields[sort_qr] || fields.find { |k, _| k.to_s.downcase == sort_qr.downcase }&.last
+      if sfs && (sfs['master'] == master || Array(sfs['alts']).any? { |a| a['master'] == master })
+        scol_id = "#{eid}-sortcol"
+        cols << { 'id' => scol_id, 'formula' => (sfs['master'] == master ? sfs['ref'] : Array(sfs['alts']).find { |a| a['master'] == master }['ref']), 'name' => qr_leaf(sort_qr, 'Sort'), 'hidden' => true }
+        el['xAxis']['sort'] = { 'by' => scol_id, 'direction' => 'ascending' }
+      else
+        warn "[build-workbook] WARN visual '#{name}': model sorts '#{dim}' by '#{sort_qr}' but that field is not in the master-map — axis will sort alphabetically; add it to fields to fix."
+      end
+    end
+    # PBI *Bar* visuals are horizontal; *Column* visuals vertical. Sigma keeps the
+    # same xAxis(category)/yAxis(value) binding and flips rendering via this flag.
+    # Only "horizontal" is a valid value — vertical = omit (Sigma default).
+    el['orientation'] = 'horizontal' if kind == 'bar-chart' && rec['orientation'] == 'horizontal'
+    # Stacking fidelity: emit explicitly so a multi-series clustered PBI chart does
+    # NOT inherit Sigma's stacked default. PBI clustered->"none", stacked->"stacked",
+    # 100%-stacked->"100".
+    # Stacking enum is none|stacked|normalized (OpenAPI BarChart.stacking;
+    # "normalized" = scaled to 100%). extract-pbir already maps PBI 100%-stacked
+    # -> "normalized", so pass it through verbatim (bead pi8v).
+    el['stacking'] = rec['stacking'] if %w[bar-chart area-chart].include?(kind) && rec['stacking']
+    # bead n9u9: honor the PBI per-visual data-label signal (objects.labels show)
+    # when the extractor provided one: true -> shown, false -> omit (Sigma default
+    # is off). Verified `dataLabel:{labels:"shown"}` persists + renders for bar AND
+    # line. Back-compat when the signal is nil/absent: bar shown, line/area clean.
+    dl = rec['data_labels']
+    el['dataLabel'] = { 'labels' => 'shown' } if dl == true || (dl.nil? && kind == 'bar-chart')
+    # c07: default to single series. Only split by color when PBI bound a
+    # Series/Legend role. Never auto-color a line by a dimension that PBI did
+    # not legend (see refs/measure-patterns.md §1 + §4).
+    if series
+      sfs = field_spec(series, fields, master)
+      scid = "#{eid}-c"
+      cols << { 'id' => scid, 'formula' => sfs['ref'], 'name' => qr_leaf(series, 'Series') }
+      qr_cids[series] = scid
+      el['color'] = { 'by' => 'category', 'column' => scid }
+    else
+      # bead (B) by-measure color: only when PBI did NOT bind a categorical
+      # Series/Legend (that wins — a column can't be on color twice).
+      cc = measure_color_channel(rec, fields, master, vfmts, eid, cols, ycids)
+      el['color'] = cc if cc
+    end
+    # bead (A) reference lines / trend line -> Sigma refMarks / trendlines.
+    rms = build_ref_marks(rec)
+    el['refMarks'] = rms unless rms.empty?
+    tls = build_trendlines(rec, ycids)
+    el['trendlines'] = tls unless tls.empty?
+  when 'combo-chart'
+    # bead 6v5u: PBI lineClustered/StackedColumnComboChart -> Sigma combo. Roles:
+    # Category (x), Y (columns -> primary/left axis), Y2 (lines -> secondary/right
+    # axis). Dual-axis persists via the bare-string-vs-object form of
+    # yAxis.columnIds (feedback_sigma_combo_dual_axis): bare string = primary,
+    # {columnId, type:'line'} = secondary line.
+    dim = (b['Category'] || b['Axis'] || b['X'] || []).first
+    col_meas  = (b['Y'] || b['Values'] || [])
+    line_meas = (b['Y2'] || [])
+    dfs = field_spec(dim, fields, master)
+    dcid = "#{eid}-x"
+    cols << { 'id' => dcid, 'formula' => dfs['ref'], 'name' => qr_leaf(dim, 'Dim') }
+    qr_cids[dim] = dcid if dim
+    ycids = []
+    col_meas.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master)
+      cid = "#{eid}-y#{i}"
+      col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+      apply_fmt(col, qr, fields, vfmts)
+      cols << col
+      ycids << cid                                   # bare string -> primary (left) bars
+      qr_cids[qr] = cid
+    end
+    line_meas.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master)
+      cid = "#{eid}-l#{i}"
+      col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+      apply_fmt(col, qr, fields, vfmts)
+      cols << col
+      ycids << { 'columnId' => cid, 'type' => 'line' } # object -> secondary (right) line
+      qr_cids[qr] = cid
+    end
+    el['xAxis'] = { 'columnId' => dcid }
+    el['yAxis'] = { 'columnIds' => ycids }
+    # bead (B) by-measure color on the combo's primary bars.
+    cc = measure_color_channel(rec, fields, master, vfmts, eid, cols, ycids)
+    el['color'] = cc if cc
+    # bead (A) reference lines / trend line.
+    rms = build_ref_marks(rec)
+    el['refMarks'] = rms unless rms.empty?
+    tls = build_trendlines(rec, ycids)
+    el['trendlines'] = tls unless tls.empty?
+  when 'scatter-chart'
+    # bead 14w(b): scatter -> xAxis (measure), yAxis (measure), point category for
+    # color/detail. PBI scatter binds X + Y (both measures) and a Category/Details.
+    xqr = (b['X'] || b['Values'] || []).first
+    yqr = (b['Y'] || []).first
+    detail = (b['Category'] || b['Details'] || b['Series'] || b['Legend'] || []).first
+    sizeqr = (b['Size'] || []).first
+    xfs = field_spec(xqr, fields, master); yfs = field_spec(yqr, fields, master)
+    is_meas = ->(fs) { measure_ref?(fs) }
+    if is_meas.call(xfs) && detail && master_id
+      # bead ry0n: Sigma's scatter xAxis is a GROUPING axis — binding an AGGREGATE
+      # to it makes the aggregate evaluate per-row (Count -> 1) and every point
+      # collapses to x=1. Verified fix: pre-aggregate in a HIDDEN grouped source
+      # table on the Data page (dim + x/y[/size] aggregates, grouped by the dim),
+      # then point the scatter at it with ALL-RAW column refs. The detail dim MUST
+      # stay on color:{by:category} — points sharing an x merge to a null y
+      # without it.
+      dfs   = field_spec(detail, fields, master)
+      dname = qr_leaf(detail, 'Detail'); xname = qr_leaf(xqr, 'X'); yname = qr_leaf(yqr, 'Y')
+      src_id   = "#{eid}-src"
+      src_name = "Scatter Source #{short(vid)}"   # unique name: raw refs resolve [Name/Col]
+      gd = "#{src_id}-d"; gx = "#{src_id}-x"; gy = "#{src_id}-y"
+      gcols = [
+        { 'id' => gd, 'formula' => dfs['ref'], 'name' => dname },
+        apply_fmt({ 'id' => gx, 'formula' => measure_formula(xfs), 'name' => xname }, xqr, fields, vfmts),
+        apply_fmt({ 'id' => gy, 'formula' => measure_formula(yfs), 'name' => yname }, yqr, fields, vfmts)
+      ]
+      calc_ids = [gx, gy]
+      szname = nil
+      if sizeqr
+        szfs = field_spec(sizeqr, fields, master)
+        if is_meas.call(szfs)
+          szname = qr_leaf(sizeqr, 'Size')
+          # avoid a display-name collision with x/y (e.g. Size bound to the same measure)
+          szname = "#{szname} (Size)" if [dname, xname, yname].include?(szname)
+          gsz = "#{src_id}-s"
+          gcols << apply_fmt({ 'id' => gsz, 'formula' => measure_formula(szfs), 'name' => szname }, sizeqr, fields, vfmts)
+          calc_ids << gsz
+        else
+          warn "[build-workbook] WARN scatter '#{name}': Size role '#{sizeqr}' is not a measure — size DROPPED."
+          record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: 'scatter-chart',
+                            severity: 'degraded', recoverable: false,
+                            role_class: rec['role_class'], visual_id: rec['visual_id'],
+                            detail: "scatter Size role '#{sizeqr}' is not a measure — bubble size dropped",
+                            action: 'A Sigma scatter size dimension must be a measure; bind an aggregatable field to Size.')
+        end
+      end
+      extra_data << { 'id' => src_id, 'kind' => 'table', 'name' => src_name,
+                      'source' => { 'elementId' => master_id, 'kind' => 'table' },
+                      'columns' => gcols,
+                      'groupings' => [{ 'id' => "#{src_id}-g", 'groupBy' => [gd], 'calculations' => calc_ids }],
+                      'visibleAsSource' => false }
+      el['source'] = { 'elementId' => src_id, 'kind' => 'table' }
+      dcid = "#{eid}-d"; xcid = "#{eid}-x"; ycid = "#{eid}-y"
+      cols << { 'id' => dcid, 'formula' => "[#{src_name}/#{dname}]", 'name' => dname }
+      cols << apply_fmt({ 'id' => xcid, 'formula' => "[#{src_name}/#{xname}]", 'name' => xname }, xqr, fields, vfmts)
+      cols << apply_fmt({ 'id' => ycid, 'formula' => "[#{src_name}/#{yname}]", 'name' => yname }, yqr, fields, vfmts)
+      el['xAxis'] = { 'columnId' => xcid }
+      el['yAxis'] = { 'columnIds' => [ycid] }
+      el['color'] = { 'by' => 'category', 'column' => dcid }   # REQUIRED (see above)
+      if szname
+        szcid = "#{eid}-s"
+        cols << apply_fmt({ 'id' => szcid, 'formula' => "[#{src_name}/#{szname}]", 'name' => szname }, sizeqr, fields, vfmts)
+        el['size'] = { 'id' => szcid }
+      end
+    else
+      warn "[build-workbook] WARN scatter '#{name}': measure X with no Details/Category dim — " \
+           'points will collapse to one x value.' if is_meas.call(xfs) && !detail
+      xcid = "#{eid}-x"; ycid = "#{eid}-y"
+      cx = { 'id' => xcid, 'formula' => measure_formula(xfs), 'name' => qr_leaf(xqr, 'X') }
+      cy = { 'id' => ycid, 'formula' => measure_formula(yfs), 'name' => qr_leaf(yqr, 'Y') }
+      apply_fmt(cx, xqr, fields, vfmts); apply_fmt(cy, yqr, fields, vfmts)
+      cols << cx << cy
+      el['xAxis'] = { 'columnId' => xcid }
+      el['yAxis'] = { 'columnIds' => [ycid] }
+      if detail
+        dfs = field_spec(detail, fields, master)
+        dcid = "#{eid}-d"
+        cols << { 'id' => dcid, 'formula' => dfs['ref'], 'name' => qr_leaf(detail, 'Detail') }
+        el['color'] = { 'by' => 'category', 'column' => dcid }
+      end
+      if (b['Size'] || []).first
+        warn "[build-workbook] WARN scatter '#{name}': Size role '#{(b['Size'] || []).first}' DROPPED " \
+             '(ungrouped scatter path).'
+        record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: 'scatter-chart',
+                          severity: 'degraded', recoverable: true,
+                          role_class: rec['role_class'], visual_id: rec['visual_id'],
+                          detail: "scatter Size role '#{(b['Size'] || []).first}' dropped (ungrouped scatter path)",
+                          action: 'Add a Details/Category dimension in master-map.json so the scatter groups and the Size measure can bind.')
+      end
+    end
+    # PBI legend.show=false -> hide the Sigma legend (the detail-on-color split
+    # otherwise surfaces a legend PBI did not show).
+    el['legend'] = { 'visibility' => 'hidden' } if rec['legend'] == false
+    # bead (A) reference lines on a scatter (e.g. a margin-target line at x=0.45).
+    rms = build_ref_marks(rec)
+    el['refMarks'] = rms unless rms.empty?
+  when 'pie-chart', 'donut-chart'
+    dim = (b['Category'] || b['Legend'] || []).first
+    val = (b['Values'] || b['Y'] || []).first
+    dfs = field_spec(dim, fields, master); vfs = field_spec(val, fields, master)
+    dcid = "#{eid}-c"; vcid = "#{eid}-v"
+    # Style fidelity: PBI labels a null slice "(Blank)" and sorts it FIRST, so its
+    # color lands on the palette's scheme[0]. Sigma sorts null LAST, which misaligns
+    # the whole categoricalScheme on donut/pie (per-element color.scheme is dropped
+    # there — theme palette is the only lever). Coalescing null -> "(Blank)" both
+    # matches PBI's label and sorts ahead of letters ("(" < "A"), so every slice
+    # gets the same color PBI gave it. Only wrap a bare column ref.
+    dim_ref = dfs['ref']
+    dim_ref = %(Coalesce(#{dim_ref}, "(Blank)")) if dim_ref.to_s =~ /\A\[[^\]]+\]\z/
+    cols << { 'id' => dcid, 'formula' => dim_ref, 'name' => qr_leaf(dim, 'Dim') }
+    cv = { 'id' => vcid, 'formula' => measure_formula(vfs), 'name' => qr_leaf(val, 'Value') }
+    apply_fmt(cv, val, fields, vfmts)
+    cols << cv
+    qr_cids[dim] = dcid if dim
+    qr_cids[val] = vcid if val
+    el['color'] = { 'id' => dcid }
+    el['value'] = { 'id' => vcid }
+    # value labels on pie/donut slices — honor an explicit PBI labels-off signal
+    # (bead n9u9); default (nil/absent) keeps the labels shown as before.
+    unless rec['data_labels'] == false
+      dl = { 'labels' => 'shown' }
+      # Style fidelity: map PBI's detail-label style -> Sigma donut labelDisplay,
+      # so a "percent of total" donut migrates as % (not raw $). Only emit when PBI
+      # named a style; absent -> value labels as before (no blind percent default).
+      ls = rec['label_style'].to_s.downcase
+      disp = if ls.include?('percent') && (ls.include?('category') || ls.include?('detail'))
+               'color-percent'
+             elsif ls.include?('percent')
+               'percent'
+             elsif ls.include?('category') && ls.include?('data value')
+               'color-value'
+             end
+      if disp
+        dl['labelDisplay'] = disp
+        dl['precision'] = 1 if disp.include?('percent')
+      end
+      el['dataLabel'] = dl
+    end
+  when 'table'
+    # A plain table with measure columns renders FLAT/ungrouped unless it has a
+    # grouping whose `calculations` lists the measure col ids (bead 14w(f)).
+    # The first non-aggregated (dimension) column becomes the groupBy; every
+    # aggregated column id goes into that grouping's calculations[].
+    # bead ne48: group by ALL leading dimension columns, not just the first —
+    # otherwise a 2-dim matrix collapses to the wrong grain. A field with an
+    # explicit `formula` (bead qb2i window calc) is a calculation, never a groupBy.
+    group_ids = []; calc_ids = []
+    (b['Values'] || []).each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master)
+      cid = "#{eid}-c#{i}"
+      is_dim = !measure_ref?(fs)
+      col = { 'id' => cid, 'formula' => is_dim ? fs['ref'] : measure_formula(fs),
+              'name' => qr_leaf(qr) }
+      apply_fmt(col, qr, fields, vfmts) unless is_dim
+      cols << col
+      qr_cids[qr] = cid
+      if is_dim
+        group_ids << cid
+      else
+        calc_ids << cid
+      end
+    end
+    if !group_ids.empty? && !calc_ids.empty?
+      # E-08: a time-intelligence calc (DateLookback / CumulativeSum) needs a DATE
+      # column in the grouping or it compiles to type:error at runtime. Warn when
+      # one is inlined into a purely categorical grouping (e.g. "Revenue vs PY %"
+      # in a customer/segment table) — the measure should instead be routed
+      # through a date-grouped prior-period element (see dax-restructure-patterns.rb).
+      time_intel = /\b(DateLookback|CumulativeSum)\s*\(/i
+      grouped_on_date = group_ids.any? do |gid|
+        f = (cols.find { |c| c['id'] == gid } || {})['formula'].to_s
+        f =~ /\b(date|month|year|quarter|week|day)\b/i || f =~ /DateTrunc\s*\(/i
+      end
+      unless grouped_on_date
+        cols.each do |c|
+          next unless calc_ids.include?(c['id']) && c['formula'].to_s =~ time_intel
+          dim_names = group_ids.map { |g| (cols.find { |x| x['id'] == g } || {})['name'] }.compact.join(', ')
+          warn "[build-workbook] WARN visual '#{name}': time-intel column '#{c['name']}' is inlined " \
+               "into a table grouped only by categorical column(s) (#{dim_names}) — Sigma " \
+               "DateLookback/CumulativeSum needs a date-grouped context and will compile to " \
+               "type:error. Route this measure through a date-grouped prior-period element."
+        end
+      end
+      el['groupings'] = [{ 'id' => "#{eid}-g", 'groupBy' => group_ids, 'calculations' => calc_ids }]
+      # Style fidelity: PBI tableEx/matrix show a Grand Total row; a grouped Sigma
+      # `table` can't render one, but a pivot-table can. When PBI showed totals,
+      # re-express the grouped table as a pivot (rowsBy=dims, values=measures) so
+      # the total row survives — matches PBI's tableEx/matrix Total row.
+      if rec['show_totals']
+        el['kind'] = 'pivot-table'
+        el.delete('groupings')
+        el['rowsBy'] = group_ids.map { |id| { 'id' => id } }
+        el['columnsBy'] = []
+        el['values'] = calc_ids
+        el['totals'] = pbi_totals_block
+      end
+    end
+  when 'pivot-table'
+    rows = (b['Rows'] || b['Category'] || [])
+    colsby = (b['Columns'] || [])   # bead 14w(d): PBI Columns role -> pivot columnsBy
+    vals = (b['Values'] || [])
+    rowids = []
+    rows.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master); cid = "#{eid}-r#{i}"
+      cols << { 'id' => cid, 'formula' => fs['ref'], 'name' => qr_leaf(qr) }
+      rowids << cid
+    end
+    colids = []
+    colsby.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master); cid = "#{eid}-col#{i}"
+      cols << { 'id' => cid, 'formula' => fs['ref'], 'name' => qr_leaf(qr) }
+      colids << cid
+    end
+    valids = []
+    vals.each_with_index do |qr, i|
+      fs = field_spec(qr, fields, master); cid = "#{eid}-v#{i}"
+      col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+      apply_fmt(col, qr, fields, vfmts)
+      cols << col
+      valids << cid
+    end
+    # rowsBy + values REQUIRED or the pivot collapses to one grand-total cell
+    # (memory: feedback_sigma_pivot_rowsby_columnsby). columnsBy is the PBI
+    # Columns role (bead 14w(d)) — without it a Rows×Columns matrix flattens.
+    el['rowsBy'] = rowids.map { |id| { 'id' => id } }
+    el['columnsBy'] = colids.map { |id| { 'id' => id } } unless colids.empty?
+    el['values'] = valids
+    # Style fidelity: PBI matrices show a Grand Total row/column by default.
+    # Reproduce it (bold, last) unless the source explicitly turned totals off.
+    el['totals'] = pbi_totals_block unless rec['show_totals'] == false
+  end
+
+  # bead f972: carry the PBI visual's sort onto the built element (runs AFTER the
+  # case so a grouped table's sort can nest inside its grouping entry).
+  apply_sort(el, kind, rec, qr_cids, name, cols)
+
+  # Conditional formatting (color scales / data bars) on table + pivot-table.
+  # Runs AFTER the case so it sees the final kind (a totals-bearing table is
+  # re-expressed as a pivot-table above) — the column ids in qr_cids are unchanged.
+  if %w[table pivot-table].include?(el['kind'])
+    cf = build_conditional_formats(rec, qr_cids, name, el['kind'])
+    el['conditionalFormats'] = cf if cf
+  end
+
+  # Controls reference a master column; they carry no columns array of their own.
+  el['columns'] = cols unless el['kind'] == 'control'
+  # Power BI "Small multiples" field well -> Sigma native `trellis` (detection-
+  # gated: no SmallMultiples role -> no-op, byte-identical build). Runs after the
+  # columns are attached so the facet joins a real columns[] and before
+  # drop_unresolved_columns! so the (reachable) facet column is retained.
+  apply_small_multiples!(el, rec, fields, master, eid, qr_cids) unless el['kind'] == 'control'
+  # Style fidelity (refs/style-fidelity.md §5-7) — applied AFTER columns are
+  # attached so the measure-column formats exist to rewrite:
+  #   §5 number abbreviation — KPI/chart measure columns render compact ("$126k")
+  #       to match PBI's default "Auto" display units (tables keep full precision).
+  #   §7 presentation table style — PBI matrices/tableEx read as roomy tables.
+  # (KPI anchor §6 is set in the kpi-chart branch, next to titleOrient.)
+  PbiStyle.abbreviate_measures!(el, rec['display_units'], el['kind'])
+  PbiStyle.presentation_table!(el, el['kind'])
+  # bead miu7: never ship an unresolved literal-ref column (type=error). Drop it
+  # and prune its references — the tile degrades honestly into coverage instead.
+  drop_unresolved_columns!(el, rec, kind) unless el['kind'] == 'control'
+  # FAIL-LOUD binding guard (report-build hardening): after the drop pass, a
+  # chart/KPI that lost its essential binding (an xAxis-less bar with a yAxis
+  # measure aggregated into one giant bar; a KPI with no value; a chart with no
+  # measures) must not ship SILENTLY. Emit a visible warning + a coverage entry
+  # so the gap surfaces in the per-report summary instead of a mystery empty
+  # tile. This is the safety net behind page-base sourcing (which normally keeps
+  # every raw column on the one base so bindings resolve).
+  check_binding_complete!(el, rec) unless el['kind'] == 'control'
+  # Track 3b: queryRef -> built column id, so a visual filter can resolve its
+  # target to a column this element actually projects (element filters reference
+  # the element's own columns). Transient — stripped before the spec is written.
+  el['_qr_cids'] = qr_cids
+  el
+end
+
+# Verify a built chart/KPI still carries the binding it needs to render, AFTER
+# unresolved columns were dropped. Warns loudly + records coverage on a miss —
+# the fail-loud counterpart to the silent xAxis-drop / measure-drop defects.
+def check_binding_complete!(el, rec)
+  kind = el['kind']
+  name = el['name'].is_a?(Hash) ? el['name']['text'] : el['name'].to_s
+  miss = nil
+  case kind
+  when 'bar-chart', 'line-chart', 'area-chart', 'combo-chart'
+    ycount = Array(el.dig('yAxis', 'columnIds')).length
+    miss = 'lost its category/dimension (xAxis) — it will aggregate every row into one mark' if el['xAxis'].nil? || el.dig('xAxis', 'columnId').nil?
+    miss = 'has no measure on its yAxis' if ycount.zero?
+  when 'kpi-chart'
+    miss = 'has no value binding' if el.dig('value', 'columnId').nil? && el.dig('value', 'id').nil?
+  when 'pie-chart', 'donut-chart'
+    miss = 'has no value binding' if el.dig('value', 'id').nil? && el.dig('value', 'columnId').nil?
+  when 'table', 'pivot-table'
+    miss = 'has no columns' if Array(el['columns']).empty?
+  end
+  return unless miss
+  warn "[build-workbook] WARN visual '#{name}' (#{kind}) #{miss} after unresolvable fields were dropped — " \
+       'building it anyway but it will not render as intended; check the master-map covers this visual\'s ' \
+       'dimension AND every measure on the page base table.'
+  record_unresolved(visual: name, pbi_type: rec['visual_type'], sigma_kind: kind,
+                    severity: 'degraded', recoverable: true,
+                    role_class: rec['role_class'], visual_id: rec['visual_id'],
+                    detail: "#{kind} #{miss}",
+                    action: 'Ensure the page base master carries this visual\'s dimension and measure columns ' \
+                            '(map the queryRefs in master-map.json), then re-run.')
+end
+
+# ---- assemble pages -------------------------------------------------------
+data_elements = masters.map do |_name, m|
+  {
+    'id' => m['id'], 'kind' => 'table', 'name' => m['id'].sub(/^master-/, '').upcase[0, 6],
+    'source' => { 'dataModelId' => (m['data_model'] || opts[:dm]),
+                  'elementId' => m['element_id'], 'kind' => 'data-model' },
+    'columns' => (m['columns'] || []),
+    'visibleAsSource' => false
+  }
+end
+
+# bead ry0n: hidden helper elements (scatter grouped sources) accumulate here
+# and are appended to the Data page below.
+extra_data_elements = []
+content_pages = signals['pages'].map do |pg|
+  # build_element may return one element or an array (multiRowCard -> N KPIs),
+  # or nil (unresolvable slicer -> control skipped loudly, never wired wrong).
+  vis_elements = {}   # visual_id -> [built element ids] (feeds intended-scope)
+  # ONE base master per page (report-build hardening): the master resolving the
+  # most of THIS page's fields. Every visual is pointed at it (build_element's
+  # forced_master) and each page control targets its column — so a single filter
+  # target propagates to every visual. nil (nothing resolves / per-visual mode)
+  # -> legacy per-visual master selection.
+  page_base = $page_base_mode ? page_base_master(pg['visuals'], fields) : nil
+  warn "[build-workbook] page '#{pg['page_title']}': base table master = #{page_base.inspect} " \
+       '(every visual sources it; controls target it and propagate).' if page_base
+  els = pg['visuals'].flat_map do |v|
+    r = build_element(v, fields, masters, extra_data_elements, page_base)
+    list = r.is_a?(Array) ? r : [r] # NB: not Array(r) — that explodes a Hash into pairs
+    list = list.compact
+    vis_elements[v['visual_id']] = list.map { |e| e['id'] }
+    # Track 3b: apply this visual's own Filters-pane filters onto its element(s).
+    if v['filters'].is_a?(Array) && !v['filters'].empty?
+      vlabel = (v['title'].to_s.strip.empty? ? v['visual_id'] : v['title'])
+      list.each { |el| apply_visual_filters!(el, v['filters'], vlabel) }
+    end
+    list
+  end
+  # Intended-scope contract (workstream B): for each control on this page,
+  # `scope` (the lint's allowlist — EVERY listed element is hard-asserted to
+  # be in the control's reach) = every chart element built from a same-page
+  # visual whose bound tables the slicer's filter reaches in the SOURCE (PBI:
+  # slicer scope is its page, flowing across relationships) AND whose Sigma
+  # element chains to a master this control actually wired. The remainder —
+  # source-reachable but UN-wireable (cross-grain: the master carries no
+  # column matching the sliced leaf and no relationship-resolvable column
+  # exists) — lands in `excluded` with a reason, NOT in scope, so gate 7
+  # neither asserts the impossible nor lets it pass silently.
+  # Visual-interaction "edit interactions" overrides (page.json
+  # visualInteractions, type none/nofilter) also exclude that target visual —
+  # best-effort: master-level wiring cannot exempt one visual that SHARES a
+  # master with an intended one, so warn when that happens.
+  offs = (pg['interactions'] || []).select { |ia| ia['type'].to_s =~ /no.?filter|none/i }
+  # element id -> the master element id it (transitively) sources, walking
+  # restructured intermediates (e.g. a scatter's grouped source element).
+  src_of = (els + extra_data_elements).each_with_object({}) do |e, h|
+    h[e['id']] = e.dig('source', 'elementId') || e.dig('source', 'source', 'elementId')
+  end
+  eff_master = lambda do |eid|
+    cur = src_of[eid]
+    cur = src_of[cur] while cur && src_of.key?(cur)
+    cur
+  end
+  $control_scope.select { |sc| vis_elements.key?(sc['_visual_id']) }.each do |sc|
+    reach = sc['reachableTables'] || []
+    wired_ids = sc['_wired_ids'] || []
+    pg['visuals'].each do |v|
+      next if v['visual_id'] == sc['_visual_id']
+      next if %w[control text].include?(SIGMA_KIND[v['sigma_kind']] || v['sigma_kind'])
+      ents = (v['bindings'] || {}).values.flatten.compact.map { |q| q.to_s.split('.').first }.uniq
+      next unless ents.any? { |e| reach.include?(e) } || reach.empty?
+      if offs.any? { |ia| ia['source'] == sc['_visual_id'] && ia['target'] == v['visual_id'] }
+        warn "[build-workbook] NOTE control '#{sc['controlId']}': source report turns OFF its " \
+             "interaction with visual '#{v['title'] || v['visual_id']}' — excluded from intended " \
+             'scope. Master-level wiring cannot exempt it if it shares a master with an ' \
+             'intended chart; verify in Sigma.'
+        (vis_elements[v['visual_id']] || []).each do |eid|
+          sc['excluded'] << { 'element' => eid,
+                              'reason' => 'source report visual-interaction set to none for this ' \
+                                          'target — intentionally not filtered in PBI' }
+        end
+        next
+      end
+      (vis_elements[v['visual_id']] || []).each do |eid|
+        if wired_ids.include?(eff_master.call(eid))
+          sc['scope'] << eid
+        else
+          sc['excluded'] << { 'element' => eid,
+                              'reason' => "cross-grain: its master carries no column matching " \
+                                          "'#{sc['_leaf']}' and no relationship path resolves one " \
+                                          '— unreachable without a model change ' \
+                                          "(masters not wired: #{(sc['unwiredMasters'] || []).join(', ')})" }
+        end
+      end
+    end
+    sc['scope'].uniq!
+  end
+  # FAIL-LOUD empty page (report-build hardening): if the source page carried
+  # data visuals but NONE built (every measure/formula failed to bind), do not
+  # ship a silently-blank page — warn + drop a visible annotation element so the
+  # gap is obvious in the workbook, and surface it in coverage.
+  data_kinds = %w[kpi-chart bar-chart line-chart area-chart combo-chart scatter-chart
+                  pie-chart donut-chart region-map point-map table pivot-table]
+  built_data = els.count { |e| data_kinds.include?(e['kind']) }
+  src_data = (pg['visuals'] || []).count do |v|
+    data_kinds.include?(SIGMA_KIND[v['sigma_kind']] || v['sigma_kind'])
+  end
+  if built_data.zero? && src_data.positive?
+    warn "[build-workbook] WARN page '#{pg['page_title']}': #{src_data} data visual(s) in the source but " \
+         'NONE could be built (measures/formulas did not bind) — emitting a visible placeholder instead of ' \
+         'a silently-empty page. See coverage.json for the per-visual reasons.'
+    record_unresolved(visual: "page '#{pg['page_title']}'", pbi_type: 'page', sigma_kind: 'page',
+                      severity: 'dropped', recoverable: true,
+                      role_class: role_class_for_kind('page'),
+                      detail: "#{src_data} data visual(s) could not be built — page came out empty",
+                      action: 'Map this page\'s measures/dimensions to a base master in master-map.json ' \
+                              '(and translate any missing DAX measures), then re-run.')
+    els << { 'id' => "ph-#{pg['page_id']}", 'kind' => 'text',
+             'body' => "## ⚠ #{src_data} visual(s) on this page could not be migrated\n\n" \
+                       'Their measures/fields did not bind to the data model. See the migration ' \
+                       'coverage report for the per-visual reasons.' }
+  end
+  # Friendly page name: a raw warehouse token or ALL-CAPS name is Title-Cased;
+  # an already-human page title passes through unchanged.
+  { 'id' => "page-#{pg['page_id']}", 'name' => PbiReportBuild.friendly_label(pg['page_title']), 'elements' => els }
+end
+data_elements += extra_data_elements
+
+# ---- Track 3b: page/report filters -> source master element(s) --------------
+# A report filter applies to every master carrying the column; a page filter only
+# to masters used SOLELY by that page (a shared master can't be isolated to one
+# page — that goes to coverage). Elements sourcing a filtered master inherit it
+# (memory sigma-source-element-filter-propagates), which is exactly PBI page/report
+# filter semantics. Report filters are applied FIRST so a page filter on the same
+# shared master doesn't hide the report-level one.
+_de_ids = data_elements.map { |e| e['id'] }
+# element id -> immediate table-source element id (ignore data-model sources: a
+# master's own source is the DM element, not a page element).
+_tbl_src = {}
+(content_pages.flat_map { |p| p['elements'] } + data_elements).each do |e|
+  s = e['source'] || {}
+  sid = (s['kind'] == 'table' ? s['elementId'] : nil) ||
+        (s.dig('source', 'kind') == 'table' ? s.dig('source', 'elementId') : nil)
+  _tbl_src[e['id']] = sid
+end
+_eff_master = lambda do |eid|
+  cur = _tbl_src[eid]
+  cur = _tbl_src[cur] while cur && _tbl_src[cur]
+  cur
+end
+# master element id -> the set of content page ids whose elements source it.
+master_pages = Hash.new { |h, k| h[k] = [] }
+content_pages.each do |p|
+  (p['elements'] || []).each do |e|
+    m = _eff_master.call(e['id'])
+    master_pages[m] << p['id'] if m && _de_ids.include?(m)
+  end
+end
+master_pages.each_value(&:uniq!)
+
+nrep = apply_source_filters!(signals['filters'], 'report', 'report', data_elements, nil, fields, masters)
+npag = signals['pages'].sum do |pg|
+  next 0 unless pg['filters'].is_a?(Array) && !pg['filters'].empty?
+  pid = "page-#{pg['page_id']}"
+  exclusive = data_elements.select { |de| (master_pages[de['id']] - [pid]).empty? && master_pages[de['id']].include?(pid) }
+                           .map { |de| de['id'] }
+  apply_source_filters!(pg['filters'], 'page', "page '#{pg['page_title']}'", data_elements, exclusive, fields, masters)
+end
+warn "[build-workbook] applied #{nrep} report-level + #{npag} page-level filter(s) to master element(s)" if nrep.positive? || npag.positive?
+
+# ---- HARD GATE: no cross-master column leak (report-build hardening) --------
+# After assembly, GUARANTEE no element ships a column whose formula references a
+# master other than the element's own `source` — such a cross-master ref compiles
+# to Sigma type "error" and breaks the whole element (the multi-grain-page bug).
+# Drop every such column (loud warn + coverage); if that empties a data element,
+# drop the element entirely (it would still error) and prune it from control-scope.
+# field_spec's cross-master guard already prevents the common case at build time;
+# this net also catches leaks from an explicit master-map `formula`, a sort-by /
+# measure-color dup, or a metric ref that names another master.
+_gate_master_ids = masters.values.map { |m| m['id'] }.compact
+_gate_master_by_name = data_elements.each_with_object({}) do |de, h|
+  h[de['name']] = de['id'] if _gate_master_ids.include?(de['id']) && de['name']
+end
+_gate_data_kinds = %w[kpi-chart bar-chart line-chart area-chart combo-chart scatter-chart
+                      pie-chart donut-chart region-map point-map table pivot-table].freeze
+content_pages.each do |pg|
+  pg['elements'].each do |el|
+    next if el['kind'] == 'control'
+    nm = el['name'].is_a?(Hash) ? el.dig('name', 'text') : el['name']
+    drop_cross_master_columns!(el, nm, _gate_master_ids, _gate_master_by_name)
+  end
+  removed = []
+  pg['elements'].reject! do |el|
+    next false unless _gate_data_kinds.include?(el['kind']) && Array(el['columns']).empty?
+    warn "[build-workbook] WARN element '#{el['id']}' on page '#{pg['name']}' has NO columns left after " \
+         'cross-master pruning — element DROPPED entirely (it would compile to type=error).'
+    record_unresolved(visual: el['id'], pbi_type: 'cross-master', sigma_kind: el['kind'],
+                      severity: 'dropped', recoverable: true,
+                      role_class: role_class_for_kind(el['kind']),
+                      detail: 'element had only cross-master column(s) — dropped entirely',
+                      action: 'Build a joined page base carrying every measure this visual references on ' \
+                              'one source, then re-run.')
+    removed << el['id']
+    true
+  end
+  next if removed.empty?
+  $control_scope.each do |sc|
+    sc['scope'] = Array(sc['scope']).reject { |eid| removed.include?(eid) } if sc['scope']
+    sc['excluded'] = Array(sc['excluded']).reject { |e| removed.include?(e.is_a?(Hash) ? e['element'] : e) } if sc['excluded']
+  end
+end
+
+# control-scope.json — the intended-scope contract sidecar (schema: the
+# CONTRACT block in scripts/lib/control_lint.rb + refs/control-parity.md).
+# `sourceFilterSignals` counts the source report's slicer visuals — >0 with
+# zero spec controls FAILS gate 7 (the "interactive source, static migration"
+# class). Each emitted control carries `scope` (allowlist of element ids the
+# lint hard-asserts reachable) + `excluded` (cross-grain / interaction-off,
+# with reasons); slicers that produced no control land in `unbound`.
+scope_path = opts[:scope_out] || File.join(File.dirname(File.expand_path(opts[:out])), 'control-scope.json')
+source_signals = signals['pages'].sum do |pg|
+  (pg['visuals'] || []).count { |v| (SIGMA_KIND[v['sigma_kind']] || v['sigma_kind']) == 'control' }
+end
+scope_controls = $control_scope.map { |sc| sc.reject { |k, _| k.start_with?('_') } }
+File.write(scope_path, JSON.pretty_generate(
+             { 'version' => 1, 'source' => 'powerbi',
+               'sourceFilterSignals' => source_signals,
+               'controls' => scope_controls,
+               'unbound' => $control_unbound }
+           ))
+warn "[build-workbook] wrote control scope -> #{scope_path} (#{scope_controls.size} control(s), " \
+     "#{source_signals} source signal(s), #{$control_unbound.size} unbound)"
+
+# Derived titles can collide (two untitled visuals over the same projections) —
+# suffix duplicates so every element keeps a distinct human-readable name.
+seen_names = Hash.new(0)
+content_pages.flat_map { |p| p['elements'] }.each do |el|
+  next unless el['name'].is_a?(String) && !el['name'].empty?
+  n = (seen_names[el['name']] += 1)
+  el['name'] = "#{el['name']} (#{n})" if n > 1
+end
+
+# ---- 24-col grid layout (research/powerbi-visual-layout.md §4) -------------
+# Built BEFORE the spec is assembled so the layout XML can be EMBEDDED into the
+# workbook spec's top-level `layout` (bead 16i): a bare POST/PUT /workbooks/spec
+# WITHOUT an embedded layout makes Sigma auto-generate a single-column stack
+# that wipes any grid. Embedding it on every write means the layout survives the
+# initial POST; put-layout.rb is still the authoritative FINAL write.
+# bead p4h: end grid lines must be floor((start+size)/unit)+1 on BOTH axes.
+# The old form (cols: floor((x+w-1)/unit)+2; rows: ceil((y+h)/unit)+1) overshot
+# the end line by one cell, so adjacent PBI visuals shared a grid line ->
+# "Element collisions found during layout edit". gridColumn/gridRow lines are
+# end-EXCLUSIVE, so floor/floor tiles adjacent visuals without overlap.
+col_for = ->(x, w, pw) {
+  unit = pw / 24.0
+  cs = (x / unit).floor + 1
+  ce = ((x + w) / unit).floor + 1
+  ce = cs + 1 if ce <= cs
+  [[cs, 1].max, [ce, 25].min]
+}
+ROW_UNIT = 20.0
+# Container-banded pages (layout-playbook.md): the PBI canvas regions cluster
+# into horizontal row bands, each band a full-width <GridContainer> whose
+# children keep the canvas-derived geometry (container-relative rows). Every
+# page gets a dark header band carrying the page title; the matching
+# `kind: container` / header-text spec elements are appended to the page below.
+pages_xml = signals['pages'].map do |pg|
+  pw = pg['page_w'] || 1280
+  items = pg['visuals'].flat_map do |v|
+    cs, ce = col_for.call(v['x'], v['w'], pw)
+    rs = (v['y'] / ROW_UNIT).floor + 1
+    re = ((v['y'] + v['h']) / ROW_UNIT).floor + 1
+    re = rs + 1 if re <= rs
+    base = "el-#{short(v['visual_id'])}"
+    vvals = (v['bindings'] || {})['Values'] || []
+    if v['visual_type'] == 'multiRowCard' && vvals.length > 1
+      # tile the card's column span across N KPI sub-elements (must match the
+      # `#{eid}-k#{i}` ids emitted by build_element's kpi multi-value branch).
+      # Tile the N KPIs in a grid (ncol = ceil(sqrt n)) inside the card's box so
+      # wide values (e.g. $180,504) aren't truncated by a 1-column-wide tile.
+      n = vvals.length
+      ncol = Math.sqrt(n).ceil
+      nrow = (n.to_f / ncol).ceil
+      cspan = ce - cs
+      # A KPI tile needs ~3 grid rows (90px) to render value+title; a short PBI
+      # card box would clip the lower tiles. Grow the box down to nrow*3 rows
+      # (the row band above the first chart is empty, so this won't collide).
+      re_eff = [re, rs + nrow * 3].max
+      rspan = re_eff - rs
+      (0...n).map do |i|
+        r = i / ncol
+        c = i % ncol
+        scs = cs + (c * cspan.to_f / ncol).round
+        sce = cs + ((c + 1) * cspan.to_f / ncol).round
+        srs = rs + (r * rspan.to_f / nrow).round
+        sre = rs + ((r + 1) * rspan.to_f / nrow).round
+        sce = scs + 1 if sce <= scs
+        sre = srs + 1 if sre <= srs
+        ["#{base}-k#{i}", scs, sce, srs, sre]
+      end
+    else
+      [[base, cs, ce, rs, re]]
+    end
+  end
+  page_id = "page-#{pg['page_id']}"
+  page_spec = content_pages.find { |p| p['id'] == page_id }
+  # A skipped visual (e.g. an unresolvable slicer) has no spec element — a
+  # layout entry for a non-existent element id breaks the layout write.
+  if page_spec
+    built_ids = page_spec['elements'].map { |e| e['id'] }
+    items = items.select { |i| built_ids.include?(i[0]) }
+  end
+  next nil if items.empty?
+
+  # ---- CLEAN opinionated layout (default) ----------------------------------
+  # Customer-tuned (2026-06-12): keep every element in the SAME SPOT as the
+  # PBI canvas (same row band, same left-to-right position, same vertical
+  # stacking), but make overriding decisions about sizing: bands become
+  # uniform full-width rows, column widths are normalized to fill the 24-col
+  # grid edge-to-edge, items stacked in a sub-column split the band height
+  # evenly, and per-kind minimum heights apply. Tiny decorative textboxes
+  # (copyright lines, urls) are DROPPED; the page title moves into the dark
+  # header band.
+  if (opts[:layout_mode] || 'clean') == 'clean'
+    kind_of = {}
+    (page_spec ? page_spec['elements'] : []).each { |e| kind_of[e['id']] = e['kind'] }
+    src_rec = ->(id) { pg['visuals'].find { |v| "el-#{short(v['visual_id'])}" == id } }
+
+    # 1) header promotion + decorative-text drop
+    hdr_text_id = nil
+    drop = []
+    items.each do |it|
+      next unless kind_of[it[0]] == 'text'
+      r = src_rec.call(it[0])
+      txt = r && r['text'].to_s.strip
+      if hdr_text_id.nil? && txt && txt != '' && r['h'].to_f >= 40 && r['y'].to_f < 120
+        hdr_text_id = it[0]
+        drop << it[0]
+      elsif r.nil? || r['h'].to_f < 60 || txt == ''
+        warn "[build-workbook] clean layout: decorative textbox '#{it[0]}' dropped (#{txt.to_s[0, 30].inspect})."
+        page_spec['elements'] = page_spec['elements'].reject { |e| e['id'] == it[0] } if page_spec
+        drop << it[0]
+      end
+    end
+    items = items.reject { |i| drop.include?(i[0]) }
+
+    children = []
+    extra = []
+    hdr_id = "band-#{page_id}-hdr"
+    extra << SigmaLayout.container_el(hdr_id, SigmaLayout::HEADER_STYLE.dup)
+    if hdr_text_id
+      hdr_el = page_spec && page_spec['elements'].find { |e| e['id'] == hdr_text_id }
+      ttl = src_rec.call(hdr_text_id)['text'].to_s.strip
+      hdr_el['body'] = %(# <span style="color: #FFFFFF">#{ttl}</span>) if hdr_el
+      children << SigmaLayout.header_band_xml(hdr_id, hdr_text_id)
+    else
+      ttl = SigmaLayout.resolve_header_title(pg['page_title'], opts[:source_title], opts[:name]) || 'Dashboard'
+      txt_id = "band-#{page_id}-hdrtext"
+      extra << SigmaLayout.header_text_el(txt_id, ttl)
+      children << SigmaLayout.header_band_xml(hdr_id, txt_id)
+    end
+
+    # 2) bands from the SOURCE rows, columns from the SOURCE x-positions
+    min_rows = { 'kpi-chart' => 4, 'control' => 2, 'text' => 2, 'image' => 20,
+                 'scatter-chart' => 9, 'region-map' => 9, 'point-map' => 9 }
+    # BUG 5: page controls must live INSIDE a GridContainer — a loose top-level
+    # control below the first band fails the layout lint ("orphan control"), which
+    # crashed the POST. Pull every control out of the content bands and place them
+    # in a dedicated filter-strip control band right under the header (the standard
+    # "filters over the grid" pattern); content is shifted down so nothing overlaps.
+    ctrl_items = items.select { |it| kind_of[it[0]] == 'control' }
+    items = items.reject { |it| kind_of[it[0]] == 'control' }
+    ctrl_h = ctrl_items.empty? ? 0 : [ctrl_items.map { |it| it[4] - it[3] }.max, min_rows['control']].max
+    if ctrl_items.any?
+      cw = 24.0 / ctrl_items.length
+      inner_ctrls = ctrl_items.sort_by { |it| it[1] }.each_with_index.map do |it, i|
+        c0 = (i * cw).floor + 1
+        c1 = ((i + 1) * cw).floor + 1
+        c1 = c0 + 1 if c1 <= c0
+        SigmaLayout.le(it[0], c0, c1, 1, 1 + ctrl_h)
+      end.join("\n")
+      ctrl_band_id = "band-#{page_id}-ctrl"
+      extra << SigmaLayout.container_el(ctrl_band_id)
+      children << SigmaLayout.gc(ctrl_band_id, 1, 25,
+                                 1 + SigmaLayout::HEADER_ROWS,
+                                 1 + SigmaLayout::HEADER_ROWS + ctrl_h, inner_ctrls)
+    end
+    bands = SigmaLayout.cluster_bands(items)
+    cursor = 1 + SigmaLayout::HEADER_ROWS + ctrl_h
+    les = []
+    bands.each do |band|
+      # columns: cluster band items by x-overlap, preserving left-to-right order
+      cols = []
+      band.sort_by { |i| i[1] }.each do |it|
+        hit = cols.find { |c| it[1] < c[:c1] && c[:c0] < it[2] }
+        if hit
+          hit[:items] << it
+          hit[:c0] = [hit[:c0], it[1]].min
+          hit[:c1] = [hit[:c1], it[2]].max
+        else
+          cols << { c0: it[1], c1: it[2], items: [it] }
+        end
+      end
+      # normalized widths proportional to source widths, filling 1..25 exactly
+      total = cols.sum { |c| c[:c1] - c[:c0] }.to_f
+      alloc = cols.map { |c| [(24 * (c[:c1] - c[:c0]) / total).round, 3].max }
+      diff = 24 - alloc.sum
+      alloc[alloc.index(alloc.max)] += diff
+      # band height: tallest member's source height, clamped by kind minimums
+      band_h = band.map do |it|
+        h = it[4] - it[3]
+        [h, min_rows[kind_of[it[0]]] || 6].max
+      end.max
+      edge = 1
+      cols.each_with_index do |c, ci|
+        c0 = edge
+        c1 = edge + alloc[ci]
+        edge = c1
+        stack = c[:items].sort_by { |i| i[3] }
+        each_h = [band_h / stack.length, 2].max
+        stack.each_with_index do |it, si|
+          r0 = cursor + si * each_h
+          r1 = (si == stack.length - 1) ? cursor + band_h : r0 + each_h
+          les << [it[0], c0, c1, r0, r1]
+        end
+      end
+      cursor += band_h
+    end
+    page_spec['elements'] = page_spec['elements'] + extra if page_spec
+    inner = les.map { |i| SigmaLayout.le(i[0], i[1], i[2], i[3], i[4]) }.join("\n")
+    next SigmaLayout.page_xml(page_id, children.join("\n"), inner)
+  end
+
+  # ---- PBI-fidelity FLAT layout (--layout pbi) ------------------------------
+  # The page mirrors the PBI canvas 1:1: flat LayoutElements at the canvas-
+  # proportional grid coords (exactly the shape Sigma's own UI writes), no
+  # header band, no row containers. Band containers with auto rows COLLAPSE
+  # around short content (KPIs lost their titles; map/scatter bands rendered
+  # blank in page exports) — verified against the PBI page renders.
+  if opts[:layout_mode] == 'pbi'
+    kind_of = {}
+    (page_spec ? page_spec['elements'] : []).each { |e| kind_of[e['id']] = e['kind'] }
+    # Sigma needs more vertical room than PBI's compact widgets: clamp minimum
+    # row spans per kind (KPI value+title needs ~5 rows; charts breathe at 6+).
+    min_rows = { 'kpi-chart' => 4, 'scatter-chart' => 8, 'region-map' => 8, 'point-map' => 8,
+                 'pie-chart' => 6, 'bar-chart' => 6, 'line-chart' => 6, 'area-chart' => 6,
+                 'combo-chart' => 6 }
+    items = items.map do |id, c0, c1, r0, r1|
+      need = min_rows[kind_of[id]]
+      r1 = r0 + need if need && (r1 - r0) < need
+      c1 = c0 + 2 if c1 - c0 < 2
+      [id, c0, c1, r0, r1]
+    end
+    # Sigma rejects overlapping LayoutElements ("Element collisions") while a
+    # PBI canvas freely z-stacks (decorative text over chart corners). Resolve
+    # deterministically: later/lower items push DOWN past whatever they hit.
+    items = items.sort_by { |i| [i[3], i[1]] }
+    10.times do
+      moved = false
+      items.each_with_index do |a, ai|
+        items.each_with_index do |b, bi|
+          next if bi <= ai
+          cols = a[1] < b[2] && b[1] < a[2]
+          rows = a[3] < b[4] && b[3] < a[4]
+          next unless cols && rows
+          delta = a[4] - b[3]
+          b[3] += delta; b[4] += delta
+          moved = true
+        end
+      end
+      items = items.sort_by { |i| [i[3], i[1]] }
+      break unless moved
+    end
+    # FILL THE CANVAS (customer feedback: "no white space, things big enough
+    # to show the data"): PBI's compact widgets leave the converted page
+    # sparse. Snap every element to its neighbors / page edges — stretch right
+    # and down until the next element or the grid border (gaps <= 3 cols/rows
+    # are dead gutters, not intentional spacing).
+    overlap = ->(a0, a1, b0, b1) { a0 < b1 && b0 < a1 }
+    items.each do |it|
+      it[1] = 1 if it[1] <= 3 &&
+                   items.none? { |o| !o.equal?(it) && o[2] <= it[1] + 1 && overlap.call(it[3], it[4], o[3], o[4]) }
+      it[3] = 1 if it[3] <= 3 &&
+                   items.none? { |o| !o.equal?(it) && o[4] <= it[3] + 1 && overlap.call(it[1], it[2], o[1], o[2]) }
+    end
+    items.each do |it|
+      right = items.reject { |o| o.equal?(it) }
+                   .select { |o| o[1] >= it[2] && overlap.call(it[3], it[4], o[3], o[4]) }
+                   .map { |o| o[1] }.min || 25
+      it[2] = right if right > it[2] && right - it[2] <= 3
+      below = items.reject { |o| o.equal?(it) }
+                   .select { |o| o[3] >= it[4] && overlap.call(it[1], it[2], o[1], o[2]) }
+                   .map { |o| o[3] }.min
+      it[4] = below if below && below > it[4] && below - it[4] <= 3
+    end
+    # bottom band: level everything to the page's max row
+    maxr = items.map { |i| i[4] }.max
+    items.each do |it|
+      nothing_below = items.none? { |o| !o.equal?(it) && o[3] >= it[4] && overlap.call(it[1], it[2], o[1], o[2]) }
+      it[4] = maxr if nothing_below && maxr - it[4] <= 4
+    end
+    inner = items.map { |i| SigmaLayout.le(i[0], i[1], i[2], i[3], i[4]) }.join("\n")
+    next SigmaLayout.page_xml(page_id, inner)
+  end
+  # ---- legacy banded layout (--layout banded) ------------------------------
+  # phase-e layout-quality fix: a short title TEXTBOX at the top of the source
+  # canvas becomes the header band's text (white-on-dark), MOVED out of band 1
+  # (never left behind as a dead zone). The candidate may start up to one grid
+  # row below the page's topmost element (classic-report title boxes are
+  # routinely nudged a few px down from y=0 — exact-row equality was the
+  # PHASEE2 fragility). Same promotion the Phase E re-banding applies to
+  # pre-container clones.
+  top_row = items.map { |i| i[3] }.min
+  hdr_vis = pg['visuals'].find do |v|
+    next false unless v['sigma_kind'] == 'text' && v['text'].to_s.strip != ''
+    it = items.find { |i| i[0] == "el-#{short(v['visual_id'])}" }
+    it && it[3] <= top_row + 1 && (it[4] - it[3]) <= 5
+  end
+  if hdr_vis && page_spec
+    hdr_eid = "el-#{short(hdr_vis['visual_id'])}"
+    items = items.reject { |i| i[0] == hdr_eid }
+    next nil if items.empty?
+    hdr_el = page_spec['elements'].find { |e| e['id'] == hdr_eid }
+    hdr_el['body'] = %(# <span style="color: #FFFFFF">#{hdr_vis['text']}</span>) if hdr_el
+    xml, extra = banded_page(page_id, items, header_el: hdr_eid)
+  else
+    # No promotable source title — header text falls back, in priority order,
+    # to: source page name (if not a generic auto-name) -> source report
+    # display name (--source-title) -> workbook name. NEVER "Page 1".
+    hdr_title = SigmaLayout.resolve_header_title(
+      pg['page_title'], opts[:source_title], opts[:name]
+    ) || 'Dashboard'
+    xml, extra = banded_page(page_id, items, title: hdr_title)
+  end
+  page_spec['elements'] = page_spec['elements'] + extra if page_spec
+  xml
+end.compact.join("\n")
+layout_xml = %(<?xml version="1.0" encoding="utf-8"?>\n#{pages_xml}\n)
+
+# Strip transient build-only keys (e.g. Track 3b's `_qr_cids`) from every element
+# before the spec is written — the API rejects unknown `_`-prefixed properties.
+# BUG 3 invariant: every element `name` MUST be a plain String (a {text:,color:}
+# Hash crashes validate-spec.rb's String compare). Normalize any Hash name down
+# to its text here so no path can leak a Hash name into the spec.
+(content_pages + [{ 'elements' => data_elements }]).each do |pg|
+  (pg['elements'] || []).each do |el|
+    el.delete_if { |k, _| k.to_s.start_with?('_') }
+    if el['name'].is_a?(Hash)
+      el['name'] = el['name']['text'] || el['name']['label'] || el['id'].to_s
+    end
+  end
+end
+
+spec = {
+  'name' => opts[:name] || opts[:source_title] ||
+            signals.dig('pages', 0, 'page_title') || 'Power BI Import',
+  'schemaVersion' => 1,
+  'pages' => [{ 'id' => 'page-data', 'name' => 'Data', 'elements' => data_elements }] + content_pages,
+  # bead 16i: embed the layout so the very first POST does not trigger Sigma's
+  # single-column auto-layout (which would wipe put-layout.rb's grid).
+  'layout' => layout_xml,
+  # Style fidelity: reproduce the PBI report's look — card chrome, subtle borders,
+  # and the source theme's categorical palette (drives donut/pie + multi-series
+  # colors). Stacked on the built-in Light theme. See lib/pbi_theme.rb.
+  'themeName'      => 'Light',
+  'themeOverrides' => PbiTheme.overrides($pbi_theme)
+}
+spec['folderId'] = opts[:folder] if opts[:folder]
+
+File.write(opts[:out], JSON.pretty_generate(spec))
+warn "[build-workbook] wrote #{opts[:out]} (#{data_elements.size} master(s), " \
+     "#{content_pages.sum { |p| p['elements'].size }} chart element(s); layout embedded)"
+
+# Native-trellis round-trip guard sidecar — written ONLY when a small-multiples
+# visual actually emitted a native trellis (a workbook with none stays byte-
+# identical: no sidecar). verify-trellis-survived.rb re-reads the readback spec
+# and asserts each element still carries its `trellis` key (Sigma silently strips
+# unsupported ones). Converter-neutral shape shared with the Tableau path.
+if ($native_trellis_records ||= []).any?
+  begin
+    nt_path = File.join(File.dirname(File.expand_path(opts[:out])), 'native-trellis-emitted.json')
+    File.write(nt_path, JSON.pretty_generate('version' => 1, 'elements' => $native_trellis_records))
+    warn "[build-workbook] wrote #{nt_path} (#{$native_trellis_records.size} native trellis element(s) — " \
+         'verify survives readback with verify-trellis-survived.rb)'
+  rescue => e
+    warn "[build-workbook] WARN native-trellis sidecar not written (round-trip coverage unrecorded): #{e.message}"
+  end
+end
+
+# coverage.json — the aggregated migration-coverage ledger (bead beads-sigma-cov).
+# Written AFTER the final spec so builtElements equals the shipped element count.
+# Headline framing on PURPOSE: report how MANY source visuals converted cleanly,
+# not just the handful that didn't — the "drops a lot" perception is really
+# "the few gaps weren't surfaced in one place". `unresolved` is every
+# DROPPED/DEGRADED/APPROXIMATED item (already warned at its site, now aggregated).
+total_visuals = signals['pages'].sum { |pg| (pg['visuals'] || []).size }
+# Count CONTENT elements only — exclude layout chrome (header band containers)
+# that 'clean' layout adds, so the stat reflects converted visuals, not scaffolding.
+built_elements = content_pages.sum { |p| (p['elements'] || []).count { |e| e['kind'] != 'container' } }
+by_sev = $unresolved.group_by { |u| u['severity'] }.transform_values(&:size)
+coverage_path = opts[:coverage_out] ||
+                File.join(File.dirname(File.expand_path(opts[:out])), 'coverage.json')
+File.write(coverage_path, JSON.pretty_generate(
+             { 'version' => 1, 'source' => 'powerbi',
+               'summary' => {
+                 'sourceVisuals' => total_visuals,
+                 'builtElements' => built_elements,
+                 # FIELD-BINDING totals (task 4). The visual-level counts above and
+                 # these are DIFFERENT measures and both are kept: a table that
+                 # ships 3 of 8 columns is one 'degraded' visual but five dropped
+                 # bindings, and it was the visual-level view alone that let a
+                 # migration losing 33-54% of its bindings report "12/12 carried
+                 # over; 0 dropped". Tallied in compute_field_bindings! for EVERY
+                 # visual — including fully-resolved ones, which emit no coverage
+                 # entry at all — so the denominator is the whole report, not just
+                 # the visuals that had a gap. CoverageGate.binding_totals reads
+                 # these directly and only falls back to summing per-entry
+                 # field_bindings when they are absent.
+                 'sourceBindings' => $source_bindings_total,
+                 'resolvedBindings' => $resolved_bindings_total,
+                 'dropped' => by_sev['dropped'] || 0,
+                 'degraded' => by_sev['degraded'] || 0,
+                 'approximated' => by_sev['approximated'] || 0,
+                 'recoverable' => $unresolved.count { |u| u['recoverable'] }
+               },
+               'unresolved' => $unresolved.each_with_object([]) { |u, acc|
+                 # attach each visual's field_bindings to its FIRST entry (see the
+                 # note in record_unresolved: doing this at record time missed any
+                 # entry that fired before the ledger was computed)
+                 vid = u['visual_id']
+                 if vid && $pending_field_bindings.key?(vid) &&
+                    acc.none? { |a| a['visual_id'] == vid && a['field_bindings'] }
+                   u = u.merge('field_bindings' => $pending_field_bindings[vid])
+                 end
+                 acc << u
+               } }
+           ))
+warn "[build-workbook] wrote coverage -> #{coverage_path} " \
+     "(#{total_visuals} source visual(s) -> #{built_elements} element(s); " \
+     "#{by_sev['dropped'] || 0} dropped, #{by_sev['degraded'] || 0} degraded, " \
+     "#{by_sev['approximated'] || 0} approximated)"
+
+if opts[:layout_out]
+  File.write(opts[:layout_out], layout_xml)
+  warn "[build-workbook] wrote layout -> #{opts[:layout_out]}"
+end

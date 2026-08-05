@@ -1,0 +1,68 @@
+{
+  "id": "3",
+  "title": "Skilltest Look \u2014 Measure Only",
+  "layoutMode": "newspaper",
+  "source": "api-look",
+  "lookmlLinkId": "/looks/3",
+  "filters": [],
+  "elements": [
+    {
+      "name": "Skilltest Look \u2014 Measure Only",
+      "tileType": "looker_grid",
+      "merge": null,
+      "model": "demo_thelook",
+      "explore": "order_fact",
+      "fields": [
+        "order_fact.total_net_revenue",
+        "order_fact.distinct_order_count",
+        "order_fact.total_quantity"
+      ],
+      "pivots": [],
+      "filters": {},
+      "sorts": [],
+      "limit": 5000,
+      "listen": {},
+      "dynamicFields": [],
+      "noteText": null,
+      "subtitleText": null,
+      "bodyText": null,
+      "referenceLines": [],
+      "color": {
+        "seriesColors": {},
+        "palette": [],
+        "colorApplication": null
+      },
+      "cellVisualizations": {},
+      "layout": {
+        "row": 0,
+        "col": 0,
+        "width": 24,
+        "height": 8
+      },
+      "total": false,
+      "rowTotal": false,
+      "columnLimit": 50
+    }
+  ],
+  "fieldMeta": {
+    "order_fact.total_net_revenue": {
+      "category": "measure",
+      "aggType": "sum",
+      "sql": "${TABLE}.NET_REVENUE ",
+      "baseColumn": "order_fact.NET_REVENUE",
+      "valueFormat": "usd"
+    },
+    "order_fact.distinct_order_count": {
+      "category": "measure",
+      "aggType": "count_distinct",
+      "sql": "${order_id} ",
+      "baseColumn": "order_fact.order_id"
+    },
+    "order_fact.total_quantity": {
+      "category": "measure",
+      "aggType": "sum",
+      "sql": "${TABLE}.QUANTITY_ORDERED ",
+      "baseColumn": "order_fact.QUANTITY_ORDERED"
+    }
+  }
+}

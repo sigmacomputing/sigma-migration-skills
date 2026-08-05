@@ -1,0 +1,21 @@
+{
+  "source_repo": "sigma-data-model-mcp",
+  "source_commit": "867c669",
+  "source_commit_date": "2026-06-22",
+  "bundler": "esbuild --bundle --format=esm --platform=node",
+  "vendored_modules": "quicksight.mjs",
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
+  "local_patches": [
+    {
+      "commit": "undocumented \u2014 predates this ledger; discovered 2026-07-31",
+      "upstream_pr": null,
+      "summary": "Native Sigma window-function lowering for SELF-CONTAINED (unpartitioned) rank / denseRank / percentileRank / percentOfTotal. Present ONLY in this vendored bundle: upstream src/quicksight.ts lists these in its cannot-be-lower-to-DM set and has never had the mapping (git log -S denseRank shows a single commit, the original converter). A naive re-vendor DROPS this feature and breaks scripts/test-window-native.rb (rank/denseRank/percentileRank/percentOfTotal all fall to Null). Verified 2026-07-31 by re-vendoring at 2f8c6cd and observing exactly those failures. Port the mapping upstream, then re-vendor and retire this entry.",
+      "changes": [
+        "unpartitioned rank -> Rank(..., \"desc\")",
+        "unpartitioned denseRank -> RankDense(..., \"asc\"/\"desc\")",
+        "unpartitioned percentileRank -> native percentile rank",
+        "unpartitioned percentOfTotal -> PercentOfTotal(..., \"grand_total\")"
+      ]
+    }
+  ]
+}

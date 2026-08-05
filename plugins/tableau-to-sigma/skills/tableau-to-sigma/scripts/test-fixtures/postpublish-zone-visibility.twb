@@ -1,0 +1,51 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-postpublish-guide.rb — the dynamic
+     zone visibility graph, mirroring a dynamic-zone-visibility live-migration
+     workbook's structure with invented names; no customer data. The chain:
+     single-value-field-node (value-output-guid=vo-0001) → edge →
+     dashboard-zone-visibility-node (visibility-input-guid=vi-0001, zone-id=10),
+     with the dashboard resolved via its simple-id uuid. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sample' name='federated.f2'>
+      <column caption='Show Detail' datatype='boolean' name='[Show Detail (copy)_123]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[Parameters].[Parameter 9]=&quot;Detail&quot;' />
+      </column>
+    </datasource>
+    <datasource caption='Parameters' name='Parameters'>
+      <column caption='View Mode' datatype='string' name='[Parameter 9]' param-domain-type='list' role='measure' type='nominal' value='&quot;Summary&quot;' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Detail Band'>
+      <table>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Summary KPI'>
+      <table>
+        <panes><pane><mark class='Text' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='KPI Dash'>
+      <zones>
+        <zone h='98000' id='1' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='30000' id='9' name='Summary KPI' w='90000' x='1000' y='1000' />
+          <zone h='40000' id='10' name='Detail Band' w='90000' x='1000' y='50000' />
+        </zone>
+      </zones>
+      <simple-id uuid='{ABCDEF00-0000-0000-0000-000000000001}' />
+    </dashboard>
+  </dashboards>
+  <object-graph>
+    <objects>
+      <single-value-field-node fieldname='[federated.f2].[Show Detail (copy)_123]' fieldname-input-guid='fi-0001' node-guid='n-0001' value-output-guid='vo-0001' />
+      <dashboard-zone-visibility-node dashboard-identifier='{ABCDEF00-0000-0000-0000-000000000001}' node-guid='n-0002' visibility-input-guid='vi-0001' zone-id='10' />
+    </objects>
+    <edges>
+      <edge from='vo-0001' to='vi-0001' />
+    </edges>
+  </object-graph>
+</workbook>

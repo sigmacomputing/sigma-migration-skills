@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Commit-message hygiene guard. Commit messages sit outside the file sweep
+# (tools/hygiene-sweep.sh scans tracked files + the staged diff, never the
+# message), so this hook greps the proposed message against the SAME pattern
+# sets the sweep loads: tools/hygiene-patterns.txt plus the gitignored
+# tools/hygiene-patterns.local.txt when present. Enabled by the same
+# `git config core.hooksPath .githooks` as the other hooks (CONTRIBUTING.md).
+#
+# Failure output is redacted to pattern-file LINE NUMBERS only — echoing the
+# matched text (or the pattern) would disclose exactly what the private local
+# guards protect. Bypass with `git commit --no-verify` only for a false
+# positive — and reword anyway: hygiene.yml's "Commit-message hygiene" step
+# re-runs THIS hook over every push/PR-range commit's %B, so a bypassed hit
+# still fails at the server-side gate (CONTRIBUTING.md "Hygiene sweep").
+set -uo pipefail
+
+msgfile="${1:-}"
+[ -n "$msgfile" ] && [ -f "$msgfile" ] || exit 0
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$root" || exit 0
+
+# Older checkout without the pattern file: nothing to enforce.
+[ -f tools/hygiene-patterns.txt ] || exit 0
+
+# Scan everything ABOVE the scissors line, comment-prefixed lines INCLUDED.
+# `git commit -m`/`-F` run cleanup=whitespace, which KEEPS comment-looking
+# lines in the landed message — dropping them here would let
+#   git commit -m $'ok subject\n#<identifier>'
+# sail through the only local message gate. Editor-flow template comments
+# (status text) DO get stripped by git's default cleanup, so a hit on one can
+# be a false positive — rare (the sweep's path pass already blocks
+# identifier-named paths), called out as such in the failure message, and
+# bypassable with --no-verify; the right tradeoff for an identifier gate.
+# Everything from a scissors line down stays out of scope (`commit --verbose`
+# appends the whole diff there — the staged-diff sweep owns that content).
+#
+# The comment prefix is configurable (core.commentString / core.commentChar);
+# "auto" picks per-message at edit time and cannot be resolved here — treat it
+# as the default '#'. Passed via ENVIRON so no awk-escape processing applies.
+cc="$(git config core.commentString 2>/dev/null || git config core.commentChar 2>/dev/null || echo '#')"
+{ [ -z "$cc" ] || [ "$cc" = "auto" ]; } && cc='#'
+scanfile="$(mktemp)"   # scissors cut only — comment lines KEPT (the gate)
+bodyfile="$(mktemp)"   # scissors cut + comment lines dropped (hit attribution)
+trap 'rm -f "$scanfile" "$bodyfile"' EXIT
+cc="$cc" awk '
+  BEGIN { cc = ENVIRON["cc"]; scissors = cc " ------------------------ >8 ------------------------" }
+  $0 == scissors { exit }
+  { print }
+' "$msgfile" > "$scanfile"
+cc="$cc" awk '
+  BEGIN { cc = ENVIRON["cc"]; scissors = cc " ------------------------ >8 ------------------------" }
+  $0 == scissors { exit }
+  index($0, cc) != 1
+' "$msgfile" > "$bodyfile"
+
+fail=0
+for patfile in tools/hygiene-patterns.txt tools/hygiene-patterns.local.txt; do
+  [ -f "$patfile" ] || continue
+  lineno=0
+  while IFS= read -r pat || [ -n "$pat" ]; do
+    lineno=$((lineno + 1))
+    [[ "$pat" =~ ^[[:space:]]*(#|$) ]] && continue
+    if grep -qiE -- "$pat" "$scanfile"; then
+      if grep -qiE -- "$pat" "$bodyfile"; then
+        echo "commit-msg guard: message matches blocked pattern $patfile:$lineno (matched text withheld)." >&2
+      else
+        echo "commit-msg guard: a comment-prefixed line matches blocked pattern $patfile:$lineno (matched text withheld) — 'git commit -m/-F' KEEPS such lines in the landed message; if this is an editor-template comment (stripped on edit), --no-verify is the false-positive escape." >&2
+      fi
+      fail=1
+    fi
+  done < "$patfile"
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo "" >&2
+  echo "commit-msg guard FAILED — reword the message; identifiers never go in commit" >&2
+  echo "messages or PR bodies (CONTRIBUTING.md \"Hygiene sweep\")." >&2
+  exit 1
+fi
+exit 0

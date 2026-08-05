@@ -1,0 +1,41 @@
+{
+  "serialized": 5,
+  "wired": 4,
+  "entries": [
+    {
+      "left": "LMOG_FACT_WIDE",
+      "right": "LMOG_DIM_CUSTOMER",
+      "derivedVia": "serialized",
+      "keyCount": 1
+    },
+    {
+      "left": "LMOG_FACT_WIDE",
+      "right": "LMOG_DIM_PRODUCT",
+      "derivedVia": "serialized",
+      "keyCount": 1,
+      "partial": true,
+      "droppedConditions": 1
+    },
+    {
+      "left": "LMOG_FACT_WIDE",
+      "right": "LMOG_DIM_DATE",
+      "derivedVia": "unwired",
+      "reason": "no existing column name matches on both sides",
+      "candidates": []
+    },
+    {
+      "left": "LMOG_FACT_WIDE",
+      "right": "LMOG_DIM_STORE",
+      "derivedVia": "name-inference",
+      "keyCount": 1,
+      "partial": true,
+      "droppedConditions": 1
+    },
+    {
+      "left": "LMOG_FACT_WIDE",
+      "right": "LMOG_DIM_REGION",
+      "derivedVia": "serialized",
+      "keyCount": 1
+    }
+  ]
+}

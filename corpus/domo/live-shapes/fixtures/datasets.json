@@ -1,0 +1,70 @@
+[
+ {
+  "id": "ds-fact",
+  "name": "Fact",
+  "rows": 877,
+  "columns": 8,
+  "schema": {
+   "columns": [
+    {
+     "name": "txn_id",
+     "type": "STRING"
+    },
+    {
+     "name": "channel",
+     "type": "STRING"
+    },
+    {
+     "name": "method",
+     "type": "STRING"
+    },
+    {
+     "name": "status",
+     "type": "STRING"
+    },
+    {
+     "name": "amount",
+     "type": "DECIMAL"
+    },
+    {
+     "name": "margin",
+     "type": "DECIMAL"
+    },
+    {
+     "name": "units",
+     "type": "DECIMAL"
+    },
+    {
+     "name": "is_flagged",
+     "type": "DECIMAL"
+    },
+    {
+     "name": "event_date",
+     "type": "DATE"
+    },
+    {
+     "name": "event_date_key",
+     "type": "DECIMAL"
+    }
+   ]
+  }
+ },
+ {
+  "id": "ds-dim",
+  "name": "Dim",
+  "rows": 25,
+  "columns": 2,
+  "schema": {
+   "columns": [
+    {
+     "name": "member_key",
+     "type": "LONG"
+    },
+    {
+     "name": "region",
+     "type": "STRING"
+    }
+   ]
+  }
+ }
+]

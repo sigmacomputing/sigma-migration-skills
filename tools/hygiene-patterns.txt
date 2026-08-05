@@ -1,0 +1,93 @@
+# tools/hygiene-patterns.txt — test-org identifiers that must NEVER appear in the repo.
+# One case-insensitive extended regex per line; lines starting with # are comments.
+# Consumed by tools/hygiene-sweep.sh (run it before every commit, alongside
+# tools/check-shared.rb). Add the STABLE identifier (name/id) of any new
+# test-specific connection, workbook, customer, datasource, field literal, or
+# object id here — never the neutral replacement text.
+#
+# --- standing sweep: tester identity / credentials ---------------------------
+jflores
+cogsandroses
+ROPBPLY
+BOHOBRV
+10ay\.online
+rZLD6
+a0bd7113
+#
+# --- orgs / sites / tenants ---------------------------------------------------
+tj-wells-1989
+(site='|/site/|/t/|10ay/|assessment-)dataflow
+app\.sigmacomputing\.com/dataflow
+#
+# --- test warehouse / schemas / connections -----------------------------------
+CSA\.TJ
+CSA\.[A-Z_]{3,}
+csa-tj|csa_tj
+csa_thelook|snowflake_csa
+TJ\.PUBLIC\.
+TABLEAU_MIGRATION\.
+ymb68310
+#
+# --- object ids (Sigma workbooks / DMs / connections / folders, Tableau LUIDs,
+#     PBI reports/models, AWS account) -----------------------------------------
+6293dab3|957c9f09|d9f7688f|ca64f487|305c925b|18549bb7|8fea4fd1|bc24d476
+3e23b761|9733fcd9|39a8f826|bc0319f8|50f27318|94227afc|959ac471|35219042-d883
+384ab794|cc8ec9e1|6898b43a|5c489868|9adb1ae8|9c3b5577|4eca2915|7162f1a6
+91aa3a49|a11ec834|cb2f5180|66792cbd|aa126c36-608a|1bef4413|01d5deb8|d09e27fd
+953cd3c6|de8a93d3|fee42fdc|0bebf272|049863fa|9ca9bf60-6a33|57e59735
+6DioRaTAeO8FRJGv10ToLR|4y4O8Y97IH1K3uDiZ2eeM2|300OH2oDSxqthpx8BqrKME|5Rkbujfxyg
+153722385948
+#
+# --- test workbook / dashboard names -------------------------------------------
+WorldBankSeries6|TheUpdatedVisualVocabulary
+World Bank
+\bMacroeconomics\b
+Global Macro
+Visual Vocabulary
+\bDiablo\b
+\bsummoner\b
+\bUdemy\b
+Chart Zoo
+Orders Executive Overview
+#
+# --- external-user transcript identifiers (real customer — HIGHEST priority) ---
+#
+# --- test-workbook field / value literals --------------------------------------
+Americas (&|and) Caribbean
+GDP \(current US\$\)|GDP_CURRENT_US|GDP2015|GDP2005|GFTGWO
+GLOBALMACRO_|WB_GDP2005
+INCOMEGROUP|Income Group
+REGION_FLAG
+Teu Value|TEU 2014|Container port traffic
+18,?037|18,?028B
+CST KPI|PRF KPI|FUL KPI
+Ship Speed Category
+Subject Selector|Master Selector
+UDEMY_COURSE|UDEMY COURSE|Num Subscribers
+FATSCALE2|el-fat-crosstab
+#
+# --- generic live-secret shapes (org-independent) -------------------------------
+# A committed live secret is a leak regardless of whose it is. Fixture/test values
+# must be built to miss these on purpose (short, or assembled at runtime — never a
+# literal that could pass for a real credential).
+# JWT-shaped literal: eyJ… base64url header + a dot-separated payload segment.
+eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}
+# A long (32+ char) base64/hex-ish literal assigned to a *SECRET/*TOKEN/*PAT/*PASSWORD
+# var. The _PAT arm is anchored so it cannot absorb the H of *_PATH (the value
+# class includes '/' and ':', so path lists would read as credentials).
+((SECRET|TOKEN|PASSWORD)[A-Z0-9_]*|_PAT(_[A-Z0-9_]*)?)\s*[=:]\s*["']?[A-Za-z0-9+/=_-]{32,}
+# Colon-delimited multi-segment token in credential-key context (PAT-style values
+# whose ':' splits each segment below the 32-char rule above — lower threshold here).
+((SECRET|TOKEN|PASSWORD)[A-Z0-9_]*|_PAT(_[A-Z0-9_]*)?)["']?\s*[=:]\s*["']?[A-Za-z0-9+/=_-]{16,}:[A-Za-z0-9+/=_-]{16,}
+# Bare 64-hex literal adjacent to a client-id/credential key name (ID-suffixed
+# vars the *SECRET/*TOKEN alternation above misses).
+(CLIENT_?ID|API_?KEY|ACCESS_?KEY|CREDENTIAL)[A-Z0-9_]*["']?\s*[=:]\s*["']?[0-9a-f]{64}
+#
+# --- run-state litter paths (PLAN-v4 E7.1) --------------------------------------
+# The LOCAL probe registry (customer-org artifact ids) must never enter the
+# repo's corpus/ or fixture trees. gitignore blocks the accident; this guard
+# fails the sweep (path pass) when a planted registry is forced past it
+# (git add -f) or the ignore rule regresses.
+(corpus|fixtures?)/([^[:space:]"']*/)?probe-artifacts\.jsonl
+# Customer-identifying guards live in tools/hygiene-patterns.local.txt (gitignored) —
+# committing them would itself disclose the customer. Sweep loads both files.

@@ -1,0 +1,60 @@
+{
+  "id": "5",
+  "title": "Skilltest Look \u2014 Bar",
+  "layoutMode": "newspaper",
+  "source": "api-look",
+  "lookmlLinkId": "/looks/5",
+  "filters": [],
+  "elements": [
+    {
+      "name": "Skilltest Look \u2014 Bar",
+      "tileType": "looker_column",
+      "merge": null,
+      "model": "demo_thelook",
+      "explore": "order_fact",
+      "fields": [
+        "customer_dim.region",
+        "order_fact.total_net_revenue"
+      ],
+      "pivots": [],
+      "filters": {},
+      "sorts": [
+        "order_fact.total_net_revenue desc"
+      ],
+      "limit": 5000,
+      "listen": {},
+      "dynamicFields": [],
+      "noteText": null,
+      "subtitleText": null,
+      "bodyText": null,
+      "referenceLines": [],
+      "color": {
+        "seriesColors": {},
+        "palette": [],
+        "colorApplication": null
+      },
+      "cellVisualizations": {},
+      "layout": {
+        "row": 0,
+        "col": 0,
+        "width": 24,
+        "height": 8
+      },
+      "total": false,
+      "rowTotal": false,
+      "columnLimit": 50
+    }
+  ],
+  "fieldMeta": {
+    "customer_dim.region": {
+      "category": "dimension"
+    },
+    "order_fact.total_net_revenue": {
+      "category": "measure",
+      "aggType": "sum",
+      "sql": "${TABLE}.NET_REVENUE ",
+      "baseColumn": "order_fact.NET_REVENUE",
+      "valueFormat": "usd"
+    }
+  }
+}

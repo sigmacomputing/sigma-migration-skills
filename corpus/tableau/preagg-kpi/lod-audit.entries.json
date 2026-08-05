@@ -1,0 +1,37 @@
+[
+  {
+    "calc": "Daily Distinct Buyers",
+    "internal_name": "[Calculation_DDB]",
+    "lod_kind": "FIXED",
+    "formula": "{FIXED [CAL_DATE] : COUNTD([BUYER_KEY])}",
+    "reference_set": [
+      "CAL_DATE",
+      "BUYER_KEY"
+    ],
+    "class": "suspect-alias",
+    "status": "unresolved",
+    "evidence": {
+      "spec": "dm-spec",
+      "element": "Sales Fact Master",
+      "column": "Daily Distinct Buyers",
+      "formula": "[SALES_FACT/ACTIVE_BUYER_FLAG]"
+    },
+    "suspect_refs": [
+      "ACTIVE_BUYER_FLAG"
+    ],
+    "detail": "emitted formula reads \"ACTIVE_BUYER_FLAG\" \u2014 not in the LOD expression's own reference set (fuzzy name-alias: the numbers are silently wrong)"
+  },
+  {
+    "calc": "Daily Active Sales",
+    "internal_name": "[Calculation_DAS]",
+    "lod_kind": "FIXED",
+    "formula": "{FIXED [CAL_DATE] : COUNTD([SALE_ID])}",
+    "reference_set": [
+      "CAL_DATE",
+      "SALE_ID"
+    ],
+    "class": "silently-dropped",
+    "status": "unresolved",
+    "detail": "no emitted dm-spec/wb-spec translation carries this calc's name and no manual-residues.json entry declares it \u2014 the calc vanished with no signal"
+  }
+]

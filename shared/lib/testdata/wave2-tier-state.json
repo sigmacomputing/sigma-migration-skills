@@ -1,0 +1,5 @@
+{
+  "_doc": "Wave-2 cross-lane contract fixture (merged plan §3 contract 4): the migrate-state.json tier fields lane A WRITES and lane B's gate READS. Tests in both lanes load this file so the strings can never drift apart; the closed vocabularies live in Offramp::TIER_VALUES / Offramp::TIER_BASIS (shared/lib/offramp.rb) and test-wave1-vocab-decisions.rb pins this fixture against them. 'tier' is the RESOLVED tier (never 'auto').",
+  "tier": "S",
+  "tier_basis": "auto-predicate"
+}

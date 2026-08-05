@@ -1,0 +1,69 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-join-coalesce-synthesis.rb (invented names):
+     a federated join on TWO keys (entity + date), AND-wrapped the way Tableau
+     serializes compound join clauses. Exercises:
+       - multi-key relationship wiring (previously dropped entirely — the old
+         walk only found a top-level '=')
+       - composite Text()-wrapped join-key synthesis for Lookup()
+       - IFNULL over the compound join -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Daily Join' name='federated.join02'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.join02'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='AND'>
+              <expression op='='>
+                <expression op='[DAILY_PRIMARY].[ENTITY_ID]' />
+                <expression op='[DAILY_CONTRA].[ENTITY_ID]' />
+              </expression>
+              <expression op='='>
+                <expression op='[DAILY_PRIMARY].[ACTIVITY_DATE]' />
+                <expression op='[DAILY_CONTRA].[ACTIVITY_DATE]' />
+              </expression>
+            </expression>
+          </clause>
+          <relation connection='snowflake.join02' name='DAILY_PRIMARY' table='[PUBLIC].[DAILY_PRIMARY]' type='table'>
+            <columns>
+              <column datatype='integer' name='ENTITY_ID' />
+              <column datatype='date' name='ACTIVITY_DATE' />
+              <column datatype='string' name='SEGMENT' />
+              <column datatype='real' name='TOTALREV' />
+            </columns>
+          </relation>
+          <relation connection='snowflake.join02' name='DAILY_CONTRA' table='[PUBLIC].[DAILY_CONTRA]' type='table'>
+            <columns>
+              <column datatype='integer' name='ENTITY_ID' />
+              <column datatype='date' name='ACTIVITY_DATE' />
+              <column datatype='string' name='SEGMENT' />
+              <column datatype='real' name='CONTRA_AMT' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+      <column caption='Merged Segment' datatype='string' name='[Calculation_200]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IFNULL([SEGMENT], [SEGMENT (DAILY_CONTRA)])' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Daily Segments'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Daily Join' name='federated.join02' />
+          </datasources>
+          <datasource-dependencies datasource='federated.join02'>
+            <column caption='Merged Segment' datatype='string' name='[Calculation_200]' role='dimension' type='nominal' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

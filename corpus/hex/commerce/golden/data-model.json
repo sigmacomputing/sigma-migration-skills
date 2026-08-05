@@ -1,0 +1,95 @@
+{
+  "dataModel": {
+    "name": "Commerce Dashboard DM",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Page 1",
+        "elements": [
+          {
+            "id": "id0002",
+            "kind": "table",
+            "source": {
+              "kind": "sql",
+              "connectionId": "PLACEHOLDER-CONNECTION-ID",
+              "statement": "SELECT\n  c.\"Visit ID\",\n  c.\"Date\",\n  YEAR(c.\"Date\") AS \"Year\",\n  c.\"Revenue\",\n  c.\"Quantity\",\n  b.\"Brand\",\n  cat.\"Category\",\n  ctry.\"Country\"\nFROM QUICKSTARTS.HEX_ECOMMERCE.COMMERCE c\nJOIN QUICKSTARTS.HEX_ECOMMERCE.BRAND b ON c.\"Brand ID\" = b.\"Brand ID\"\nJOIN QUICKSTARTS.HEX_ECOMMERCE.CATEGORY cat ON c.\"Category ID\" = cat.\"Category ID\"\nJOIN QUICKSTARTS.HEX_ECOMMERCE.COUNTRY ctry ON c.\"Country ID\" = ctry.\"Country ID\""
+            },
+            "columns": [
+              {
+                "id": "id0003",
+                "name": "Brand",
+                "formula": "[Custom SQL/Brand]"
+              },
+              {
+                "id": "id0004",
+                "name": "Category",
+                "formula": "[Custom SQL/Category]"
+              },
+              {
+                "id": "id0005",
+                "name": "Country",
+                "formula": "[Custom SQL/Country]"
+              },
+              {
+                "id": "id0006",
+                "name": "Date",
+                "formula": "[Custom SQL/Date]"
+              },
+              {
+                "id": "id0007",
+                "name": "Quantity",
+                "formula": "[Custom SQL/Quantity]"
+              },
+              {
+                "id": "id0008",
+                "name": "Revenue",
+                "formula": "[Custom SQL/Revenue]"
+              },
+              {
+                "id": "id0009",
+                "name": "Visit ID",
+                "formula": "[Custom SQL/Visit ID]"
+              },
+              {
+                "id": "id0010",
+                "name": "Year",
+                "formula": "[Custom SQL/Year]"
+              }
+            ],
+            "order": [
+              "id0003",
+              "id0004",
+              "id0005",
+              "id0006",
+              "id0007",
+              "id0008",
+              "id0009",
+              "id0010"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "warnings": [
+    "SQL cell 'commerce_joined': dropped 1 stale column(s) from Hex's cached preview-grid config that aren't in the SELECT clause's output (e.g. a join-key referenced only in JOIN...ON, not selected): Brand ID."
+  ],
+  "stats": {
+    "sql_cells": 1,
+    "elements": 1,
+    "columns": 8
+  },
+  "columns_by_variable": {
+    "commerce_joined": {
+      "Brand": "id0003",
+      "Category": "id0004",
+      "Country": "id0005",
+      "Date": "id0006",
+      "Quantity": "id0007",
+      "Revenue": "id0008",
+      "Visit ID": "id0009",
+      "Year": "id0010"
+    }
+  }
+}

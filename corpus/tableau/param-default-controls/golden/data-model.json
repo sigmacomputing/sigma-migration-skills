@@ -1,0 +1,143 @@
+{
+  "sigmaDataModel": {
+    "name": "Orders Small",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Page 1",
+        "elements": [
+          {
+            "kind": "control",
+            "controlId": "Region-Pick",
+            "id": "id0002",
+            "controlType": "list",
+            "mode": "include",
+            "selectionMode": "single",
+            "values": [
+              "West"
+            ],
+            "source": {
+              "kind": "manual",
+              "valueType": "text",
+              "values": [
+                "East",
+                "West",
+                "North"
+              ],
+              "labels": [
+                "East",
+                "Western",
+                "North"
+              ]
+            }
+          },
+          {
+            "kind": "control",
+            "controlId": "As-of-Date",
+            "id": "id0003",
+            "controlType": "date",
+            "mode": "=",
+            "value": "2024-06-01"
+          },
+          {
+            "kind": "control",
+            "controlId": "Top-Limit",
+            "id": "id0004",
+            "controlType": "number",
+            "mode": "=",
+            "value": 25,
+            "includeNulls": "when-no-value-is-selected"
+          },
+          {
+            "kind": "control",
+            "controlId": "Name-Match",
+            "id": "id0005",
+            "controlType": "text",
+            "mode": "contains",
+            "value": "ACME"
+          },
+          {
+            "kind": "control",
+            "controlId": "Rate-Band",
+            "id": "id0006",
+            "controlType": "number-range"
+          },
+          {
+            "kind": "control",
+            "controlId": "Cutoff-Date",
+            "id": "id0007",
+            "controlType": "date-range",
+            "mode": "last",
+            "value": 90,
+            "unit": "day",
+            "includeToday": true
+          },
+          {
+            "id": "id0008",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "DEMO_DB",
+                "DEMO",
+                "ORDERS_SMALL"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0009/ORDER_ID",
+                "formula": "[ORDERS_SMALL/Order Id]"
+              },
+              {
+                "id": "inode-NORM0010/NET_REVENUE",
+                "formula": "[ORDERS_SMALL/Net Revenue]"
+              },
+              {
+                "id": "inode-NORM0011/REGION_NAME",
+                "formula": "[ORDERS_SMALL/Region Name]"
+              }
+            ],
+            "order": [
+              "inode-NORM0009/ORDER_ID",
+              "inode-NORM0010/NET_REVENUE",
+              "inode-NORM0011/REGION_NAME"
+            ],
+            "metrics": [
+              {
+                "id": "id0012",
+                "formula": "Sum([Net Revenue])",
+                "name": "Net Revenue",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.2f",
+                  "currencySymbol": "$"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "datasources": 1,
+    "elements": 1,
+    "columns": 3,
+    "metrics": 1,
+    "relationships": 0,
+    "controls": 6,
+    "parameters": 6,
+    "lodChildElements": 0
+  },
+  "warnings": [
+    "⚠ Connection ID not set — update in JSON before saving to Sigma",
+    "ℹ Parameter \"Region Pick\" → list control (1 member alias(es) → labels[]) (default \"West\" from the workbook's current value)",
+    "ℹ Parameter \"As Of Date\" → date control (default 2024-06-01 from the workbook's current value)",
+    "ℹ Parameter \"Top Limit\" → number control (default 25 from the workbook's current value)",
+    "ℹ Parameter \"Name Match\" → text control (default \"ACME\" from the workbook's current value)",
+    "ℹ Parameter \"Rate Band\" → number-range control",
+    "ℹ Parameter \"Cutoff Date\" → date-range control (default: last 90 days — adjust in Sigma UI)"
+  ]
+}

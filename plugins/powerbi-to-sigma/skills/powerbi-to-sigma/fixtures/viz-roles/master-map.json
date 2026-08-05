@@ -1,0 +1,54 @@
+{
+ "masters": {
+  "T": {
+   "id": "master-t",
+   "element_id": "el-t",
+   "data_model": "dm-1",
+   "metrics": [],
+   "columns": [
+    {
+     "id": "mc-date",
+     "name": "Date Col",
+     "formula": "[T/Date Col]"
+    },
+    {
+     "id": "mc-amt",
+     "name": "Amount",
+     "formula": "[T/Amount]"
+    },
+    {
+     "id": "mc-name",
+     "name": "Name",
+     "formula": "[T/Name]"
+    },
+    {
+     "id": "mc-flag",
+     "name": "Flag",
+     "formula": "[T/Flag]"
+    }
+   ]
+  }
+ },
+ "fields": {
+  "T.DateCol": {
+   "master": "T",
+   "ref": "[master-t/Date Col]",
+   "agg": null
+  },
+  "T.Amount": {
+   "master": "T",
+   "ref": "[master-t/Amount]",
+   "agg": "Sum"
+  },
+  "T.Name": {
+   "master": "T",
+   "ref": "[master-t/Name]",
+   "agg": null
+  },
+  "T.Flag": {
+   "master": "T",
+   "ref": "[master-t/Flag]",
+   "agg": null
+  }
+ }
+}

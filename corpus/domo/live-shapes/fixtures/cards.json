@@ -1,0 +1,1256 @@
+[
+ {
+  "id": "card-00",
+  "title": "Card 00 (badge_singlevalue)",
+  "chartType": "badge_singlevalue",
+  "sigmaKindHint": "kpi-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "margin",
+    "alias": "Margin",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "margin",
+   "aggregation": "SUM",
+   "label": "Margin",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1023666974
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1023666974
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 0
+ },
+ {
+  "id": "card-01",
+  "title": "Card 01 (badge_horiz_bar)",
+  "chartType": "badge_horiz_bar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "method",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "method"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 879937165
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 879937165
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 1
+ },
+ {
+  "id": "card-02",
+  "title": "Card 02 (badge_symbolline)",
+  "chartType": "badge_symbolline",
+  "sigmaKindHint": "line-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "CalendarMonth",
+    "mapping": "ITEM",
+    "calendar": true
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "dateGrain": {
+   "column": "event_date",
+   "dateTimeElement": "MONTH"
+  },
+  "groupBy": [
+   "CalendarMonth"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1839866165
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1839866165
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 2
+ },
+ {
+  "id": "card-03",
+  "title": "Card 03 (badge_singlevalue)",
+  "chartType": "badge_singlevalue",
+  "sigmaKindHint": "kpi-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "units",
+    "alias": "Units",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 0,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "units",
+   "aggregation": "SUM",
+   "label": "Units",
+   "format": {
+    "type": "number",
+    "format": "###,##0",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 0,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 390868622
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 390868622
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 3
+ },
+ {
+  "id": "card-04",
+  "title": "Card 04 (badge_singlevalue)",
+  "chartType": "badge_singlevalue",
+  "sigmaKindHint": "kpi-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 189217601
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 189217601
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 4
+ },
+ {
+  "id": "card-05",
+  "title": "Card 05 (badge_singlevalue)",
+  "chartType": "badge_singlevalue",
+  "sigmaKindHint": "kpi-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "txn_id",
+    "alias": "Txns",
+    "aggregation": "COUNT",
+    "format": {
+     "type": "number",
+     "format": "###,##0",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 0,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "txn_id",
+   "aggregation": "COUNT",
+   "label": "Txns",
+   "format": {
+    "type": "number",
+    "format": "###,##0",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 0,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": true
+  },
+  "groupBy": [],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1728056312
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1728056312
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 5
+ },
+ {
+  "id": "card-06",
+  "title": "Card 06 (badge_donut)",
+  "chartType": "badge_donut",
+  "sigmaKindHint": "donut-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "status",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "status"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1884020030
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1884020030
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 0
+ },
+ {
+  "id": "card-07",
+  "title": "Card 07 (badge_vert_bar)",
+  "chartType": "badge_vert_bar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "channel",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "Ratio A",
+    "alias": "Ratio A",
+    "format": {
+     "type": "percent",
+     "format": "##0.0%",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": true,
+     "precision": 1,
+     "currency": "USD",
+     "percent": true,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE",
+    "beastModeId": "calculation_4cd7e7c8-e5b2-4aba-ba85-c0acc18562cd",
+    "_isCalc": true
+   }
+  ],
+  "summaryNumber": {
+   "column": "Ratio A",
+   "label": "Ratio A",
+   "format": {
+    "type": "percent",
+    "format": "##0.0%",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": true,
+    "precision": 1,
+    "currency": "USD",
+    "percent": true,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "beastModeId": "calculation_4cd7e7c8-e5b2-4aba-ba85-c0acc18562cd",
+   "_isCalc": true,
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "channel"
+  ],
+  "orderBy": [],
+  "filters": [
+   {
+    "column": "status",
+    "operator": "LEGACY",
+    "values": [
+     "Cancelled"
+    ]
+   }
+  ],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1404900152
+   },
+   {
+    "id": "calculation_4cd7e7c8-e5b2-4aba-ba85-c0acc18562cd",
+    "name": "Margin Pct",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1404900152
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1404900152
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 1
+ },
+ {
+  "id": "card-08",
+  "title": "Card 08 (badge_vert_stackedbar)",
+  "chartType": "badge_vert_stackedbar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "channel",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "status",
+    "mapping": "SERIES"
+   },
+   {
+    "column": "Ratio B",
+    "alias": "Ratio B",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE",
+    "beastModeId": "calculation_085bfe29-2f38-4174-bbb4-940fc6a67e90",
+    "_isCalc": true
+   }
+  ],
+  "summaryNumber": {
+   "column": "Ratio B",
+   "label": "Ratio B",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "beastModeId": "calculation_085bfe29-2f38-4174-bbb4-940fc6a67e90",
+   "_isCalc": true,
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "channel",
+   "status"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 2050679572
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 2050679572
+   },
+   {
+    "id": "calculation_085bfe29-2f38-4174-bbb4-940fc6a67e90",
+    "name": "Avg Order Value",
+    "sql": "(SUM(`NET_REVENUE`) / COUNT(DISTINCT `ORDER_ID`))",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 2050679572
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 2
+ },
+ {
+  "id": "card-09",
+  "title": "Card 09 (badge_table)",
+  "chartType": "badge_table",
+  "sigmaKindHint": "table",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "txn_id",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "channel",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "method",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "status",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   },
+   {
+    "column": "margin",
+    "alias": "Margin",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "txn_id",
+   "aggregation": "COUNT",
+   "label": "Txns",
+   "format": {
+    "type": "number",
+    "format": "###,##0",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 0,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": true
+  },
+  "groupBy": [
+   "txn_id",
+   "channel",
+   "method",
+   "status"
+  ],
+  "orderBy": [],
+  "filters": [
+   {
+    "column": "status",
+    "operator": "LEGACY",
+    "values": [
+     "Cancelled"
+    ]
+   }
+  ],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 813003547
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 813003547
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 3
+ },
+ {
+  "id": "card-10",
+  "title": "Card 10 (badge_curved_symbolline)",
+  "chartType": "badge_curved_symbolline",
+  "sigmaKindHint": "line-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "CalendarMonth",
+    "mapping": "ITEM",
+    "calendar": true
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "dateGrain": {
+   "column": "event_date",
+   "dateTimeElement": "MONTH"
+  },
+  "groupBy": [
+   "CalendarMonth"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 829491174
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 829491174
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 0
+ },
+ {
+  "id": "card-11",
+  "title": "Card 11 (badge_line_bar)",
+  "chartType": "badge_line_bar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "CalendarMonth",
+    "mapping": "ITEM",
+    "calendar": true
+   },
+   {
+    "column": "amount",
+    "alias": "Amount",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "SERIES"
+   },
+   {
+    "column": "margin",
+    "alias": "Margin",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "SERIES"
+   }
+  ],
+  "summaryNumber": {
+   "column": "amount",
+   "aggregation": "SUM",
+   "label": "Amount",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "dateGrain": {
+   "column": "event_date",
+   "dateTimeElement": "MONTH"
+  },
+  "groupBy": [
+   "CalendarMonth"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1847362900
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1847362900
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 1
+ },
+ {
+  "id": "card-12",
+  "title": "Card 12 (badge_vert_multibar)",
+  "chartType": "badge_vert_multibar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "channel",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "method",
+    "mapping": "SERIES"
+   },
+   {
+    "column": "Ratio C",
+    "alias": "Ratio C",
+    "format": {
+     "type": "percent",
+     "format": "##0.0%",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": true,
+     "precision": 1,
+     "currency": "USD",
+     "percent": true,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE",
+    "beastModeId": "calculation_17856417-2309-4dda-be65-d2bb042331b1",
+    "_isCalc": true
+   }
+  ],
+  "summaryNumber": {
+   "column": "Ratio C",
+   "label": "Ratio C",
+   "format": {
+    "type": "percent",
+    "format": "##0.0%",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": true,
+    "precision": 1,
+    "currency": "USD",
+    "percent": true,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "beastModeId": "calculation_17856417-2309-4dda-be65-d2bb042331b1",
+   "_isCalc": true,
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "channel",
+   "method"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 643232101
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 643232101
+   },
+   {
+    "id": "calculation_17856417-2309-4dda-be65-d2bb042331b1",
+    "name": "Return Rate",
+    "sql": "(SUM(`IS_RETURNED`) / COUNT(`ORDER_ID`))",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 643232101
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 2
+ },
+ {
+  "id": "card-13",
+  "title": "Card 13 (badge_table)",
+  "chartType": "badge_table",
+  "sigmaKindHint": "table",
+  "datasetId": "ds-fact",
+  "columns": [
+   {
+    "column": "channel",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "margin",
+    "alias": "Margin",
+    "aggregation": "SUM",
+    "format": {
+     "type": "number",
+     "format": "###,##0.00",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 2,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "margin",
+   "aggregation": "SUM",
+   "label": "Margin",
+   "format": {
+    "type": "number",
+    "format": "###,##0.00",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 2,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": false
+  },
+  "groupBy": [
+   "channel"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [
+   {
+    "cardId": 1685345938,
+    "condition": {
+     "column": "GROSS_PROFIT",
+     "values": [
+      "20000"
+     ],
+     "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+     "filterType": "LEGACY",
+     "operand": "GREATER_THAN"
+    },
+    "format": {
+     "color": "#2E7D32",
+     "textColor": "#FFFFFF",
+     "textStyle": "BOLD",
+     "applyToRow": false
+    }
+   }
+  ],
+  "_shape": "B",
+  "beastModes": [
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "dataset",
+    "class": "aggregate",
+    "dataSourceId": "021e123b-e83f-4052-9ffb-0d4fb00ebae1",
+    "cardId": 1685345938
+   },
+   {
+    "id": "calculation_e4eb94c0-037c-4000-a27d-1f1ceed75f1f",
+    "name": "Margin Pct 2",
+    "sql": "(CASE WHEN (SUM(`NET_REVENUE`) = 0) THEN 0 ELSE (SUM(`GROSS_PROFIT`) / SUM(`NET_REVENUE`)) END )",
+    "scope": "card",
+    "class": "aggregate",
+    "cardId": 1685345938
+   }
+  ],
+  "_size": "",
+  "_pageOrder": 3
+ },
+ {
+  "id": "card-14",
+  "title": "Card 14 (badge_vert_bar)",
+  "chartType": "badge_vert_bar",
+  "sigmaKindHint": "bar-chart",
+  "datasetId": "ds-dim",
+  "columns": [
+   {
+    "column": "region",
+    "mapping": "ITEM"
+   },
+   {
+    "column": "member_key",
+    "alias": "Members",
+    "aggregation": "COUNT",
+    "format": {
+     "type": "number",
+     "format": "###,##0",
+     "dateFormat": "",
+     "commas": true,
+     "percentMultiplied": false,
+     "precision": 0,
+     "currency": "USD",
+     "percent": false,
+     "alignment": "right",
+     "style": "normal"
+    },
+    "mapping": "VALUE"
+   }
+  ],
+  "summaryNumber": {
+   "column": "member_key",
+   "aggregation": "COUNT",
+   "label": "Members",
+   "format": {
+    "type": "number",
+    "format": "###,##0",
+    "dateFormat": "",
+    "commas": true,
+    "percentMultiplied": false,
+    "precision": 0,
+    "currency": "USD",
+    "percent": false,
+    "alignment": "right",
+    "style": "normal"
+   },
+   "_defaultCountSuspect": true
+  },
+  "groupBy": [
+   "region"
+  ],
+  "orderBy": [],
+  "filters": [],
+  "conditionalFormats": [],
+  "_shape": "B",
+  "beastModes": [],
+  "_size": "",
+  "_pageOrder": 4
+ }
+]

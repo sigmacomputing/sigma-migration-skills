@@ -1,0 +1,56 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-param-member-aliases.rb (invented names): a
+     list parameter with integer-coded members whose human meaning lives in
+     the <member alias='...'> ATTRIBUTES (the .twb shape neither extractor
+     read before v5.6), plus a plain single-table datasource. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource hasconnection='false' name='Parameters'>
+      <column caption='Metric Picker' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='1'>
+        <members>
+          <member alias='Total Revenue' value='1' />
+          <member alias='Net Revenue' value='3' />
+          <member value='5' />
+        </members>
+      </column>
+      <column caption='Plain Picker' datatype='string' name='[Parameter 2]' param-domain-type='list' role='dimension' type='nominal' value='&quot;East&quot;'>
+        <members>
+          <member value='&quot;East&quot;' />
+          <member value='&quot;West&quot;' />
+        </members>
+      </column>
+    </datasource>
+    <datasource caption='Region Sales' name='federated.sales01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.sales01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.sales01' name='REGION_SALES' table='[PUBLIC].[REGION_SALES]' type='table'>
+          <columns>
+            <column datatype='string' name='REGION' />
+            <column datatype='real' name='TOTALREV' />
+          </columns>
+        </relation>
+      </connection>
+      <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+      <column caption='Totalrev' datatype='real' name='[TOTALREV]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Region Sales' name='federated.sales01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sales01'>
+            <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

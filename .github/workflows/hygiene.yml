@@ -1,0 +1,267 @@
+name: hygiene-sweep
+# Server-side identifier gate: no client can merge what the sweep rejects.
+# Committed patterns (tools/hygiene-patterns.txt) are generic guards; the
+# private third-party guards are injected from the HYGIENE_PRIVATE_PATTERNS
+# repo secret at runtime — they must NEVER be committed (disclosure) and are
+# masked from logs by GitHub's secret redaction.
+on:
+  push: {}
+  pull_request: {}
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the converter-provenance guard below diffs the
+          # push/PR range, which the default depth-1 checkout cannot see.
+          fetch-depth: 0
+      - name: Inject private guards (optional secret)
+        env:
+          PRIVATE: ${{ secrets.HYGIENE_PRIVATE_PATTERNS }}
+        run: |
+          if [ -n "$PRIVATE" ]; then
+            printf '%s\n' "$PRIVATE" > tools/hygiene-patterns.local.txt
+            echo "private guards injected ($(grep -cvE '^\s*(#|$)' tools/hygiene-patterns.local.txt) patterns)"
+          else
+            echo "no HYGIENE_PRIVATE_PATTERNS secret set — committed patterns only"
+          fi
+      - name: Sweep
+        run: |
+          # Report only pattern-file line NUMBERS on failure, never matched text —
+          # otherwise the log would disclose what the private guards protect.
+          # The sweep's exit-code contract has TWO failure modes (hygiene-sweep.sh
+          # header): 1 = identifier hits, 2 = the sweep REFUSED to run (bad
+          # pattern / unusable setup — usually a typo in the
+          # HYGIENE_PRIVATE_PATTERNS secret, which contributors cannot reproduce
+          # locally because they lack the secret). Conflating them would send
+          # people hunting a leak that is not there while the broken gate goes
+          # unnamed — branch on the code.
+          set +e
+          bash tools/hygiene-sweep.sh > /tmp/sweep.out 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then tail -1 /tmp/sweep.out; exit 0; fi
+          if [ "$rc" -eq 2 ]; then
+            echo "HYGIENE SWEEP UNUSABLE — pattern/setup problem, NOT an identifier hit."
+            echo "(Likely a typo in the HYGIENE_PRIVATE_PATTERNS secret; the sweep's own"
+            echo "refusal below names only the pattern's source + line — disclosure-safe.)"
+            grep -E 'does not compile|no active patterns|missing|not a git repo' /tmp/sweep.out | head -10
+            exit 2
+          fi
+          echo "HYGIENE SWEEP FAILED — identifier hits found."
+          echo "Files with hits (matched text withheld; run tools/hygiene-sweep.sh locally):"
+          # Two hit-line shapes. Redacted: "<display>: pattern <src> line <N>",
+          # where <display> may carry an index:/staged:/symlink: locus prefix
+          # containing a colon — a first-colon cut would print a bare "index"/
+          # "symlink" and lose the affected path, so strip the label suffix
+          # instead ($-anchored: never applied mid-line to verbatim text).
+          # Verbatim (committed-pattern): "<file>:<line>:<text>" — keep only
+          # the path, never the text.
+          {
+            sed -nE 's/: pattern (committed|local) line [0-9]+$//p' /tmp/sweep.out
+            grep -oE '^[^:]+:[0-9]+:' /tmp/sweep.out | cut -d: -f1
+          } | grep -vE '^(HYGIENE SWEEP|hygiene-sweep)' | sort -u | head -40
+          exit 1
+      - name: Resolve push/PR diff range (BASE..HEAD for the range checks below)
+        # Single source for the event's diff range — consumed by the
+        # commit-message scan and the converter-provenance guard. Empty
+        # RANGE_BASE = "nothing to check" (both consumers skip) — reachable
+        # on push events only; a PR whose range cannot be resolved FAILS this
+        # step instead of skipping (fail-closed refusal below).
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # merge-base against the CURRENT base tip — NOT ${HEAD_SHA}^1.
+            # github.sha is the test-merge commit only when the PR is
+            # mergeable; on any event where it is the PR head instead,
+            # `rev-parse <sha>^1` SUCCEEDS (so the || fallback never fires),
+            # BASE becomes the previous PR commit, and the guards below
+            # silently scan ONE commit while printing their normal output.
+            # merge-base is correct in BOTH shapes and, unlike the frozen
+            # base.sha, is immune to base-branch drift.
+            git fetch --quiet --no-tags origin \
+              "+refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}" 2>/dev/null || true
+            BASE="$(git merge-base "refs/remotes/origin/${PR_BASE_REF}" "$HEAD_SHA" 2>/dev/null || true)"
+            [ -n "$BASE" ] || BASE="$(git merge-base "$PR_BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$PR_BASE_SHA")"
+          else
+            BASE="$PUSH_BEFORE_SHA"
+          fi
+          # New-branch pushes carry an all-zero 'before'; fall back to the
+          # default-branch merge-base so the branch's commits are still checked.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            git fetch --quiet origin "$DEFAULT_BRANCH" || true
+            BASE="$(git merge-base "origin/$DEFAULT_BRANCH" "$HEAD_SHA" 2>/dev/null || true)"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "$HEAD_SHA" ]; then
+            # A PR always has commits to scan, so landing here means every
+            # resolution fallback above failed — and the coverage assertion
+            # below sits inside [ -n "$BASE" ], so skipping would green-light
+            # a zero-commit scan (the extreme case of the under-scan it
+            # refuses). Fail closed; the silent skip stays push-only (the
+            # all-zero 'before' of a new-branch push with no other base).
+            if [ "$EVENT_NAME" = "pull_request" ]; then
+              echo "::error::could not resolve a PR diff range — refusing to skip the hygiene guards"
+              exit 1
+            fi
+            echo "no diff range to check — range checks below will skip"
+            BASE=""
+          fi
+          echo "RANGE_BASE=$BASE" >> "$GITHUB_ENV"
+          echo "RANGE_HEAD=$HEAD_SHA" >> "$GITHUB_ENV"
+          # Coverage assertion. The original bug was undetectable because the
+          # guards printed their normal output over a 1-commit range. Say how
+          # many commits are actually covered, and refuse to run a PR scan
+          # that covers fewer commits than the PR has.
+          if [ -n "$BASE" ]; then
+            N="$(git rev-list --count "$BASE..$HEAD_SHA" 2>/dev/null || echo 0)"
+            echo "diff range $BASE..$HEAD_SHA covers $N commit(s)"
+            if [ "$EVENT_NAME" = "pull_request" ] && [ -n "${PR_COMMITS:-}" ] && [ "$N" -lt "$PR_COMMITS" ]; then
+              echo "::error::range covers $N commit(s) but this PR has $PR_COMMITS — the hygiene guards below would UNDER-SCAN"
+              exit 1
+            fi
+          fi
+      - name: Commit-message hygiene (push-range %B scan)
+        # Messages are inside the hygiene boundary, but .githooks/commit-msg
+        # only runs where core.hooksPath is configured, and --no-verify skips
+        # it — this step is the server-side backstop that catches both. It
+        # feeds each range commit's %B (the LANDED, post-cleanup message) to
+        # the SAME hook script — one engine, never forked logic
+        # (tools/test-commit-msg-guard.sh Part G pins this exact rev-list+%B
+        # loop). Output stays redacted to pattern source + line numbers, so a
+        # private-guard hit discloses nothing in this log; only commit SHAs
+        # are echoed, never message text.
+        run: |
+          if [ -z "${RANGE_BASE:-}" ]; then echo "no diff range to check — skipping"; exit 0; fi
+          fail=0
+          while IFS= read -r sha; do
+            git log -1 --format=%B "$sha" > /tmp/msg.txt
+            if ! bash .githooks/commit-msg /tmp/msg.txt; then
+              echo "^ blocked-pattern hit in the message of commit $sha (text withheld)"
+              fail=1
+            fi
+          done < <(git rev-list "$RANGE_BASE..$RANGE_HEAD")
+          if [ "$fail" -ne 0 ]; then
+            echo "COMMIT-MESSAGE HYGIENE FAILED — reword the flagged message(s); identifiers"
+            echo "never go in commit messages or PR bodies (CONTRIBUTING.md 'Hygiene sweep')."
+          fi
+          exit $fail
+      - name: Converter-provenance guard (vendored-bundle diff pairing)
+        # Standing vendoring rule, made mechanical: a vendored converter bundle
+        # (plugins/**/converter/*.mjs) never changes without its sibling
+        # PROVENANCE.json changing in the same push/PR range — a re-vendor bumps
+        # source_commit; an in-place patch records itself in local_patches.
+        # Guard logic + local_patches schema pin live in
+        # tools/check-converter-provenance.sh (offline-tested by
+        # tools/test-converter-provenance.sh); the event's diff range comes
+        # from the shared "Resolve push/PR diff range" step above.
+        run: |
+          if [ -z "${RANGE_BASE:-}" ]; then echo "no diff range to check — skipping"; exit 0; fi
+          bash tools/check-converter-provenance.sh "$RANGE_BASE" "$RANGE_HEAD"
+      - name: Converter-freshness guard (vendored-bundle staleness by age)
+        # Standing gate, NOT diff-scoped (unlike the pairing guard above, this
+        # runs every time regardless of RANGE_BASE): a merge to
+        # sigma-data-model-mcp changes nothing for any operator until someone
+        # runs tools/vendor-converters.sh and commits the regenerated bundle,
+        # and pre-existing drift nobody re-vendored in a long time has no diff
+        # to catch it on. CI cannot assume network access to that private repo,
+        # so this grades staleness by the AGE of each PROVENANCE.json's own
+        # source_commit_date (default threshold 14d, CONVERTER_STALENESS_DAYS)
+        # rather than asking upstream what's new — see the header comment in
+        # tools/check-converter-provenance.sh for the full trade-off. cognos-to-sigma
+        # vendors its own converter/*.ts in-skill (no source_repo/source_commit
+        # by design) and is reported explicitly as not-applicable, not flagged
+        # stale; its own freshness gate is tools/check-cognos-bundle.rb below.
+        # A STALE verdict that carries local_patches gets a note pointing at
+        # porting those patches upstream first, never "just re-vendor blind".
+        run: bash tools/check-converter-provenance.sh --freshness "$RANGE_HEAD"
+      - name: Plugin-version-bump guard (release-hygiene diff gate)
+        # #486: a change under plugins/<name>/** must move that plugin's
+        # plugin.json "version" (strict semver) so `claude plugin update` sees a
+        # newer version — else fixes ship with no update signal. Escape hatch:
+        # a `Skip-Version-Bump: <reason>` commit trailer. Range comes from the
+        # shared "Resolve push/PR diff range" step; guard logic +
+        # marketplace-listed-but-unversioned check live in
+        # tools/check-plugin-version-bump.sh (offline-tested by
+        # tools/test-plugin-version-bump.sh).
+        run: |
+          if [ -z "${RANGE_BASE:-}" ]; then echo "no diff range to check — skipping"; exit 0; fi
+          bash tools/check-plugin-version-bump.sh "$RANGE_BASE" "$RANGE_HEAD"
+      - name: Sweep self-test (fixture repos, creds-free)
+        # Proves the sweep tool itself still warns/fails/passes correctly
+        # against throwaway fixture git repos — synthetic patterns only, no
+        # customer content (tools/test-hygiene-sweep.sh, hygiene-enablement
+        # deliverable; keep wired here).
+        run: bash tools/test-hygiene-sweep.sh
+      - name: Range-resolution self-test (fixture repos, creds-free)
+        # Proves the "Resolve push/PR diff range" step's ACTUAL run-block text
+        # (extracted from this file at test runtime, never a forked copy)
+        # covers the full PR range in both event shapes — github.sha as PR
+        # head AND as test-merge commit — and that the coverage assertion
+        # refuses an under-scanning range (tools/test-hygiene-range.sh).
+        run: bash tools/test-hygiene-range.sh
+      - name: Converter-provenance guard self-test (fixture repos, creds-free)
+        # Proves the diff-pairing guard fails unpaired bundle changes, passes
+        # paired ones, and schema-pins local_patches entries — plus the
+        # string-pin on the real tableau PROVENANCE.json (synthetic fixture
+        # names only). Also proves the --freshness staleness-by-age gate
+        # (Part E) fails a 40d-stale fixture and passes the same fixture
+        # dated today, reports an in-skill/cognos-shaped entry explicitly
+        # rather than silently, and surfaces the local_patches
+        # don't-re-vendor-blind note; plus --online's soft-pass when no local
+        # checkout is present (Part F).
+        run: bash tools/test-converter-provenance.sh
+      - name: Plugin-version-bump guard self-test (fixture repos, creds-free)
+        # Proves the version-bump gate fails an unbumped plugin change, passes a
+        # bumped one, honors the Skip-Version-Bump trailer, and fails a
+        # marketplace-listed plugin with no versionable manifest — plus a
+        # string-pin that every listed plugin in this repo carries a semver
+        # plugin.json (synthetic fixture names only).
+        run: bash tools/test-plugin-version-bump.sh
+      - name: Skill byte-budget lint + self-test (E9 context diet, creds-free)
+        # Byte budgets for skill doc surfaces: SKILL.md <= 20KB, any single
+        # refs/*.md <= 32KB, mandatory pre-read <= 3 files — enforced by
+        # tools/lint-skills.rb (E9.2: one lint, ONE exception registry —
+        # tools/skill-lint-baseline.json, rule ids skill-md-bytes /
+        # ref-bytes:<file>.md / pre-read-width; a ratchet: diet the file,
+        # delete the entry). corpus-check runs the same lint; this job adds
+        # the fixture self-test proving trip AND no-false-trip behavior.
+        run: |
+          ruby tools/lint-skills.rb
+          bash tools/test-lint-skills-budgets.sh
+      - name: Bootstrap/doctor lockstep self-test (creds-free)
+        # bootstrap.sh duplicates doctor.sh's probes (py_real, the vm-node
+        # candidate globs, Test-RealPython) under KEEP-IN-LOCKSTEP comments
+        # that name this diff-test as the mechanical no-drift guard —
+        # check-shared.rb only proves twins match canonical, not that
+        # bootstrap's probes match doctor's. Also wired into
+        # run-governance-checks.sh (quiet there); this explicit step keeps the
+        # failure surface visible. Fixture-free, sub-second.
+        run: bash plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-bootstrap-lockstep.sh
+      - name: Governance checks (incl. tracked-litter lint)
+        # Same creds-free gate the pre-commit/pre-push hooks run — shared-lib
+        # drift, skill conformance, and the tracked workdir/log litter lint all
+        # live in .githooks/run-governance-checks.sh. Call it; never fork its
+        # logic into this workflow. Runs AFTER the redacted Sweep step above so
+        # an identifier hit always fails there first (redacted output), never
+        # here (raw output).
+        env:
+          # Deterministic UTF-8 reads for the ruby lints — an unset/US-ASCII
+          # runner locale crashes them, so don't inherit the image default.
+          LC_ALL: C.UTF-8
+          # The dedicated Sweep step above already swept this tree (redacted).
+          # run-governance-checks.sh honors this knob and skips its redundant
+          # raw-output inner sweep in CI. Local hooks keep sweeping either way.
+          GOVERNANCE_SKIP_SWEEP: "1"
+        run: |
+          # The hook self-skips (exit 0) when ruby is absent — right on a bare
+          # laptop, wrong for the gate itself: a missing runtime must fail CI.
+          command -v ruby >/dev/null || { echo "ruby missing on runner — governance gate cannot run"; exit 1; }
+          bash .githooks/run-governance-checks.sh

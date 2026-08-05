@@ -1,0 +1,71 @@
+[
+  {
+    "kind": "federated-join",
+    "join_type": "inner",
+    "left": "Sale Lines",
+    "right": "ITEM_DIM (ANALYTICS.ITEM_DIM)",
+    "keys": [
+      "cccc0001-0000-4000-8000-000000000001"
+    ],
+    "key_pairs": [
+      {
+        "left": "aaaa0003-0000-4000-8000-000000000003",
+        "right": "cccc0001-0000-4000-8000-000000000001"
+      }
+    ],
+    "grain_assumption": "right unique on keys",
+    "status": "unprobed",
+    "right_table": "DEMO_DB.ANALYTICS.ITEM_DIM",
+    "probe_keys": [
+      "ITEM_KEY"
+    ]
+  },
+  {
+    "kind": "federated-join",
+    "join_type": "inner",
+    "left": "Sale Lines",
+    "right": "BUYER_DIM (ANALYTICS.BUYER_DIM)",
+    "keys": [
+      "bbbb0001-0000-4000-8000-000000000001"
+    ],
+    "key_pairs": [
+      {
+        "left": "aaaa0001-0000-4000-8000-000000000001",
+        "right": "bbbb0001-0000-4000-8000-000000000001"
+      }
+    ],
+    "grain_assumption": "right unique on keys",
+    "status": "unprobed",
+    "right_table": "DEMO_DB.ANALYTICS.BUYER_DIM",
+    "probe_keys": [
+      "BUYER_KEY"
+    ]
+  },
+  {
+    "kind": "federated-join",
+    "join_type": "inner",
+    "left": "Sale Lines",
+    "right": "Buyer Day Detail",
+    "keys": [
+      "aaaa0001-0000-4000-8000-000000000001",
+      "aaaa0002-0000-4000-8000-000000000002"
+    ],
+    "key_pairs": [
+      {
+        "left": "aaaa0001-0000-4000-8000-000000000001",
+        "right": "aaaa0001-0000-4000-8000-000000000001"
+      },
+      {
+        "left": "aaaa0002-0000-4000-8000-000000000002",
+        "right": "aaaa0002-0000-4000-8000-000000000002"
+      }
+    ],
+    "grain_assumption": "right unique on keys",
+    "status": "unprobed",
+    "right_table": "eeee0000-0000-4000-8000-00000000ee01.SALES_FACT (ANALYTICS.SALES_FACT)",
+    "probe_keys": [
+      "BUYER_KEY",
+      "SALE_DATE"
+    ]
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ds-order-fact",
+    "name": "Order Fact",
+    "schema": {
+      "columns": [
+        { "name": "order_id", "type": "STRING" },
+        { "name": "order_date", "type": "DATE" },
+        { "name": "region", "type": "STRING" },
+        { "name": "sales_amount", "type": "DECIMAL" },
+        { "name": "customer_id", "type": "STRING" }
+      ]
+    }
+  },
+  {
+    "id": "ds-customer-dim",
+    "name": "Customer Dim",
+    "schema": {
+      "columns": [
+        { "name": "customer_id", "type": "STRING" },
+        { "name": "customer_name", "type": "STRING" },
+        { "name": "segment", "type": "STRING" }
+      ]
+    }
+  }
+]

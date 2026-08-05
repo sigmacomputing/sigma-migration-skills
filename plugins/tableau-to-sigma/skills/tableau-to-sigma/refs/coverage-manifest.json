@@ -1,0 +1,1324 @@
+{
+ "generated_for": "W2.13 generated translation table",
+ "generated_by": "scripts/dev/gen-translation-table.mjs — BUILD ARTIFACT, regenerate, never hand-edit (was hand-maintained until wave 2)",
+ "source": "converter/tableau.mjs tableauFormulaToSigma + TABLEAU_FUNC_MAP (vendored bundle), probed per scripts/lib/tableau_functions.json",
+ "counts": {
+  "chart_only": 19,
+  "flagged": 14,
+  "reported": 4,
+  "spec": 78,
+  "unmapped": 71,
+  "verify": 1
+ },
+ "functions": [
+  {
+   "fn": "ABS",
+   "category": "number",
+   "sigma": "Abs",
+   "status": "spec",
+   "probe": "ABS([NUM_A])"
+  },
+  {
+   "fn": "ACOS",
+   "category": "number",
+   "sigma": "Acos",
+   "status": "spec",
+   "probe": "ACOS([NUM_A])"
+  },
+  {
+   "fn": "AREA",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ASCII",
+   "category": "string",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ASIN",
+   "category": "number",
+   "sigma": "Asin",
+   "status": "spec",
+   "probe": "ASIN([NUM_A])"
+  },
+  {
+   "fn": "ATAN",
+   "category": "number",
+   "sigma": "Atan",
+   "status": "spec",
+   "probe": "ATAN([NUM_A])"
+  },
+  {
+   "fn": "ATAN2",
+   "category": "number",
+   "sigma": "Atan2",
+   "status": "spec",
+   "probe": "ATAN2([NUM_A], [NUM_B])"
+  },
+  {
+   "fn": "ATTR",
+   "category": "aggregate",
+   "sigma": null,
+   "status": "spec",
+   "probe": "ATTR([TXT_A])"
+  },
+  {
+   "fn": "AVG",
+   "category": "aggregate",
+   "sigma": "Avg",
+   "status": "spec",
+   "probe": "AVG([NUM_A])"
+  },
+  {
+   "fn": "BUFFER",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "CEILING",
+   "category": "number",
+   "sigma": "Ceiling",
+   "status": "spec",
+   "probe": "CEILING([NUM_A])"
+  },
+  {
+   "fn": "CHAR",
+   "category": "string",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "COLLECT",
+   "category": "aggregate",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "CONTAINS",
+   "category": "string",
+   "sigma": "Contains",
+   "status": "spec",
+   "probe": "CONTAINS([TXT_A], '-')"
+  },
+  {
+   "fn": "CORR",
+   "category": "aggregate",
+   "sigma": "Corr",
+   "status": "spec",
+   "probe": "CORR([NUM_A], [NUM_B])"
+  },
+  {
+   "fn": "COS",
+   "category": "number",
+   "sigma": "Cos",
+   "status": "spec",
+   "probe": "COS([NUM_A])"
+  },
+  {
+   "fn": "COT",
+   "category": "number",
+   "sigma": "Cot",
+   "status": "spec",
+   "probe": "COT([NUM_A])"
+  },
+  {
+   "fn": "COUNT",
+   "category": "aggregate",
+   "sigma": "CountIf",
+   "status": "spec",
+   "probe": "COUNT([TXT_A])"
+  },
+  {
+   "fn": "COUNTD",
+   "category": "aggregate",
+   "sigma": "CountDistinct",
+   "status": "spec",
+   "probe": "COUNTD([TXT_A])"
+  },
+  {
+   "fn": "COVAR",
+   "category": "aggregate",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "COVARP",
+   "category": "aggregate",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "DATE",
+   "category": "date",
+   "sigma": "Date",
+   "status": "spec",
+   "probe": "DATE([DATE_A])"
+  },
+  {
+   "fn": "DATEADD",
+   "category": "date",
+   "sigma": "DateAdd",
+   "status": "spec",
+   "probe": "DATEADD('day', 7, [DATE_A])"
+  },
+  {
+   "fn": "DATEDIFF",
+   "category": "date",
+   "sigma": "DateDiff",
+   "status": "spec",
+   "probe": "DATEDIFF('day', [DATE_A], [DATE_B])"
+  },
+  {
+   "fn": "DATENAME",
+   "category": "date",
+   "sigma": "MonthName",
+   "status": "spec",
+   "probe": "DATENAME('month', [DATE_A])"
+  },
+  {
+   "fn": "DATEPARSE",
+   "category": "date",
+   "sigma": "DateParse",
+   "status": "verify",
+   "probe": "DATEPARSE('yyyy-MM-dd', [TXT_A])"
+  },
+  {
+   "fn": "DATEPART",
+   "category": "date",
+   "sigma": "Year",
+   "status": "spec",
+   "probe": "DATEPART('year', [DATE_A])"
+  },
+  {
+   "fn": "DATETIME",
+   "category": "type_conversion",
+   "sigma": "Date",
+   "status": "spec",
+   "probe": "DATETIME([TXT_A])"
+  },
+  {
+   "fn": "DATETRUNC",
+   "category": "date",
+   "sigma": "DateTrunc",
+   "status": "spec",
+   "probe": "DATETRUNC('month', [DATE_A])"
+  },
+  {
+   "fn": "DAY",
+   "category": "date",
+   "sigma": "Day",
+   "status": "spec",
+   "probe": "DAY([DATE_A])"
+  },
+  {
+   "fn": "DEGREES",
+   "category": "number",
+   "sigma": "Degrees",
+   "status": "spec",
+   "probe": "DEGREES([NUM_A])"
+  },
+  {
+   "fn": "DISTANCE",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "DIV",
+   "category": "number",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "DOMAIN",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ENDSWITH",
+   "category": "string",
+   "sigma": "EndsWith",
+   "status": "spec",
+   "probe": "ENDSWITH([TXT_A], '-')"
+  },
+  {
+   "fn": "EXP",
+   "category": "number",
+   "sigma": "Exp",
+   "status": "spec",
+   "probe": "EXP([NUM_A])"
+  },
+  {
+   "fn": "FIND",
+   "category": "string",
+   "sigma": "Find",
+   "status": "spec",
+   "probe": "FIND([TXT_A], '-')"
+  },
+  {
+   "fn": "FINDNTH",
+   "category": "string",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "FIRST",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "FLOAT",
+   "category": "type_conversion",
+   "sigma": "Number",
+   "status": "spec",
+   "probe": "FLOAT([TXT_A])"
+  },
+  {
+   "fn": "FLOOR",
+   "category": "number",
+   "sigma": "Floor",
+   "status": "spec",
+   "probe": "FLOOR([NUM_A])"
+  },
+  {
+   "fn": "FULLNAME",
+   "category": "user",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "GET_JSON_OBJECT",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "GROUP_CONCAT",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "HEXBINX",
+   "category": "number",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "HEXBINY",
+   "category": "number",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "HOST",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "IFNULL",
+   "category": "logical",
+   "sigma": "Coalesce",
+   "status": "spec",
+   "probe": "IFNULL([NUM_A], 0)"
+  },
+  {
+   "fn": "IIF",
+   "category": "logical",
+   "sigma": "If",
+   "status": "spec",
+   "probe": "IIF([FLAG_A], 1, 0)"
+  },
+  {
+   "fn": "INDEX",
+   "category": "table_calc",
+   "sigma": "RowNumber",
+   "status": "chart_only",
+   "probe": "INDEX()"
+  },
+  {
+   "fn": "INT",
+   "category": "type_conversion",
+   "sigma": "Int",
+   "status": "spec",
+   "probe": "INT([TXT_A])"
+  },
+  {
+   "fn": "INTERSECTS",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISDATE",
+   "category": "logical",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISFULLNAME",
+   "category": "user",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISMEMBEROF",
+   "category": "user",
+   "sigma": "CurrentUserInTeam",
+   "status": "reported",
+   "probe": "ISMEMBEROF('group')"
+  },
+  {
+   "fn": "ISNULL",
+   "category": "logical",
+   "sigma": "IsNull",
+   "status": "spec",
+   "probe": "ISNULL([NUM_A])"
+  },
+  {
+   "fn": "ISOQUARTER",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISOWEEK",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISOWEEKDAY",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISOYEAR",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "ISUSERNAME",
+   "category": "user",
+   "sigma": "CurrentUserEmail",
+   "status": "reported",
+   "probe": "ISUSERNAME('user')"
+  },
+  {
+   "fn": "LAST",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "LEFT",
+   "category": "string",
+   "sigma": "Left",
+   "status": "spec",
+   "probe": "LEFT([TXT_A], 3)"
+  },
+  {
+   "fn": "LEN",
+   "category": "string",
+   "sigma": "Len",
+   "status": "spec",
+   "probe": "LEN([TXT_A])"
+  },
+  {
+   "fn": "LENGTH",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "LN",
+   "category": "number",
+   "sigma": "Ln",
+   "status": "spec",
+   "probe": "LN([NUM_A])"
+  },
+  {
+   "fn": "LOG",
+   "category": "number",
+   "sigma": "Log",
+   "status": "spec",
+   "probe": "LOG([NUM_A])"
+  },
+  {
+   "fn": "LOG2",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "LOOKUP",
+   "category": "table_calc",
+   "sigma": "Lag",
+   "status": "chart_only",
+   "probe": "LOOKUP(SUM([NUM_A]), -1)"
+  },
+  {
+   "fn": "LOWER",
+   "category": "string",
+   "sigma": "Lower",
+   "status": "spec",
+   "probe": "LOWER([TXT_A])"
+  },
+  {
+   "fn": "LTRIM",
+   "category": "string",
+   "sigma": "Ltrim",
+   "status": "spec",
+   "probe": "LTRIM([TXT_A])"
+  },
+  {
+   "fn": "LTRIM_THIS",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MAKEDATE",
+   "category": "date",
+   "sigma": "MakeDate",
+   "status": "spec",
+   "probe": "MAKEDATE(2024, 1, 15)"
+  },
+  {
+   "fn": "MAKEDATETIME",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MAKELINE",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MAKEPOINT",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MAKETIME",
+   "category": "date",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MAX",
+   "category": "aggregate",
+   "sigma": "Max",
+   "status": "spec",
+   "probe": "MAX([NUM_A])"
+  },
+  {
+   "fn": "MEDIAN",
+   "category": "aggregate",
+   "sigma": "Median",
+   "status": "spec",
+   "probe": "MEDIAN([NUM_A])"
+  },
+  {
+   "fn": "MID",
+   "category": "string",
+   "sigma": "Mid",
+   "status": "spec",
+   "probe": "MID([TXT_A], 2, 3)"
+  },
+  {
+   "fn": "MIN",
+   "category": "aggregate",
+   "sigma": "Min",
+   "status": "spec",
+   "probe": "MIN([NUM_A])"
+  },
+  {
+   "fn": "MODEL_EXTENSION_BOOL",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_EXTENSION_INT",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_EXTENSION_REAL",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_EXTENSION_STR",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_EXTENSION_STRING",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_PERCENTILE",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MODEL_QUANTILE",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "MONTH",
+   "category": "date",
+   "sigma": "Month",
+   "status": "spec",
+   "probe": "MONTH([DATE_A])"
+  },
+  {
+   "fn": "NOW",
+   "category": "date",
+   "sigma": "Now",
+   "status": "spec",
+   "probe": "NOW()"
+  },
+  {
+   "fn": "OUTLINE",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "PARSE_URL",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "PARSE_URL_QUERY",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "PERCENTILE",
+   "category": "aggregate",
+   "sigma": "PercentileCont",
+   "status": "spec",
+   "probe": "PERCENTILE([NUM_A], 0.5)"
+  },
+  {
+   "fn": "PI",
+   "category": "number",
+   "sigma": "Pi",
+   "status": "spec",
+   "probe": "PI()"
+  },
+  {
+   "fn": "POWER",
+   "category": "number",
+   "sigma": "Power",
+   "status": "spec",
+   "probe": "POWER([NUM_A], 2)"
+  },
+  {
+   "fn": "PREVIOUS_VALUE",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "PROPER",
+   "category": "string",
+   "sigma": "Proper",
+   "status": "spec",
+   "probe": "PROPER([TXT_A])"
+  },
+  {
+   "fn": "QUARTER",
+   "category": "date",
+   "sigma": "Quarter",
+   "status": "spec",
+   "probe": "QUARTER([DATE_A])"
+  },
+  {
+   "fn": "RADIANS",
+   "category": "number",
+   "sigma": "Radians",
+   "status": "spec",
+   "probe": "RADIANS([NUM_A])"
+  },
+  {
+   "fn": "RANK",
+   "category": "table_calc",
+   "sigma": "Rank",
+   "status": "chart_only",
+   "probe": "RANK(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RANK_DENSE",
+   "category": "table_calc",
+   "sigma": "RankDense",
+   "status": "chart_only",
+   "probe": "RANK_DENSE(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RANK_MODIFIED",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "RANK_PERCENTILE",
+   "category": "table_calc",
+   "sigma": "RankPercentile",
+   "status": "chart_only",
+   "probe": "RANK_PERCENTILE(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RANK_UNIQUE",
+   "category": "table_calc",
+   "sigma": "Rank",
+   "status": "chart_only",
+   "probe": "RANK_UNIQUE(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RAWSQLAGG_BOOL",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQLAGG_DATE",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQLAGG_DATETIME",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQLAGG_INT",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQLAGG_REAL",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQLAGG_STR",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_BOOL",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_DATE",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_DATETIME",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_INT",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_REAL",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_SPATIAL",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RAWSQL_STR",
+   "category": "rawsql_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "REGEXP_EXTRACT",
+   "category": "additional_passthrough",
+   "sigma": "RegexpExtract",
+   "status": "spec",
+   "probe": "REGEXP_EXTRACT([TXT_A], '(\\d+)')"
+  },
+  {
+   "fn": "REGEXP_EXTRACT_NTH",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "REGEXP_MATCH",
+   "category": "additional_passthrough",
+   "sigma": "RegexpMatch",
+   "status": "spec",
+   "probe": "REGEXP_MATCH([TXT_A], '(\\d+)')"
+  },
+  {
+   "fn": "REGEXP_REPLACE",
+   "category": "additional_passthrough",
+   "sigma": "RegexpReplace",
+   "status": "spec",
+   "probe": "REGEXP_REPLACE([TXT_A], '(\\d+)', '_')"
+  },
+  {
+   "fn": "REPLACE",
+   "category": "string",
+   "sigma": "Replace",
+   "status": "spec",
+   "probe": "REPLACE([TXT_A], '-', '_')"
+  },
+  {
+   "fn": "RIGHT",
+   "category": "string",
+   "sigma": "Right",
+   "status": "spec",
+   "probe": "RIGHT([TXT_A], 3)"
+  },
+  {
+   "fn": "ROUND",
+   "category": "number",
+   "sigma": "Round",
+   "status": "spec",
+   "probe": "ROUND([NUM_A], 2)"
+  },
+  {
+   "fn": "RTRIM",
+   "category": "string",
+   "sigma": "Rtrim",
+   "status": "spec",
+   "probe": "RTRIM([TXT_A])"
+  },
+  {
+   "fn": "RTRIM_THIS",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "RUNNING_AVG",
+   "category": "table_calc",
+   "sigma": "CumulativeAvg",
+   "status": "chart_only",
+   "probe": "RUNNING_AVG(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RUNNING_COUNT",
+   "category": "table_calc",
+   "sigma": "CumulativeCount",
+   "status": "chart_only",
+   "probe": "RUNNING_COUNT(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RUNNING_MAX",
+   "category": "table_calc",
+   "sigma": "CumulativeMax",
+   "status": "chart_only",
+   "probe": "RUNNING_MAX(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RUNNING_MIN",
+   "category": "table_calc",
+   "sigma": "CumulativeMin",
+   "status": "chart_only",
+   "probe": "RUNNING_MIN(SUM([NUM_A]))"
+  },
+  {
+   "fn": "RUNNING_SUM",
+   "category": "table_calc",
+   "sigma": "CumulativeSum",
+   "status": "chart_only",
+   "probe": "RUNNING_SUM(SUM([NUM_A]))"
+  },
+  {
+   "fn": "SCRIPT_BOOL",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "SCRIPT_INT",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "SCRIPT_REAL",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "SCRIPT_STR",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "SHAPETYPE",
+   "category": "spatial",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "SIGN",
+   "category": "number",
+   "sigma": "Sign",
+   "status": "spec",
+   "probe": "SIGN([NUM_A])"
+  },
+  {
+   "fn": "SIN",
+   "category": "number",
+   "sigma": "Sin",
+   "status": "spec",
+   "probe": "SIN([NUM_A])"
+  },
+  {
+   "fn": "SIZE",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "SPACE",
+   "category": "string",
+   "sigma": "Repeat",
+   "status": "spec",
+   "probe": "SPACE(3)"
+  },
+  {
+   "fn": "SPLIT",
+   "category": "string",
+   "sigma": "SplitPart",
+   "status": "spec",
+   "probe": "SPLIT([TXT_A], '-', 1)"
+  },
+  {
+   "fn": "SQRT",
+   "category": "number",
+   "sigma": "Sqrt",
+   "status": "spec",
+   "probe": "SQRT([NUM_A])"
+  },
+  {
+   "fn": "SQUARE",
+   "category": "number",
+   "sigma": "Power",
+   "status": "spec",
+   "probe": "SQUARE([NUM_A])"
+  },
+  {
+   "fn": "STARTSWITH",
+   "category": "string",
+   "sigma": "StartsWith",
+   "status": "spec",
+   "probe": "STARTSWITH([TXT_A], '-')"
+  },
+  {
+   "fn": "STDEV",
+   "category": "aggregate",
+   "sigma": "StdDev",
+   "status": "spec",
+   "probe": "STDEV([NUM_A])"
+  },
+  {
+   "fn": "STDEVP",
+   "category": "aggregate",
+   "sigma": "Sqrt",
+   "status": "spec",
+   "probe": "STDEVP([NUM_A])"
+  },
+  {
+   "fn": "STR",
+   "category": "type_conversion",
+   "sigma": "Text",
+   "status": "spec",
+   "probe": "STR([TXT_A])"
+  },
+  {
+   "fn": "SUM",
+   "category": "aggregate",
+   "sigma": "Sum",
+   "status": "spec",
+   "probe": "SUM([NUM_A])"
+  },
+  {
+   "fn": "TAN",
+   "category": "number",
+   "sigma": "Tan",
+   "status": "spec",
+   "probe": "TAN([NUM_A])"
+  },
+  {
+   "fn": "TIMESTAMP_TO_USEC",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "TLD",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "TODAY",
+   "category": "date",
+   "sigma": "Today",
+   "status": "spec",
+   "probe": "TODAY()"
+  },
+  {
+   "fn": "TOTAL",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "TRIM",
+   "category": "string",
+   "sigma": "Trim",
+   "status": "spec",
+   "probe": "TRIM([TXT_A])"
+  },
+  {
+   "fn": "UPPER",
+   "category": "string",
+   "sigma": "Upper",
+   "status": "spec",
+   "probe": "UPPER([TXT_A])"
+  },
+  {
+   "fn": "USEC_TO_TIMESTAMP",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "USERATTRIBUTE",
+   "category": "user",
+   "sigma": "CurrentUserAttributeText",
+   "status": "reported",
+   "probe": "USERATTRIBUTE('attr')"
+  },
+  {
+   "fn": "USERATTRIBUTEINCLUDES",
+   "category": "user",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "USERDOMAIN",
+   "category": "user",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "USERNAME",
+   "category": "user",
+   "sigma": "CurrentUserEmail",
+   "status": "reported",
+   "probe": "USERNAME()"
+  },
+  {
+   "fn": "VAR",
+   "category": "aggregate",
+   "sigma": "Variance",
+   "status": "spec",
+   "probe": "VAR([NUM_A])"
+  },
+  {
+   "fn": "VARP",
+   "category": "aggregate",
+   "sigma": "VariancePop",
+   "status": "spec",
+   "probe": "VARP([NUM_A])"
+  },
+  {
+   "fn": "WEEK",
+   "category": "date",
+   "sigma": "DatePart",
+   "status": "spec",
+   "probe": "WEEK([DATE_A])"
+  },
+  {
+   "fn": "WINDOW_AVG",
+   "category": "table_calc",
+   "sigma": "MovingAvg",
+   "status": "chart_only",
+   "probe": "WINDOW_AVG(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_CORR",
+   "category": "table_calc",
+   "sigma": "MovingCorr",
+   "status": "chart_only",
+   "probe": "WINDOW_CORR(SUM([NUM_A]), SUM([NUM_B]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_COUNT",
+   "category": "table_calc",
+   "sigma": "MovingCount",
+   "status": "chart_only",
+   "probe": "WINDOW_COUNT(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_COVAR",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "WINDOW_COVARP",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "WINDOW_MAX",
+   "category": "table_calc",
+   "sigma": "MovingMax",
+   "status": "chart_only",
+   "probe": "WINDOW_MAX(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_MEDIAN",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "WINDOW_MIN",
+   "category": "table_calc",
+   "sigma": "MovingMin",
+   "status": "chart_only",
+   "probe": "WINDOW_MIN(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_PERCENTILE",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "WINDOW_STDEV",
+   "category": "table_calc",
+   "sigma": "MovingStdDev",
+   "status": "chart_only",
+   "probe": "WINDOW_STDEV(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_STDEVP",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "WINDOW_SUM",
+   "category": "table_calc",
+   "sigma": "MovingSum",
+   "status": "chart_only",
+   "probe": "WINDOW_SUM(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_VAR",
+   "category": "table_calc",
+   "sigma": "MovingVariance",
+   "status": "chart_only",
+   "probe": "WINDOW_VAR(SUM([NUM_A]), -3, 0)"
+  },
+  {
+   "fn": "WINDOW_VARP",
+   "category": "table_calc",
+   "sigma": null,
+   "status": "flagged",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_BOOLEAN",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_DOUBLE",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_FLOAT",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_INT",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_LONG",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_SHORT",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "XPATH_STRING",
+   "category": "additional_passthrough",
+   "sigma": null,
+   "status": "unmapped",
+   "probe": null
+  },
+  {
+   "fn": "YEAR",
+   "category": "date",
+   "sigma": "Year",
+   "status": "spec",
+   "probe": "YEAR([DATE_A])"
+  },
+  {
+   "fn": "ZN",
+   "category": "logical",
+   "sigma": "Sum",
+   "status": "spec",
+   "probe": "ZN(SUM([NUM_A]))"
+  }
+ ]
+}

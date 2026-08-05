@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-index-to-first.rb (invented names): a single
+     datasource carrying the LOOKUP(agg, FIRST()) "index to first" idiom in
+     both its plain and growth-since-baseline chain forms, plus controls that
+     must NOT classify (plain agg; LOOKUP with a numeric offset). -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Monthly Sales' name='federated.monthly01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.monthly01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.monthly01' name='MONTHLY_SALES' table='[PUBLIC].[MONTHLY_SALES]' type='table' />
+      </connection>
+      <column caption='Sales' datatype='real' name='[SALES]' role='measure' type='quantitative' />
+      <column caption='Month' datatype='date' name='[MONTH]' role='dimension' type='ordinal' />
+      <column caption='Pct of First Month' datatype='real' name='[Calculation_300]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([SALES]) / LOOKUP(SUM([SALES]), FIRST())' />
+      </column>
+      <column caption='Growth Index' datatype='real' name='[Calculation_301]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='1+(ZN(SUM([SALES]))-LOOKUP(ZN(SUM([SALES])),FIRST()))/ABS(LOOKUP(ZN(SUM([SALES])),FIRST()))' />
+      </column>
+      <column caption='Plain Ratio' datatype='real' name='[Calculation_302]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([SALES]) / 2' />
+      </column>
+      <column caption='Prior Month' datatype='real' name='[Calculation_303]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='LOOKUP(SUM([SALES]), -1)' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales Index'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Monthly Sales' name='federated.monthly01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.monthly01'>
+            <column caption='Pct of First Month' datatype='real' name='[Calculation_300]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Line' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

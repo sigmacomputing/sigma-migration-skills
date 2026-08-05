@@ -1,0 +1,159 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-multi-ds-detection.rb — the
+     "independent multi-datasource" workbook shape from a live migration
+     failure (invented names, no customer data): FOUR real datasources with
+     NO blending between them (no shared datasource-dependencies / linking
+     fields). Two are PUBLISHED sources (sqlproxy) and two are DIRECT
+     warehouse tables. Each worksheet's <view> lists exactly ONE datasource,
+     so each datasource is the PRIMARY of its own worksheet(s) — converting
+     with converter defaults (datasourceIndex=0) would keep only 'Sales
+     Pipeline' and silently drop the other three datasources' columns. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales Pipeline' name='federated.sales01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Published Sales' name='sqlproxy.sales01'>
+            <connection class='sqlproxy' channel='https' dbname='Sales Pipeline' directory='/dataserver' port='443' server='tableau.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='sqlproxy.sales01' name='sqlproxy' table='[sqlproxy]' type='table' />
+      </connection>
+      <column caption='Stage' datatype='string' name='[Stage]' role='dimension' type='nominal' />
+      <column caption='Owner' datatype='string' name='[Owner]' role='dimension' type='nominal' />
+      <column caption='Amount' datatype='real' name='[Amount]' role='measure' type='quantitative' />
+    </datasource>
+    <datasource caption='Finance Actuals' name='federated.fin01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Published Finance' name='sqlproxy.fin01'>
+            <connection class='sqlproxy' channel='https' dbname='Finance Actuals' directory='/dataserver' port='443' server='tableau.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='sqlproxy.fin01' name='sqlproxy' table='[sqlproxy]' type='table' />
+      </connection>
+      <column caption='Account' datatype='string' name='[Account]' role='dimension' type='nominal' />
+      <column caption='Actual' datatype='real' name='[Actual]' role='measure' type='quantitative' />
+      <column caption='Budget' datatype='real' name='[Budget]' role='measure' type='quantitative' />
+    </datasource>
+    <datasource caption='Ops Inventory' name='federated.ops01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.ops01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.ops01' name='OPS_INVENTORY' table='[PUBLIC].[OPS_INVENTORY]' type='table' />
+      </connection>
+      <column caption='Warehouse Site' datatype='string' name='[WAREHOUSE_SITE]' role='dimension' type='nominal' />
+      <column caption='On Hand Qty' datatype='integer' name='[ON_HAND_QTY]' role='measure' type='quantitative' />
+    </datasource>
+    <datasource caption='HR Headcount' name='federated.hr01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.hr01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.hr01' name='HR_HEADCOUNT' table='[PUBLIC].[HR_HEADCOUNT]' type='table' />
+      </connection>
+      <column caption='Department' datatype='string' name='[Department]' role='dimension' type='nominal' />
+      <column caption='Headcount' datatype='integer' name='[Headcount]' role='measure' type='quantitative' />
+    </datasource>
+    <datasource caption='Parameters' name='Parameters'>
+      <column caption='Target Pct' datatype='real' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='0.8' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Pipeline by Stage'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Pipeline' name='federated.sales01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sales01'>
+            <column caption='Stage' datatype='string' name='[Stage]' role='dimension' type='nominal' />
+            <column caption='Amount' datatype='real' name='[Amount]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Pipeline by Owner'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Pipeline' name='federated.sales01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sales01'>
+            <column caption='Owner' datatype='string' name='[Owner]' role='dimension' type='nominal' />
+            <column caption='Amount' datatype='real' name='[Amount]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Actuals vs Budget'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Finance Actuals' name='federated.fin01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fin01'>
+            <column caption='Account' datatype='string' name='[Account]' role='dimension' type='nominal' />
+            <column caption='Actual' datatype='real' name='[Actual]' role='measure' type='quantitative' />
+            <column caption='Budget' datatype='real' name='[Budget]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Inventory Levels'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ops Inventory' name='federated.ops01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.ops01'>
+            <column caption='Warehouse Site' datatype='string' name='[WAREHOUSE_SITE]' role='dimension' type='nominal' />
+            <column caption='On Hand Qty' datatype='integer' name='[ON_HAND_QTY]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Line' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Headcount Trend'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='HR Headcount' name='federated.hr01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.hr01'>
+            <column caption='Department' datatype='string' name='[Department]' role='dimension' type='nominal' />
+            <column caption='Headcount' datatype='integer' name='[Headcount]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Line' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Executive Overview'>
+      <zones>
+        <zone h='98000' id='3' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='45000' id='4' name='Pipeline by Stage' w='48000' x='1000' y='1000' />
+          <zone h='45000' id='5' name='Pipeline by Owner' w='48000' x='50000' y='1000' />
+          <zone h='45000' id='6' name='Actuals vs Budget' w='48000' x='1000' y='50000' />
+        </zone>
+      </zones>
+    </dashboard>
+    <dashboard name='Operations'>
+      <zones>
+        <zone h='98000' id='7' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='45000' id='8' name='Inventory Levels' w='48000' x='1000' y='1000' />
+          <zone h='45000' id='9' name='Headcount Trend' w='48000' x='50000' y='1000' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

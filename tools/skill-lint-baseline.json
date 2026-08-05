@@ -1,0 +1,44 @@
+{
+  "_comment": "Known, accepted gaps — ONE exception registry for tools/lint-skills.rb (E9.2), covering both rule families: converter-gate gaps (rule ids like 'parity-gate') and byte-budget exceptions (rule ids 'skill-md-bytes', 'ref-bytes:<file>.md', 'pre-read-width'; budgets: SKILL.md <= 20480B, refs/*.md <= 32768B, mandatory pre-read <= 3 files). Each entry shows as a tracked WARN (not a CI failure) and MUST carry a non-empty justification — a blank reason fails the lint. This list is a RATCHET: fix/diet the skill (relocate detail into phase-scoped refs — tableau-to-sigma is the template), then DELETE the entry. Never add an entry for a NEW skill — new skills start inside budget.",
+  "cognos-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (28.8KB) — E9 diet pending; shrink to <=20KB then remove"
+  },
+  "domo-to-sigma": {
+    "skill-md-bytes": "crossed budget at 24.7KB when the upstream v0.7.2 live-validation content merged in (#557) — diet the live-run guidance into phase-scoped refs/, then remove",
+    "ref-bytes:live-validation-2026-07-30.md": "arrived over budget (39.6KB) from main's Track B parity work (#575/#578) via the 2026-07-31 wave/2-integration merge — the file predates wave-2's byte-budget lint and belongs to the domo owner; diet it into phase-scoped refs/ during domo's E9 diet, then remove"
+  },
+  "looker-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (77.2KB, largest surface) — first in line for the E9 diet; shrink then remove",
+    "pre-read-width": "legacy 'Read ALL of the following' block names 5 refs — phase-scope it during looker's E9 diet, then remove"
+  },
+  "microstrategy-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (30.4KB) — E9 diet pending; shrink then remove"
+  },
+  "powerbi-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (55.1KB) — E9 diet pending; shrink then remove"
+  },
+  "qlik-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (36.7KB) — E9 diet pending; shrink then remove"
+  },
+  "quicksight-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (36.4KB) — E9 diet pending; shrink then remove"
+  },
+  "custom-sql-to-data-model": {
+    "skill-md-bytes": "pre-diet authoring skill (23.9KB) — modest overage; shrink then remove"
+  },
+  "sigma-workbooks": {
+    "skill-md-bytes": "pre-diet authoring skill (25.4KB) — spec-recipe catalog belongs in reference/; shrink then remove"
+  },
+  "tableau-assessment": {
+    "skill-md-bytes": "pre-diet assessment skill (39.8KB) — E9 diet pending; shrink then remove"
+  },
+  "tableau-vds-to-cdw": {
+    "skill-md-bytes": "pre-diet bridge skill (28.7KB) — E9 diet pending; shrink then remove"
+  },
+  "thoughtspot-to-sigma": {
+    "skill-md-bytes": "pre-diet converter (30.9KB) — E9 diet pending; shrink then remove"
+  },
+  "tableau-to-sigma": {
+    "ref-bytes:script-map.md": "per-script lookup catalog (43.1KB): opened only when an orchestrator STOP routes to ONE script, never phase-preloaded — a single alphabetical catalog beats N cross-linked shards for point lookup; revisit if it becomes a preload"
+  }
+}

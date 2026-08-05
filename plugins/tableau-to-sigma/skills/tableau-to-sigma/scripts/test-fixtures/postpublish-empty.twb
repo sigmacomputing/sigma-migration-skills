@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Zero-interactivity fixture for test-postpublish-guide.rb: one sheet, one
+     dashboard, no actions / tooltips / buttons / visibility / drills. The
+     generator must still write the guide (minimal "no interactive actions
+     detected" body) so the phase-6 gate can rely on the file existing. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Plain' name='federated.f3'>
+      <column caption='Amount' datatype='real' name='[Amount]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Solo Chart'>
+      <table>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Plain Dash'>
+      <zones>
+        <zone h='98000' id='1' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='90000' id='2' name='Solo Chart' w='90000' x='1000' y='1000' />
+        </zone>
+      </zones>
+      <simple-id uuid='{DDDDDDDD-0000-0000-0000-000000000004}' />
+    </dashboard>
+  </dashboards>
+</workbook>

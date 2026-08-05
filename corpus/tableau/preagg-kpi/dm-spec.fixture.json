@@ -1,0 +1,23 @@
+{
+  "_comment": "Canned converter-emission fixture (the offline seam for audit-lod-calcs.rb --dm-spec): the FIELD-FAILURE shape. 'Daily Distinct Buyers' was fuzzy-aliased to an unrelated raw flag column; 'Daily Active Sales' was emitted nowhere. Synthetic — invented names only.",
+  "pages": [
+    {
+      "id": "page-1",
+      "elements": [
+        {
+          "id": "el-fact",
+          "kind": "table",
+          "name": "Sales Fact Master",
+          "source": { "kind": "warehouse-table", "path": ["DEMO_DB", "ANALYTICS", "SALES_FACT"] },
+          "columns": [
+            { "id": "c-net-amount", "name": "Net Amount", "formula": "[SALES_FACT/NET_AMOUNT]" },
+            { "id": "c-net-earnings", "name": "Net Earnings", "formula": "[SALES_FACT/NET_EARNINGS]" },
+            { "id": "c-site-key", "name": "Site Key", "formula": "[SALES_FACT/SITE_KEY]" },
+            { "id": "c-ddb", "name": "Daily Distinct Buyers", "formula": "[SALES_FACT/ACTIVE_BUYER_FLAG]" },
+            { "id": "c-avg-amt", "name": "Avg Amount per Buyer", "formula": "Sum([Net Amount]) / Sum([Daily Distinct Buyers])" }
+          ]
+        }
+      ]
+    }
+  ]
+}

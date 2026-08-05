@@ -1,0 +1,64 @@
+[
+ {
+  "id": "card-total-sales",
+  "title": "Total Sales",
+  "datasetId": "ds-order-fact",
+  "chartType": "badge_singlevalue",
+  "sigmaKindHint": "kpi-chart",
+  "groupBy": [],
+  "columns": [
+   {
+    "column": "sales_amount",
+    "aggregation": "SUM"
+   }
+  ],
+  "summaryNumber": {
+   "column": "sales_amount",
+   "aggregation": "SUM",
+   "label": "Total Sales",
+   "format": {
+    "type": "CURRENCY"
+   },
+   "_defaultCountSuspect": false
+  },
+  "filters": []
+ },
+ {
+  "id": "card-sales-by-region",
+  "title": "Sales by Region",
+  "datasetId": "ds-order-fact",
+  "chartType": "badge_vert_bar",
+  "sigmaKindHint": "bar-chart",
+  "groupBy": [
+   "region"
+  ],
+  "columns": [
+   {
+    "column": "region"
+   },
+   {
+    "column": "sales_amount",
+    "aggregation": "SUM",
+    "alias": "Sales"
+   }
+  ],
+  "filters": []
+ },
+ {
+  "id": "card-customers",
+  "title": "Customers",
+  "datasetId": "ds-customer-dim",
+  "chartType": "badge_table",
+  "sigmaKindHint": "table",
+  "groupBy": [],
+  "columns": [
+   {
+    "column": "customer_name"
+   },
+   {
+    "column": "segment"
+   }
+  ],
+  "filters": []
+ }
+]

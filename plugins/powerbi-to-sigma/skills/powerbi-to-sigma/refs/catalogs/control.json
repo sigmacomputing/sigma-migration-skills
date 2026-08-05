@@ -1,0 +1,12 @@
+{
+  "dimension": "control",
+  "source_tool": "powerbi",
+  "authoritative_doc": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-slicers",
+  "sigma_target_doc": "refs/control-parity.md",
+  "on_unmapped_default": "warn+skip — a slicer column that resolves to no master column is DROPPED loudly (never silently wired to the wrong column, never shipped dead)",
+  "description": "Power BI slicer -> Sigma control kind. A PBI slicer is a single visualType; the list-vs-date choice is COMPOSITIONAL (decided in code by tmsl_date_column? against the TMSL model), so this table grounds the two target kinds the builder resolves at its call sites rather than a flat visualType map. `slicer` (categorical column) -> a Sigma `list` control (the documented default). `slicer:date` (the sliced column is date/datetime-typed) -> a `date-range` control: a `list` control bound to a datetime column has its filter targets SILENTLY STRIPPED by Sigma on POST (estate-repair gotcha), so a date slicer MUST become date-range. Both branches were ALREADY loud (unresolvable column -> warn+skip); this pass only grounds the two literal control-kind strings in the catalog.",
+  "rows": [
+    {"source": "slicer", "sigma": "list", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-slicers", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+skip", "notes": "Categorical list control (documented default): controlType:list + mode:include + selectionMode:multiple + source{kind:source,...} + filters[]. A slicer bound to a date column is overridden to date-range in code."},
+    {"source": "slicer:date", "sigma": "date-range", "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/power-bi-slicer-numeric-range", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+skip", "notes": "Date/datetime-typed slicer: controlType:date-range + mode:between + includeNulls. Needs NO source (columns come from filters[]) but DOES require the flat mode or the POST 400s 'Invalid kind: control'."}
+  ]
+}

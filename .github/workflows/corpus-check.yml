@@ -1,0 +1,581 @@
+# Corpus regression check + repo-wide script syntax CI (bead x30b).
+#
+# Both jobs are CREDS-FREE by design: run-corpus.sh --check is pure
+# stdlib-python3 + bash (PyYAML optional — corpus_check.py has a structural
+# fallback), and the syntax job only parses files. No secrets are used or
+# needed anywhere in this workflow — keep it that way.
+#
+# Runner deps (verified): ubuntu-24.04 ships python3 (3.12), ruby (3.x) and
+# bash preinstalled — no setup-* actions required. Pinned to ubuntu-24.04
+# (not -latest) so a runner-image rollover can't silently change the
+# interpreters. Whole workflow budget: < 2 minutes (locally ~1 s + ~5 s).
+name: corpus-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  corpus:
+    name: corpus --check (creds-free goldens)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate every corpus case against its golden
+        run: ./corpus/run-corpus.sh --check
+      - name: Converter-default regression (issue #227 — vendored default, no silent dev-checkout)
+        # Creds-free, network-free: proves each orchestrator defaults to the pinned
+        # vendored bundle and only uses a local build via an explicit env/flag.
+        run: ./corpus/converter-default-test.sh
+
+  windows-smoke:
+    name: windows PowerShell path (doctor.ps1 + offline corpus)
+    # Proves the Windows/PowerShell path works BEFORE an event does (P0.4):
+    # doctor.ps1 runs, emits a valid + passing doctor.json, and the offline
+    # local-converter corpus converts. No real secrets, network-free. Runtimes
+    # are pinned via setup-* so a runner-image change can't flip doctor's result.
+    runs-on: windows-2022
+    timeout-minutes: 12
+    env:
+      TS_SKILL: plugins/tableau-to-sigma/skills/tableau-to-sigma
+      # CI is a shallow checkout — the version-drift probe is meaningless here and
+      # rev-list against a grafted origin/main is unreliable. Skip it explicitly
+      # (the doctors also auto-skip on a shallow clone).
+      SIGMA_SKIP_VERSION_CHECK: "1"
+      # doctor.ps1/.sh are fail-closed on ABSENT Sigma creds (a real run would
+      # die at its first API call — an intentional gate). This job only proves
+      # the Windows/PowerShell path works; it holds no secrets and makes no
+      # network calls. Satisfy the cred-PRESENCE check with placeholders and
+      # skip the live token-mint smoke — no real credential is used and nothing
+      # leaves the runner. (The bash offline jobs don't gate on the doctor.)
+      SIGMA_CLIENT_ID: ci-offline-placeholder
+      SIGMA_CLIENT_SECRET: ci-offline-placeholder
+      SIGMA_BASE_URL: https://aws-api.sigmacomputing.com
+      SIGMA_SKIP_CRED_SMOKE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: bootstrap.ps1 no-ops into doctor-green + sentinel (PR-15)
+        shell: pwsh
+        run: |
+          $wd = Join-Path $env:RUNNER_TEMP 'wd'
+          New-Item -ItemType Directory -Force -Path $wd | Out-Null
+          # Full bootstrap on a complete runner: verifies runtimes, pip-installs
+          # the render deps if absent, persists the placeholder creds via
+          # setup.rb --from-env, ends in a doctor run + writes the sentinel.
+          powershell -ExecutionPolicy Bypass -File "$env:TS_SKILL\scripts\bootstrap.ps1" -WorkDir $wd
+          if ($LASTEXITCODE -ne 0) { throw "bootstrap.ps1 exited $LASTEXITCODE" }
+          $j = Get-Content (Join-Path $wd 'doctor.json') -Raw | ConvertFrom-Json
+          Write-Host "doctor.json -> os=$($j.os) shell=$($j.shell) pass=$($j.pass)"
+          if (-not $j.pass) { throw "doctor.json pass=false: $($j.failures -join '; ')" }
+          foreach ($r in 'ruby','python','node') {
+            if (-not $j.runtimes.$r) { throw "doctor.json runtimes.$r is false" }
+          }
+          $s = Get-Content (Join-Path $wd 'bootstrap.json') -Raw | ConvertFrom-Json
+          if (-not $s.doctor_pass) { throw "bootstrap sentinel doctor_pass=false" }
+          # Idempotency + dry-run: a complete env must report nothing to install.
+          powershell -ExecutionPolicy Bypass -File "$env:TS_SKILL\scripts\bootstrap.ps1" -Check
+          if ($LASTEXITCODE -ne 0) { throw "bootstrap.ps1 -Check exited $LASTEXITCODE on a complete env" }
+
+      - name: get_token.py imports + parses under Windows Python
+        shell: pwsh
+        run: |
+          python "$env:TS_SKILL\scripts\get_token.py" --help
+          if ($LASTEXITCODE -ne 0) { throw "get_token.py --help exited $LASTEXITCODE" }
+
+      - name: assert-doctor-ran gate passes on the emitted doctor.json
+        shell: pwsh
+        run: |
+          $wd = Join-Path $env:RUNNER_TEMP 'wd'
+          ruby "$env:TS_SKILL\scripts\assert-doctor-ran.rb" --workdir $wd
+          if ($LASTEXITCODE -ne 0) { throw "assert-doctor-ran gate failed on a passing doctor.json" }
+
+      - name: offline corpus conversion (local converter) under Git Bash
+        shell: bash
+        run: |
+          # Proves the offline local-converter path converts on Windows.
+          # (converter-default-test.sh is NOT run here — its dev-override path
+          # assertions compare Unix-style paths and don't port to Windows drive
+          # letters / backslashes; it runs on the ubuntu 'corpus' job instead.)
+          ./corpus/run-corpus.sh --check
+
+  script-syntax:
+    name: syntax-check every script (ruby -c / py_compile / bash -n)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every tracked .rb / .py / .sh file
+        # Cheap repo-wide syntax CI: a script that doesn't even parse must
+        # never reach main. Shebang-aware for .sh files because a few scripts
+        # carry a .sh name with a ruby shebang (e.g. setup-tableau.sh).
+        run: |
+          set -uo pipefail
+          fail=0
+          while IFS= read -r f; do
+            ruby -c "$f" >/dev/null || { echo "::error file=$f::ruby syntax error"; fail=1; }
+          done < <(git ls-files '*.rb')
+          while IFS= read -r f; do
+            python3 -m py_compile "$f" || { echo "::error file=$f::python syntax error"; fail=1; }
+          done < <(git ls-files '*.py')
+          while IFS= read -r f; do
+            shebang=$(head -1 "$f")
+            case "$shebang" in
+              *ruby*)   ruby -c "$f" >/dev/null || { echo "::error file=$f::ruby syntax error"; fail=1; } ;;
+              *python*) python3 -m py_compile "$f" || { echo "::error file=$f::python syntax error"; fail=1; } ;;
+              *)        bash -n "$f" || { echo "::error file=$f::bash syntax error"; fail=1; } ;;
+            esac
+          done < <(git ls-files '*.sh')
+          echo "checked: $(git ls-files '*.rb' | wc -l) rb, $(git ls-files '*.py' | wc -l) py, $(git ls-files '*.sh' | wc -l) sh"
+          exit $fail
+      - name: Parse every tracked .ps1 file (pwsh AST, parse-only)
+        # The bootstrap.ps1/doctor.ps1 twins ship to every Windows user, but
+        # only the tableau doctor.ps1 is ever RUN in CI (windows-smoke) — a
+        # non-parsing .ps1 twin anywhere else would reach main unnoticed.
+        # Ubuntu runners ship pwsh; nothing is executed, only parsed.
+        shell: pwsh
+        run: |
+          $failed = 0
+          $files = @(git ls-files '*.ps1')
+          foreach ($f in $files) {
+            $tokens = $null; $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $f), [ref]$tokens, [ref]$errs) | Out-Null
+            if ($errs -and $errs.Count -gt 0) {
+              Write-Output "::error file=$f::powershell parse error: $($errs[0].Message)"
+              $failed = 1
+            }
+          }
+          Write-Output "checked: $($files.Count) ps1"
+          exit $failed
+
+  shared-libs:
+    name: shared-lib drift gate (canonical == every vendored copy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert no vendored shared file has drifted from its canonical
+        # Vendored shared infra (lib/sigma_rest.rb, the lints, escalate-gap.py,
+        # etc.) must stay byte-identical to shared/. Edit the canonical copy,
+        # run tools/sync-shared.rb, commit the fan-out. Intentional forks are
+        # allowlisted in shared/manifest.json. Creds-free, stdlib ruby only.
+        run: ruby tools/check-shared.rb
+
+  skill-lint:
+    name: skill conformance (mandatory gates documented)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint every converter SKILL.md for the mandatory arc gates
+        # Each converter must document the C3 reuse / C5 readback / C7 layout /
+        # C8 parity / C9 RLS gates and appear in docs/phase-schema.md. Known
+        # gaps are tracked in tools/skill-lint-baseline.json (WARN, not fail).
+        run: ruby tools/lint-skills.rb
+      - name: Lint ESM converter imports for the Windows file:// footgun (#348)
+        # A shim importing the converter by bare absolute path throws
+        # ERR_UNSUPPORTED_ESM_URL_SCHEME on Windows (latent on macOS). Require a
+        # pathToFileURL / Gem.win_platform?+file:/// / Path.as_uri() guard.
+        run: ruby tools/lint-esm-imports.rb
+      - name: Check agent variants are in sync with SKILL.md
+        # The Cursor/Codex/Cline/Continue instruction files are generated from
+        # each skill's SKILL.md by tools/gen-agent-variants.rb. Fail if a
+        # committed variant drifted, so EVERY coding agent reads the same steps.
+        run: ruby tools/check-agent-variants.rb
+      - name: Cognos vendored bundle is fresh vs converter/*.ts
+        # cognos ships its converter as in-skill TS bundled into converter/cli.mjs
+        # (production runs the bundle). Fail if a converter/*.ts edit shipped without
+        # re-running tools/vendor-converters.sh — a stale bundle silently ships the OLD
+        # behavior. Source-hash gate (not a flaky byte compare); mirrors check-shared.
+        run: ruby tools/check-cognos-bundle.rb
+
+  unit-tests:
+    name: offline unit/regression tests (creds-free)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run offline test-*.rb suites
+        # EXPLICIT allow-list — only tests that need NO Tableau/Sigma creds or
+        # network. Do NOT add test-calc-discovery.rb (needs a Tableau token);
+        # keep this workflow creds-free. New offline test-*.rb → add its path
+        # here (tableau-to-sigma scripts/test-*.rb need no entry — the
+        # ruby-full-suite job below globs them all).
+        run: |
+          set -uo pipefail
+          tests=(
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-param-swap-translation.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-param-metric-switch.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-rls-wiring.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-table-calc-translation.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-topn-filter-emission.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-styled-text-extraction.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-styled-text-body.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-styled-text-layout.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-scorecard-detection.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-composite-emit.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-threshold-halo.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-theme-derivation.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-brand-palette.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-header-derivation.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-element-id-namespacing.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-column-id-slug-case.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-fact-pick.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-layout-lint.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-native-trellis.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-trellis-emit.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-hydrate-custom-sql.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-pds-resolve-retry.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-parity-score.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-aggregate-dimension.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-param-measure-picker.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-zone-census.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-layout-fill-gate.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-layout-dedup.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-put-layout-prune.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-multi-datasource-gap.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-ref-label-repair.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-scout-ledger-integrity.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-wb-refs-resolve.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-lod-sql-quoting.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-lod-audit.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-sql-ident-check.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-dm-quarantine.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-cred-gate.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-validate-spec-guards.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-zip-extract.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-py-resolve-winpath.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-rank-connections.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-fast-flag.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-bootstrap.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-intake.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-skill-coverage.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-preflight-lint.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-control-field-census.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-number-range-filter-emission.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-datasource-filter-emission.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-datasource-filter-gate.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-control-lint.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-conflicting-page-defaults.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-metric-reference.rb
+            plugins/sigma-authoring/skills/sigma-plugin-authoring/scripts/test-gauge-plugin-static.rb
+            plugins/tableau-to-sigma/skills/tableau-assessment/scripts/test-predicted-parity.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-dax-restructure.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-warehouse.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-parity-plan.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-element-match.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-timeintel-route.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-drop-unresolved-columns.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-scout-ledger-integrity.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-trellis-emit.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-trellis.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-control-lint.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-conflicting-page-defaults.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-metric-reference.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild-emit.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-validate-spec-metrics.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-role-routing.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-alt-agg-wrapper.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-field-binding-coverage.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-field-loss-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-roleplaying-dims.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-columns-pagination.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-offramp.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-offramp-attribution.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-flip-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-suite-registration.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-anchors.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-kind-catalog.rb
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/test-scout-ledger-integrity.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-window-native.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-scout-ledger-integrity.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-trellis-emit.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-trellis.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-metric-reference.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-deterministic-ids-kpi-format.rb
+            shared/lib/test_metric_binding.rb
+            shared/lib/test_phase_metrics.rb
+            shared/scripts/test-intake-triage.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-triage.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-cleanup.rb
+            # shared/scripts/test-validate-sigma-formula-cleanup.rb is INTENTIONALLY not listed: standalone it
+            # self-SKIPs; its coverage is the shared-manifest drift gate pinning it byte-identical to the
+            # quicksight twin above (PR #509 review R9 — the manifest entry is the coverage mechanism).
+            shared/lib/test_plugin_embed.rb
+            shared/lib/test_composition.rb
+            shared/lib/test_composition_lint.rb
+            shared/lib/test_shared_script_closure.rb
+            shared/lib/test_styling.rb
+            shared/lib/test_coverage_catalog.rb
+            shared/lib/test_kpi_card.rb
+            shared/lib/test_richness.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-comparison-wiring.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-comparison-emit.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-build-dm.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-build-workbook.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-convert-beast-modes.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-discover.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-geometry-discover.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-doctor-gate.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-e2e.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-pdp-detect.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-reuse-check.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-green-gates.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-assert-phase6.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-verify-parity.rb
+          )
+          fail=0
+          for t in "${tests[@]}"; do
+            echo "::group::$t"
+            if ruby "$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+      - name: Lint — File.read on .twb/XML must set encoding (F5 crash class)
+        # `File.read(path)` uses the locale's default external encoding; on a CI
+        # runner (US-ASCII) it raises Encoding::CompatibilityError on any non-ASCII
+        # .twb/XML — which has silently crashed migrations 3+ times. Any read of a
+        # .twb / xml / layout file MUST pass `encoding: 'UTF-8'`.
+        run: ruby tools/lint-twb-encoding.rb   # single source of truth (plugins/ + shared/); also run by .githooks/run-governance-checks.sh
+      - name: Run offline test_*.py suites
+        # EXPLICIT allow-list — creds-free, network-free Python tests only.
+        # PyYAML is needed by the looker offline dashboard parser
+        # (parse_lookml_dashboard.py); the runner does not ship it by default.
+        # New offline test_*.py → add its path here.
+        run: |
+          set -uo pipefail
+          python3 -m pip install --quiet pyyaml
+          tests=(
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_grid_fidelity.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_looker_client.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_derived_perf.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_table_column_order.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_vis_column_order_capture.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_look_migration.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_grounding.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_metric_reference.py
+            shared/lib/test_metric_binding.py
+            # powerbi-to-sigma uses HYPHENATED test-*.py names, which is why these were
+            # never picked up by the test_*.py convention above. Listed explicitly.
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-viz-signals.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-filters.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-kind-parity.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-model-pbix.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-report-classic.py
+            shared/lib/test_plugin_embed.py
+            shared/lib/test_composition.py
+            shared/lib/test_styling.py
+            shared/lib/test_coverage_catalog.py
+            shared/lib/test_kpi_card.py
+            shared/lib/test_richness.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_sigma_rest.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_rest.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_pick_destination.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_scout_ledger_integrity.py
+            plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/test_scout_ledger_integrity.py
+            plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/test_scout_ledger_integrity.py
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_metric_reference.py
+            plugins/gooddata-to-sigma/skills/gooddata-to-sigma/tests/test_metric_reference.py
+            plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_metric_reference.py
+            plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/tests/test_metric_reference.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_metric_reference.py
+            # hex-to-sigma (own converter/ package, no shared catalog/metric_binding usage)
+            plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_hex_yaml.py
+            plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_sigma_ids.py
+            plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_convert_dm.py
+            plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_convert_workbook.py
+          )
+          fail=0
+          for t in "${tests[@]}"; do
+            echo "::group::$t"
+            if python3 "$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+      - name: Run offline test-*.mjs suites
+        # EXPLICIT allow-list — creds-free, network-free Node tests only.
+        # (ubuntu-24.04 ships Node; the cognos scout gate + writer are Node.)
+        # New offline test-*.mjs → add its path here.
+        run: |
+          set -uo pipefail
+          tests=(
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-scout-ledger-integrity.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-metric-reference.mjs
+          )
+          fail=0
+          for t in "${tests[@]}"; do
+            echo "::group::$t"
+            if node "$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+  ruby-full-suite:
+    name: full ruby suite (every tableau-to-sigma scripts/test-*.rb, globbed)
+    # E8.4: the unit-tests allow-list above has drifted behind the scripts/
+    # directory — well over a hundred committed test-*.rb files were in no CI
+    # job at all. This job GLOBS the directory so a new test is in CI the
+    # moment it is committed; the allow-list stays as the curated cross-plugin
+    # picks (the overlap double-runs in ~1 min and buys zero-drift coverage).
+    # Whole suite measured: ~114 s serial, slowest single file ~17 s.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # UTF-8-heavy fixtures (.twb XML with em-dashes, curly quotes) crash
+      # under a US-ASCII default external encoding (the F5 crash class), so
+      # pin the locale rather than inherit the runner default.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run EVERY offline test-*.rb (glob, per-file timeout)
+        run: |
+          set -uo pipefail
+          # Several tests shell out to the vendored node converter — fail
+          # loudly up front if a runner-image change drops node from PATH,
+          # not as N obscure downstream test failures.
+          node --version || { echo "::error::node is not on PATH — converter-backed tests need it"; exit 1; }
+          shopt -s nullglob
+          tests=(plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-*.rb)
+          # A moved/renamed scripts dir must FAIL here, never vacuously pass.
+          [ "${#tests[@]}" -gt 0 ] || { echo "::error::glob matched no tableau-to-sigma test files"; exit 1; }
+          # Plugin-unique suites that run in NO other job ride along (none are
+          # in the unit-tests allow-list either) — each verified offline and
+          # creds-free. The test-verify-complete.rb twins deliberately DIVERGE
+          # per plugin (each checks its own skill's phase completeness), so
+          # unlike the identical twins they need their own runs. After these,
+          # the only tracked test-*.rb not run by any job are byte-identical
+          # twins — enforced by the shared-libs drift gate — of files already
+          # run above.
+          tests+=(
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-conditional-formats.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-dax-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-style.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-filter-apply.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-pivot-sort.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-oracle-sql.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-coverage-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-complete.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-grounding.rb
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-flip-gate.rb
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-verify-complete.rb
+            plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/test-verify-guards.rb
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/test-verify-complete.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-verify-complete.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/tests/test-grounding.rb
+            plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/test-verify-complete.rb
+          )
+          fail=0; ran=0
+          for t in "${tests[@]}"; do
+            case "$(basename "$t")" in
+              # The ONLY exclusion. Do NOT add test-calc-discovery.rb (needs
+              # a Tableau token); keep this workflow creds-free.
+              test-calc-discovery.rb) echo "SKIP $t (needs a Tableau token)"; continue ;;
+            esac
+            echo "::group::$t"
+            # Per-file cap so one hung test cannot eat the whole job budget.
+            if timeout 120 ruby "$t"; then
+              echo "OK $t"
+            else
+              rc=$?
+              msg="test failed (exit $rc)"
+              [ "$rc" -eq 124 ] && msg="test TIMED OUT (per-file 120 s cap)"
+              echo "::error file=$t::$msg"; fail=1
+            fi
+            echo "::endgroup::"
+            ran=$((ran+1))
+          done
+          echo "ran $ran ruby test file(s)"
+          exit $fail
+      - name: Run the tools/*.sh guard harnesses
+        # Self-tests of the repo-level guards (hygiene sweep, commit-msg
+        # guard, converter provenance, tree litter). Hermetic — each builds
+        # its own fixture repo; creds-free, network-free.
+        run: |
+          set -uo pipefail
+          fail=0
+          for h in tools/test-hygiene-sweep.sh tools/test-commit-msg-guard.sh tools/test-converter-provenance.sh tools/test-tree-litter.sh plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-doctor-json.sh; do
+            echo "::group::$h"
+            if timeout 300 bash "$h"; then echo "OK $h"; else echo "::error file=$h::harness failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+  macos-smoke:
+    name: BSD userland smoke (macOS — grep/sed/iconv/strings divergence)
+    # The ubuntu jobs run GNU coreutils and CANNOT observe BSD divergence;
+    # windows-smoke runs Git Bash, which is MSYS2/GNU userland. This job
+    # exists because tools/hygiene-sweep.sh ships a BSD-grep-specific
+    # identifier-LEAK fix (newline-separated iconv layers): reverting it
+    # fails test-hygiene-sweep.sh on Darwin and passes on every GNU runner.
+    # Creds-free, network-free, ~30 s of steps.
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      # NOT optional. Under LC_ALL=C, LC_ALL=UTF-8, or unset, BSD grep does
+      # not exhibit the invalid-UTF-8 line-skip at all and this job would
+      # pass green against a reverted fix (verified: en_US.UTF-8 and C.UTF-8
+      # detect; C, UTF-8 and unset do not). test-bootstrap.rb also crashes
+      # outright under a US-ASCII default external encoding.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the live sweep + litter lint read git state beyond a shallow head
+          fetch-depth: 0
+      - name: Confirm this runner is actually BSD userland
+        # A silent runner-image change to GNU tools would make every
+        # assertion below vacuous. Fail loudly instead.
+        run: |
+          set -e
+          [ "$(uname -s)" = "Darwin" ] || { echo "::error::not Darwin"; exit 1; }
+          /usr/bin/grep --version 2>&1 | head -1 | grep -qi bsd \
+            || { echo "::error::/usr/bin/grep is not BSD grep — this job's premise is gone"; exit 1; }
+          /usr/bin/sed --version >/dev/null 2>&1 \
+            && { echo "::error::/usr/bin/sed accepts --version — that is GNU sed, not BSD"; exit 1; } || true
+          echo "BSD userland confirmed: $(/usr/bin/grep --version 2>&1 | head -1)"
+      - name: hygiene sweep self-test (BSD grep/iconv/strings — THE reason this job exists)
+        run: bash tools/test-hygiene-sweep.sh
+      - name: sweep the checkout itself under BSD grep
+        run: bash tools/hygiene-sweep.sh   # committed patterns only in CI (the local file is gitignored)
+      - name: commit-message guard self-test
+        run: bash tools/test-commit-msg-guard.sh
+      - name: converter-provenance guard self-test
+        run: bash tools/test-converter-provenance.sh
+      - name: tracked-litter lint self-test
+        run: bash tools/test-tree-litter.sh
+      - name: bootstrap/doctor lockstep self-test
+        run: bash plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-bootstrap-lockstep.sh
+      - name: bootstrap harness under /bin/bash 3.2 (hermetic shims)
+        # The only place bash-3.2 `set -u` + array semantics are EXECUTED
+        # rather than parse-checked — every user-facing .sh must stay
+        # macOS-default-bash safe.
+        run: ruby shared/scripts/test-bootstrap.rb
+      - name: encoding-sensitive ruby subset (BSD + UTF-8 locale)
+        # Small on purpose — the FULL ruby suite runs on ubuntu above. These
+        # are the byte/encoding-shaped tests most likely to diverge on
+        # Darwin: binary zip members, and UTF-8-heavy .twb styled-text
+        # extraction.
+        run: |
+          set -uo pipefail
+          fail=0
+          for t in plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-zip-extract.rb plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-styled-text-extraction.rb; do
+            echo "::group::$t"
+            if ruby "$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail

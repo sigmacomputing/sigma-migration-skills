@@ -1,0 +1,121 @@
+[
+  {
+    "class": "additive-over-preagg",
+    "context": "source-calc",
+    "consumer": "Avg Amount per Buyer",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM([NET_AMOUNT]) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "lod-census",
+      "aggregate": "SUM",
+      "preagg_formula": "{FIXED [CAL_DATE] : COUNTD([BUYER_KEY])}"
+    },
+    "detail": "SUM([Daily Distinct Buyers]) — the column is a {FIXED ...} pre-aggregate; summing it at any other grain double-counts (mixed-grain consumption)",
+    "status": "unresolved"
+  },
+  {
+    "class": "preagg-ratio",
+    "context": "source-calc",
+    "consumer": "Avg Amount per Buyer",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM([NET_AMOUNT]) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "name-heuristic"
+    },
+    "detail": "ratio formula consumes \"Daily Distinct Buyers\" — the name says it is already an aggregate; using it as a KPI numerator/denominator re-aggregates an aggregate",
+    "status": "unresolved"
+  },
+  {
+    "class": "additive-over-preagg",
+    "context": "source-calc",
+    "consumer": "Sales per Active",
+    "preagg": "Daily Active Sales",
+    "formula": "SUM([Calculation_DAS]) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "lod-census",
+      "aggregate": "SUM",
+      "preagg_formula": "{FIXED [CAL_DATE] : COUNTD([SALE_ID])}"
+    },
+    "detail": "SUM([Daily Active Sales]) — the column is a {FIXED ...} pre-aggregate; summing it at any other grain double-counts (mixed-grain consumption)",
+    "status": "unresolved"
+  },
+  {
+    "class": "additive-over-preagg",
+    "context": "source-calc",
+    "consumer": "Sales per Active",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM([Calculation_DAS]) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "lod-census",
+      "aggregate": "SUM",
+      "preagg_formula": "{FIXED [CAL_DATE] : COUNTD([BUYER_KEY])}"
+    },
+    "detail": "SUM([Daily Distinct Buyers]) — the column is a {FIXED ...} pre-aggregate; summing it at any other grain double-counts (mixed-grain consumption)",
+    "status": "unresolved"
+  },
+  {
+    "class": "preagg-ratio",
+    "context": "source-calc",
+    "consumer": "Sales per Active",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM([Calculation_DAS]) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "name-heuristic"
+    },
+    "detail": "ratio formula consumes \"Daily Distinct Buyers\" — the name says it is already an aggregate; using it as a KPI numerator/denominator re-aggregates an aggregate",
+    "status": "unresolved"
+  },
+  {
+    "class": "additive-over-preagg",
+    "context": "source-calc",
+    "consumer": "Pct Buyers with Earnings",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM(IF [NET_EARNINGS] > 0 THEN 1 ELSE 0 END) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "lod-census",
+      "aggregate": "SUM",
+      "preagg_formula": "{FIXED [CAL_DATE] : COUNTD([BUYER_KEY])}"
+    },
+    "detail": "SUM([Daily Distinct Buyers]) — the column is a {FIXED ...} pre-aggregate; summing it at any other grain double-counts (mixed-grain consumption)",
+    "status": "unresolved"
+  },
+  {
+    "class": "preagg-ratio",
+    "context": "source-calc",
+    "consumer": "Pct Buyers with Earnings",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "SUM(IF [NET_EARNINGS] > 0 THEN 1 ELSE 0 END) / SUM([Calculation_DDB])",
+    "evidence": {
+      "kind": "name-heuristic"
+    },
+    "detail": "ratio formula consumes \"Daily Distinct Buyers\" — the name says it is already an aggregate; using it as a KPI numerator/denominator re-aggregates an aggregate",
+    "status": "unresolved"
+  },
+  {
+    "class": "additive-over-preagg",
+    "context": "dm-spec",
+    "element": "Sales Fact Master",
+    "consumer": "Avg Amount per Buyer",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "Sum([Net Amount]) / Sum([Daily Distinct Buyers])",
+    "evidence": {
+      "kind": "lod-census",
+      "aggregate": "SUM"
+    },
+    "detail": "SUM() over \"Daily Distinct Buyers\" — an LOD pre-aggregate consumed additively in the emitted spec (mixed-grain consumption)",
+    "status": "unresolved"
+  },
+  {
+    "class": "preagg-ratio",
+    "context": "dm-spec",
+    "element": "Sales Fact Master",
+    "consumer": "Avg Amount per Buyer",
+    "preagg": "Daily Distinct Buyers",
+    "formula": "Sum([Net Amount]) / Sum([Daily Distinct Buyers])",
+    "evidence": {
+      "kind": "name-heuristic"
+    },
+    "detail": "emitted ratio formula consumes \"Daily Distinct Buyers\" — pre-aggregate-named column in a KPI numerator/denominator position",
+    "status": "unresolved"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "dimension": "control",
+  "source_tool": "quicksight",
+  "authoritative_doc": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterControl.html",
+  "sigma_target_doc": "refs/control-parity.md",
+  "on_unmapped_default": "list (documented default control kind for a categorical QuickSight filter/parameter control)",
+  "description": "QuickSight sheet-level FilterControl / ParameterControl wrap type -> Sigma control kind. SINGLE SOURCE OF TRUTH for build_qs_control's list-vs-date-range decision. Only the date pickers are special: DateTimePicker / RelativeDateTime -> a Sigma date-range control (a `list` control bound to a datetime column is silently STRIPPED by the spec API on POST, so a date target MUST be a date-range control). Everything else (Dropdown/List/Slider/TextField/TextArea) is a categorical `list` control — the DOCUMENTED default, not a silent guess. One compositional override stays as cited code (NOT in this table): a control whose TARGET COLUMN NAME matches /(^|_)(date|dt|timestamp)(_|$)/ is also forced to date-range, because a list control on a datetime column is dead. A what-if scalar parameter control (no bound column) has no Sigma list-control equivalent and is recorded unbound/manual (its default value is inlined).",
+  "rows": [
+    {"source": "Dropdown", "sigma": "list", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterDropDownControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "list", "notes": "FilterDropDownControl / ParameterDropDownControl bound to a dataset column."},
+    {"source": "List", "sigma": "list", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterListControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "list"},
+    {"source": "Slider", "sigma": "list", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterSliderControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "list", "notes": "Numeric slider bound to a column becomes a Sigma list control (Sigma range slider is a UI re-author)."},
+    {"source": "TextField", "sigma": "list", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterTextFieldControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "list"},
+    {"source": "TextArea", "sigma": "list", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterTextAreaControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "list"},
+    {"source": "DateTimePicker", "sigma": "date-range", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterDateTimePickerControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "n/a", "notes": "A list control on a datetime column is stripped by the spec API -> must be a date-range control."},
+    {"source": "RelativeDateTime", "sigma": "date-range", "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_FilterRelativeDateTimeControl.html", "sigma_target_ref": "refs/control-parity.md", "sigma_verified": {"status": "n"}, "on_unmapped": "n/a", "notes": "Relative date control -> Sigma date-range."}
+  ]
+}

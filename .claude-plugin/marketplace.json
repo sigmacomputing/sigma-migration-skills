@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace-manifest.json",
+  "name": "sigma-migration-skills",
+  "description": "Skills for migrating BI tools (Tableau, Power BI, Qlik, ThoughtSpot, QuickSight, Looker, Cognos, MicroStrategy) to Sigma \u2014 converters + assessments, validated end-to-end with warehouse parity. Install the sigma-authoring plugin alongside any converter: it carries the canonical Sigma spec the converters defer to.",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Sigma Computing"
+  },
+  "metadata": {
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "sigma-authoring",
+      "source": "./plugins/sigma-authoring",
+      "description": "Canonical Sigma authoring skills every converter defers to: sigma-workbooks (workbook spec \u2014 element kinds, source kinds, controls, formulas, formatting, layout), sigma-data-models, and custom-sql-to-data-model. Install this ALONGSIDE any converter \u2014 they assume it is present for the current Sigma spec surface.",
+      "category": "authoring",
+      "keywords": [
+        "sigma",
+        "workbooks",
+        "data-models",
+        "authoring",
+        "spec"
+      ]
+    },
+    {
+      "name": "tableau-to-sigma",
+      "source": "./plugins/tableau-to-sigma",
+      "description": "Tableau workbooks/datasources \u2192 Sigma data model + workbook, with parity verification. Bundles tableau-to-sigma + tableau-assessment + tableau-vds-to-cdw (lands published-datasource/extract data in Snowflake or Databricks when it isn't already in the warehouse).",
+      "category": "migration",
+      "keywords": [
+        "tableau",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "powerbi-to-sigma",
+      "source": "./plugins/powerbi-to-sigma",
+      "description": "Power BI models/reports \u2192 Sigma, DAX translation + gap-scout, with parity verification. Bundles powerbi-to-sigma + powerbi-assessment + powerbi-import-to-snowflake (Import-mode data landing).",
+      "category": "migration",
+      "keywords": [
+        "powerbi",
+        "dax",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "qlik-to-sigma",
+      "source": "./plugins/qlik-to-sigma",
+      "description": "Qlik Sense / Qlik Cloud apps \u2192 Sigma, expression + Set Analysis translation, with parity verification. Bundles qlik-to-sigma + qlik-assessment.",
+      "category": "migration",
+      "keywords": [
+        "qlik",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "thoughtspot-to-sigma",
+      "source": "./plugins/thoughtspot-to-sigma",
+      "description": "ThoughtSpot models/worksheets + Liveboards \u2192 Sigma, TML conversion + Liveboard rebuild (KPI/bar/line/pie/pivot/table, search-query filters) + layout, with parity verification. Bundles thoughtspot-to-sigma + thoughtspot-assessment.",
+      "category": "migration",
+      "keywords": [
+        "thoughtspot",
+        "tml",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "quicksight-to-sigma",
+      "source": "./plugins/quicksight-to-sigma",
+      "description": "Amazon QuickSight analyses/dashboards \u2192 Sigma data model + workbook (KPI/bar/line/pie/donut/combo/scatter/table/pivot), with parity verification. Bundles quicksight-to-sigma + quicksight-assessment.",
+      "category": "migration",
+      "keywords": [
+        "quicksight",
+        "amazon",
+        "aws",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "looker-to-sigma",
+      "source": "./plugins/looker-to-sigma",
+      "description": "Looker (LookML semantic model + LookML/user-defined dashboards) \u2192 Sigma data model + workbook (KPI/bar/line/area/pie/donut/scatter/table/pivot, table calcs), with 3-way warehouse parity. Bundles looker-to-sigma + looker-assessment.",
+      "category": "migration",
+      "keywords": [
+        "looker",
+        "lookml",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "cognos-to-sigma",
+      "source": "./plugins/cognos-to-sigma",
+      "description": "IBM Cognos Analytics \u2192 Sigma \u2014 Data Module JSON \u2192 Sigma data model, report-spec XML \u2192 Sigma workbook (crosstab\u2192pivot, RAVE2 charts, maps), Cognos expression DSL translation, with parity verification. Bundles cognos-to-sigma + cognos-assessment.",
+      "category": "migration",
+      "keywords": [
+        "cognos",
+        "ibm-cognos",
+        "data-module",
+        "report-studio",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "microstrategy-to-sigma",
+      "source": "./plugins/microstrategy-to-sigma",
+      "description": "MicroStrategy (Strategy One) \u2192 Sigma \u2014 dossier + classic semantic model (attributes/facts/metrics over a star schema) \u2192 Sigma data model + workbook, with deterministic reproduction of Analytical-Engine row-collapse quirks and row-level parity verification. Bundles microstrategy-to-sigma + microstrategy-assessment.",
+      "category": "migration",
+      "keywords": [
+        "microstrategy",
+        "strategy-one",
+        "dossier",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "sisense-to-sigma",
+      "source": "./plugins/sisense-to-sigma",
+      "description": "Sisense (ElastiCube / Live data model + dashboards) \u2192 Sigma data model + workbook (indicator\u2192KPI, chart/*\u2192chart, pivot2\u2192pivot, table; JAQL\u2192Sigma formulas; filters\u2192controls; columnar layout\u219224-col grid), with data + layout parity gates and opt-in RLS. Bundles sisense-to-sigma + sisense-assessment.",
+      "category": "migration",
+      "keywords": [
+        "sisense",
+        "elasticube",
+        "jaql",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "gooddata-to-sigma",
+      "source": "./plugins/gooddata-to-sigma",
+      "description": "GoodData Cloud / GoodData.CN → Sigma — the declarative workspace layout (LDM + analytics model) → Sigma data model + workbook (datasets/attributes/facts/references → DM; MAQL metrics → Sigma formulas; insights → charts/KPIs/pivots; dashboards → pages + layout), with parity verification and opt-in user-data-filter RLS. Flags compute-only MAQL and exotic widgets rather than mis-converting. Bundles gooddata-to-sigma + gooddata-assessment.",
+      "category": "migration",
+      "keywords": [
+        "gooddata",
+        "gooddata-cloud",
+        "gooddata-cn",
+        "maql",
+        "ldm",
+        "migration",
+        "bi"
+      ]
+    },
+    {
+      "name": "domo-to-sigma",
+      "source": "./plugins/domo-to-sigma",
+      "description": "Domo → Sigma — DataSets → Sigma data model (flat materialized tables → table elements), Beast Mode calc fields → Sigma formulas (MySQL-dialect SQL), and cards → charts/KPIs/pivots (every card's Summary Number → a KPI, never a table). Ports page + card filters as controls, detects PDP policies for opt-in row-level security, and verifies warehouse parity (live step). Bundles a read-only domo-assessment skill (public governance-dataset inventory → value/cost-ranked migration-readiness readout).",
+      "category": "migration",
+      "keywords": ["domo", "beast-mode", "pdp", "migration", "bi"]
+    },
+    {
+      "name": "hex-to-sigma",
+      "source": "./plugins/hex-to-sigma",
+      "description": "Hex → Sigma — SQL cells, single-value/METRIC cells, and EXPLORE charts → Sigma data model + workbook, built from a project's .hex.yaml export (Hex's REST API doesn't return cell content), with app layout carried over and warehouse parity verification. Bundles a read-only hex-assessment skill (scaffolded, not yet built out).",
+      "category": "migration",
+      "keywords": ["hex", "hex.tech", "migration", "bi"]
+    }
+  ]
+}

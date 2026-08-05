@@ -1,0 +1,14 @@
+{
+  "config": {
+    "format": "$.3~s",
+    "source": {
+      "elementId": "tbl-1",
+      "kind": "element"
+    },
+    "target": "target",
+    "value": "actual"
+  },
+  "id": "gauge-el",
+  "kind": "plugin",
+  "pluginId": "pl-1"
+}

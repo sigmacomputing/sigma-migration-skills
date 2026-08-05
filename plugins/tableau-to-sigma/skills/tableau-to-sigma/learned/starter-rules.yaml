@@ -1,0 +1,136 @@
+# Repo-shipped learned-rules STARTER PACK — loaded by scripts/learned-rules.rb
+# BEFORE the customer's ~/.tableau-to-sigma/learned-rules.yaml. User rules
+# override starter rules on key collision (feature + tableau_pattern) and are
+# consulted first by apply()'s first-match-wins.
+#
+# Provenance: every entry below was live-verified on the 2026-07-07 "Tableau
+# live-migration" migration (10 workbooks / 30 dashboards, 10/10 GREEN, ~620
+# exact value checks). Evidence:
+# skills-test-run/gaps-normalized.json in the sigma-migration-skills evidence
+# repo.
+#
+# Schema — same as ~/.tableau-to-sigma/learned-rules.yaml (see the header of
+# scripts/learned-rules.rb). Two entry flavors:
+#   * formula-rewrite rules carry `tableau_pattern` + `sigma_template` and are
+#     auto-applied to Tableau formulas (gsub, first match wins).
+#   * spec-guidance rules OMIT tableau_pattern/sigma_template — none of this
+#     run's transferable lessons is a safe blind regex rewrite (they are spec
+#     shapes and Sigma-formula authoring rules, not Tableau-formula
+#     translations), so they are deliberately NOT force-fitted into the
+#     rewrite schema. LearnedRules.apply skips them (a rule without both
+#     fields never rewrites anything); they surface via
+#     `ruby scripts/learned-rules.rb` and the loaded-rules count, and each
+#     one's full spec shape lives in refs/fidelity-recipes.md
+#     ("Live-verified recipes — 2026-07 10-workbook live migration").
+rules:
+  - feature: "KPI_INLINE_AGGREGATE"
+    description: >-
+      kpi-chart columns must inline the FULL aggregate expression. A bare
+      sibling-column ref (a kpi-chart column whose formula is just
+      [Other Column] on the same element) compiles clean but evaluates NULL
+      at render.
+    hint: >-
+      Inline the aggregate (e.g. Sum([Master/Sales]) / NullIf(Sum([Master/
+      Calls]), 0)) directly into the kpi-chart column formula instead of
+      referencing a sibling column that holds it.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/call-center"
+    confidence: "validated"
+
+  - feature: "FLOATING_BAR_ZZ_BASE"
+    description: >-
+      Floating bars (waterfall / candlestick / gantt) = stacked bar with a
+      white or transparent base series NAMED 'zz base'. Sigma stacks the
+      LAST-sorted color category at the bottom, so the sort-name trick is
+      load-bearing — rename the base series and the bars stop floating.
+    hint: >-
+      Base series value = the bar's offset; visible series = the span.
+      Positive-domain only: stacking splits pos/neg, so floating bars that
+      cross zero are impossible — fall back to signed diverging bars.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/visual-vocabulary"
+    confidence: "validated"
+
+  - feature: "INVERTED_RANK_AXIS"
+    description: >-
+      Bump / rank charts: an INVERTED yAxis domain works —
+      yAxis.format.scale.domain {min: 5.5, max: 0.5} renders rank 1 on top.
+    hint: >-
+      Use half-step over/undershoot (0.5 beyond both ends) so the extreme
+      rank lines are not clipped.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/visual-vocabulary"
+    confidence: "validated"
+
+  - feature: "TEXT_TEMPLATE_FORMULA_D3"
+    description: >-
+      Text elements support {{formula | d3-format}} templating for delta
+      badges, dynamic sentences, and alert strings. ELEMENT refs work
+      (including cross-page); refs to a FILTERING LIST CONTROL render
+      'Invalid Query' (segmented-control refs work).
+    hint: >-
+      Template on an element-ref formula (e.g. {{Max([Rollup/Order Year
+      Text])}}), never on a filtering list control's id.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/superstore-performance"
+    confidence: "validated"
+
+  - feature: "TEXT_WRAP_STRING_NUMBER_CONCAT"
+    description: >-
+      Sigma '&' concatenation of a string and a number ("Q" & 4) COMPILES
+      but errors at render ('Argument 2 invalid'). Wrap the numeric operand
+      in Text().
+    hint: >-
+      "Q" & Text(DatePart("quarter", [Date])) — apply to every string&number
+      concat you author, including {{...}} template formulas.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/visual-vocabulary"
+    confidence: "validated"
+
+  - feature: "INTEGER_PREDICATE_COMPARISON"
+    description: >-
+      Integer / bit columns used bare as If() / Switch() predicates compile
+      clean but fail at render with 'Invalid Query'. Sigma requires an
+      explicit comparison.
+    hint: >-
+      Write If([flag] = 1, ...) — never If([flag], ...) — whenever the
+      predicate column is numeric.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/superstore-performance"
+    confidence: "validated"
+
+  - feature: "SINGLE_SELECT_SCALAR_VALUE"
+    description: >-
+      Single-select manual list controls (selectionMode: single) require a
+      SCALAR `value`, not `values: []`. With the array form the control's
+      filters AND default silently drop.
+    hint: >-
+      value: "May 2025" (scalar) for single-select; values: [...] only for
+      multi-select.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/social-media-campaign"
+    confidence: "validated"
+
+  - feature: "NUMBER_COLUMN_LIST_FILTER_TEXT_KEY"
+    description: >-
+      List controls whose `filters` target a NUMBER column are SILENTLY
+      STRIPPED on PUT (probe-isolated twice, 12-variant probe). Bind the
+      control to a text filter-key column instead.
+    hint: >-
+      Add a helper column Text([Master/Year]) (or the display-formatted
+      equivalent) and point the control's filters at that text column.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/superstore-performance"
+    confidence: "validated"
+
+  - feature: "CONDITIONAL_FORMAT_INCLUDE_VALUES"
+    description: >-
+      pivot-table / table conditionalFormats with `includeValues: false`
+      silently kill the whole format (backgroundScale renders nothing).
+      Keep `includeValues: true`.
+    hint: >-
+      Consequence: waffle/heatmap cell values cannot be hidden via spec —
+      ship them visible rather than losing the fill.
+    validated_at: "2026-07-07"
+    validated_workbook: "skills-test/visual-vocabulary"
+    confidence: "validated"

@@ -1,0 +1,23 @@
+[
+  {
+    "kind": "federated-join",
+    "join_type": "left",
+    "left": "SALES_FACT",
+    "right": "SEGMENT_DIM",
+    "keys": [
+      "CURRENT_FLAG"
+    ],
+    "key_pairs": [
+      {
+        "left": "ACTIVE_FLAG",
+        "right": "CURRENT_FLAG"
+      }
+    ],
+    "grain_assumption": "right unique on keys",
+    "status": "unprobed",
+    "right_table": "DEMO_DB.ANALYTICS.SEGMENT_DIM",
+    "probe_keys": [
+      "CURRENT_FLAG"
+    ]
+  }
+]

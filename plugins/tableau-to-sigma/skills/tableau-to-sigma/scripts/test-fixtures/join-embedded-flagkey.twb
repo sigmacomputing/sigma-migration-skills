@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Synthetic fixture for test-join-plan.rb (invented names, no customer
+     data): the EMBEDDED-datasource join shape from the 2026-07-19 live e2e
+     miss — a workbook-inline (embedded) datasource over a published
+     connection, expressing a flag-key LEFT JOIN as <clause type='join'> with
+     <expression op='='> operand pairs. Every attribute the live .twb carried
+     is mirrored: inline='true', publishedConnection named-connection, relation
+     labels 'NAME (SCHEMA.TABLE)' with the physical path in parens, join keys
+     as Tableau field GUIDs whose captions are the only physical handle, the
+     <cols> GUID map, and per-column captions. -->
+<workbook source-build='2026.1.5' version='18.1'>
+  <datasources>
+    <datasource caption='Activity Monitor (Published Conn)' inline='true' name='federated.emb01' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Published Conn' name='publishedConnection.emb01conn'>
+            <connection class='publishedConnection' resourceId='aaaa1111-2222-4333-8444-555566667777' resourceName='Published Conn' workgroup-auth-mode='as-is'/>
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[ACT_BASE (OPSSRC.ACT_BASE)].[bbbb1111-2222-4333-8444-555566667777]' />
+              <expression op='[STATE_REF (OPSSRC.STATE_REF)].[cccc1111-2222-4333-8444-555566667777]' />
+            </expression>
+          </clause>
+          <relation connection='publishedConnection.emb01conn' name='ACT_BASE (OPSSRC.ACT_BASE)' table='[dddd1111-2222-4333-8444-555566667777].[ACT_BASE (OPSSRC.ACT_BASE)]' type='table'>
+            <columns>
+              <column datatype='date' date-parse-format='yyyyMMdd' name='eeee1111-2222-4333-8444-555566667777'/>
+            </columns>
+          </relation>
+          <relation connection='publishedConnection.emb01conn' name='STATE_REF (OPSSRC.STATE_REF)' table='[ffff1111-2222-4333-8444-555566667777].[STATE_REF (OPSSRC.STATE_REF)]' type='table'/>
+        </relation>
+        <cols>
+          <map key='[bbbb1111-2222-4333-8444-555566667777]' value='[ACT_BASE (OPSSRC.ACT_BASE)].[bbbb1111-2222-4333-8444-555566667777]'/>
+          <map key='[cccc1111-2222-4333-8444-555566667777]' value='[STATE_REF (OPSSRC.STATE_REF)].[cccc1111-2222-4333-8444-555566667777]'/>
+          <map key='[eeee1111-2222-4333-8444-555566667777]' value='[ACT_BASE (OPSSRC.ACT_BASE)].[eeee1111-2222-4333-8444-555566667777]'/>
+        </cols>
+      </connection>
+      <aliases enabled='yes'/>
+      <column caption='Is Initial' datatype='integer' name='[bbbb1111-2222-4333-8444-555566667777]' role='measure' type='quantitative'/>
+      <column caption='Is Current' datatype='integer' name='[cccc1111-2222-4333-8444-555566667777]' role='measure' type='quantitative'/>
+      <column caption='Activity Date' datatype='date' name='[eeee1111-2222-4333-8444-555566667777]' role='dimension' type='ordinal'/>
+    </datasource>
+  </datasources>
+</workbook>

@@ -1,0 +1,8 @@
+{
+  "total": 6,
+  "distinct": 2,
+  "duplicates": [
+    { "keys": { "CURRENT_FLAG": "1" }, "count": 4 },
+    { "keys": { "CURRENT_FLAG": "0" }, "count": 2 }
+  ]
+}

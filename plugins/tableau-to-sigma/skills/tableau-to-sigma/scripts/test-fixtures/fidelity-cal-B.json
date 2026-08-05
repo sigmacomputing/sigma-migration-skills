@@ -1,0 +1,17 @@
+{
+  "_note": "Calibration corpus B (GENERICIZED — no customer data). Reconstructs the 4-pass hand migration of an executive-summary dashboard. Companion to fidelity-cal-A.json.",
+  "workbook_id": "CAL_B",
+  "page_id": "PG_B",
+  "source_image": "fixtures/reference-dashboard-b.source.png",
+  "max_passes": 5,
+  "pass": 4,
+  "renders": [],
+  "entries": [
+    { "id": "e0", "pass": 1, "dimension": "layout/containers", "delta": "hero strip missing; equal-width stack", "cls": "spec-fixable", "fix": "full-width container hero (fidelity-recipes: hero strip)", "resolved": true },
+    { "id": "e1", "pass": 2, "dimension": "palette/theme", "delta": "canvas background off", "cls": "spec-fixable", "fix": "themeOverrides.colorOverrides.backgroundCanvas", "resolved": true },
+    { "id": "e2", "pass": 2, "dimension": "chart-kinds", "delta": "donut slice colors generic; center total missing", "cls": "spec-fixable", "fix": "categoricalScheme + holeValue distinct id", "resolved": true },
+    { "id": "e3", "pass": 3, "dimension": "typography/text", "delta": "flat typographic hierarchy", "cls": "spec-fixable", "fix": "themeOverrides.fonts + span sizes", "resolved": true },
+    { "id": "e4", "pass": 4, "dimension": "accuracy", "delta": "YTD KPI window vs source last-12-months", "cls": "data", "fix": "hand to Phase 6 (period filter)", "resolved": false },
+    { "id": "e5", "pass": 4, "dimension": "tooltip", "delta": "rich tooltip beyond columnNames", "cls": "ui-only", "fix": null, "resolved": false }
+  ]
+}

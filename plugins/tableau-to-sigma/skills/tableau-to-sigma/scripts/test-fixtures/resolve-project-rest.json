@@ -1,0 +1,10 @@
+{
+  "pagination": { "pageNumber": "1", "pageSize": "100", "totalAvailable": "3" },
+  "projects": {
+    "project": [
+      { "id": "proj-luid-finance", "name": "Finance Analytics", "description": "Finance team dashboards", "contentCounts": { "workbookCount": "2", "datasourceCount": "1" } },
+      { "id": "proj-luid-ops",     "name": "Operations",        "contentCounts": { "workbookCount": "1", "datasourceCount": "0" } },
+      { "id": "proj-luid-sandbox", "name": "Empty Sandbox" }
+    ]
+  }
+}

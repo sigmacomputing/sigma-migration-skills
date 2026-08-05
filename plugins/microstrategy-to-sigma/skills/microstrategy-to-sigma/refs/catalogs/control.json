@@ -1,0 +1,13 @@
+{
+  "dimension": "control",
+  "source_tool": "microstrategy",
+  "authoritative_doc": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/intro_add_filters.htm",
+  "sigma_target_doc": "refs/control-parity.md",
+  "on_unmapped_default": "list (documented default control kind for a categorical dossier selector / chapter filter)",
+  "description": "Bound-column data type of a MicroStrategy dossier selector / chapter filter (Bundle.attribute_ctl_type: 'date' | 'number' | 'text', derived from the rendered DESC form's dataType) -> Sigma control kind. convert.py.emit_controls() resolves the control kind through this catalog. Only the date case is special: a Sigma `list` control whose filter target is a DATETIME *or NUMERIC* column posts 200 but Sigma SILENTLY STRIPS the target (reads back filters:null — live-verified on this converter 2026-06-12; datetime is a cross-plugin gotcha, see refs/control-parity.md). Dates become date-range controls; numbers stay `list` but bind through a hidden Text() cast; text is a plain `list`. Unresolvable source attributes / metric-qualification selectors are already recorded LOUDLY in control-scope.json (status: unbound / manual).",
+  "rows": [
+    {"source": "date", "sigma": "date-range", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/getting_started_selector.htm", "sigma_verified": {"status": "n"}, "on_unmapped": "n/a", "notes": "A datetime-bound list control reads back filters:null (dead control) — must be a date-range control with a flat `mode`."},
+    {"source": "number", "sigma": "list", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/getting_started_selector.htm", "sigma_verified": {"status": "n"}, "on_unmapped": "n/a", "notes": "A list-control filter target on a NUMERIC column is silently stripped by Sigma (200 on POST/PUT, filters:null on readback) — numeric selectors bind through a hidden Text() cast column."},
+    {"source": "text", "sigma": "list", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/getting_started_selector.htm", "sigma_verified": {"status": "n"}, "on_unmapped": "n/a", "notes": "Categorical list control (documented default)."}
+  ]
+}

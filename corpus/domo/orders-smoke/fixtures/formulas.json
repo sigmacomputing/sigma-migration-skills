@@ -1,0 +1,10 @@
+[
+  {
+    "id": "bm-order-year",
+    "name": "order_year",
+    "class": "projection",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sigmaFormula": "Year([Order Date])"
+  }
+]

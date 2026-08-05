@@ -1,0 +1,65 @@
+{
+  "id": "6",
+  "title": "Skilltest Look \u2014 Pivot Table",
+  "layoutMode": "newspaper",
+  "source": "api-look",
+  "lookmlLinkId": "/looks/6",
+  "filters": [],
+  "elements": [
+    {
+      "name": "Skilltest Look \u2014 Pivot Table",
+      "tileType": "looker_grid",
+      "merge": null,
+      "model": "demo_thelook",
+      "explore": "order_fact",
+      "fields": [
+        "customer_dim.region",
+        "order_fact.total_net_revenue"
+      ],
+      "pivots": [
+        "order_fact.order_channel"
+      ],
+      "filters": {},
+      "sorts": [
+        "order_fact.total_net_revenue desc"
+      ],
+      "limit": 5000,
+      "listen": {},
+      "dynamicFields": [],
+      "noteText": null,
+      "subtitleText": null,
+      "bodyText": null,
+      "referenceLines": [],
+      "color": {
+        "seriesColors": {},
+        "palette": [],
+        "colorApplication": null
+      },
+      "cellVisualizations": {},
+      "layout": {
+        "row": 0,
+        "col": 0,
+        "width": 24,
+        "height": 8
+      },
+      "total": false,
+      "rowTotal": false,
+      "columnLimit": 50
+    }
+  ],
+  "fieldMeta": {
+    "customer_dim.region": {
+      "category": "dimension"
+    },
+    "order_fact.total_net_revenue": {
+      "category": "measure",
+      "aggType": "sum",
+      "sql": "${TABLE}.NET_REVENUE ",
+      "baseColumn": "order_fact.NET_REVENUE",
+      "valueFormat": "usd"
+    },
+    "order_fact.order_channel": {
+      "category": "dimension"
+    }
+  }
+}

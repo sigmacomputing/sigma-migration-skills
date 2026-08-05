@@ -1,0 +1,12 @@
+{
+  "dimension": "control",
+  "source_tool": "gooddata",
+  "authoritative_doc": "https://www.gooddata.com/docs/cloud/create-dashboards/filters/date-filters/",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/control-types",
+  "on_unmapped_default": "flag (a relative date filter with no resolvable YYYYMMDD date key is flagged; non-date / absolute-date filters are a documented gap, not silently emitted as a wrong control)",
+  "description": "GoodData dashboard `filterContext` filter -> Sigma workbook control. This pass emits exactly ONE control shape: a dashboard-wide RELATIVE date filter becomes a single Sigma date-range control bound to the master detail table's parsed date column, which then propagates down the source lineage to every element (mirrors GoodData's one filterContext over all widgets). detect_filter() reads the relative dateFilter directly — granularity -> unit, and the from/to offsets pick the mode (from==to==0 -> current period; from==to==-n -> last n periods). This is compositional parsing (cited code), not a dict the builder loads. Absolute date filters and attribute filters are NOT emitted this pass (documented gap); a relative date filter present but with no YYYYMMDD date key on the fact element is flagged, not dropped silently.",
+  "rows": [
+    {"source": "relativeDateFilter (current period)", "sigma": "date-range", "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/filters/date-filters/", "sigma_target_ref": "https://help.sigmacomputing.com/docs/control-types", "sigma_verified": {"status": "n"}, "on_unmapped": "flag", "notes": "granularity+from==to==0 -> Sigma date-range control, mode 'current' (e.g. 'this month')."},
+    {"source": "relativeDateFilter (last N periods)", "sigma": "date-range", "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/filters/date-filters/", "sigma_target_ref": "https://help.sigmacomputing.com/docs/control-types", "sigma_verified": {"status": "n"}, "on_unmapped": "flag", "notes": "granularity+from==to==-n -> Sigma date-range control, mode 'last', value n, includeToday false."}
+  ]
+}

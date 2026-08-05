@@ -1,0 +1,30 @@
+<GraphProperties>
+  <GraphLayout><Frame><Name><v>Net Revenue by Category</v></Name></Frame></GraphLayout>
+  <GraphMode>GRAPH_MODE_BAR</GraphMode>
+  <Dimensions>
+    <ChartDimensionDataDef>
+      <PseudoDef><Name>CATEGORY</Name><Type>IS_FIELD</Type></PseudoDef>
+      <Title><v>Category</v></Title>
+      <NullSuppression>true</NullSuppression>
+    </ChartDimensionDataDef>
+  </Dimensions>
+  <Expressions>
+    <ArrayOfMainExpressionData>
+        <MainExpressionData>
+          <Data>
+            <InternalId>-1</InternalId>
+            <ExpressionData>
+              <Definition><v>=Sum(NET_REVENUE)</v></Definition>
+              <Enable>true</Enable>
+            </ExpressionData>
+            <ExpressionVisual>
+              <ExpType>BASE_EXP</ExpType>
+              <ShowAsBar>true</ShowAsBar>
+              <ShowAsLine>false</ShowAsLine>
+              <Label><v>Net Revenue</v></Label>
+            </ExpressionVisual>
+          </Data>
+        </MainExpressionData>
+    </ArrayOfMainExpressionData>
+  </Expressions>
+</GraphProperties>

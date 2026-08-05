@@ -1,0 +1,184 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-postpublish-guide.rb — XML structure
+     mirrors live-migration corpora (admin-dashboard / exec-overview
+     action shapes) with invented names; no customer data. Covers: filter
+     action (tsl-filter with link field mapping + exclude), highlight (brush),
+     URL action, nav-action, edit-parameter-action, edit-set-action, a
+     drill-path, customized tooltips (field ref + viz-in-tooltip), and the
+     three dashboard button kinds (toggle / export / goto-sheet). -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Retail' name='federated.f1'>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Order ID' datatype='string' name='[Order ID]' role='dimension' type='nominal' />
+      <column caption='Category' datatype='string' name='[Category]' role='dimension' type='nominal' />
+      <column caption='Sub-Category' datatype='string' name='[Sub-Category]' role='dimension' type='nominal' />
+      <column caption='Product Name' datatype='string' name='[Product Name]' role='dimension' type='nominal' />
+      <column caption='Metric Button' datatype='string' name='[Calculation_100]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='&quot;Sales&quot;' />
+      </column>
+      <column caption='Profit Ratio' datatype='real' name='[Calculation_200]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([Profit])/SUM([Sales])' />
+      </column>
+      <drill-paths>
+        <drill-path name='Product'>
+          <field>[Category]</field>
+          <field>[Sub-Category]</field>
+          <field>[Product Name]</field>
+        </drill-path>
+      </drill-paths>
+    </datasource>
+    <datasource caption='Parameters' name='Parameters'>
+      <column caption='Metric Picker' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Sales&quot;' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales by Region'>
+      <table>
+        <panes>
+          <pane>
+            <mark class='Bar' />
+            <customized-tooltip show-buttons='false'>
+              <formatted-text>
+                <run fontcolor='#787878'>Profit Ratio:&#9;</run>
+                <run bold='true'><![CDATA[<[federated.f1].[usr:Calculation_200:qk]>]]></run>
+              </formatted-text>
+            </customized-tooltip>
+          </pane>
+        </panes>
+      </table>
+    </worksheet>
+    <worksheet name='Region Detail'>
+      <table>
+        <panes>
+          <pane>
+            <mark class='Square' />
+            <customized-tooltip show-buttons='false'>
+              <formatted-text>
+                <run><![CDATA[<Sheet name="Tooltip Viz" maxwidth="300" maxheight="300" filter="<Region>">]]></run>
+              </formatted-text>
+            </customized-tooltip>
+          </pane>
+        </panes>
+      </table>
+    </worksheet>
+    <worksheet name='Metric Buttons'>
+      <table>
+        <panes><pane><mark class='Shape' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Filter Panel Sheet'>
+      <table>
+        <panes><pane><mark class='Text' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Overview'>
+      <zones>
+        <zone h='98000' id='3' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='40000' id='4' name='Sales by Region' w='48000' x='1000' y='1000' />
+          <zone h='40000' id='5' name='Region Detail' w='48000' x='50000' y='1000' />
+          <zone h='40000' id='6' name='Metric Buttons' w='20000' x='1000' y='42000' />
+          <zone h='10000' id='7' type-v2='dashboard-object' w='10000' x='60000' y='42000'>
+            <button action='' active-visual-state-index='1' button-type='text'>
+              <toggle-action>tabdoc:toggle-button-click-action window-id=&quot;{AAAAAAAA-0000-0000-0000-000000000001}&quot; zone-id=&quot;7&quot; zone-ids=[8]</toggle-action>
+              <button-visual-state>
+                <caption>Filters</caption>
+                <tooltip-text>Close filter pane</tooltip-text>
+              </button-visual-state>
+              <button-visual-state>
+                <caption>Filters</caption>
+                <tooltip-text>Open filter pane</tooltip-text>
+              </button-visual-state>
+            </button>
+          </zone>
+          <zone h='20000' id='8' param='vert' type-v2='layout-flow' w='20000' x='60000' y='52000'>
+            <zone h='10000' id='9' name='Filter Panel Sheet' w='20000' x='60000' y='52000' />
+          </zone>
+          <zone h='10000' id='10' type-v2='dashboard-object' w='10000' x='72000' y='42000'>
+            <button action='' button-click-action-metadata='pdf'>
+              <export-button-action>tabdoc:abstract-dashboard-button-export-wrapper dashboard-button-export-type=&quot;pdf&quot; dashboarddoc-id=&quot;{BBBBBBBB-0000-0000-0000-000000000002}&quot;</export-button-action>
+              <button-visual-state>
+                <tooltip-text>Download as PDF</tooltip-text>
+              </button-visual-state>
+            </button>
+          </zone>
+          <zone h='10000' id='11' type-v2='dashboard-object' w='10000' x='84000' y='42000'>
+            <button action='tabdoc:goto-sheet window-id=&quot;{11111111-2222-3333-4444-555555555555}&quot;'>
+              <button-visual-state>
+                <tooltip-text>Go to Detail</tooltip-text>
+              </button-visual-state>
+            </button>
+          </zone>
+        </zone>
+      </zones>
+      <simple-id uuid='{99999999-8888-7777-6666-555555555555}' />
+    </dashboard>
+    <dashboard name='Detail Page'>
+      <zones>
+        <zone h='98000' id='20' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='90000' id='21' name='Region Detail' w='90000' x='1000' y='1000' />
+        </zone>
+      </zones>
+      <simple-id uuid='{CCCCCCCC-0000-0000-0000-000000000003}' />
+    </dashboard>
+  </dashboards>
+  <windows>
+    <window class='dashboard' maximized='true' name='Detail Page'>
+      <simple-id uuid='{11111111-2222-3333-4444-555555555555}' />
+    </window>
+    <window class='dashboard' name='Overview'>
+      <simple-id uuid='{AAAAAAAA-0000-0000-0000-000000000001}' />
+    </window>
+  </windows>
+  <actions>
+    <action caption='Region Filter' name='[Action1_AAAA]'>
+      <activation auto-clear='true' type='on-select' />
+      <source dashboard='Overview' type='sheet' worksheet='Sales by Region' />
+      <link caption='Region Filter' delimiter=',' escape='\' expression='tsl:Overview?%5Bfederated.f1%5D.%5BRegion%5D~s0=&lt;[federated.f1].[Region]~na&gt;' include-null='true' multi-select='true' url-escape='true' />
+      <command command='tsc:tsl-filter'>
+        <param name='exclude' value='Metric Buttons' />
+        <param name='target' value='Overview' />
+      </command>
+    </action>
+    <action caption='Region Highlight' name='[Action2_BBBB]'>
+      <activation auto-clear='true' type='on-hover' />
+      <source dashboard='Overview' type='sheet' worksheet='Region Detail' />
+      <command command='tsc:brush'>
+        <param name='field-captions' value='Region' />
+        <param name='target' value='Overview' />
+      </command>
+    </action>
+    <action caption='Open Order' name='[Action3_CCCC]'>
+      <activation type='on-menu' />
+      <source dashboard='Overview' type='sheet' worksheet='Region Detail' />
+      <link caption='Open Order' expression='https://example.com/orders?id=&lt;[federated.f1].[Order ID]&gt;' />
+      <command command='tsc:url' />
+    </action>
+    <nav-action caption='GoTo Detail' name='[Action4_DDDD]'>
+      <activation type='on-select' />
+      <source dashboard='Overview' type='sheet' worksheet='Sales by Region' />
+      <params>
+        <param name='sheet' value='Detail Page' />
+      </params>
+    </nav-action>
+    <edit-parameter-action caption='Pick Metric' name='[Action5_EEEE]'>
+      <activation type='on-select' />
+      <source dashboard='Overview' type='sheet' worksheet='Metric Buttons' />
+      <agg-type type='attr' />
+      <clear-option type='do-nothing' value='s:LROOT:' />
+      <params>
+        <param name='source-field' value='[federated.f1].[none:Calculation_100:nk]' />
+        <param name='target-parameter' value='[Parameters].[Parameter 1]' />
+      </params>
+    </edit-parameter-action>
+    <edit-set-action caption='Update Region Set' name='[Action6_FFFF]'>
+      <activation type='on-select' />
+      <source dashboard='Overview' type='sheet' worksheet='Sales by Region' />
+      <params>
+        <param name='target-set' value='[federated.f1].[Top Regions Set]' />
+      </params>
+    </edit-set-action>
+  </actions>
+</workbook>

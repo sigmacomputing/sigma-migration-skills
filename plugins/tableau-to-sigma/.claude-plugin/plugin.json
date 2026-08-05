@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "tableau-to-sigma",
+  "displayName": "Tableau → Sigma",
+  "version": "1.6.3",
+  "description": "Migrate Tableau workbooks and datasources to Sigma — discovery, calc/LOD translation, data model + workbook build, and parity verification against the source warehouse. Includes a tenant assessment skill and a VDS→warehouse data-landing skill (Snowflake or Databricks).",
+  "author": { "name": "Sigma Computing" },
+  "license": "Apache-2.0",
+  "keywords": ["tableau", "sigma", "migration", "bi", "converter"],
+  "skills": "./skills/"
+}

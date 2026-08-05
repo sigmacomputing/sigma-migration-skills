@@ -1,0 +1,25 @@
+{
+ "ds-fact": {
+  "connectionId": "conn-demo",
+  "database": "DEMO_DB",
+  "schema": "DEMO",
+  "table": "FACT",
+  "name": "Fact",
+  "columnOverrides": {
+   "event_date": {
+    "formula": "MakeDate(Floor([Event Date Key]/10000), Floor(Mod([Event Date Key],10000)/100), Mod([Event Date Key],100))",
+    "format": {
+     "kind": "datetime",
+     "formatString": "%Y-%m-%d"
+    }
+   }
+  }
+ },
+ "ds-dim": {
+  "connectionId": "conn-demo",
+  "database": "DEMO_DB",
+  "schema": "DEMO",
+  "table": "DIM",
+  "name": "Dim"
+ }
+}

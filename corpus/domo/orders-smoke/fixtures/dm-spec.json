@@ -1,0 +1,110 @@
+{
+  "name": "Domo Migration",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "AU7CjXAo1r",
+      "name": "Data",
+      "elements": [
+        {
+          "id": "miXxbC05k2",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo-warehouse",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "ORDER_FACT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-CpX768vmRKVfvPQLDoEnob/ORDER_ID",
+              "formula": "[ORDER_FACT/Order Id]"
+            },
+            {
+              "id": "inode-mPf3xVJjvmIz9QxspCsygJ/ORDER_DATE",
+              "formula": "[ORDER_FACT/Order Date]",
+              "format": {
+                "kind": "datetime",
+                "formatString": "%Y-%m-%d"
+              }
+            },
+            {
+              "id": "inode-73gF5kIVmyxYtwaAk9JXnY/REGION",
+              "formula": "[ORDER_FACT/Region]"
+            },
+            {
+              "id": "inode-IMnMrhZ9qnUzy5wSvLtpvq/SALES_AMOUNT",
+              "formula": "[ORDER_FACT/Sales Amount]"
+            },
+            {
+              "id": "inode-bOGPRhKZPkIxli1gn3tT6v/CUSTOMER_ID",
+              "formula": "[ORDER_FACT/Customer Id]"
+            },
+            {
+              "id": "o5OXJvwz8F",
+              "name": "Order Year",
+              "formula": "Year([Order Date])"
+            }
+          ],
+          "metrics": [
+
+          ],
+          "order": [
+            "inode-CpX768vmRKVfvPQLDoEnob/ORDER_ID",
+            "inode-mPf3xVJjvmIz9QxspCsygJ/ORDER_DATE",
+            "inode-73gF5kIVmyxYtwaAk9JXnY/REGION",
+            "inode-IMnMrhZ9qnUzy5wSvLtpvq/SALES_AMOUNT",
+            "inode-bOGPRhKZPkIxli1gn3tT6v/CUSTOMER_ID",
+            "o5OXJvwz8F"
+          ],
+          "relationships": [
+
+          ],
+          "_datasetId": "ds-order-fact"
+        },
+        {
+          "id": "V3fEDsBDYd",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo-warehouse",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "CUSTOMER_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-PXT7dJCRj1IDafZyDg4aqH/CUSTOMER_ID",
+              "formula": "[CUSTOMER_DIM/Customer Id]"
+            },
+            {
+              "id": "inode-o8SBok09C48YIJ6QqIIYP5/CUSTOMER_NAME",
+              "formula": "[CUSTOMER_DIM/Customer Name]"
+            },
+            {
+              "id": "inode-nJ3Xzt456FQzzlLfO3SzZy/SEGMENT",
+              "formula": "[CUSTOMER_DIM/Segment]"
+            }
+          ],
+          "metrics": [
+
+          ],
+          "order": [
+            "inode-PXT7dJCRj1IDafZyDg4aqH/CUSTOMER_ID",
+            "inode-o8SBok09C48YIJ6QqIIYP5/CUSTOMER_NAME",
+            "inode-nJ3Xzt456FQzzlLfO3SzZy/SEGMENT"
+          ],
+          "relationships": [
+
+          ],
+          "_datasetId": "ds-customer-dim"
+        }
+      ]
+    }
+  ]
+}

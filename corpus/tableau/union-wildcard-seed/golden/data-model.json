@@ -1,0 +1,172 @@
+{
+  "sigmaDataModel": {
+    "name": "Sales Union",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Page 1",
+        "elements": [
+          {
+            "id": "id0002",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "DEMO_DB",
+                "DEMO",
+                "SALES_2023"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0003/ORDER_ID",
+                "formula": "[SALES_2023/Order Id]",
+                "name": "Order Id"
+              },
+              {
+                "id": "inode-NORM0004/NET_REVENUE",
+                "formula": "[SALES_2023/Net Revenue]",
+                "name": "Net Revenue"
+              },
+              {
+                "id": "inode-NORM0005/REGION_NAME",
+                "formula": "[SALES_2023/Region Name]",
+                "name": "Region Name"
+              }
+            ],
+            "order": [
+              "inode-NORM0003/ORDER_ID",
+              "inode-NORM0004/NET_REVENUE",
+              "inode-NORM0005/REGION_NAME"
+            ]
+          },
+          {
+            "id": "id0006",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "DEMO_DB",
+                "DEMO",
+                "SALES_2024"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0007/ORDER_ID",
+                "formula": "[SALES_2024/Order Id]",
+                "name": "Order Id"
+              },
+              {
+                "id": "inode-NORM0008/NET_REVENUE",
+                "formula": "[SALES_2024/Net Revenue]",
+                "name": "Net Revenue"
+              },
+              {
+                "id": "inode-NORM0009/REGION_NAME",
+                "formula": "[SALES_2024/Region Name]",
+                "name": "Region Name"
+              }
+            ],
+            "order": [
+              "inode-NORM0007/ORDER_ID",
+              "inode-NORM0008/NET_REVENUE",
+              "inode-NORM0009/REGION_NAME"
+            ]
+          },
+          {
+            "id": "id0010",
+            "kind": "table",
+            "source": {
+              "kind": "union",
+              "sources": [
+                {
+                  "kind": "table",
+                  "elementId": "id0002"
+                },
+                {
+                  "kind": "table",
+                  "elementId": "id0006"
+                }
+              ],
+              "matches": [
+                {
+                  "outputColumnName": "Order Id",
+                  "sourceColumns": [
+                    "[Order Id]",
+                    "[Order Id]"
+                  ]
+                },
+                {
+                  "outputColumnName": "Net Revenue",
+                  "sourceColumns": [
+                    "[Net Revenue]",
+                    "[Net Revenue]"
+                  ]
+                },
+                {
+                  "outputColumnName": "Region Name",
+                  "sourceColumns": [
+                    "[Region Name]",
+                    "[Region Name]"
+                  ]
+                }
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0011/ORDER_ID",
+                "formula": "[Union of 2 Sources/Order Id]",
+                "name": "Order Id"
+              },
+              {
+                "id": "inode-NORM0012/NET_REVENUE",
+                "formula": "[Union of 2 Sources/Net Revenue]",
+                "name": "Net Revenue"
+              },
+              {
+                "id": "inode-NORM0013/REGION_NAME",
+                "formula": "[Union of 2 Sources/Region Name]",
+                "name": "Region Name"
+              }
+            ],
+            "order": [
+              "inode-NORM0011/ORDER_ID",
+              "inode-NORM0012/NET_REVENUE",
+              "inode-NORM0013/REGION_NAME"
+            ],
+            "metrics": [
+              {
+                "id": "id0014",
+                "formula": "Sum([Net Revenue])",
+                "name": "Net Revenue",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.2f",
+                  "currencySymbol": "$"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "datasources": 1,
+    "elements": 3,
+    "columns": 9,
+    "metrics": 1,
+    "relationships": 0,
+    "controls": 0,
+    "parameters": 0,
+    "lodChildElements": 0
+  },
+  "warnings": [
+    "⚠ Connection ID not set — update in JSON before saving to Sigma",
+    "⚠ Union datasource \"SALES_2023+ (Union)\" → Sigma union source (2 member element(s) + 1 union element, 3 column(s)), assuming SAME-NAME columns across members (wildcard union). Sigma auto-names the union element \"Union of 2 Sources\" — rename in the UI if desired (setting a spec name breaks self-referential column validation). VERIFY: a member with renamed/missing columns needs hand-edited matches (null for a member lacking the column)."
+  ]
+}

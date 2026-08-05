@@ -1,0 +1,11 @@
+{
+  "total": 5000,
+  "distinct": 1400,
+  "duplicates": [
+    { "keys": { "BUYER_KEY": "1017", "SALE_DATE": "2025-06-03" }, "count": 9 },
+    { "keys": { "BUYER_KEY": "1044", "SALE_DATE": "2025-06-03" }, "count": 7 },
+    { "keys": { "BUYER_KEY": "1017", "SALE_DATE": "2025-06-02" }, "count": 6 },
+    { "keys": { "BUYER_KEY": "1102", "SALE_DATE": "2025-05-27" }, "count": 5 },
+    { "keys": { "BUYER_KEY": "1063", "SALE_DATE": "2025-05-20" }, "count": 5 }
+  ]
+}

@@ -1,0 +1,205 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-ground-truth-derive.rb (invented names, no
+     customer data). One federated datasource joining SALES_FACT to REGION_DIM
+     (left, single key) with a DATASOURCE-level filter on SEGMENT, plus a
+     second datasource (QUOTA) so one worksheet exercises the blend →
+     anchor-only classification. Worksheets cover the ledger classes:
+       - Sales by Region        plain SUM + dim + worksheet member filter → warehouse-sql
+       - Profit Ratio by Segment  user-agg calc (SUM/SUM) → warehouse-sql + calc deps
+       - Scaled Sales           calc referencing [Parameters].[Factor] → param default recorded
+       - Running Sales Trend    RUNNING_SUM window calc → vds
+       - Quota Attainment Blend two datasources → anchor-only -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Parameters' name='Parameters'>
+      <column caption='Factor' datatype='integer' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='3'>
+        <range granularity='1' max='10' min='1' />
+      </column>
+    </datasource>
+    <datasource caption='Ground Truth Demo' name='federated.gt01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.gt01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[SALES_FACT].[REGION_ID]' />
+              <expression op='[REGION_DIM].[REGION_ID]' />
+            </expression>
+          </clause>
+          <relation connection='snowflake.gt01' name='SALES_FACT' table='[PUBLIC].[SALES_FACT]' type='table'>
+            <columns>
+              <column datatype='integer' name='REGION_ID' />
+              <column datatype='string' name='SEGMENT' />
+              <column datatype='real' name='SALES' />
+              <column datatype='real' name='PROFIT' />
+              <column datatype='date' name='ORDER_DATE' />
+            </columns>
+          </relation>
+          <relation connection='snowflake.gt01' name='REGION_DIM' table='[PUBLIC].[REGION_DIM]' type='table'>
+            <columns>
+              <column datatype='integer' name='REGION_ID' />
+              <column datatype='string' name='REGION_NAME' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+      <filter class='categorical' column='[SEGMENT]'>
+        <groupfilter function='union'>
+          <groupfilter function='member' member='&quot;Consumer&quot;' />
+          <groupfilter function='member' member='&quot;Corporate&quot;' />
+        </groupfilter>
+      </filter>
+      <column caption='Profit Ratio' datatype='real' name='[Calculation_200]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([PROFIT]) / SUM([SALES])' />
+      </column>
+      <column caption='Running Sales' datatype='real' name='[Calculation_201]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RUNNING_SUM(SUM([SALES]))' />
+      </column>
+      <column caption='Scaled Sales' datatype='real' name='[Calculation_202]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([SALES]) * [Parameters].[Factor]' />
+      </column>
+    </datasource>
+    <datasource caption='Quota Source' name='federated.gt02'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.gt02'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.gt02' name='QUOTA_DIM' table='[PUBLIC].[QUOTA_DIM]' type='table'>
+          <columns>
+            <column datatype='string' name='REGION_NAME' />
+            <column datatype='real' name='QUOTA' />
+          </columns>
+        </relation>
+      </connection>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ground Truth Demo' name='federated.gt01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.gt01'>
+            <column datatype='string' name='[REGION_NAME]' role='dimension' type='nominal' />
+            <column datatype='real' name='[SALES]' role='measure' type='quantitative' />
+            <column-instance column='[REGION_NAME]' derivation='None' name='[none:REGION_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SALES]' derivation='Sum' name='[sum:SALES:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.gt01].[none:REGION_NAME:nk]'>
+            <groupfilter function='union'>
+              <groupfilter function='member' member='&quot;East&quot;' />
+              <groupfilter function='member' member='&quot;West&quot;' />
+            </groupfilter>
+          </filter>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.gt01].[sum:SALES:qk]</rows>
+        <cols>[federated.gt01].[none:REGION_NAME:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Profit Ratio by Segment'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ground Truth Demo' name='federated.gt01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.gt01'>
+            <column datatype='string' name='[SEGMENT]' role='dimension' type='nominal' />
+            <column caption='Profit Ratio' datatype='real' name='[Calculation_200]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([PROFIT]) / SUM([SALES])' />
+            </column>
+            <column-instance column='[SEGMENT]' derivation='None' name='[none:SEGMENT:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_200]' derivation='User' name='[usr:Calculation_200:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.gt01].[usr:Calculation_200:qk]</rows>
+        <cols>[federated.gt01].[none:SEGMENT:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Scaled Sales'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ground Truth Demo' name='federated.gt01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.gt01'>
+            <column datatype='string' name='[REGION_NAME]' role='dimension' type='nominal' />
+            <column caption='Scaled Sales' datatype='real' name='[Calculation_202]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([SALES]) * [Parameters].[Factor]' />
+            </column>
+            <column-instance column='[REGION_NAME]' derivation='None' name='[none:REGION_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_202]' derivation='User' name='[usr:Calculation_202:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.gt01].[usr:Calculation_202:qk]</rows>
+        <cols>[federated.gt01].[none:REGION_NAME:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Running Sales Trend'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ground Truth Demo' name='federated.gt01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.gt01'>
+            <column datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column caption='Running Sales' datatype='real' name='[Calculation_201]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='RUNNING_SUM(SUM([SALES]))' />
+            </column>
+            <column-instance column='[ORDER_DATE]' derivation='Month-Trunc' name='[tmn:ORDER_DATE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_201]' derivation='User' name='[usr:Calculation_201:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Line' /></pane></panes>
+        <rows>[federated.gt01].[usr:Calculation_201:qk]</rows>
+        <cols>[federated.gt01].[tmn:ORDER_DATE:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Quota Attainment Blend'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Ground Truth Demo' name='federated.gt01' />
+            <datasource caption='Quota Source' name='federated.gt02' />
+          </datasources>
+          <datasource-dependencies datasource='federated.gt01'>
+            <column datatype='string' name='[REGION_NAME]' role='dimension' type='nominal' />
+            <column datatype='real' name='[SALES]' role='measure' type='quantitative' />
+            <column-instance column='[REGION_NAME]' derivation='None' name='[none:REGION_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SALES]' derivation='Sum' name='[sum:SALES:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <datasource-dependencies datasource='federated.gt02'>
+            <column datatype='real' name='[QUOTA]' role='measure' type='quantitative' />
+            <column-instance column='[QUOTA]' derivation='Sum' name='[sum:QUOTA:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.gt01].[sum:SALES:qk]</rows>
+        <cols>[federated.gt01].[none:REGION_NAME:nk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Ground Truth Dash'>
+      <size maxheight='800' maxwidth='1200' minheight='800' minwidth='1200' sizing-mode='fixed' />
+      <zones>
+        <zone h='100000' id='1' w='100000' x='0' y='0'>
+          <zone h='40000' id='2' name='Sales by Region' w='50000' x='0' y='0' />
+          <zone h='40000' id='3' name='Profit Ratio by Segment' w='50000' x='50000' y='0' />
+          <zone h='30000' id='4' name='Scaled Sales' w='34000' x='0' y='40000' />
+          <zone h='30000' id='5' name='Running Sales Trend' w='33000' x='34000' y='40000' />
+          <zone h='30000' id='6' name='Quota Attainment Blend' w='33000' x='67000' y='40000' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

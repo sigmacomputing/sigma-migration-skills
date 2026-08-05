@@ -1,0 +1,22 @@
+{
+  "_note": "Calibration corpus A (GENERICIZED — no customer data). Reconstructs the 7-pass hand migration of a report-style dashboard to near-exact parity: what each pass found and which recipe fixed it. Used by test-fidelity-recipes.rb to prove the ledger converges to zero unresolved spec-fixable and that each fix maps to a real refs/fidelity-recipes.md recipe.",
+  "workbook_id": "CAL_A",
+  "page_id": "PG_A",
+  "source_image": "fixtures/reference-dashboard-a.source.png",
+  "max_passes": 7,
+  "pass": 7,
+  "renders": [],
+  "entries": [
+    { "id": "e0", "pass": 1, "dimension": "layout/containers", "delta": "3 source tiles dropped; single-column stack", "cls": "spec-fixable", "fix": "container band per section (fidelity-recipes: containers/cards)", "resolved": true },
+    { "id": "e1", "pass": 1, "dimension": "chart-kinds", "delta": "KPI row rendered as 1-row tables", "cls": "spec-fixable", "fix": "kind kpi-chart", "resolved": true },
+    { "id": "e2", "pass": 2, "dimension": "containers", "delta": "no section header bands / tints", "cls": "spec-fixable", "fix": "container.style.backgroundColor + borderRadius", "resolved": true },
+    { "id": "e3", "pass": 2, "dimension": "palette/theme", "delta": "generic blue vs source teal", "cls": "spec-fixable", "fix": "themeOverrides.categoricalScheme", "resolved": true },
+    { "id": "e4", "pass": 3, "dimension": "typography/text", "delta": "white title invisible on light page", "cls": "spec-fixable", "fix": "header band container (fidelity-recipes: white-title trap)", "resolved": true },
+    { "id": "e5", "pass": 3, "dimension": "chart-over-tint", "delta": "chart clips the band tint", "cls": "spec-fixable", "fix": "element style.backgroundColor #00000000", "resolved": true },
+    { "id": "e6", "pass": 4, "dimension": "labels/number-formats", "delta": "KPI shows $473.0k vs source $473.0K", "cls": "spec-fixable", "fix": "text-formula uppercase-K column", "resolved": true },
+    { "id": "e7", "pass": 5, "dimension": "controls/parameters", "delta": "source region quick-filter absent", "cls": "spec-fixable", "fix": "list control wired to base table", "resolved": true },
+    { "id": "e8", "pass": 6, "dimension": "table-typography", "delta": "dense grid vs roomy source", "cls": "spec-fixable", "fix": "tableStyle.preset presentation", "resolved": true },
+    { "id": "e9", "pass": 7, "dimension": "kpi-spark", "delta": "source KPI sparkline not reproduced", "cls": "ui-only", "fix": null, "resolved": false },
+    { "id": "e10", "pass": 7, "dimension": "chart-as-filter", "delta": "clicking a bar filters in source; useAsFilter dropped", "cls": "sigma-capability", "fix": null, "resolved": false }
+  ]
+}

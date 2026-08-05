@@ -1,0 +1,359 @@
+{
+  "sigmaDataModel": {
+    "name": "Visits Model",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Page 1",
+        "elements": [
+          {
+            "id": "id0002",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "ANALYTICS",
+                "PUBLIC",
+                "DIM_DATES"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0003/DATE_KEY",
+                "formula": "[DIM_DATES/Date Key]",
+                "name": "Date Key"
+              },
+              {
+                "id": "inode-NORM0004/DATE_DAY",
+                "formula": "[DIM_DATES/Date Day]",
+                "name": "Date Day"
+              },
+              {
+                "id": "inode-NORM0005/DATE_MONTH",
+                "formula": "[DIM_DATES/Date Month]",
+                "name": "Date Month"
+              },
+              {
+                "id": "inode-NORM0006/DATE_YEAR",
+                "formula": "[DIM_DATES/Date Year]",
+                "name": "Date Year"
+              }
+            ],
+            "order": [
+              "inode-NORM0003/DATE_KEY",
+              "inode-NORM0004/DATE_DAY",
+              "inode-NORM0005/DATE_MONTH",
+              "inode-NORM0006/DATE_YEAR"
+            ]
+          },
+          {
+            "id": "id0007",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "ANALYTICS",
+                "PUBLIC",
+                "DIM_SITES"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0008/SITE_KEY",
+                "formula": "[DIM_SITES/Site Key]",
+                "name": "Site Key"
+              },
+              {
+                "id": "inode-NORM0009/SITE_NAME",
+                "formula": "[DIM_SITES/Site Name]",
+                "name": "Site Name"
+              },
+              {
+                "id": "inode-NORM0010/SITE_REGION",
+                "formula": "[DIM_SITES/Site Region]",
+                "name": "Site Region"
+              }
+            ],
+            "order": [
+              "inode-NORM0008/SITE_KEY",
+              "inode-NORM0009/SITE_NAME",
+              "inode-NORM0010/SITE_REGION"
+            ]
+          },
+          {
+            "id": "id0011",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "ANALYTICS",
+                "PUBLIC",
+                "ENTITLEMENTS"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0012/SITE_KEY",
+                "formula": "[ENTITLEMENTS/Site Key]",
+                "name": "Site Key"
+              },
+              {
+                "id": "inode-NORM0013/USER_EMAIL",
+                "formula": "[ENTITLEMENTS/User Email]",
+                "name": "User Email"
+              }
+            ],
+            "order": [
+              "inode-NORM0012/SITE_KEY",
+              "inode-NORM0013/USER_EMAIL"
+            ]
+          },
+          {
+            "id": "id0014",
+            "kind": "table",
+            "source": {
+              "connectionId": "<CONNECTION_ID>",
+              "kind": "warehouse-table",
+              "path": [
+                "ANALYTICS",
+                "PUBLIC",
+                "FACT_VISITS"
+              ]
+            },
+            "columns": [
+              {
+                "id": "inode-NORM0015/VISIT_ID",
+                "formula": "[FACT_VISITS/Visit Id]",
+                "name": "Visit Id"
+              },
+              {
+                "id": "inode-NORM0016/DATE_KEY",
+                "formula": "[FACT_VISITS/Date Key]",
+                "name": "Date Key"
+              },
+              {
+                "id": "inode-NORM0017/SITE_KEY",
+                "formula": "[FACT_VISITS/Site Key]",
+                "name": "Site Key"
+              },
+              {
+                "id": "inode-NORM0018/PROVIDER_KEY",
+                "formula": "[FACT_VISITS/Provider Key]",
+                "name": "Provider Key"
+              },
+              {
+                "id": "inode-NORM0019/VISIT_REVENUE",
+                "formula": "[FACT_VISITS/Visit Revenue]",
+                "name": "Visit Revenue"
+              },
+              {
+                "id": "inode-NORM0020/VISIT_COST",
+                "formula": "[FACT_VISITS/Visit Cost]",
+                "name": "Visit Cost"
+              },
+              {
+                "id": "inode-NORM0021/PATIENT_COUNT",
+                "formula": "[FACT_VISITS/Patient Count]",
+                "name": "Patient Count"
+              },
+              {
+                "id": "inode-NORM0022/VISIT_TYPE",
+                "formula": "[FACT_VISITS/Visit Type]",
+                "name": "Visit Type"
+              },
+              {
+                "id": "inode-NORM0023/PAYER_CLASS",
+                "formula": "[FACT_VISITS/Payer Class]",
+                "name": "Payer Class"
+              }
+            ],
+            "order": [
+              "inode-NORM0015/VISIT_ID",
+              "inode-NORM0016/DATE_KEY",
+              "inode-NORM0017/SITE_KEY",
+              "inode-NORM0018/PROVIDER_KEY",
+              "inode-NORM0019/VISIT_REVENUE",
+              "inode-NORM0020/VISIT_COST",
+              "inode-NORM0021/PATIENT_COUNT",
+              "inode-NORM0022/VISIT_TYPE",
+              "inode-NORM0023/PAYER_CLASS"
+            ],
+            "relationships": [
+              {
+                "id": "id0024",
+                "targetElementId": "id0002",
+                "keys": [
+                  {
+                    "sourceColumnId": "inode-NORM0016/DATE_KEY",
+                    "targetColumnId": "inode-NORM0003/DATE_KEY"
+                  }
+                ],
+                "name": "DIM_DATES",
+                "derivedVia": "serialized"
+              },
+              {
+                "id": "id0025",
+                "targetElementId": "id0007",
+                "keys": [
+                  {
+                    "sourceColumnId": "inode-NORM0017/SITE_KEY",
+                    "targetColumnId": "inode-NORM0008/SITE_KEY"
+                  }
+                ],
+                "name": "DIM_SITES",
+                "derivedVia": "serialized"
+              },
+              {
+                "id": "id0026",
+                "targetElementId": "id0011",
+                "keys": [
+                  {
+                    "sourceColumnId": "inode-NORM0017/SITE_KEY",
+                    "targetColumnId": "inode-NORM0012/SITE_KEY"
+                  }
+                ],
+                "name": "ENTITLEMENTS",
+                "derivedVia": "serialized"
+              }
+            ]
+          },
+          {
+            "id": "id0027",
+            "kind": "table",
+            "name": "Fact Visits View",
+            "source": {
+              "kind": "table",
+              "elementId": "id0014"
+            },
+            "columns": [
+              {
+                "id": "id0028",
+                "formula": "[FACT_VISITS/Visit Id]"
+              },
+              {
+                "id": "id0029",
+                "formula": "[FACT_VISITS/Date Key]"
+              },
+              {
+                "id": "id0030",
+                "formula": "[FACT_VISITS/Site Key]"
+              },
+              {
+                "id": "id0031",
+                "formula": "[FACT_VISITS/Provider Key]"
+              },
+              {
+                "id": "id0032",
+                "formula": "[FACT_VISITS/Visit Revenue]"
+              },
+              {
+                "id": "id0033",
+                "formula": "[FACT_VISITS/Visit Cost]"
+              },
+              {
+                "id": "id0034",
+                "formula": "[FACT_VISITS/Patient Count]"
+              },
+              {
+                "id": "id0035",
+                "formula": "[FACT_VISITS/Visit Type]"
+              },
+              {
+                "id": "id0036",
+                "formula": "[FACT_VISITS/Payer Class]"
+              },
+              {
+                "id": "id0037",
+                "formula": "[FACT_VISITS/DIM_DATES/Date Day]"
+              },
+              {
+                "id": "id0038",
+                "formula": "[FACT_VISITS/DIM_DATES/Date Month]"
+              },
+              {
+                "id": "id0039",
+                "formula": "[FACT_VISITS/DIM_DATES/Date Year]"
+              },
+              {
+                "id": "id0040",
+                "formula": "[FACT_VISITS/DIM_SITES/Site Name]"
+              },
+              {
+                "id": "id0041",
+                "formula": "[FACT_VISITS/DIM_SITES/Site Region]"
+              },
+              {
+                "id": "id0042",
+                "formula": "[FACT_VISITS/ENTITLEMENTS/User Email]"
+              }
+            ],
+            "order": [
+              "id0028",
+              "id0029",
+              "id0030",
+              "id0031",
+              "id0032",
+              "id0033",
+              "id0034",
+              "id0035",
+              "id0036",
+              "id0037",
+              "id0038",
+              "id0039",
+              "id0040",
+              "id0041",
+              "id0042"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "datasources": 1,
+    "elements": 5,
+    "columns": 33,
+    "metrics": 0,
+    "relationships": 3,
+    "controls": 0,
+    "parameters": 0,
+    "lodChildElements": 1
+  },
+  "warnings": [
+    "⚠ Connection ID not set — update in JSON before saving to Sigma",
+    "ℹ Object-model fact election: elected \"FACT_VISITS\" as the fact/base element (relationships 3, measure columns 4, 9 column(s)). Every LOD/Top-N/window helper builds its SQL FROM this element — if this is wrong, re-run with the factTable option (--fact-table) or re-point and re-validate the DM.",
+    "ℹ Relationship FACT_VISITS → DIM_DATES wired on 1 physical key(s).",
+    "ℹ Relationship FACT_VISITS → DIM_SITES wired on 1 physical key(s).",
+    "ℹ Relationship FACT_VISITS → ENTITLEMENTS wired on 1 physical key(s).",
+    "🔐 Entitlement-table RLS pattern DETECTED: \"ENTITLEMENTS\" (identity column [User Email]; an identity-shaped column plus a datasource filter on this table) (table name also reads entitlement-like — low-confidence hint only) — reported in result.security as kind \"rls-entitlement-table\"; NOT applied. Until the RLS checkpoint decision the ENTITLEMENTS relationship is an UNCONSTRAINED live join (restriction dropped + fan-out risk)."
+  ],
+  "security": [
+    {
+      "kind": "rls-entitlement-table",
+      "source": "object-model related table \"ENTITLEMENTS\" — an identity-shaped column plus a datasource filter on this table",
+      "elementId": "id0011",
+      "elementName": "ENTITLEMENTS",
+      "entitlement": {
+        "identityColumn": "User Email",
+        "relatedElementName": "FACT_VISITS",
+        "factElementName": "FACT_VISITS",
+        "keys": [
+          {
+            "entitlementColumn": "Site Key",
+            "relatedColumn": "Site Key"
+          }
+        ],
+        "strategies": [
+          "A (materialized gate): fail-closed filter on the entitlement element ([identity] = CurrentUserEmail() + include-True list filter), then INNER-JOIN the fact to the filtered element (join-source element). Probe (identity, key) uniqueness first — a non-unique pair fans out fact rows.",
+          "B (row-preserving gate): on the entitlement element add [Is Me] = ([identity] = CurrentUserEmail()); on the fact add Lookup(Sum(If([Is Me], 1, 0)), [key], [key]) > 0 with an include-True filter. Null-safe fail-closed; no fan-out by construction.",
+          "C (de-entitle): map entitlements onto Sigma user attributes (single-valued only — refuse multi-valued) or teams (group-shaped) and use the documented CurrentUserAttributeText / CurrentUserInTeam filter."
+        ]
+      },
+      "note": "Table-based entitlement RLS detected STRUCTURALLY (related table + user-identity column + datasource-filter/user-function signal). NEVER auto-applied — until the RLS checkpoint decision the wired relationship is an UNCONSTRAINED live join: the Tableau restriction is gone and multi-entitlement users fan out row counts. Decide Port (A/B), Customize, or loud Skip (refs/security-rls.md)."
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+
+# Live-credential handoff artifacts written into a run's workdir by
+# get_token.py / doctor — never commit (auth.json holds a live bearer token).
+auth.json
+doctor.json
+
+# vendored local converter build (fetched on demand by fetch-converter.sh; never committed — drifts)
+plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/vendor/
+hyperd*.log
+tools/hygiene-patterns.local.txt
+
+# Local run-state registries (machine-local by design; see CONTRIBUTING.md
+# "Run state stays local"). phase-metrics.jsonl is the ADD-6 per-phase
+# wall/token capture (shared/lib/phase_metrics.rb) — capture is LOCAL, never
+# sent off-box. probe-artifacts.jsonl is the E7.1
+# probe/scout artifact registry (scripts/lib/probe_registry.rb).
+# decisions.jsonl is the E3.6 operator-decision ledger, migrate-full.log the
+# --quiet sidecar — all workdir-local run state, never committed.
+phase-metrics.jsonl
+probe-artifacts.jsonl
+decisions.jsonl
+migrate-full.log
+# A5 (wave-1 review union): more workdir-local run state — open-questions.json
+# (checkpoint artifact: embeds the workbook name + gap blurbs),
+# png-read.stale.json (set-aside stale dashboard read), offramps.jsonl and
+# loop-log.jsonl (off-ramp/loop trails; carry attributable operator text).
+open-questions.json
+png-read.stale.json
+offramps.jsonl
+loop-log.jsonl
+# W2.7: render-versions.json is the 5b render→documentVersion keying sidecar
+# (workdir-local raw-evidence bookkeeping under visual-qa/).
+render-versions.json
+# W2.2: the factory punch list (rendered from degradation-ledger.json; carries
+# workbook/tile names + re-entry commands with workdir paths) — workdir-local.
+PUNCHLIST.md
+punchlist.json
+# evidence-ledger.jsonl is the E3.1 append-only per-run gate-verdict ledger
+# (shared/lib/evidence_ledger.rb); export-cache/ holds #7a's version-keyed raw
+# export payloads (shared/lib/export_pool.rb) — both live in the run workdir
+# and can carry customer identifiers, so a repo-side --workdir must never make
+# them commit-able.
+evidence-ledger.jsonl
+export-cache/

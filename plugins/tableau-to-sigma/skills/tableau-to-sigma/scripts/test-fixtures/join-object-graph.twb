@@ -1,0 +1,57 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Synthetic fixture for test-join-plan.rb (invented names, no customer
+     data): the 2020.2+ LOGICAL (relationship / object-graph) join model, as
+     an embedded datasource serializes it — the physical relations wrapped in
+     Tableau's forward-compatibility (FCP) mangling with a legacy `.false`
+     fallback subtree, and the join expressed as an <object-graph>
+     <relationship> with an '=' expression between bare column refs and
+     first/second-end-point object ids. lib/fcp_normalize.rb must run before
+     parsing or a literal-name XPath sees none of it. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Ops Logical Model' inline='true' name='federated.obj01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.obj01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <_.fcp.ObjectModelEncapsulateLegacy.false...relation connection='snowflake.obj01' name='ACT_BASE' table='[PUBLIC].[ACT_BASE]' type='table' />
+        <_.fcp.ObjectModelEncapsulateLegacy.true...object-graph>
+          <objects>
+            <object caption='Act Base' id='ACT_BASE_A1B2C3D4E5F60718'>
+              <properties context=''>
+                <relation connection='snowflake.obj01' name='ACT_BASE' table='[PUBLIC].[ACT_BASE]' type='table'>
+                  <columns>
+                    <column datatype='integer' name='ENTITY_ID' />
+                    <column datatype='real' name='AMT' />
+                  </columns>
+                </relation>
+              </properties>
+            </object>
+            <object caption='State Ref' id='STATE_REF_1122334455667788'>
+              <properties context=''>
+                <relation connection='snowflake.obj01' name='STATE_REF' table='[PUBLIC].[STATE_REF]' type='table'>
+                  <columns>
+                    <column datatype='integer' name='ENTITY_ID' />
+                    <column datatype='string' name='STATE_NAME' />
+                  </columns>
+                </relation>
+              </properties>
+            </object>
+          </objects>
+          <relationships>
+            <relationship>
+              <expression op='='>
+                <expression op='[ENTITY_ID]' />
+                <expression op='[ENTITY_ID]' />
+              </expression>
+              <first-end-point object-id='ACT_BASE_A1B2C3D4E5F60718' />
+              <second-end-point object-id='STATE_REF_1122334455667788' />
+            </relationship>
+          </relationships>
+        </_.fcp.ObjectModelEncapsulateLegacy.true...object-graph>
+      </connection>
+    </datasource>
+  </datasources>
+</workbook>

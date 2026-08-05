@@ -1,0 +1,66 @@
+{
+  "id": "7",
+  "title": "Skilltest Look \u2014 Custom Measure",
+  "layoutMode": "newspaper",
+  "source": "api-look",
+  "lookmlLinkId": "/looks/7",
+  "filters": [],
+  "elements": [
+    {
+      "name": "Skilltest Look \u2014 Custom Measure",
+      "tileType": "looker_grid",
+      "merge": null,
+      "model": "demo_thelook",
+      "explore": "order_fact",
+      "fields": [
+        "customer_dim.region",
+        "custom_total_profit"
+      ],
+      "pivots": [],
+      "filters": {},
+      "sorts": [
+        "custom_total_profit desc"
+      ],
+      "limit": 5000,
+      "listen": {},
+      "dynamicFields": [
+        {
+          "measure": "custom_total_profit",
+          "based_on": "order_fact.net_profit",
+          "type": "sum",
+          "label": "Custom Total Profit",
+          "_kind_hint": "measure"
+        }
+      ],
+      "noteText": null,
+      "subtitleText": null,
+      "bodyText": null,
+      "referenceLines": [],
+      "color": {
+        "seriesColors": {},
+        "palette": [],
+        "colorApplication": null
+      },
+      "cellVisualizations": {},
+      "layout": {
+        "row": 0,
+        "col": 0,
+        "width": 24,
+        "height": 8
+      },
+      "total": false,
+      "rowTotal": false,
+      "columnLimit": 50
+    }
+  ],
+  "fieldMeta": {
+    "customer_dim.region": {
+      "category": "dimension"
+    },
+    "custom_total_profit": {
+      "category": "measure",
+      "aggType": "sum",
+      "baseColumn": "order_fact.net_profit"
+    }
+  }
+}

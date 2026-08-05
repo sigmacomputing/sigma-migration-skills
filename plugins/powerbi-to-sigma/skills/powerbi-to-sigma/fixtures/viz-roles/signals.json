@@ -1,0 +1,182 @@
+{
+ "source": "report.json-classic",
+ "pages": [
+  {
+   "page_id": "p0",
+   "page_title": "P0",
+   "page_w": 1280,
+   "page_h": 720,
+   "interactions": [],
+   "visuals": [
+    {
+     "visual_id": "p0v0",
+     "visual_type": "Datepicker_1687358625_Powerviz_OrgStore",
+     "title": "Date Filter",
+     "sigma_kind": "control",
+     "role_class": "control",
+     "sigma_target": "date-range",
+     "viz_guidance": "Third-party DATE-PICKER slicer. Sigma HAS a native equivalent: a date-range control.",
+     "viz_catalog": "custom-visual",
+     "approximate": true,
+     "orientation": null,
+     "x": 0,
+     "y": 0,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "categories": [
+       "T.DateCol"
+      ],
+      "presets": [
+       "Avg(T.Flag)"
+      ]
+     },
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    },
+    {
+     "visual_id": "p0v1",
+     "visual_type": "cardVisual",
+     "title": "Total",
+     "sigma_kind": "kpi",
+     "role_class": "kpi",
+     "sigma_target": null,
+     "viz_guidance": null,
+     "viz_catalog": "viz-kind",
+     "approximate": false,
+     "orientation": null,
+     "x": 0,
+     "y": 100,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "T.Amount"
+      ]
+     },
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    },
+    {
+     "visual_id": "p0v2",
+     "visual_type": "shape",
+     "title": "Deco",
+     "sigma_kind": "decoration",
+     "role_class": "decoration",
+     "sigma_target": null,
+     "viz_guidance": "Decorative shape with no data binding. Sigma has no shape element; SKIP it.",
+     "viz_catalog": "viz-kind",
+     "approximate": false,
+     "orientation": null,
+     "x": 0,
+     "y": 200,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {},
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    },
+    {
+     "visual_id": "p0v3",
+     "visual_type": "sankeyDiagram",
+     "title": "Flow",
+     "sigma_kind": "unsupported",
+     "role_class": "unsupported",
+     "sigma_target": null,
+     "viz_guidance": "Specialist chart type with no native Sigma equivalent. Build it as a Sigma custom plugin, or substitute the nearest standard chart and mark it approximated.",
+     "viz_catalog": "viz-kind",
+     "approximate": false,
+     "orientation": null,
+     "x": 0,
+     "y": 300,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "T.Amount"
+      ],
+      "Category": [
+       "T.Name"
+      ]
+     },
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    },
+    {
+     "visual_id": "p0v4",
+     "visual_type": "tableEx",
+     "title": "Detail",
+     "sigma_kind": "table",
+     "role_class": "table",
+     "sigma_target": null,
+     "viz_guidance": null,
+     "viz_catalog": "viz-kind",
+     "approximate": false,
+     "orientation": null,
+     "x": 0,
+     "y": 400,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "T.Amount",
+       "T.Name"
+      ]
+     },
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    },
+    {
+     "visual_id": "p0v5",
+     "visual_type": "image",
+     "title": "Logo",
+     "sigma_kind": "image",
+     "role_class": "image",
+     "sigma_target": null,
+     "viz_guidance": null,
+     "viz_catalog": "viz-kind",
+     "approximate": false,
+     "orientation": null,
+     "x": 0,
+     "y": 500,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {},
+     "resource": "logo1",
+     "sort": null,
+     "stacking": null,
+     "formats": {},
+     "data_labels": null,
+     "legend": null
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,62 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-multi-ds-detection.rb — an ordinary
+     SINGLE-datasource workbook (invented names, no customer data): one real
+     datasource feeding two worksheets. Must trigger NEITHER blend detection
+     nor independent multi-datasource detection. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales Orders' name='federated.orders01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.orders01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.orders01' name='SALES_FACT' table='[PUBLIC].[SALES_FACT]' type='table' />
+      </connection>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Category' datatype='string' name='[Category]' role='dimension' type='nominal' />
+      <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Orders' name='federated.orders01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.orders01'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Sales by Category'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Orders' name='federated.orders01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.orders01'>
+            <column caption='Category' datatype='string' name='[Category]' role='dimension' type='nominal' />
+            <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Overview'>
+      <zones>
+        <zone h='98000' id='3' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='45000' id='4' name='Sales by Region' w='96000' x='1000' y='1000' />
+          <zone h='45000' id='5' name='Sales by Category' w='96000' x='1000' y='50000' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

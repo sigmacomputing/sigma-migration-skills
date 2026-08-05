@@ -1,0 +1,117 @@
+{
+  "name": "Domo Migration",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "id0001",
+      "name": "Data",
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "FACT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0003/TXN_ID",
+              "formula": "[FACT/Txn Id]"
+            },
+            {
+              "id": "inode-NORM0004/CHANNEL",
+              "formula": "[FACT/Channel]"
+            },
+            {
+              "id": "inode-NORM0005/METHOD",
+              "formula": "[FACT/Method]"
+            },
+            {
+              "id": "inode-NORM0006/STATUS",
+              "formula": "[FACT/Status]"
+            },
+            {
+              "id": "inode-NORM0007/AMOUNT",
+              "formula": "[FACT/Amount]"
+            },
+            {
+              "id": "inode-NORM0008/MARGIN",
+              "formula": "[FACT/Margin]"
+            },
+            {
+              "id": "inode-NORM0009/UNITS",
+              "formula": "[FACT/Units]"
+            },
+            {
+              "id": "inode-NORM0010/IS_FLAGGED",
+              "formula": "[FACT/Is Flagged]"
+            },
+            {
+              "id": "inode-NORM0011/EVENT_DATE",
+              "name": "Event Date",
+              "formula": "MakeDate(Floor([Event Date Key]/10000), Floor(Mod([Event Date Key],10000)/100), Mod([Event Date Key],100))",
+              "format": {
+                "kind": "datetime",
+                "formatString": "%Y-%m-%d"
+              }
+            },
+            {
+              "id": "inode-NORM0012/EVENT_DATE_KEY",
+              "formula": "[FACT/Event Date Key]"
+            }
+          ],
+          "metrics": [],
+          "order": [
+            "inode-NORM0003/TXN_ID",
+            "inode-NORM0004/CHANNEL",
+            "inode-NORM0005/METHOD",
+            "inode-NORM0006/STATUS",
+            "inode-NORM0007/AMOUNT",
+            "inode-NORM0008/MARGIN",
+            "inode-NORM0009/UNITS",
+            "inode-NORM0010/IS_FLAGGED",
+            "inode-NORM0011/EVENT_DATE",
+            "inode-NORM0012/EVENT_DATE_KEY"
+          ],
+          "relationships": [],
+          "_datasetId": "ds-fact"
+        },
+        {
+          "id": "id0013",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0014/MEMBER_KEY",
+              "formula": "[DIM/Member Key]"
+            },
+            {
+              "id": "inode-NORM0015/REGION",
+              "formula": "[DIM/Region]"
+            }
+          ],
+          "metrics": [],
+          "order": [
+            "inode-NORM0014/MEMBER_KEY",
+            "inode-NORM0015/REGION"
+          ],
+          "relationships": [],
+          "_datasetId": "ds-dim"
+        }
+      ]
+    }
+  ]
+}

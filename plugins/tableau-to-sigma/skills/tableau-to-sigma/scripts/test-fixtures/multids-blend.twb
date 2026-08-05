@@ -1,0 +1,81 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-multi-ds-detection.rb — a genuine
+     Tableau BLEND (invented names, no customer data): one worksheet lists
+     TWO real datasources in its <view> and pulls fields from the secondary
+     via a <datasource-dependencies> block, linking on the shared 'Region'
+     caption. The secondary is NEVER the primary of any worksheet, so this
+     must trigger blend detection (blend-plan.json) and must NOT trigger the
+     independent multi-datasource detection (multi-ds-plan.json). -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales Orders' name='federated.orders01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.orders01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.orders01' name='SALES_FACT' table='[PUBLIC].[SALES_FACT]' type='table' />
+      </connection>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+    </datasource>
+    <datasource caption='Region Targets' name='federated.targets01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.targets01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.targets01' name='REGION_TARGETS' table='[PUBLIC].[REGION_TARGETS]' type='table' />
+      </connection>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Target' datatype='real' name='[Target]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Attainment by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Orders' name='federated.orders01' />
+            <datasource caption='Region Targets' name='federated.targets01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.orders01'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+          <datasource-dependencies datasource='federated.targets01'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Target' datatype='real' name='[Target]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Sales by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales Orders' name='federated.orders01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.orders01'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Attainment'>
+      <zones>
+        <zone h='98000' id='3' type-v2='layout-basic' w='98000' x='1000' y='1000'>
+          <zone h='45000' id='4' name='Attainment by Region' w='96000' x='1000' y='1000' />
+          <zone h='45000' id='5' name='Sales by Region' w='96000' x='1000' y='50000' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

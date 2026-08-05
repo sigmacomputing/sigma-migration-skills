@@ -1,0 +1,54 @@
+{
+  "id": "4",
+  "title": "Skilltest Look \u2014 Dims Only",
+  "layoutMode": "newspaper",
+  "source": "api-look",
+  "lookmlLinkId": "/looks/4",
+  "filters": [],
+  "elements": [
+    {
+      "name": "Skilltest Look \u2014 Dims Only",
+      "tileType": "looker_grid",
+      "merge": null,
+      "model": "demo_thelook",
+      "explore": "order_fact",
+      "fields": [
+        "customer_dim.region",
+        "order_fact.order_channel"
+      ],
+      "pivots": [],
+      "filters": {},
+      "sorts": [],
+      "limit": 5000,
+      "listen": {},
+      "dynamicFields": [],
+      "noteText": null,
+      "subtitleText": null,
+      "bodyText": null,
+      "referenceLines": [],
+      "color": {
+        "seriesColors": {},
+        "palette": [],
+        "colorApplication": null
+      },
+      "cellVisualizations": {},
+      "layout": {
+        "row": 0,
+        "col": 0,
+        "width": 24,
+        "height": 8
+      },
+      "total": false,
+      "rowTotal": false,
+      "columnLimit": 50
+    }
+  ],
+  "fieldMeta": {
+    "customer_dim.region": {
+      "category": "dimension"
+    },
+    "order_fact.order_channel": {
+      "category": "dimension"
+    }
+  }
+}

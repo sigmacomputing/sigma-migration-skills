@@ -1,0 +1,1216 @@
+[
+{
+"dashboard": "Indicators",
+"zone_tree": [
+{
+"id": "24",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 100.0,
+"h_pct": 100.0,
+"direction": "vert",
+"children": [
+{
+"id": "27",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 100.0,
+"h_pct": 7.7,
+"direction": "horz",
+"children": [
+{
+"id": "62",
+"kind": "spacer",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 2.3,
+"h_pct": 7.7,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "28",
+"kind": "text",
+"caption": null,
+"x_pct": 2.3,
+"y_pct": 0.0,
+"w_pct": 97.4,
+"h_pct": 7.7,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "Metric Series",
+"color": "#027b8e",
+"font_size": 14,
+"bold": true,
+"break": false
+},
+{
+"text": " ",
+"color": "#027b8e",
+"font_size": 14,
+"bold": false,
+"break": false
+},
+{
+"text": "- 6. Indicators",
+"color": "#027b8e",
+"font_size": 12,
+"bold": false,
+"break": false
+},
+{
+"text": "\nSource: Metric Series",
+"color": "#333333",
+"bold": false,
+"break": true
+}
+]
+}
+]
+},
+{
+"id": "30",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 7.7,
+"w_pct": 100.0,
+"h_pct": 7.0,
+"direction": "horz",
+"children": [
+{
+"id": "6",
+"kind": "parameter",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 7.7,
+"w_pct": 19.0,
+"h_pct": 7.0,
+"border_color": "#000000",
+"border_style": "none",
+"fill_color": "#ffffff",
+"control_display": "compact",
+"filter_column_caption": "Region",
+"filter_column_datatype": "string"
+},
+{
+"id": "57",
+"kind": "spacer",
+"caption": null,
+"x_pct": 19.0,
+"y_pct": 7.7,
+"w_pct": 80.7,
+"h_pct": 7.0,
+"border_color": "#000000",
+"border_style": "none"
+}
+]
+},
+{
+"id": "49",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 100.0,
+"h_pct": 7.8,
+"children": [
+{
+"id": "60",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 78.9,
+"h_pct": 7.8,
+"children": [
+{
+"id": "45",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 36.1,
+"h_pct": 7.8,
+"direction": "horz",
+"border_color": "#027b8e",
+"border_style": "solid",
+"fill_color": "#027b8e9b",
+"children": [
+{
+"id": "46",
+"kind": "text",
+"caption": null,
+"x_pct": 0.5,
+"y_pct": 15.1,
+"w_pct": 35.4,
+"h_pct": 7.0,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "YEAR ON YEAR",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+]
+}
+]
+},
+{
+"id": "61",
+"kind": "container",
+"caption": null,
+"x_pct": 36.1,
+"y_pct": 14.7,
+"w_pct": 42.8,
+"h_pct": 7.8,
+"direction": "horz",
+"border_color": "#027b8e",
+"border_style": "solid",
+"fill_color": "#027b8e9b",
+"children": [
+{
+"id": "47",
+"kind": "text",
+"caption": null,
+"x_pct": 36.4,
+"y_pct": 15.1,
+"w_pct": 42.3,
+"h_pct": 7.0,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "TREND",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+]
+}
+]
+}
+]
+},
+{
+"id": "50",
+"kind": "container",
+"caption": null,
+"x_pct": 78.9,
+"y_pct": 14.7,
+"w_pct": 21.1,
+"h_pct": 7.8,
+"direction": "horz",
+"border_color": "#027b8e",
+"border_style": "solid",
+"fill_color": "#027b8e9b",
+"children": [
+{
+"id": "48",
+"kind": "text",
+"caption": null,
+"x_pct": 79.1,
+"y_pct": 15.1,
+"w_pct": 20.4,
+"h_pct": 7.0,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "TOP COUNTRIES",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+]
+}
+]
+}
+]
+},
+{
+"id": "58",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 100.0,
+"h_pct": 24.5,
+"direction": "vert",
+"children": [
+{
+"id": "32",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 100.0,
+"h_pct": 23.4,
+"direction": "horz",
+"children": [
+{
+"id": "42",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 3.0,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "G\nD\nP",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+]
+},
+{
+"id": "20",
+"kind": "chart",
+"caption": "RevPie",
+"x_pct": 3.0,
+"y_pct": 22.5,
+"w_pct": 31.3,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "56",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.3,
+"y_pct": 22.5,
+"w_pct": 2.3,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "9",
+"kind": "chart",
+"caption": "RevRegionLine",
+"x_pct": 36.7,
+"y_pct": 22.5,
+"w_pct": 39.5,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "51",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.1,
+"y_pct": 22.5,
+"w_pct": 4.0,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "8",
+"kind": "chart",
+"caption": "Rev Top3",
+"x_pct": 80.1,
+"y_pct": 22.5,
+"w_pct": 19.6,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+}
+]
+}
+]
+},
+{
+"id": "43",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.0,
+"w_pct": 100.0,
+"h_pct": 0.7,
+"direction": "vert",
+"border_color": "#000000",
+"border_style": "none",
+"fill_color": "#959c9e"
+},
+{
+"id": "38",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 100.0,
+"h_pct": 24.5,
+"direction": "vert",
+"children": [
+{
+"id": "34",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 100.0,
+"h_pct": 23.4,
+"direction": "horz",
+"children": [
+{
+"id": "40",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 3.0,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "F\nD\nI",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+]
+},
+{
+"id": "13",
+"kind": "chart",
+"caption": "NFIPie",
+"x_pct": 3.0,
+"y_pct": 47.7,
+"w_pct": 31.3,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "55",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.3,
+"y_pct": 47.7,
+"w_pct": 2.3,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "11",
+"kind": "chart",
+"caption": "NFIRegionLine",
+"x_pct": 36.7,
+"y_pct": 47.7,
+"w_pct": 39.5,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "52",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.1,
+"y_pct": 47.7,
+"w_pct": 4.0,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "7",
+"kind": "chart",
+"caption": "NFI Top3",
+"x_pct": 80.1,
+"y_pct": 47.7,
+"w_pct": 19.6,
+"h_pct": 23.4,
+"border_color": "#000000",
+"border_style": "none"
+}
+]
+}
+]
+},
+{
+"id": "44",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.1,
+"w_pct": 100.0,
+"h_pct": 0.7,
+"direction": "vert",
+"border_color": "#000000",
+"border_style": "none",
+"fill_color": "#959c9e"
+},
+{
+"id": "39",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 100.0,
+"h_pct": 22.8,
+"direction": "vert",
+"children": [
+{
+"id": "36",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 100.0,
+"h_pct": 22.8,
+"direction": "horz",
+"children": [
+{
+"id": "41",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 3.1,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none",
+"text_runs": [
+{
+"text": "T\nE\nU",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+]
+},
+{
+"id": "17",
+"kind": "chart",
+"caption": "UNITSPie",
+"x_pct": 3.1,
+"y_pct": 72.8,
+"w_pct": 31.3,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "54",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.5,
+"y_pct": 72.8,
+"w_pct": 2.3,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "12",
+"kind": "chart",
+"caption": "UNITSRegionLine",
+"x_pct": 36.8,
+"y_pct": 72.8,
+"w_pct": 39.5,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "53",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.3,
+"y_pct": 72.8,
+"w_pct": 3.8,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none"
+},
+{
+"id": "1",
+"kind": "chart",
+"caption": "UNITS Top3",
+"x_pct": 80.1,
+"y_pct": 72.8,
+"w_pct": 19.6,
+"h_pct": 22.8,
+"border_color": "#000000",
+"border_style": "none"
+}
+]
+}
+]
+}
+]
+}
+],
+"zones": [
+{
+"id": "24",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 100.0,
+"h_pct": 100.0,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "27",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 100.0,
+"h_pct": 7.7,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "62",
+"kind": "spacer",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 0.0,
+"w_pct": 2.3,
+"h_pct": 7.7,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "28",
+"kind": "text",
+"caption": null,
+"x_pct": 2.3,
+"y_pct": 0.0,
+"w_pct": 97.4,
+"h_pct": 7.7,
+"text_runs": [
+{
+"text": "Metric Series",
+"color": "#027b8e",
+"font_size": 14,
+"bold": true,
+"break": false
+},
+{
+"text": " ",
+"color": "#027b8e",
+"font_size": 14,
+"bold": false,
+"break": false
+},
+{
+"text": "- 6. Indicators",
+"color": "#027b8e",
+"font_size": 12,
+"bold": false,
+"break": false
+},
+{
+"text": "\nSource: Metric Series",
+"color": "#333333",
+"bold": false,
+"break": true
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "30",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 7.7,
+"w_pct": 100.0,
+"h_pct": 7.0,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "6",
+"kind": "parameter",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 7.7,
+"w_pct": 19.0,
+"h_pct": 7.0,
+"text_runs": null,
+"fill_color": "#ffffff",
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "57",
+"kind": "spacer",
+"caption": null,
+"x_pct": 19.0,
+"y_pct": 7.7,
+"w_pct": 80.7,
+"h_pct": 7.0,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "49",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 100.0,
+"h_pct": 7.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "60",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 78.9,
+"h_pct": 7.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "45",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 14.7,
+"w_pct": 36.1,
+"h_pct": 7.8,
+"text_runs": null,
+"fill_color": "#027b8e9b",
+"border_color": "#027b8e",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "46",
+"kind": "text",
+"caption": null,
+"x_pct": 0.5,
+"y_pct": 15.1,
+"w_pct": 35.4,
+"h_pct": 7.0,
+"text_runs": [
+{
+"text": "YEAR ON YEAR",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "61",
+"kind": "container",
+"caption": null,
+"x_pct": 36.1,
+"y_pct": 14.7,
+"w_pct": 42.8,
+"h_pct": 7.8,
+"text_runs": null,
+"fill_color": "#027b8e9b",
+"border_color": "#027b8e",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "47",
+"kind": "text",
+"caption": null,
+"x_pct": 36.4,
+"y_pct": 15.1,
+"w_pct": 42.3,
+"h_pct": 7.0,
+"text_runs": [
+{
+"text": "TREND",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "50",
+"kind": "container",
+"caption": null,
+"x_pct": 78.9,
+"y_pct": 14.7,
+"w_pct": 21.1,
+"h_pct": 7.8,
+"text_runs": null,
+"fill_color": "#027b8e9b",
+"border_color": "#027b8e",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "48",
+"kind": "text",
+"caption": null,
+"x_pct": 79.1,
+"y_pct": 15.1,
+"w_pct": 20.4,
+"h_pct": 7.0,
+"text_runs": [
+{
+"text": "TOP COUNTRIES",
+"color": "#f2feff",
+"font_size": 11,
+"bold": false,
+"break": false
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "58",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 100.0,
+"h_pct": 24.5,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "32",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 100.0,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "42",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 22.5,
+"w_pct": 3.0,
+"h_pct": 23.4,
+"text_runs": [
+{
+"text": "G\nD\nP",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "20",
+"kind": "chart",
+"caption": "RevPie",
+"x_pct": 3.0,
+"y_pct": 22.5,
+"w_pct": 31.3,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "bar"
+},
+{
+"id": "56",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.3,
+"y_pct": 22.5,
+"w_pct": 2.3,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "9",
+"kind": "chart",
+"caption": "RevRegionLine",
+"x_pct": 36.7,
+"y_pct": 22.5,
+"w_pct": 39.5,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "line"
+},
+{
+"id": "51",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.1,
+"y_pct": 22.5,
+"w_pct": 4.0,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "8",
+"kind": "chart",
+"caption": "Rev Top3",
+"x_pct": 80.1,
+"y_pct": 22.5,
+"w_pct": 19.6,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "table"
+},
+{
+"id": "43",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.0,
+"w_pct": 100.0,
+"h_pct": 0.7,
+"text_runs": null,
+"fill_color": "#959c9e",
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "38",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 100.0,
+"h_pct": 24.5,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "34",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 100.0,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "40",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 47.7,
+"w_pct": 3.0,
+"h_pct": 23.4,
+"text_runs": [
+{
+"text": "F\nD\nI",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "13",
+"kind": "chart",
+"caption": "NFIPie",
+"x_pct": 3.0,
+"y_pct": 47.7,
+"w_pct": 31.3,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "bar"
+},
+{
+"id": "55",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.3,
+"y_pct": 47.7,
+"w_pct": 2.3,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "11",
+"kind": "chart",
+"caption": "NFIRegionLine",
+"x_pct": 36.7,
+"y_pct": 47.7,
+"w_pct": 39.5,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "line"
+},
+{
+"id": "52",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.1,
+"y_pct": 47.7,
+"w_pct": 4.0,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "7",
+"kind": "chart",
+"caption": "NFI Top3",
+"x_pct": 80.1,
+"y_pct": 47.7,
+"w_pct": 19.6,
+"h_pct": 23.4,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "table"
+},
+{
+"id": "44",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.1,
+"w_pct": 100.0,
+"h_pct": 0.7,
+"text_runs": null,
+"fill_color": "#959c9e",
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "39",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 100.0,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "36",
+"kind": "container",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 100.0,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": null,
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "41",
+"kind": "text",
+"caption": null,
+"x_pct": 0.0,
+"y_pct": 72.8,
+"w_pct": 3.1,
+"h_pct": 22.8,
+"text_runs": [
+{
+"text": "T\nE\nU",
+"font_size": 14,
+"bold": true,
+"break": true
+}
+],
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "17",
+"kind": "chart",
+"caption": "UNITSPie",
+"x_pct": 3.1,
+"y_pct": 72.8,
+"w_pct": 31.3,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "bar"
+},
+{
+"id": "54",
+"kind": "spacer",
+"caption": null,
+"x_pct": 34.5,
+"y_pct": 72.8,
+"w_pct": 2.3,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "12",
+"kind": "chart",
+"caption": "UNITSRegionLine",
+"x_pct": 36.8,
+"y_pct": 72.8,
+"w_pct": 39.5,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "line"
+},
+{
+"id": "53",
+"kind": "spacer",
+"caption": null,
+"x_pct": 76.3,
+"y_pct": 72.8,
+"w_pct": 3.8,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": null,
+"chart_kind": null
+},
+{
+"id": "1",
+"kind": "chart",
+"caption": "UNITS Top3",
+"x_pct": 80.1,
+"y_pct": 72.8,
+"w_pct": 19.6,
+"h_pct": 22.8,
+"text_runs": null,
+"fill_color": null,
+"border_color": "#000000",
+"is_kpi": false,
+"chart_kind": "table"
+}
+]
+}
+]

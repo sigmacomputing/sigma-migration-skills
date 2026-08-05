@@ -1,0 +1,13 @@
+# Code owners for sigma-migration-skills.
+# Owners are automatically requested for review on matching pull requests.
+#
+# TODO(before publishing): replace the placeholder team below with the real
+# GitHub team that will maintain this repo (e.g. @sigmacomputing/<team-slug>).
+# An unknown owner here produces a harmless "unknown owner" warning on PRs.
+
+*                       @sigmacomputing/migration-skills-maintainers
+
+# Shared infrastructure changes warrant extra scrutiny (they fan out to every
+# plugin via tools/sync-shared.rb).
+/shared/                @sigmacomputing/migration-skills-maintainers
+/tools/                 @sigmacomputing/migration-skills-maintainers

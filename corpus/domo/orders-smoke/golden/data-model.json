@@ -1,0 +1,102 @@
+{
+  "name": "Domo Migration",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "id0001",
+      "name": "Data",
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo-warehouse",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "ORDER_FACT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0003/ORDER_ID",
+              "formula": "[ORDER_FACT/Order Id]"
+            },
+            {
+              "id": "inode-NORM0004/ORDER_DATE",
+              "formula": "[ORDER_FACT/Order Date]",
+              "format": {
+                "kind": "datetime",
+                "formatString": "%Y-%m-%d"
+              }
+            },
+            {
+              "id": "inode-NORM0005/REGION",
+              "formula": "[ORDER_FACT/Region]"
+            },
+            {
+              "id": "inode-NORM0006/SALES_AMOUNT",
+              "formula": "[ORDER_FACT/Sales Amount]"
+            },
+            {
+              "id": "inode-NORM0007/CUSTOMER_ID",
+              "formula": "[ORDER_FACT/Customer Id]"
+            },
+            {
+              "id": "id0008",
+              "name": "Order Year",
+              "formula": "Year([Order Date])"
+            }
+          ],
+          "metrics": [],
+          "order": [
+            "inode-NORM0003/ORDER_ID",
+            "inode-NORM0004/ORDER_DATE",
+            "inode-NORM0005/REGION",
+            "inode-NORM0006/SALES_AMOUNT",
+            "inode-NORM0007/CUSTOMER_ID",
+            "id0008"
+          ],
+          "relationships": [],
+          "_datasetId": "ds-order-fact"
+        },
+        {
+          "id": "id0009",
+          "kind": "table",
+          "source": {
+            "connectionId": "conn-demo-warehouse",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "DEMO",
+              "CUSTOMER_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0010/CUSTOMER_ID",
+              "formula": "[CUSTOMER_DIM/Customer Id]"
+            },
+            {
+              "id": "inode-NORM0011/CUSTOMER_NAME",
+              "formula": "[CUSTOMER_DIM/Customer Name]"
+            },
+            {
+              "id": "inode-NORM0012/SEGMENT",
+              "formula": "[CUSTOMER_DIM/Segment]"
+            }
+          ],
+          "metrics": [],
+          "order": [
+            "inode-NORM0010/CUSTOMER_ID",
+            "inode-NORM0011/CUSTOMER_NAME",
+            "inode-NORM0012/SEGMENT"
+          ],
+          "relationships": [],
+          "_datasetId": "ds-customer-dim"
+        }
+      ]
+    }
+  ]
+}

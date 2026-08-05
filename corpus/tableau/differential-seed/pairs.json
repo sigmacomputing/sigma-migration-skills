@@ -1,0 +1,174 @@
+{
+  "_comment": "W2.15 differential corpus SEED. Each pair pins one field-caught dialect-divergence class: the Tableau formula, the recorded output of the CURRENT vendored translator (sigma_expected + warnings — re-recorded only via diff-check.mjs --record, a reviewed re-baseline), and per-oracle recording SLOTS. Live-oracle recordings (VDS value, ground-truth SQL rows, W2.14 batch-probe readback) are null until a live session records them WITH version keys — never fabricated (red line: version-keyed raw evidence only). SQL statements are authored over the synthetic seed table DEMO_DB.DEMO.SEED_ROWS(NUM_A, NUM_B, TXT_A, TXT_B, DATE_A, FLAG_A) — neutral names only.",
+  "seed_table": "DEMO_DB.DEMO.SEED_ROWS",
+  "pairs": [
+    {
+      "id": "zn-agg-null-guard",
+      "class": "ZN(agg) null-guard idiom — the dominant field pattern (PR-508 hotfix: native Zn, no malformed Coalesce)",
+      "context": "dm",
+      "tableau": "ZN(SUM([NUM_A]))",
+      "sigma_expected": "Zn(Sum([Num a]))",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT COALESCE(SUM(NUM_A), 0) AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "zn-addition-stays-numeric",
+      "class": "numeric ZN(a)+ZN(b) must KEEP + (PR-508 hotfix: Coalesce removed from the text-fn census — was silently string-concat &)",
+      "context": "dm",
+      "tableau": "ZN([NUM_A]) + ZN([NUM_B])",
+      "sigma_expected": "Zn([Num a]) + Zn([Num B])",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT COALESCE(NUM_A, 0) + COALESCE(NUM_B, 0) AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "string-guard-concat",
+      "class": "string-literal guard chain still converts + to & (the other direction of the text-census hotfix)",
+      "context": "dm",
+      "tableau": "IFNULL([TXT_A], \"none\") + [TXT_B]",
+      "sigma_expected": "Coalesce([Txt a], \"none\") & [Txt B]",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT COALESCE(TXT_A, 'none') || TXT_B AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "datetrunc-week-start-drop",
+      "class": "DATETRUNC 3rd-arg start-of-week is dropped WITH a verify warning (was silent week-boundary drift)",
+      "context": "dm",
+      "tableau": "DATETRUNC('week', [DATE_A], 'monday')",
+      "sigma_expected": "DateTrunc(\"week\", [Date a])",
+      "warnings": [
+        "⚠ DATETRUNC start-of-week 'monday' dropped — Sigma DateTrunc has no start-of-week argument; week boundaries follow the warehouse week start. Verify week-grain results."
+      ],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT DATE_TRUNC('WEEK', DATE_A) AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "contains-weekday-literal-kept",
+      "class": "the start-of-week drop is SCOPED to DateTrunc/DateDiff — CONTAINS keeps 'monday' as a real argument (no-false-trip twin of datetrunc-week-start-drop)",
+      "context": "dm",
+      "tableau": "CONTAINS([TXT_A], 'monday')",
+      "sigma_expected": "Contains([Txt a], \"monday\")",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT POSITION('monday' IN TXT_A) > 0 AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "datepart-weekday-numbering",
+      "class": "DATEPART('weekday') -> Weekday() with a numbering-verify warning (was non-existent DayOfWeek)",
+      "context": "dm",
+      "tableau": "DATEPART('weekday', [DATE_A])",
+      "sigma_expected": "Weekday([Date a])",
+      "warnings": [
+        "⚠ DATEPART('weekday') → Weekday() — verify numbering: Sigma anchors Sunday=1..7; Tableau follows the datasource start-of-week."
+      ],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT DAYOFWEEK(DATE_A) AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "datename-week-text",
+      "class": "DATENAME('week') -> Text(DatePart(\"week\", ...)) at the source branch (was non-existent Week())",
+      "context": "dm",
+      "tableau": "DATENAME('week', [DATE_A])",
+      "sigma_expected": "Text(DatePart(\"week\", [Date a]))",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT TO_VARCHAR(WEEKOFYEAR(DATE_A)) AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "share-of-total-pattern",
+      "class": "agg/TOTAL(agg) share pattern -> PercentOfTotal(agg, grand_total) — the ONLY translating TOTAL form (standalone TOTAL refuses)",
+      "context": "chart",
+      "tableau": "SUM([NUM_A]) / TOTAL(SUM([NUM_A]))",
+      "sigma_expected": "PercentOfTotal(Sum([Num a]), \"grand_total\")",
+      "warnings": [
+        "ℹ Table calc → PercentOfTotal(Sum([Num a]), \"grand_total\") — CHART/grouped-element context ONLY: place in a grouped workbook element (group by the viz dimensions); window functions silently error in data-model calc columns and workbook master calc columns."
+      ],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT TXT_A, SUM(NUM_A) / SUM(SUM(NUM_A)) OVER () AS V FROM DEMO_DB.DEMO.SEED_ROWS GROUP BY TXT_A",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "window-avg-bounded",
+      "class": "bounded WINDOW_AVG(agg, -n, 0) -> MovingAvg(agg, n, 0) chart formula (WINPROBE-validated class)",
+      "context": "chart",
+      "tableau": "WINDOW_AVG(SUM([NUM_A]), -2, 0)",
+      "sigma_expected": "MovingAvg(Sum([Num a]), 2)",
+      "warnings": [
+        "ℹ Table calc → MovingAvg(Sum([Num a]), 2) — CHART/grouped-element context ONLY: place in a grouped workbook element (group by the viz dimensions); window functions silently error in data-model calc columns and workbook master calc columns."
+      ],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT DATE_A, AVG(SUM(NUM_A)) OVER (ORDER BY DATE_A ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS V FROM DEMO_DB.DEMO.SEED_ROWS GROUP BY DATE_A",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    },
+    {
+      "id": "iif-three-valued",
+      "class": "IIF -> If with quoted-literal normalization (single->double quotes)",
+      "context": "dm",
+      "tableau": "IIF([NUM_A] > 0, 'pos', 'neg')",
+      "sigma_expected": "If([Num a] > 0, \"pos\", \"neg\")",
+      "warnings": [],
+      "oracle": {
+        "vds": null,
+        "sql": {
+          "statement": "SELECT CASE WHEN NUM_A > 0 THEN 'pos' ELSE 'neg' END AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "rows": null
+        },
+        "batch_probe": null
+      }
+    }
+  ]
+}

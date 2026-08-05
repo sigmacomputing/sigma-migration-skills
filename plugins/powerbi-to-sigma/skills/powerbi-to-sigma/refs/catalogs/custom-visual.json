@@ -1,0 +1,179 @@
+{
+  "dimension": "custom-visual",
+  "source_tool": "powerbi",
+  "authoritative_doc": "https://learn.microsoft.com/en-us/power-bi/developer/visuals/power-bi-custom-visuals",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/intro-to-workbook-elements",
+  "on_unmapped_default": "warn+record-unsupported (NEVER coerce a custom visual to a chart)",
+  "slicer_hint_pattern": "slicer|filter|datepicker|date_picker|timeline|picker|dropdown|combobox|selector|toggle",
+  "date_hint_pattern": "date|timeline|calendar|period|month|year|day",
+  "unknown_guidance": "Unrecognized custom visual '{token}'. It is NOT in viz-kind.json or custom-visual.json and its name gives no filtering hint, so no Sigma kind was assumed — it is recorded as unsupported rather than silently rendered as a chart. To resolve: open the visual in Power BI, note what it BINDS (its fields) and what it DOES (filter / show a number / plot a series / list rows), then either add a row to refs/catalogs/custom-visual.json (match: a stable substring of '{token}') or hand-build the closest Sigma element. If it filters, a Sigma list or date-range control is almost always the right target.",
+  "heuristic_guidance": "Unlisted custom visual '{token}' — its name matches the slicer/filter heuristic, so it is treated as a FILTER and emitted as a Sigma {kind} control targeting the page base element. This is deliberately conservative: a control the user can retarget is recoverable, whereas silently rendering a filter as a chart deletes the page's filter. Verify the binding, then add an explicit row to custom-visual.json for '{token}'.",
+  "description": "Third-party / AppSource Power BI custom visuals -> Sigma element or control. A custom visual's `visualType` in the report Layout is the vendor's package id, so it is matched by CASE-INSENSITIVE REGEX on that token (`match`), first row wins, rather than by exact key. This catalog exists because the pipeline previously coerced every unrecognized visualType to a bar chart: on 4 real customer .pbix files that turned 21 third-party DATE-PICKER SLICERS into bar charts, silently removing the date filter from nearly every page. `role_class` control means the visual FILTERS and must become a Sigma control targeting the page's base element -- never a chart. `sigma_target` is the concrete Sigma control/element kind; `sigma` is the coarse builder token (rec['sigma_kind']). Vendor ids drift between releases, so patterns match the STABLE product-name substring, and lib/pbi_viz_kind.{rb,py} applies a generic slicer/filter/picker heuristic after this catalog so an unlisted filtering visual still lands as a control rather than a bogus chart.",
+  "rows": [
+    {
+      "source": "powerviz-datepicker",
+      "match": "datepicker|date_picker|dateslicer|powerviz.*date",
+      "role_class": "control",
+      "sigma": "control",
+      "sigma_target": "date-range",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/powerviz1667398390543.datepickerbypowerviz",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Third-party DATE-PICKER slicer (Powerviz / OrgStore and similar). Sigma HAS a native equivalent: a date-range control (controlType:date-range + mode:between). Emit that control bound to the visual's date column and target the page's base element -- do not render a chart. Its relative-date presets (Last 365 Days / YTD) map to Sigma date-range preset options.",
+      "notes": "Measured 21 instances across 3 of 4 customer reports (7 + 9 + 5), every one previously emitted as a bar chart. This single row is the highest-impact entry in the catalog."
+    },
+    {
+      "source": "chiclet-slicer",
+      "match": "chicletslicer|chiclet",
+      "role_class": "control",
+      "sigma": "control",
+      "sigma_target": "list",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104380756",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Chiclet Slicer = a categorical multi-select slicer rendered as buttons/tiles. Map to a Sigma list control (mode:include, selectionMode:multiple) targeting the page base element. The button styling has no Sigma equivalent and is a cosmetic-only difference.",
+      "notes": "One of the most common custom visuals in the wild."
+    },
+    {
+      "source": "hierarchy-slicer",
+      "match": "hierarchyslicer|hierarchy_slicer",
+      "role_class": "control",
+      "sigma": "control",
+      "sigma_target": "list",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104380820",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Hierarchy Slicer = an expandable multi-level slicer over 2+ hierarchy columns. Sigma has no single hierarchical control: emit ONE list control PER hierarchy level (parent -> child), each targeting the page base element, so the cascade still filters. Record as degraded (interaction simplified, no data lost).",
+      "notes": "Common with org / geography hierarchies -- exactly the org-hierarchy shape in customer report R1."
+    },
+    {
+      "source": "timeline-slicer",
+      "match": "^timeline|timelineslicer|timebrush",
+      "role_class": "control",
+      "sigma": "control",
+      "sigma_target": "date-range",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104380786",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Timeline Slicer = a horizontal date-range brush. Map to a Sigma date-range control (mode:between). Its granularity buttons (year/quarter/month/day) have no direct equivalent; the date-range control covers the filtering behaviour.",
+      "notes": null
+    },
+    {
+      "source": "text-filter",
+      "match": "textfilter|smartfilter|searchslicer",
+      "role_class": "control",
+      "sigma": "control",
+      "sigma_target": "text",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104381353",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Free-text search slicer. Map to a Sigma text-input control with a Contains filter on the bound column, targeting the page base element.",
+      "notes": null
+    },
+    {
+      "source": "play-axis",
+      "match": "playaxis|animator",
+      "role_class": "unsupported",
+      "sigma": null,
+      "sigma_target": null,
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA200001304",
+      "sigma_verified": { "status": "n/a" },
+      "guidance": "Play Axis animates a report by stepping a field through its values. Sigma has no animation. Closest behaviour: emit a Sigma list control on that field so the user can step through values manually. Record as unsupported (the animation is lost) rather than approximating it as a chart.",
+      "notes": null
+    },
+    {
+      "source": "zebra-bi",
+      "match": "zebrabi|zebra_bi",
+      "role_class": "table",
+      "sigma": "pivot-table",
+      "sigma_target": "pivot-table",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/zebrabi.zebrabicharts",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Zebra BI tables/charts are IBCS variance reporting visuals. Map to a Sigma pivot table with explicit variance columns (actual, plan, delta, delta %) plus conditional formatting; a Zebra BI chart maps to a Sigma bar chart with a reference mark for plan. The IBCS notation itself (hatched variance bars) is cosmetic and not reproducible.",
+      "notes": "Data and numbers are fully recoverable; only the IBCS styling is lost."
+    },
+    {
+      "source": "inforiver",
+      "match": "inforiver",
+      "role_class": "table",
+      "sigma": "pivot-table",
+      "sigma_target": "pivot-table",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/inforiver.inforiver",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Inforiver is a writeback / planning matrix. Map the reporting half to a Sigma pivot table; if the visual is used for WRITEBACK, the Sigma equivalent is an input table (see the sigma-input-table-app skill) -- flag it for the user, since writeback changes the migration's scope.",
+      "notes": "Writeback usage is a scope decision, not a mechanical conversion -- always surface it."
+    },
+    {
+      "source": "drill-down-zoomcharts",
+      "match": "zoomcharts|drilldown(combo|donut|pie|column|map|timeseries)|ddcombo",
+      "role_class": "chart",
+      "sigma": "bar",
+      "sigma_target": "bar-chart",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/zoomcharts.drilldowncombobar",
+      "sigma_verified": { "status": "n" },
+      "guidance": "ZoomCharts Drill Down visuals are standard chart types with click-to-drill. Map to the matching Sigma chart kind (combo -> combo-chart, donut -> donut-chart, column/bar -> bar-chart) and wire Sigma drilldown on the hierarchy columns. Data preserved; the on-click zoom animation is not.",
+      "notes": null
+    },
+    {
+      "source": "icon-map",
+      "match": "iconmap|mapbox|globemap|flowmap|routemap|synoptic",
+      "role_class": "chart",
+      "sigma": "map",
+      "sigma_target": "region-map",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA200001708",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Third-party geospatial visual. Map to a Sigma region-map (admin regions) or a point/scatter map when the visual binds lat/long. Custom shapefiles, routes and flow lines have no Sigma equivalent -- record as degraded and list the bound geo fields. Synoptic Panel (custom SVG areas) has NO equivalent: report unsupported.",
+      "notes": "Measured 1 iconMapPro instance in customer report R1."
+    },
+    {
+      "source": "bullet-chart",
+      "match": "bulletchart|bullet_",
+      "role_class": "chart",
+      "sigma": "bar",
+      "sigma_target": "bar-chart",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104380750",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Bullet chart = actual vs target with qualitative bands. Map to a Sigma bar chart with a reference mark for the target; the coloured bands map to conditional formatting.",
+      "notes": null
+    },
+    {
+      "source": "gantt",
+      "match": "gantt",
+      "role_class": "table",
+      "sigma": "table",
+      "sigma_target": "table",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104380765",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Gantt visual. Sigma has no native Gantt: closest is a table with start/end/duration columns plus data bars on duration, or a horizontal bar chart per task. Record as degraded and keep all bound fields.",
+      "notes": null
+    },
+    {
+      "source": "sankey-wordcloud-network",
+      "match": "sankey|wordcloud|word_cloud|forcegraph|networknavigator|chorddiagram|sunburst|radarchart|bowtie|tornado|streamgraph|violin|boxwhisker|dumbbell|beeswarm",
+      "role_class": "unsupported",
+      "sigma": null,
+      "sigma_target": null,
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/developer/visuals/power-bi-custom-visuals",
+      "sigma_verified": { "status": "n/a" },
+      "guidance": "Specialist chart type with no native Sigma equivalent (sankey / word cloud / network / chord / sunburst / radar / tornado / box-whisker / violin, etc.). Two honest options, both recorded rather than faked: (1) build it as a Sigma custom plugin -- see the sigma-plugin-development skill; (2) substitute the nearest standard Sigma chart (sunburst/radar -> grouped bar; tornado -> diverging bar; box-whisker -> bar of the quartile aggregates) and mark it approximated. Never emit a plain bar chart silently.",
+      "notes": "Grouped into one row because the guidance and the decision are identical for all of them."
+    },
+    {
+      "source": "infographic-cardbrowser",
+      "match": "infographic|cardbrowser|kpiindicator|multikpi|cardwithstates|advancedcard",
+      "role_class": "kpi",
+      "sigma": "kpi",
+      "sigma_target": "kpi-chart",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA104381044",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Third-party KPI / card visual. Map to a Sigma KPI element (one per bound measure), with conditional formatting for the state colours and a reference mark for the target where one is bound.",
+      "notes": null
+    },
+    {
+      "source": "calendar-heatmap",
+      "match": "calendarvisual|calendarheatmap|heatmap|matrixheat",
+      "role_class": "table",
+      "sigma": "pivot-table",
+      "sigma_target": "pivot-table",
+      "doc_ref": "https://appsource.microsoft.com/en-us/product/power-bi-visuals/WA200001930",
+      "sigma_verified": { "status": "n" },
+      "guidance": "Heatmap / calendar-heatmap. Map to a Sigma pivot table with a colour-scale conditional format on the measure -- this preserves both the values and the visual encoding.",
+      "notes": null
+    }
+  ]
+}

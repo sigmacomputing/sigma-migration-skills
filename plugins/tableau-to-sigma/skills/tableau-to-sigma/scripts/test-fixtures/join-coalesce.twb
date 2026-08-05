@@ -1,0 +1,80 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-join-coalesce-synthesis.rb (invented names, no
+     customer data): ONE federated datasource physically JOINing two warehouse
+     tables on a single key, with the canonical cross-table null-fallback
+     calcs a federated join produces:
+       - IFNULL([primary], [secondary])   (Unified Region)
+       - ZN over a secondary-table ref    (Contra Amount Zn)
+       - IF ISNULL(a) THEN b ELSE a END   (Unified Entity Group)
+       - a local-only IFNULL              (Local Fallback)
+       - chained IFNULL                   (Unified Channel) -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Revenue Join' name='federated.join01'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.join01'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation join='left' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[REV_PRIMARY].[ENTITY_ID]' />
+              <expression op='[REV_CONTRA].[ENTITY_ID]' />
+            </expression>
+          </clause>
+          <relation connection='snowflake.join01' name='REV_PRIMARY' table='[PUBLIC].[REV_PRIMARY]' type='table'>
+            <columns>
+              <column datatype='integer' name='ENTITY_ID' />
+              <column datatype='string' name='REGION' />
+              <column datatype='string' name='ENTITY_GROUP' />
+              <column datatype='string' name='CHANNEL' />
+              <column datatype='real' name='TOTALREV' />
+              <column datatype='string' name='BACKUP_CHANNEL' />
+            </columns>
+          </relation>
+          <relation connection='snowflake.join01' name='REV_CONTRA' table='[PUBLIC].[REV_CONTRA]' type='table'>
+            <columns>
+              <column datatype='integer' name='ENTITY_ID' />
+              <column datatype='string' name='REGION' />
+              <column datatype='string' name='ENTITY_GROUP' />
+              <column datatype='string' name='CHANNEL' />
+              <column datatype='real' name='CONTRA_AMT' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+      <column caption='Unified Region' datatype='string' name='[Calculation_100]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IFNULL([REGION], [REGION (REV_CONTRA)])' />
+      </column>
+      <column caption='Contra Amount Zn' datatype='real' name='[Calculation_101]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN([CONTRA_AMT])' />
+      </column>
+      <column caption='Unified Entity Group' datatype='string' name='[Calculation_102]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF ISNULL([ENTITY_GROUP]) THEN [ENTITY_GROUP (REV_CONTRA)] ELSE [ENTITY_GROUP] END' />
+      </column>
+      <column caption='Local Fallback' datatype='string' name='[Calculation_103]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IFNULL([CHANNEL], [BACKUP_CHANNEL])' />
+      </column>
+      <column caption='Unified Channel' datatype='string' name='[Calculation_104]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IFNULL([CHANNEL], IFNULL([CHANNEL (REV_CONTRA)], [BACKUP_CHANNEL]))' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Revenue by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Revenue Join' name='federated.join01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.join01'>
+            <column caption='Unified Region' datatype='string' name='[Calculation_100]' role='dimension' type='nominal' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

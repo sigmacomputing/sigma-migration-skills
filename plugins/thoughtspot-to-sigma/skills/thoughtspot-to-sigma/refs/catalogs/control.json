@@ -1,0 +1,18 @@
+{
+  "dimension": "control",
+  "source_tool": "thoughtspot",
+  "authoritative_doc": "https://docs.thoughtspot.com/cloud/latest/filters",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/intro-to-control-elements",
+  "on_unmapped_default": "warn + explicit fallback to include (never a silent include default)",
+  "description": "ThoughtSpot Liveboard filter operator -> Sigma control filter MODE (include/exclude). Drives the `_TS_FILTER_OP` dict (derived from these rows, no inline literal). An operator PRESENT but NOT in this table now WARNS loudly and falls back to `include` EXPLICITLY (never a silent wrong include default; beads-sigma-kvza). Separately, the CONTROL KIND is a compositional, cited decision in liveboard_controls(): a filter bound to a date/time column becomes a Sigma `date-range` control (a Sigma list control on a datetime target comes back empty — dead control — per help.sigmacomputing.com/docs/data-element-filters: 'For a Date column, the default is a date range filter'), and every other (categorical) filter becomes a `list` control (the documented default control kind, not a guess). That date-vs-list binary stays as code because it is driven by the target column's data type, not by an enumerable operator token.",
+  "rows": [
+    {"source": "IN", "sigma": "include", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include", "notes": "Membership include -> Sigma list control include mode."},
+    {"source": "EQ", "sigma": "include", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"},
+    {"source": "=", "sigma": "include", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"},
+    {"source": "EQUALS", "sigma": "include", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"},
+    {"source": "NOT_IN", "sigma": "exclude", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include", "notes": "Membership exclude -> Sigma list control exclude mode."},
+    {"source": "NE", "sigma": "exclude", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"},
+    {"source": "!=", "sigma": "exclude", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"},
+    {"source": "NOT_EQUALS", "sigma": "exclude", "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters", "sigma_target_ref": "https://help.sigmacomputing.com/docs/intro-to-control-elements", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+include"}
+  ]
+}

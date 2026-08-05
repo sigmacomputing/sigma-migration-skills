@@ -1,0 +1,296 @@
+{
+  "dimension": "viz-kind",
+  "source_tool": "powerbi",
+  "authoritative_doc": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/visualization-types",
+  "on_unmapped_default": "resolve via viz-kind.json then custom-visual.json (regex) then the generic slicer/filter heuristic; a still-unresolved token is recorded role_class=unsupported with guidance and NEVER coerced to a chart. The historical `VISUAL_KIND.get(vt,'bar')` silent default is GONE.",
+  "description": "Power BI visual -> Sigma workbook element kind + ROLE CLASS. `source` is the coarse kind token the builder consumes (rec['sigma_kind']); `sigma` is the Sigma element kind; `pbi_visual_types` enumerates the raw PBI visualTypes feeding that token; `role_class` (control|kpi|chart|table|text|image|decoration|unsupported) says what the visual DOES, so the coverage gate can tell a functional loss (a lost slicer = the page lost its filter) from a cosmetic one (a lost decorative shape) from a DIFFERENT cosmetic one that still builds a real element when it can (a logo/banner `image`, which — unlike `decoration` — is never routed to a bare 'nothing built' skip; PbiVizKind.functional? still treats it as non-functional). Both the Ruby builder AND the Python extractors resolve through this one file via lib/pbi_viz_kind.{rb,py} — the previously-duplicated Python VISUAL_KIND dict is gone, so the two maps can no longer drift. Third-party/custom visuals live in custom-visual.json.",
+  "rows": [
+    {
+      "source": "kpi",
+      "sigma": "kpi-chart",
+      "pbi_visual_types": [
+        "card",
+        "multiRowCard",
+        "kpi",
+        "gauge",
+        "cardVisual",
+        "kpiMatrix"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-kpi",
+      "sigma_verified": {
+        "status": "y",
+        "date": "2026-07-13",
+        "method": "LIVE demo-warehouse run (fresh DM): workbook POST clean, 0 type=error, render verified (KPI 127,513.88 = warehouse; column->vertical + bar->horizontal orientation correct)"
+      },
+      "on_unmapped": "n/a",
+      "notes": "PBI card / multiRowCard / kpi / gauge -> Sigma kpi-chart. gauge and kpiMatrix have no native Sigma kind (approximated -> approximate_types below); card/multiRowCard/kpi/cardVisual ARE native (approximate:false). A multiRowCard fans out to one kpi-chart per measure in the builder. `cardVisual` is the MODERN card visual type (PBI 2023+); it was absent from the old map and silently became a bar-chart on real customer files.",
+      "role_class": "kpi",
+      "approximate_types": [
+        "gauge",
+        "kpiMatrix"
+      ]
+    },
+    {
+      "source": "bar",
+      "sigma": "bar-chart",
+      "pbi_visual_types": [
+        "barChart",
+        "clusteredBarChart",
+        "stackedBarChart",
+        "columnChart",
+        "clusteredColumnChart",
+        "stackedColumnChart",
+        "hundredPercentStackedColumnChart",
+        "hundredPercentStackedBarChart",
+        "waterfallChart",
+        "funnel",
+        "treemap",
+        "ribbonChart",
+        "histogramChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "y",
+        "date": "2026-07-13",
+        "method": "LIVE demo-warehouse run (fresh DM): workbook POST clean, 0 type=error, render verified (KPI 127,513.88 = warehouse; column->vertical + bar->horizontal orientation correct)"
+      },
+      "on_unmapped": "n/a",
+      "notes": "*Bar* families render horizontal (orientation:horizontal), *Column* families vertical (omit orientation). Stacking none|stacked|normalized from the type name. hundredPercentStackedBarChart is now mapped explicitly (it previously fell through the Python `VISUAL_KIND.get(vt,'bar')` default). waterfall/funnel/treemap/ribbon/histogram are DATA-PRESERVING bar approximations -> approximate:true, so they are reported as approximated, not as losses.",
+      "role_class": "chart",
+      "approximate_types": [
+        "waterfallChart",
+        "funnel",
+        "treemap",
+        "ribbonChart",
+        "histogramChart"
+      ]
+    },
+    {
+      "source": "line",
+      "sigma": "line-chart",
+      "pbi_visual_types": [
+        "lineChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Defaults to a SINGLE series unless a Series/Legend role is bound (bead c07).",
+      "role_class": "chart"
+    },
+    {
+      "source": "area",
+      "sigma": "area-chart",
+      "pbi_visual_types": [
+        "areaChart",
+        "stackedAreaChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-basic-area-chart",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "role_class": "chart"
+    },
+    {
+      "source": "combo",
+      "sigma": "combo-chart",
+      "pbi_visual_types": [
+        "lineClusteredColumnComboChart",
+        "lineStackedColumnComboChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-combo-chart",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Line + column combo; the line measure(s) go on Sigma's secondary yAxis2.",
+      "role_class": "chart"
+    },
+    {
+      "source": "scatter",
+      "sigma": "scatter-chart",
+      "pbi_visual_types": [
+        "scatterChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "role_class": "chart"
+    },
+    {
+      "source": "pie",
+      "sigma": "pie-chart",
+      "pbi_visual_types": [
+        "pieChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "role_class": "chart"
+    },
+    {
+      "source": "donut",
+      "sigma": "donut-chart",
+      "pbi_visual_types": [
+        "donutChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-doughnut-charts",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "role_class": "chart"
+    },
+    {
+      "source": "table",
+      "sigma": "table",
+      "pbi_visual_types": [
+        "tableEx"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/desktop-tables",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "role_class": "table"
+    },
+    {
+      "source": "pivot-table",
+      "sigma": "pivot-table",
+      "pbi_visual_types": [
+        "pivotTable",
+        "matrix",
+        "tableExVisual"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/desktop-matrix-visual",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "PBI matrix/tableEx show a bold Grand Total row by default -> Sigma pivot totals block.",
+      "role_class": "table"
+    },
+    {
+      "source": "text",
+      "sigma": "text",
+      "pbi_visual_types": [
+        "textbox",
+        "actionButton",
+        "pageNavigator",
+        "bookmarkNavigator",
+        "aiNarratives",
+        "smartNarrative"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Boxes >= ~60px tall render as an H2 heading; smaller boxes as plain body text.",
+      "role_class": "text"
+    },
+    {
+      "source": "control",
+      "sigma": "control",
+      "pbi_visual_types": [
+        "slicer",
+        "advancedSlicerVisual",
+        "textSlicer",
+        "listSlicer",
+        "buttonSlicer"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-slicers",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "PBI slicer -> Sigma control. list vs date-range is decided in code (tmsl_date_column?); see control.json.",
+      "role_class": "control"
+    },
+    {
+      "source": "map",
+      "sigma": "map",
+      "pbi_visual_types": [
+        "map",
+        "filledMap",
+        "shapeMap",
+        "azureMap"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-filled-maps-choropleths",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Resolved to a Sigma region-map or point-map by resolve_map_kind using the model.bim geo dataCategory.",
+      "role_class": "chart"
+    },
+    {
+      "source": "image",
+      "sigma": "image",
+      "pbi_visual_types": [
+        "image"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Set directly by extract-report-classic.py for an imageUrl resource (extract-pbir.py has no 'image' visualType). Sigma images are URL-only: needs --image-map {resource: hostedUrl} or the element is skipped with a note. role_class is its OWN 'image', distinct from 'decoration': an image DOES build a real Sigma element (given --image-map) and has its own dedicated coverage entry when it can't (severity:dropped, recoverable — 'Supply --image-map'), unlike a shape/blank which never builds anything and is genuinely cosmetic. Reusing 'decoration' here made every image visual return nil before ever reaching its own build/coverage logic — a regression caught in review.",
+      "role_class": "image"
+    },
+    {
+      "source": "decoration",
+      "sigma": null,
+      "role_class": "decoration",
+      "pbi_visual_types": [
+        "shape",
+        "basicShape",
+        "image_placeholder",
+        "blank"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-shapes-add-report",
+      "sigma_verified": {
+        "status": "n/a",
+        "method": "decorative-only: no data binding, nothing to verify"
+      },
+      "on_unmapped": "skip-silently-ok",
+      "guidance": "Decorative shape/blank with no data binding. Sigma has no shape element; SKIP it. This is a cosmetic difference, NOT a data loss, so it must not count against field coverage. If the shape carried a label, the text is preserved by the adjacent textbox.",
+      "notes": "Previously coerced to a bar-chart, producing phantom empty charts (5 measured across 2 customer files)."
+    },
+    {
+      "source": "unsupported",
+      "sigma": null,
+      "role_class": "unsupported",
+      "pbi_visual_types": [
+        "decompositionTreeVisual",
+        "keyInfluencers",
+        "qnaVisual",
+        "pythonVisual",
+        "rScriptVisual",
+        "esriVisual",
+        "powerAppsVisual",
+        "scorecard",
+        "goalsVisual",
+        "paginatedReportVisual",
+        "sankeyDiagram",
+        "wordCloud",
+        "playAxis"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
+      "sigma_verified": {
+        "status": "n/a",
+        "method": "no Sigma equivalent by design"
+      },
+      "on_unmapped": "warn+record-unsupported",
+      "guidance": "No Sigma equivalent that preserves the visual's SEMANTICS. Do NOT approximate as a chart — record it as unsupported with the source fields listed so the user can decide. Closest options: decomposition tree / key influencers -> a Sigma pivot table plus a bar chart per driver (the AI ranking itself has no equivalent); Q&A / smart narrative -> a Sigma AI CallText element; python/R visual -> port the script to a Sigma custom plugin or precompute in the warehouse; scorecard/goals -> a KPI element with a reference mark for the target; sankey / word cloud -> a Sigma plugin; play axis -> a Sigma control (animation is not supported).",
+      "notes": "These previously became bar charts. A bar chart of a decomposition tree is not an approximation, it is a wrong answer — hence role_class unsupported, reported honestly."
+    }
+  ]
+}

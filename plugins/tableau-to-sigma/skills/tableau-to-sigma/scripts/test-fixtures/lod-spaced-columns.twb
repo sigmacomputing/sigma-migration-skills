@@ -1,0 +1,90 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for LOD-helper SQL identifier quoting (F2) and
+     derived-view source binding (F3) verification — invented, neutral names;
+     no customer data. The warehouse table DEAL_FACTS carries SPACED/mixed-case
+     physical column names ("Customer Ref ID", "Region View", "Deal Value") in
+     both the relation projection and the metadata-records remote-names, plus
+     one already-upper-snake column (STAGE_NAME). Calculation_1 is a FIXED LOD
+     wrapped in MAX() so the converter emits a GROUP-BY SQL helper element and
+     a relationship from the base fact (which then yields the derived
+     "... View" element with [element/col] formulas). -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Pipeline Deals' name='federated.deals1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh.example.snowflakecomputing.com' name='snowflake.conn1'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='wh.example.snowflakecomputing.com' warehouse='COMPUTE_WH' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.conn1' name='DEAL_FACTS' table='[SALES].[DEAL_FACTS]' type='table'>
+          <columns>
+            <column name='Customer Ref ID' datatype='string' />
+            <column name='Region View' datatype='string' />
+            <column name='Deal Value' datatype='real' />
+            <column name='STAGE_NAME' datatype='string' />
+          </columns>
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>Customer Ref ID</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Customer Ref ID]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Customer Ref ID</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Region View</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Region View]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Region View</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='measure'>
+            <remote-name>Deal Value</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Deal Value]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Deal Value</remote-alias>
+            <local-type>real</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>STAGE_NAME</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[STAGE_NAME]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>STAGE_NAME</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Customer Ref ID' datatype='string' name='[Customer Ref ID]' role='dimension' type='nominal' />
+      <column caption='Region View' datatype='string' name='[Region View]' role='dimension' type='nominal' />
+      <column caption='Deal Value' datatype='real' name='[Deal Value]' role='measure' type='quantitative' />
+      <column caption='Stage Name' datatype='string' name='[STAGE_NAME]' role='dimension' type='nominal' />
+      <column caption='Max West Deals Per Customer' datatype='integer' name='[Calculation_1]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='MAX({ FIXED [Customer Ref ID] : COUNT(IF [Region View]=&quot;West&quot; AND [Deal Value]&lt;&gt;0 THEN 1 END) })' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='West Deals by Customer'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.deals1'>
+            <column caption='Customer Ref ID' datatype='string' name='[Customer Ref ID]' role='dimension' type='nominal' />
+            <column caption='Stage Name' datatype='string' name='[STAGE_NAME]' role='dimension' type='nominal' />
+            <column caption='Max West Deals Per Customer' datatype='integer' name='[Calculation_1]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='MAX({ FIXED [Customer Ref ID] : COUNT(IF [Region View]=&quot;West&quot; AND [Deal Value]&lt;&gt;0 THEN 1 END) })' />
+            </column>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.deals1].[none:Customer Ref ID:nk]</rows>
+        <cols>[federated.deals1].[usr:Calculation_1:qk]</cols>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

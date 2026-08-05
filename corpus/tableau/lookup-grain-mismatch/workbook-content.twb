@@ -1,0 +1,575 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<!-- Synthetic field-twin (invented names, no customer data): the LOOKUP GRAIN
+     MISMATCH shape. A published-virtual-connection federated datasource whose
+     relation tree self-joins the fact table ("Sale Lines" vs "Buyer Day
+     Detail" — SAME physical SALES_FACT) on a NON-UNIQUE compound key
+     (buyer x sale-date; the fact is at sale-LINE grain), plus two single-key
+     dim joins. Field ids are Tableau GUIDs; captions are the only handle on
+     the physical columns. Top-N + Direction parameters drive a RANK_UNIQUE
+     table calc, an In-Top-N boolean filter, and param-driven dynamic titles;
+     the dashboard carries a top-shelf control row. -->
+<workbook locale='en_US' original-version='18.1' source-build='2026.1.5 (20261.26.0512.1609)' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <preferences />
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Top N' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='50'>
+        <calculation class='tableau' formula='50' />
+        <members>
+          <member value='10' />
+          <member value='25' />
+          <member value='50' />
+          <member value='100' />
+        </members>
+      </column>
+      <column caption='Direction' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;Top&quot;'>
+        <calculation class='tableau' formula='&quot;Top&quot;' />
+        <members>
+          <member value='&quot;Top&quot;' />
+          <member value='&quot;Bottom&quot;' />
+        </members>
+      </column>
+    </datasource>
+    <datasource caption='Buyer Profitability (Demo Virtual Connection)' inline='true' name='federated.0lgm0buyerprofit01' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Demo Virtual Connection' name='publishedConnection.0demovc0lgm01'>
+            <connection class='publishedConnection' resourceId='dddd0000-0000-4000-8000-00000000dd01' resourceName='Demo Virtual Connection' workgroup-auth-mode='as-is' />
+          </named-connection>
+        </named-connections>
+        <relation join='inner' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[Sale Lines].[aaaa0003-0000-4000-8000-000000000003]' />
+              <expression op='[ITEM_DIM (ANALYTICS.ITEM_DIM)].[cccc0001-0000-4000-8000-000000000001]' />
+            </expression>
+          </clause>
+          <relation join='inner' type='join'>
+            <clause type='join'>
+              <expression op='='>
+                <expression op='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+                <expression op='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0001-0000-4000-8000-000000000001]' />
+              </expression>
+            </clause>
+            <relation join='inner' type='join'>
+              <clause type='join'>
+                <expression op='AND'>
+                  <expression op='='>
+                    <expression op='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+                    <expression op='[Buyer Day Detail].[aaaa0001-0000-4000-8000-000000000001]' />
+                  </expression>
+                  <expression op='='>
+                    <expression op='[Sale Lines].[aaaa0002-0000-4000-8000-000000000002]' />
+                    <expression op='[Buyer Day Detail].[aaaa0002-0000-4000-8000-000000000002]' />
+                  </expression>
+                </expression>
+              </clause>
+              <relation connection='publishedConnection.0demovc0lgm01' name='Sale Lines' table='[eeee0000-0000-4000-8000-00000000ee01].[SALES_FACT (ANALYTICS.SALES_FACT)]' type='table'>
+                <columns>
+                  <column datatype='date' date-parse-format='yyyyMMdd' name='aaaa0002-0000-4000-8000-000000000002' />
+                </columns>
+              </relation>
+              <relation connection='publishedConnection.0demovc0lgm01' name='Buyer Day Detail' table='[eeee0000-0000-4000-8000-00000000ee01].[SALES_FACT (ANALYTICS.SALES_FACT)]' type='table'>
+                <columns>
+                  <column datatype='date' date-parse-format='yyyyMMdd' name='aaaa0002-0000-4000-8000-000000000002' />
+                </columns>
+              </relation>
+            </relation>
+            <relation connection='publishedConnection.0demovc0lgm01' name='BUYER_DIM (ANALYTICS.BUYER_DIM)' table='[eeee0000-0000-4000-8000-00000000ee02].[BUYER_DIM (ANALYTICS.BUYER_DIM)]' type='table' />
+          </relation>
+          <relation connection='publishedConnection.0demovc0lgm01' name='ITEM_DIM (ANALYTICS.ITEM_DIM)' table='[eeee0000-0000-4000-8000-00000000ee03].[ITEM_DIM (ANALYTICS.ITEM_DIM)]' type='table' />
+        </relation>
+        <cols>
+          <map key='[aaaa0001-0000-4000-8000-000000000001 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0001-0000-4000-8000-000000000001]' />
+          <map key='[aaaa0001-0000-4000-8000-000000000001]' value='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+          <map key='[aaaa0002-0000-4000-8000-000000000002 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0002-0000-4000-8000-000000000002]' />
+          <map key='[aaaa0002-0000-4000-8000-000000000002]' value='[Sale Lines].[aaaa0002-0000-4000-8000-000000000002]' />
+          <map key='[aaaa0003-0000-4000-8000-000000000003 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0003-0000-4000-8000-000000000003]' />
+          <map key='[aaaa0003-0000-4000-8000-000000000003]' value='[Sale Lines].[aaaa0003-0000-4000-8000-000000000003]' />
+          <map key='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0004-0000-4000-8000-000000000004]' />
+          <map key='[aaaa0004-0000-4000-8000-000000000004]' value='[Sale Lines].[aaaa0004-0000-4000-8000-000000000004]' />
+          <map key='[aaaa0005-0000-4000-8000-000000000005 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0005-0000-4000-8000-000000000005]' />
+          <map key='[aaaa0005-0000-4000-8000-000000000005]' value='[Sale Lines].[aaaa0005-0000-4000-8000-000000000005]' />
+          <map key='[aaaa0006-0000-4000-8000-000000000006 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0006-0000-4000-8000-000000000006]' />
+          <map key='[aaaa0006-0000-4000-8000-000000000006]' value='[Sale Lines].[aaaa0006-0000-4000-8000-000000000006]' />
+          <map key='[aaaa0007-0000-4000-8000-000000000007 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0007-0000-4000-8000-000000000007]' />
+          <map key='[aaaa0007-0000-4000-8000-000000000007]' value='[Sale Lines].[aaaa0007-0000-4000-8000-000000000007]' />
+          <map key='[aaaa0008-0000-4000-8000-000000000008 (Buyer Day Detail)]' value='[Buyer Day Detail].[aaaa0008-0000-4000-8000-000000000008]' />
+          <map key='[aaaa0008-0000-4000-8000-000000000008]' value='[Sale Lines].[aaaa0008-0000-4000-8000-000000000008]' />
+          <map key='[bbbb0001-0000-4000-8000-000000000001]' value='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0001-0000-4000-8000-000000000001]' />
+          <map key='[bbbb0002-0000-4000-8000-000000000002]' value='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0002-0000-4000-8000-000000000002]' />
+          <map key='[bbbb0003-0000-4000-8000-000000000003]' value='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0003-0000-4000-8000-000000000003]' />
+          <map key='[bbbb0004-0000-4000-8000-000000000004]' value='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0004-0000-4000-8000-000000000004]' />
+          <map key='[bbbb0005-0000-4000-8000-000000000005]' value='[BUYER_DIM (ANALYTICS.BUYER_DIM)].[bbbb0005-0000-4000-8000-000000000005]' />
+          <map key='[cccc0001-0000-4000-8000-000000000001]' value='[ITEM_DIM (ANALYTICS.ITEM_DIM)].[cccc0001-0000-4000-8000-000000000001]' />
+          <map key='[cccc0002-0000-4000-8000-000000000002]' value='[ITEM_DIM (ANALYTICS.ITEM_DIM)].[cccc0002-0000-4000-8000-000000000002]' />
+        </cols>
+      </connection>
+      <aliases enabled='yes' />
+      <column caption='Buyer Key' datatype='integer' name='[aaaa0001-0000-4000-8000-000000000001]' role='measure' type='quantitative' />
+      <column caption='Buyer Key (Buyer Day Detail)' datatype='integer' name='[aaaa0001-0000-4000-8000-000000000001 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Sale Date' datatype='date' datatype-customized='true' name='[aaaa0002-0000-4000-8000-000000000002]' role='dimension' type='ordinal' />
+      <column caption='Sale Date (Buyer Day Detail)' datatype='date' datatype-customized='true' name='[aaaa0002-0000-4000-8000-000000000002 (Buyer Day Detail)]' role='dimension' type='ordinal' />
+      <column caption='Item Key' datatype='integer' name='[aaaa0003-0000-4000-8000-000000000003]' role='measure' type='quantitative' />
+      <column caption='Item Key (Buyer Day Detail)' datatype='integer' name='[aaaa0003-0000-4000-8000-000000000003 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Net Amount' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004]' role='measure' type='quantitative' />
+      <column caption='Net Amount (Buyer Day Detail)' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Units Sold' datatype='integer' name='[aaaa0005-0000-4000-8000-000000000005]' role='measure' type='quantitative' />
+      <column caption='Units Sold (Buyer Day Detail)' datatype='integer' name='[aaaa0005-0000-4000-8000-000000000005 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Net Earnings' datatype='real' name='[aaaa0006-0000-4000-8000-000000000006]' role='measure' type='quantitative' />
+      <column caption='Net Earnings (Buyer Day Detail)' datatype='real' name='[aaaa0006-0000-4000-8000-000000000006 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Rebate Amount' datatype='real' name='[aaaa0007-0000-4000-8000-000000000007]' role='measure' type='quantitative' />
+      <column caption='Rebate Amount (Buyer Day Detail)' datatype='real' name='[aaaa0007-0000-4000-8000-000000000007 (Buyer Day Detail)]' role='measure' type='quantitative' />
+      <column caption='Sale Id' datatype='string' name='[aaaa0008-0000-4000-8000-000000000008]' role='dimension' type='nominal' />
+      <column caption='Sale Id (Buyer Day Detail)' datatype='string' name='[aaaa0008-0000-4000-8000-000000000008 (Buyer Day Detail)]' role='dimension' type='nominal' />
+      <column caption='Buyer Key (BUYER_DIM)' datatype='integer' name='[bbbb0001-0000-4000-8000-000000000001]' role='measure' type='quantitative' />
+      <column caption='First Name' datatype='string' name='[bbbb0002-0000-4000-8000-000000000002]' role='dimension' type='nominal' />
+      <column caption='Last Name' datatype='string' name='[bbbb0003-0000-4000-8000-000000000003]' role='dimension' type='nominal' />
+      <column caption='Region Name' datatype='string' name='[bbbb0004-0000-4000-8000-000000000004]' role='dimension' type='nominal' />
+      <column caption='Buyer Segment' datatype='string' name='[bbbb0005-0000-4000-8000-000000000005]' role='dimension' type='nominal' />
+      <column caption='Item Key (ITEM_DIM)' datatype='integer' name='[cccc0001-0000-4000-8000-000000000001]' role='measure' type='quantitative' />
+      <column caption='Item Group' datatype='string' name='[cccc0002-0000-4000-8000-000000000002]' role='dimension' type='nominal' />
+      <column caption='Unified Amount' datatype='real' name='[Unified Amount]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN([aaaa0004-0000-4000-8000-000000000004]) + ZN([aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)])' />
+      </column>
+      <column caption='Unified Units' datatype='real' name='[Unified Units]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN([aaaa0005-0000-4000-8000-000000000005]) + ZN([aaaa0005-0000-4000-8000-000000000005 (Buyer Day Detail)])' />
+      </column>
+      <column caption='Combined Margin' datatype='real' name='[Combined Margin]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([aaaa0006-0000-4000-8000-000000000006]) - SUM([aaaa0007-0000-4000-8000-000000000007 (Buyer Day Detail)])' />
+      </column>
+      <column caption='Buyer Name' datatype='string' name='[Buyer Name]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[bbbb0003-0000-4000-8000-000000000003] + &quot;, &quot; + [bbbb0002-0000-4000-8000-000000000002]' />
+      </column>
+      <column caption='Buyer Rank' datatype='integer' name='[Buyer Rank]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RANK_UNIQUE(IIF([Parameters].[Parameter 2] = &quot;Top&quot;, 1, -1) * SUM([Unified Amount]))'>
+          <table-calc ordering-type='Columns' />
+        </calculation>
+      </column>
+      <column caption='In Top N' datatype='boolean' name='[In Top N]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[Buyer Rank] &lt;= [Parameters].[Parameter 1]' />
+      </column>
+      <column caption='Margin Rate' datatype='real' name='[Margin Rate]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Combined Margin] / SUM([Unified Amount])' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' show-structure='true' />
+      <datasource-dependencies datasource='Parameters'>
+        <column caption='Top N' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='50'>
+          <calculation class='tableau' formula='50' />
+        </column>
+        <column caption='Direction' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;Top&quot;'>
+          <calculation class='tableau' formula='&quot;Top&quot;' />
+        </column>
+      </datasource-dependencies>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Amount Trend'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>&lt;[Parameters].[Parameter 2]&gt; &lt;[Parameters].[Parameter 1]&gt; Buyers by Amount (Chosen Dates)</run>
+            <run> — Unified Amount &amp; Earnings by Week</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Buyer Profitability (Demo Virtual Connection)' name='federated.0lgm0buyerprofit01' />
+            <datasource name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='Parameters'>
+            <column caption='Top N' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='50'>
+              <calculation class='tableau' formula='50' />
+            </column>
+            <column caption='Direction' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;Top&quot;'>
+              <calculation class='tableau' formula='&quot;Top&quot;' />
+            </column>
+          </datasource-dependencies>
+          <datasource-dependencies datasource='federated.0lgm0buyerprofit01'>
+            <column caption='Sale Date' datatype='date' datatype-customized='true' name='[aaaa0002-0000-4000-8000-000000000002]' role='dimension' type='ordinal' />
+            <column caption='Net Amount' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004]' role='measure' type='quantitative' />
+            <column caption='Net Amount (Buyer Day Detail)' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Net Earnings' datatype='real' name='[aaaa0006-0000-4000-8000-000000000006]' role='measure' type='quantitative' />
+            <column caption='Unified Amount' datatype='real' name='[Unified Amount]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='ZN([aaaa0004-0000-4000-8000-000000000004]) + ZN([aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)])' />
+            </column>
+            <column caption='Buyer Rank' datatype='integer' name='[Buyer Rank]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='RANK_UNIQUE(IIF([Parameters].[Parameter 2] = &quot;Top&quot;, 1, -1) * SUM([Unified Amount]))'>
+                <table-calc ordering-type='Columns' />
+              </calculation>
+            </column>
+            <column caption='In Top N' datatype='boolean' name='[In Top N]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='[Buyer Rank] &lt;= [Parameters].[Parameter 1]' />
+            </column>
+            <column caption='Measure Names' datatype='string' name='[:Measure Names]' role='dimension' type='nominal' />
+            <column caption='Measure Values' datatype='real' name='[Multiple Values]' role='measure' type='quantitative' />
+            <column-instance column='[aaaa0002-0000-4000-8000-000000000002]' derivation='Week-Trunc' name='[twk:aaaa0002-0000-4000-8000-000000000002:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[aaaa0002-0000-4000-8000-000000000002]' derivation='None' name='[none:aaaa0002-0000-4000-8000-000000000002:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Unified Amount]' derivation='Sum' name='[sum:Unified Amount:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[aaaa0006-0000-4000-8000-000000000006]' derivation='Sum' name='[sum:aaaa0006-0000-4000-8000-000000000006:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Buyer Rank]' derivation='User' name='[usr:Buyer Rank:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[In Top N]' derivation='User' name='[usr:In Top N:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[:Measure Names]'>
+            <groupfilter function='union' user:op='manual' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[sum:aaaa0006-0000-4000-8000-000000000006:qk]&quot;' />
+            </groupfilter>
+          </filter>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[usr:In Top N:nk]'>
+            <groupfilter function='member' level='[usr:In Top N:nk]' member='true' />
+          </filter>
+          <filter class='quantitative' column='[federated.0lgm0buyerprofit01].[none:aaaa0002-0000-4000-8000-000000000002:qk]' included-values='in-range'>
+            <min>#2023-01-01#</min>
+            <max>#2026-12-31#</max>
+          </filter>
+          <slices>
+            <column>[federated.0lgm0buyerprofit01].[:Measure Names]</column>
+            <column>[federated.0lgm0buyerprofit01].[twk:aaaa0002-0000-4000-8000-000000000002:qk]</column>
+            <column>[federated.0lgm0buyerprofit01].[Multiple Values]</column>
+            <column>[federated.0lgm0buyerprofit01].[usr:In Top N:nk]</column>
+            <column>[federated.0lgm0buyerprofit01].[none:aaaa0002-0000-4000-8000-000000000002:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+            <encodings>
+              <color column='[federated.0lgm0buyerprofit01].[:Measure Names]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0lgm0buyerprofit01].[Multiple Values]</rows>
+        <cols>[federated.0lgm0buyerprofit01].[twk:aaaa0002-0000-4000-8000-000000000002:qk]</cols>
+      </table>
+      <simple-id uuid='{AC100001-0000-4000-8000-000000000001}' />
+    </worksheet>
+    <worksheet name='Buyer Detail'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>&lt;[Parameters].[Parameter 2]&gt; &lt;[Parameters].[Parameter 1]&gt; Buyers by Amount (Chosen Dates)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Buyer Profitability (Demo Virtual Connection)' name='federated.0lgm0buyerprofit01' />
+            <datasource name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='Parameters'>
+            <column caption='Top N' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='50'>
+              <calculation class='tableau' formula='50' />
+            </column>
+            <column caption='Direction' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;Top&quot;'>
+              <calculation class='tableau' formula='&quot;Top&quot;' />
+            </column>
+          </datasource-dependencies>
+          <datasource-dependencies datasource='federated.0lgm0buyerprofit01'>
+            <column caption='First Name' datatype='string' name='[bbbb0002-0000-4000-8000-000000000002]' role='dimension' type='nominal' />
+            <column caption='Last Name' datatype='string' name='[bbbb0003-0000-4000-8000-000000000003]' role='dimension' type='nominal' />
+            <column caption='Buyer Key' datatype='integer' name='[aaaa0001-0000-4000-8000-000000000001]' role='measure' type='quantitative' />
+            <column caption='Region Name' datatype='string' name='[bbbb0004-0000-4000-8000-000000000004]' role='dimension' type='nominal' />
+            <column caption='Buyer Segment' datatype='string' name='[bbbb0005-0000-4000-8000-000000000005]' role='dimension' type='nominal' />
+            <column caption='Net Amount' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004]' role='measure' type='quantitative' />
+            <column caption='Net Amount (Buyer Day Detail)' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Net Earnings' datatype='real' name='[aaaa0006-0000-4000-8000-000000000006]' role='measure' type='quantitative' />
+            <column caption='Units Sold' datatype='integer' name='[aaaa0005-0000-4000-8000-000000000005]' role='measure' type='quantitative' />
+            <column caption='Units Sold (Buyer Day Detail)' datatype='integer' name='[aaaa0005-0000-4000-8000-000000000005 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Rebate Amount (Buyer Day Detail)' datatype='real' name='[aaaa0007-0000-4000-8000-000000000007 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Buyer Name' datatype='string' name='[Buyer Name]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='[bbbb0003-0000-4000-8000-000000000003] + &quot;, &quot; + [bbbb0002-0000-4000-8000-000000000002]' />
+            </column>
+            <column caption='Unified Amount' datatype='real' name='[Unified Amount]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='ZN([aaaa0004-0000-4000-8000-000000000004]) + ZN([aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)])' />
+            </column>
+            <column caption='Unified Units' datatype='real' name='[Unified Units]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='ZN([aaaa0005-0000-4000-8000-000000000005]) + ZN([aaaa0005-0000-4000-8000-000000000005 (Buyer Day Detail)])' />
+            </column>
+            <column caption='Combined Margin' datatype='real' name='[Combined Margin]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([aaaa0006-0000-4000-8000-000000000006]) - SUM([aaaa0007-0000-4000-8000-000000000007 (Buyer Day Detail)])' />
+            </column>
+            <column caption='Buyer Rank' datatype='integer' name='[Buyer Rank]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='RANK_UNIQUE(IIF([Parameters].[Parameter 2] = &quot;Top&quot;, 1, -1) * SUM([Unified Amount]))'>
+                <table-calc ordering-type='Columns' />
+              </calculation>
+            </column>
+            <column caption='In Top N' datatype='boolean' name='[In Top N]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='[Buyer Rank] &lt;= [Parameters].[Parameter 1]' />
+            </column>
+            <column caption='Measure Names' datatype='string' name='[:Measure Names]' role='dimension' type='nominal' />
+            <column caption='Measure Values' datatype='real' name='[Multiple Values]' role='measure' type='quantitative' />
+            <column-instance column='[Buyer Name]' derivation='None' name='[none:Buyer Name:nk]' pivot='key' type='nominal' />
+            <column-instance column='[aaaa0001-0000-4000-8000-000000000001]' derivation='None' name='[none:aaaa0001-0000-4000-8000-000000000001:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[bbbb0004-0000-4000-8000-000000000004]' derivation='None' name='[none:bbbb0004-0000-4000-8000-000000000004:nk]' pivot='key' type='nominal' />
+            <column-instance column='[bbbb0005-0000-4000-8000-000000000005]' derivation='None' name='[none:bbbb0005-0000-4000-8000-000000000005:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Unified Amount]' derivation='Sum' name='[sum:Unified Amount:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Unified Units]' derivation='Sum' name='[sum:Unified Units:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Combined Margin]' derivation='User' name='[usr:Combined Margin:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Buyer Rank]' derivation='User' name='[usr:Buyer Rank:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[In Top N]' derivation='User' name='[usr:In Top N:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[:Measure Names]'>
+            <groupfilter function='union' user:op='manual' xmlns:user='http://www.tableausoftware.com/xml/user'>
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[sum:Unified Units:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[usr:Combined Margin:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.0lgm0buyerprofit01].[usr:Buyer Rank:qk]&quot;' />
+            </groupfilter>
+          </filter>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[usr:In Top N:nk]'>
+            <groupfilter function='member' level='[usr:In Top N:nk]' member='true' />
+          </filter>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[none:bbbb0004-0000-4000-8000-000000000004:nk]'>
+            <groupfilter function='level-members' level='[none:bbbb0004-0000-4000-8000-000000000004:nk]' />
+          </filter>
+          <filter class='categorical' column='[federated.0lgm0buyerprofit01].[none:bbbb0005-0000-4000-8000-000000000005:nk]'>
+            <groupfilter function='level-members' level='[none:bbbb0005-0000-4000-8000-000000000005:nk]' />
+          </filter>
+          <slices>
+            <column>[federated.0lgm0buyerprofit01].[none:Buyer Name:nk]</column>
+            <column>[federated.0lgm0buyerprofit01].[none:aaaa0001-0000-4000-8000-000000000001:ok]</column>
+            <column>[federated.0lgm0buyerprofit01].[:Measure Names]</column>
+            <column>[federated.0lgm0buyerprofit01].[Multiple Values]</column>
+            <column>[federated.0lgm0buyerprofit01].[usr:In Top N:nk]</column>
+            <column>[federated.0lgm0buyerprofit01].[none:bbbb0004-0000-4000-8000-000000000004:nk]</column>
+            <column>[federated.0lgm0buyerprofit01].[none:bbbb0005-0000-4000-8000-000000000005:nk]</column>
+          </slices>
+          <computed-sort column='[federated.0lgm0buyerprofit01].[none:Buyer Name:nk]' direction='DESC' using='[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]' />
+          <aggregation value='true' />
+        </view>
+        <style>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.0lgm0buyerprofit01].[Multiple Values]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0lgm0buyerprofit01].[none:Buyer Name:nk] / [federated.0lgm0buyerprofit01].[none:aaaa0001-0000-4000-8000-000000000001:ok]</rows>
+        <cols>[federated.0lgm0buyerprofit01].[:Measure Names]</cols>
+      </table>
+      <simple-id uuid='{AC100002-0000-4000-8000-000000000002}' />
+    </worksheet>
+    <worksheet name='Group Mix'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Group Mix — Unified Amount by Month</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Buyer Profitability (Demo Virtual Connection)' name='federated.0lgm0buyerprofit01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0lgm0buyerprofit01'>
+            <column caption='Sale Date' datatype='date' datatype-customized='true' name='[aaaa0002-0000-4000-8000-000000000002]' role='dimension' type='ordinal' />
+            <column caption='Item Group' datatype='string' name='[cccc0002-0000-4000-8000-000000000002]' role='dimension' type='nominal' />
+            <column caption='Net Amount' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004]' role='measure' type='quantitative' />
+            <column caption='Net Amount (Buyer Day Detail)' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Unified Amount' datatype='real' name='[Unified Amount]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='ZN([aaaa0004-0000-4000-8000-000000000004]) + ZN([aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)])' />
+            </column>
+            <column-instance column='[aaaa0002-0000-4000-8000-000000000002]' derivation='Month-Trunc' name='[tmn:aaaa0002-0000-4000-8000-000000000002:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[cccc0002-0000-4000-8000-000000000002]' derivation='None' name='[none:cccc0002-0000-4000-8000-000000000002:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Unified Amount]' derivation='Sum' name='[sum:Unified Amount:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[federated.0lgm0buyerprofit01].[tmn:aaaa0002-0000-4000-8000-000000000002:qk]</column>
+            <column>[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]</column>
+            <column>[federated.0lgm0buyerprofit01].[none:cccc0002-0000-4000-8000-000000000002:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.0lgm0buyerprofit01].[none:cccc0002-0000-4000-8000-000000000002:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]</rows>
+        <cols>[federated.0lgm0buyerprofit01].[tmn:aaaa0002-0000-4000-8000-000000000002:qk]</cols>
+      </table>
+      <simple-id uuid='{AC100003-0000-4000-8000-000000000003}' />
+    </worksheet>
+    <worksheet name='KPI Unified Amount'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Total Unified Amount</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Buyer Profitability (Demo Virtual Connection)' name='federated.0lgm0buyerprofit01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0lgm0buyerprofit01'>
+            <column caption='Net Amount' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004]' role='measure' type='quantitative' />
+            <column caption='Net Amount (Buyer Day Detail)' datatype='real' name='[aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)]' role='measure' type='quantitative' />
+            <column caption='Unified Amount' datatype='real' name='[Unified Amount]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='ZN([aaaa0004-0000-4000-8000-000000000004]) + ZN([aaaa0004-0000-4000-8000-000000000004 (Buyer Day Detail)])' />
+            </column>
+            <column-instance column='[Unified Amount]' derivation='Sum' name='[sum:Unified Amount:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]' value='n&quot;$&quot;#,##0' />
+          </style-rule>
+          <style-rule element='text'>
+            <format attr='text-format' field='[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]' value='n&quot;$&quot;#,##0' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.0lgm0buyerprofit01].[sum:Unified Amount:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows></rows>
+        <cols></cols>
+      </table>
+      <simple-id uuid='{AC100004-0000-4000-8000-000000000004}' />
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard enable-sort-zone-taborder='true' name='Profit Watch'>
+      <style />
+      <size maxheight='800' maxwidth='1200' minheight='800' minwidth='1200' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Buyer Profitability (Demo Virtual Connection)' name='federated.0lgm0buyerprofit01' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='200' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='201' param='vert' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='8000' id='202' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+              <zone h='8000' id='203' param='[Parameters].[Parameter 1]' type-v2='paramctrl' w='25000' x='0' y='0'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+              <zone h='8000' id='204' param='[Parameters].[Parameter 2]' type-v2='paramctrl' w='25000' x='25000' y='0'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+              <zone h='8000' id='205' name='Amount Trend' param='[federated.0lgm0buyerprofit01].[none:aaaa0002-0000-4000-8000-000000000002:qk]' type-v2='filter' w='25000' x='50000' y='0'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+              <zone h='8000' id='206' mode='checkdropdown' name='Buyer Detail' param='[federated.0lgm0buyerprofit01].[none:bbbb0004-0000-4000-8000-000000000004:nk]' type-v2='filter' w='25000' x='75000' y='0'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='15000' id='210' param='horz' type-v2='layout-flow' w='100000' x='0' y='8000'>
+              <zone h='15000' id='211' name='KPI Unified Amount' w='100000' x='0' y='8000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='38000' id='220' param='horz' type-v2='layout-flow' w='100000' x='0' y='23000'>
+              <zone h='38000' id='221' name='Amount Trend' w='60000' x='0' y='23000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+              <zone h='38000' id='222' name='Group Mix' w='40000' x='60000' y='23000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='39000' id='230' param='horz' type-v2='layout-flow' w='100000' x='0' y='61000'>
+              <zone h='39000' id='231' name='Buyer Detail' w='100000' x='0' y='61000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='2' />
+                </zone-style>
+              </zone>
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+      <simple-id uuid='{AC100010-0000-4000-8000-000000000010}' />
+    </dashboard>
+  </dashboards>
+  <windows source-height='30'>
+    <window class='dashboard' maximized='true' name='Profit Watch'>
+      <viewpoints>
+        <viewpoint name='Amount Trend'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Buyer Detail'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Group Mix'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='KPI Unified Amount'>
+          <zoom type='entire-view' />
+        </viewpoint>
+      </viewpoints>
+      <active id='-1' />
+      <simple-id uuid='{AC100011-0000-4000-8000-000000000011}' />
+    </window>
+  </windows>
+</workbook>

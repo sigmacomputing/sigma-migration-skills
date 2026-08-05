@@ -1,0 +1,180 @@
+{
+  "workbookId": "0d7648b6-3f17-4f87-99cc-d9b750fd59fc",
+  "pages": [
+    {
+      "id": "page-data",
+      "name": "Data",
+      "visibility": null,
+      "elements": [
+        {
+          "id": "master",
+          "kind": "table",
+          "name": "Master",
+          "columnLabels": [
+            "Container volume (UNITS: gross shipped count)",
+            "Country Code",
+            "Country Name",
+            "Date",
+            "NFI World",
+            "Net investor inflows, quarterly (BoP, current US$)",
+            "Revenue (current US$)",
+            "Revenue World",
+            "EntityGroup",
+            "New Region",
+            "Region",
+            "UNITS world",
+            "Year"
+          ]
+        },
+        {
+          "id": "masterAll",
+          "kind": "table",
+          "name": "Master All",
+          "columnLabels": [
+            "Container volume (UNITS: gross shipped count)",
+            "Country Code",
+            "Country Name",
+            "Date",
+            "NFI World",
+            "Net investor inflows, quarterly (BoP, current US$)",
+            "Revenue (current US$)",
+            "Revenue World",
+            "EntityGroup",
+            "New Region",
+            "Region",
+            "UNITS world",
+            "Year"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page-dash-1",
+      "name": "Indicators",
+      "visibility": null,
+      "elements": [
+        {
+          "id": "text-28",
+          "kind": "text",
+          "name": null
+        },
+        {
+          "id": "text-46",
+          "kind": "text",
+          "name": null
+        },
+        {
+          "id": "text-47",
+          "kind": "text",
+          "name": null
+        },
+        {
+          "id": "text-48",
+          "kind": "text",
+          "name": null
+        },
+        {
+          "id": "el-param-region-indicators",
+          "kind": "control",
+          "name": "Region"
+        },
+        {
+          "id": "el-revpie",
+          "kind": "bar-chart",
+          "name": "RevPie",
+          "columnLabels": [
+            "Selected",
+            "New Region Not Null",
+            "New Region",
+            "0"
+          ]
+        },
+        {
+          "id": "el-revregionline",
+          "kind": "combo-chart",
+          "name": "RevRegionLine",
+          "columnLabels": [
+            "Date Not Null",
+            "Country Revenue (current US$)",
+            "Date",
+            "Revenue World"
+          ]
+        },
+        {
+          "id": "el-rev-top3",
+          "kind": "table",
+          "name": "Rev Top3",
+          "columnLabels": [
+            "Date",
+            "Country Name",
+            "Revenue (current US$)"
+          ]
+        },
+        {
+          "id": "el-nfipie",
+          "kind": "bar-chart",
+          "name": "NFIPie",
+          "columnLabels": [
+            "Selected",
+            "New Region Not Null",
+            "New Region",
+            "0"
+          ]
+        },
+        {
+          "id": "el-nfiregionline",
+          "kind": "combo-chart",
+          "name": "NFIRegionLine",
+          "columnLabels": [
+            "Date Not Null",
+            "Country Net investor inflows, quarterly (BoP, current US$)",
+            "Date",
+            "NFI World"
+          ]
+        },
+        {
+          "id": "el-nfi-top3",
+          "kind": "table",
+          "name": "NFI Top3",
+          "columnLabels": [
+            "Date",
+            "Country Name",
+            "Net investor inflows, quarterly (BoP, current US$)"
+          ]
+        },
+        {
+          "id": "el-unitspie",
+          "kind": "bar-chart",
+          "name": "UNITSPie",
+          "columnLabels": [
+            "Selected",
+            "New Region Not Null",
+            "New Region",
+            "0"
+          ]
+        },
+        {
+          "id": "el-unitsregionline",
+          "kind": "combo-chart",
+          "name": "UNITSRegionLine",
+          "columnLabels": [
+            "Date Not Null",
+            "Country Container volume (UNITS: gross shipped count)",
+            "Date",
+            "UNITS world"
+          ]
+        },
+        {
+          "id": "el-units-top3",
+          "kind": "table",
+          "name": "UNITS Top3",
+          "columnLabels": [
+            "Date",
+            "Country Name",
+            "Container volume (UNITS: gross shipped count)"
+          ]
+        }
+      ]
+    }
+  ]
+}

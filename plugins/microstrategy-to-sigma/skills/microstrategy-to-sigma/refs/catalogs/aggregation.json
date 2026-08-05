@@ -1,0 +1,15 @@
+{
+  "dimension": "aggregation",
+  "source_tool": "microstrategy",
+  "authoritative_doc": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Using_group_value_functions.htm",
+  "sigma_target_doc": "https://help.sigmacomputing.com/docs/aggregate-functions",
+  "on_unmapped_default": "warn + emit UPPER() SQL as a documented degraded passthrough (NEVER silently pass an unknown MicroStrategy function through)",
+  "description": "MicroStrategy metric group-value function (metric expression token) -> Sigma aggregate function (`sigma`, used verbatim by metric_formula) and warehouse SQL aggregate (`sql`, the FN dict used by metric_sql when it emits AE-emulation SQL). The FN dict {source->sql} in convert.py.metric_sql is DERIVED from these rows; an unmapped function no longer silently passes through as fname.upper() — it WARNS loudly first, then emits UPPER() as a documented degraded fallback. Count with a `<Distinct=True>` parameter is COMPOSITIONAL (Count -> CountDistinct) and is resolved in metric_formula() with a cited comment, not as a separate flat row.",
+  "rows": [
+    {"source": "Sum", "sigma": "Sum", "sql": "SUM", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Sum_.htm", "sigma_target_ref": "https://help.sigmacomputing.com/docs/sum", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+upper"},
+    {"source": "Count", "sigma": "Count", "sql": "COUNT", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Count_.htm", "sigma_target_ref": "https://help.sigmacomputing.com/docs/count", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+upper", "notes": "Count<Distinct=True> is compositional -> Sigma CountDistinct (handled in metric_formula, not this flat map)."},
+    {"source": "Avg", "sigma": "Avg", "sql": "AVG", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Avg_.htm", "sigma_target_ref": "https://help.sigmacomputing.com/docs/avg", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+upper"},
+    {"source": "Max", "sigma": "Max", "sql": "MAX", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Max_.htm", "sigma_target_ref": "https://help.sigmacomputing.com/docs/max", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+upper"},
+    {"source": "Min", "sigma": "Min", "sql": "MIN", "doc_ref": "https://www2.microstrategy.com/producthelp/Current/FunctionsRef/Content/FuncRef/Min_.htm", "sigma_target_ref": "https://help.sigmacomputing.com/docs/min", "sigma_verified": {"status": "n"}, "on_unmapped": "warn+upper"}
+  ]
+}

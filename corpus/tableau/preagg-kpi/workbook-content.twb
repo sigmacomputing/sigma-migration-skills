@@ -1,0 +1,567 @@
+<?xml version='1.0' encoding='utf-8' ?>
+
+<!-- Synthetic field-twin (invented names, no customer data): the PRE-AGGREGATED
+     KPI shape. {FIXED day : COUNTD(...)} LOD calcs materialize day-grain
+     distinct counts, then KPI formulas consume them ADDITIVELY
+     (SUM(preagg)/SUM(preagg)) — compiles clean everywhere, numbers wrong at
+     any grain other than day. Plus a dual-axis combo worksheet built the
+     multi-pane way (NO synchronized='true' — the shape parse-twb-layout
+     reads as a plain bar), an integer-coded dimension filter (SITE_KEY),
+     and a date-anchor parameter. -->
+<workbook locale='en_US' original-version='18.1' source-build='2026.1.5 (20261.26.0512.1609)' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <preferences />
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Anchor Week' datatype='date' name='[P_AnchorWeek]' param-domain-type='any' role='measure' type='quantitative' value='#2025-06-03#'>
+        <calculation class='tableau' formula='#2025-06-03#' />
+      </column>
+    </datasource>
+    <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' inline='true' name='federated.0pak0walletpulse01' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake demo' name='snowflake.0pak0walletpulse01'>
+            <connection class='snowflake' dbname='DEMO_DB' schema='ANALYTICS' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation join='inner' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[SALES_FACT].[SALE_DATE_KEY]' />
+              <expression op='[CALENDAR_DIM].[DATE_KEY]' />
+            </expression>
+          </clause>
+          <relation connection='snowflake.0pak0walletpulse01' name='SALES_FACT' table='[ANALYTICS].[SALES_FACT]' type='table'>
+            <columns>
+              <column datatype='string' name='SALE_ID' />
+              <column datatype='integer' name='BUYER_KEY' />
+              <column datatype='integer' name='SITE_KEY' />
+              <column datatype='integer' name='SALE_DATE_KEY' />
+              <column datatype='real' name='NET_AMOUNT' />
+              <column datatype='real' name='NET_EARNINGS' />
+            </columns>
+          </relation>
+          <relation connection='snowflake.0pak0walletpulse01' name='CALENDAR_DIM' table='[ANALYTICS].[CALENDAR_DIM]' type='table'>
+            <columns>
+              <column datatype='integer' name='DATE_KEY' />
+              <column datatype='date' name='CAL_DATE' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+      <aliases enabled='yes' />
+      <column caption='Sale Id' datatype='string' name='[SALE_ID]' role='dimension' type='nominal' />
+      <column caption='Buyer Key' datatype='integer' name='[BUYER_KEY]' role='measure' type='quantitative' />
+      <column caption='Site Key' datatype='integer' name='[SITE_KEY]' role='dimension' type='ordinal' />
+      <column caption='Sale Date Key' datatype='integer' name='[SALE_DATE_KEY]' role='measure' type='quantitative' />
+      <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+      <column caption='Net Earnings' datatype='real' name='[NET_EARNINGS]' role='measure' type='quantitative' />
+      <column caption='Date Key' datatype='integer' name='[DATE_KEY]' role='measure' type='quantitative' />
+      <column caption='Cal Date' datatype='date' name='[CAL_DATE]' role='dimension' type='ordinal' />
+      <column caption='Daily Distinct Buyers' datatype='integer' name='[Calculation_DDB]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED [CAL_DATE] : COUNTD([BUYER_KEY])}' />
+      </column>
+      <column caption='Daily Active Sales' datatype='integer' name='[Calculation_DAS]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED [CAL_DATE] : COUNTD([SALE_ID])}' />
+      </column>
+      <column caption='Avg Amount per Buyer' datatype='real' name='[Calculation_AvgAmt]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([NET_AMOUNT]) / SUM([Calculation_DDB])' />
+      </column>
+      <column caption='Sales per Active' datatype='real' name='[Calculation_SPA]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([Calculation_DAS]) / SUM([Calculation_DDB])' />
+      </column>
+      <column caption='Pct Buyers with Earnings' datatype='real' name='[Calculation_PctEarn]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM(IF [NET_EARNINGS] &gt; 0 THEN 1 ELSE 0 END) / SUM([Calculation_DDB])' />
+      </column>
+      <column caption='Week Anchor' datatype='date' name='[Calculation_WeekAnchor]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='DATEADD(&apos;day&apos;, 2, DATETRUNC(&apos;week&apos;, DATEADD(&apos;day&apos;, -2, [CAL_DATE])))' />
+      </column>
+      <column caption='Is Current Week?' datatype='boolean' name='[Calculation_IsCurWeek]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='DATETRUNC(&apos;week&apos;, [CAL_DATE]) = DATETRUNC(&apos;week&apos;, TODAY())' />
+      </column>
+      <column caption='Pct Growth YY' datatype='real' name='[Calculation_GrowthYY]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='(ZN(SUM([NET_AMOUNT])) - LOOKUP(ZN(SUM([NET_AMOUNT])), -52)) / ABS(LOOKUP(ZN(SUM([NET_AMOUNT])), -52))' />
+      </column>
+      <column caption='Weeks From Anchor' datatype='integer' name='[Calculation_WFA]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='DATEDIFF(&apos;week&apos;, [Parameters].[P_AnchorWeek], [Calculation_WeekAnchor])' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' show-structure='true' />
+      <datasource-dependencies datasource='Parameters'>
+        <column caption='Anchor Week' datatype='date' name='[P_AnchorWeek]' param-domain-type='any' role='measure' type='quantitative' value='#2025-06-03#'>
+          <calculation class='tableau' formula='#2025-06-03#' />
+        </column>
+      </datasource-dependencies>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='KPI Avg Amount'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Avg Amount per Buyer</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0pak0walletpulse01'>
+            <column caption='Avg Amount per Buyer' datatype='real' name='[Calculation_AvgAmt]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([NET_AMOUNT]) / SUM([Calculation_DDB])' />
+            </column>
+            <column-instance column='[Calculation_AvgAmt]' derivation='User' name='[usr:Calculation_AvgAmt:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[federated.0pak0walletpulse01].[usr:Calculation_AvgAmt:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0pak0walletpulse01].[usr:Calculation_AvgAmt:qk]' value='n&quot;$&quot;#,##0.00' />
+          </style-rule>
+          <style-rule element='gridline'>
+            <format attr='line-pattern' value='none' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.0pak0walletpulse01].[usr:Calculation_AvgAmt:qk]' />
+            </encodings>
+            <customized-label>
+              <formatted-text>
+                <run fontname='Tableau Bold' fontsize='26'>&lt;[federated.0pak0walletpulse01].[usr:Calculation_AvgAmt:qk]&gt;</run>
+              </formatted-text>
+            </customized-label>
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='true' />
+                <format attr='mark-labels-cull' value='true' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+      <simple-id uuid='{CE300001-0000-4000-8000-000000000001}' />
+    </worksheet>
+    <worksheet name='KPI Sales per Active'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Sales per Active</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0pak0walletpulse01'>
+            <column caption='Sales per Active' datatype='real' name='[Calculation_SPA]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([Calculation_DAS]) / SUM([Calculation_DDB])' />
+            </column>
+            <column-instance column='[Calculation_SPA]' derivation='User' name='[usr:Calculation_SPA:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[federated.0pak0walletpulse01].[usr:Calculation_SPA:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0pak0walletpulse01].[usr:Calculation_SPA:qk]' value='n#,##0.00' />
+          </style-rule>
+          <style-rule element='gridline'>
+            <format attr='line-pattern' value='none' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.0pak0walletpulse01].[usr:Calculation_SPA:qk]' />
+            </encodings>
+            <customized-label>
+              <formatted-text>
+                <run fontname='Tableau Bold' fontsize='26'>&lt;[federated.0pak0walletpulse01].[usr:Calculation_SPA:qk]&gt;</run>
+              </formatted-text>
+            </customized-label>
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='true' />
+                <format attr='mark-labels-cull' value='true' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+      <simple-id uuid='{CE300002-0000-4000-8000-000000000002}' />
+    </worksheet>
+    <worksheet name='KPI Pct Earnings'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Pct Buyers with Earnings</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0pak0walletpulse01'>
+            <column caption='Pct Buyers with Earnings' datatype='real' name='[Calculation_PctEarn]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM(IF [NET_EARNINGS] &gt; 0 THEN 1 ELSE 0 END) / SUM([Calculation_DDB])' />
+            </column>
+            <column-instance column='[Calculation_PctEarn]' derivation='User' name='[usr:Calculation_PctEarn:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <slices>
+            <column>[federated.0pak0walletpulse01].[usr:Calculation_PctEarn:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0pak0walletpulse01].[usr:Calculation_PctEarn:qk]' value='p0.0%' />
+          </style-rule>
+          <style-rule element='gridline'>
+            <format attr='line-pattern' value='none' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.0pak0walletpulse01].[usr:Calculation_PctEarn:qk]' />
+            </encodings>
+            <customized-label>
+              <formatted-text>
+                <run fontname='Tableau Bold' fontsize='26'>&lt;[federated.0pak0walletpulse01].[usr:Calculation_PctEarn:qk]&gt;</run>
+              </formatted-text>
+            </customized-label>
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='true' />
+                <format attr='mark-labels-cull' value='true' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+      <simple-id uuid='{CE300003-0000-4000-8000-000000000003}' />
+    </worksheet>
+    <worksheet name='Amount vs Growth'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Weekly Net Amount (bars) vs Pct Growth YY (line)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+          </datasources>
+          <datasource-dependencies datasource='federated.0pak0walletpulse01'>
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Site Key' datatype='integer' name='[SITE_KEY]' role='dimension' type='ordinal' />
+            <column caption='Week Anchor' datatype='date' name='[Calculation_WeekAnchor]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='DATEADD(&apos;day&apos;, 2, DATETRUNC(&apos;week&apos;, DATEADD(&apos;day&apos;, -2, [CAL_DATE])))' />
+            </column>
+            <column caption='Pct Growth YY' datatype='real' name='[Calculation_GrowthYY]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='(ZN(SUM([NET_AMOUNT])) - LOOKUP(ZN(SUM([NET_AMOUNT])), -52)) / ABS(LOOKUP(ZN(SUM([NET_AMOUNT])), -52))' />
+            </column>
+            <column-instance column='[Calculation_WeekAnchor]' derivation='None' name='[none:Calculation_WeekAnchor:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_AMOUNT]' derivation='Sum' name='[sum:NET_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_GrowthYY]' derivation='User' name='[usr:Calculation_GrowthYY:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[SITE_KEY]' derivation='None' name='[none:SITE_KEY:ok]' pivot='key' type='ordinal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0pak0walletpulse01].[none:SITE_KEY:ok]'>
+            <groupfilter function='level-members' level='[none:SITE_KEY:ok]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.0pak0walletpulse01].[none:SITE_KEY:ok]</column>
+            <column>[federated.0pak0walletpulse01].[none:Calculation_WeekAnchor:qk]</column>
+            <column>[federated.0pak0walletpulse01].[sum:NET_AMOUNT:qk]</column>
+            <column>[federated.0pak0walletpulse01].[usr:Calculation_GrowthYY:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='axis'>
+            <format attr='title' field='[federated.0pak0walletpulse01].[none:Calculation_WeekAnchor:qk]' value='Week Anchor (Tue)' />
+            <encoding attr='space' class='0' field='[federated.0pak0walletpulse01].[usr:Calculation_GrowthYY:qk]' field-type='quantitative' fold='true' scope='rows' type='space' />
+          </style-rule>
+          <style-rule element='cell'>
+            <format attr='text-format' field='[federated.0pak0walletpulse01].[usr:Calculation_GrowthYY:qk]' value='p0.0%' />
+          </style-rule>
+          <style-rule element='gridline'>
+            <format attr='line-pattern' value='none' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane id='1' selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='false' />
+              </style-rule>
+            </style>
+          </pane>
+          <pane id='2' selection-relaxation-option='selection-relaxation-allow' y-axis-name='[federated.0pak0walletpulse01].[sum:NET_AMOUNT:qk]'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='false' />
+              </style-rule>
+            </style>
+          </pane>
+          <pane id='3' selection-relaxation-option='selection-relaxation-allow' y-axis-name='[federated.0pak0walletpulse01].[usr:Calculation_GrowthYY:qk]'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='false' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows>([federated.0pak0walletpulse01].[sum:NET_AMOUNT:qk] + [federated.0pak0walletpulse01].[usr:Calculation_GrowthYY:qk])</rows>
+        <cols>[federated.0pak0walletpulse01].[none:Calculation_WeekAnchor:qk]</cols>
+      </table>
+      <simple-id uuid='{CE300004-0000-4000-8000-000000000004}' />
+    </worksheet>
+    <worksheet name='Weekly Forecast'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Weekly Forecast by Week Anchor</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+            <datasource name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='Parameters'>
+            <column caption='Anchor Week' datatype='date' name='[P_AnchorWeek]' param-domain-type='any' role='measure' type='quantitative' value='#2025-06-03#'>
+              <calculation class='tableau' formula='#2025-06-03#' />
+            </column>
+          </datasource-dependencies>
+          <datasource-dependencies datasource='federated.0pak0walletpulse01'>
+            <column caption='Net Amount' datatype='real' name='[NET_AMOUNT]' role='measure' type='quantitative' />
+            <column caption='Week Anchor' datatype='date' name='[Calculation_WeekAnchor]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='DATEADD(&apos;day&apos;, 2, DATETRUNC(&apos;week&apos;, DATEADD(&apos;day&apos;, -2, [CAL_DATE])))' />
+            </column>
+            <column caption='Is Current Week?' datatype='boolean' name='[Calculation_IsCurWeek]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='DATETRUNC(&apos;week&apos;, [CAL_DATE]) = DATETRUNC(&apos;week&apos;, TODAY())' />
+            </column>
+            <column caption='Weeks From Anchor' datatype='integer' name='[Calculation_WFA]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='DATEDIFF(&apos;week&apos;, [Parameters].[P_AnchorWeek], [Calculation_WeekAnchor])' />
+            </column>
+            <column-instance column='[Calculation_WeekAnchor]' derivation='None' name='[none:Calculation_WeekAnchor:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_AMOUNT]' derivation='Sum' name='[sum:NET_AMOUNT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_IsCurWeek]' derivation='None' name='[none:Calculation_IsCurWeek:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_WFA]' derivation='Min' name='[min:Calculation_WFA:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.0pak0walletpulse01].[none:Calculation_IsCurWeek:nk]'>
+            <groupfilter function='level-members' level='[none:Calculation_IsCurWeek:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.0pak0walletpulse01].[none:Calculation_IsCurWeek:nk]</column>
+            <column>[federated.0pak0walletpulse01].[none:Calculation_WeekAnchor:qk]</column>
+            <column>[federated.0pak0walletpulse01].[sum:NET_AMOUNT:qk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='gridline'>
+            <format attr='line-pattern' value='none' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+            <encodings>
+              <color column='[federated.0pak0walletpulse01].[none:Calculation_IsCurWeek:nk]' />
+              <lod column='[federated.0pak0walletpulse01].[min:Calculation_WFA:qk]' />
+            </encodings>
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-labels-show' value='false' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows>[federated.0pak0walletpulse01].[sum:NET_AMOUNT:qk]</rows>
+        <cols>[federated.0pak0walletpulse01].[none:Calculation_WeekAnchor:qk]</cols>
+      </table>
+      <simple-id uuid='{CE300005-0000-4000-8000-000000000005}' />
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard enable-sort-zone-taborder='true' name='Wallet Pulse'>
+      <style />
+      <size maxheight='850' maxwidth='1300' minheight='850' minwidth='1300' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Wallet Pulse (SALES_FACT+CALENDAR_DIM)' name='federated.0pak0walletpulse01' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='100' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='99' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='50' param='vert' type-v2='layout-flow' w='80000' x='0' y='0'>
+              <zone h='18000' id='40' layout-strategy-id='distribute-evenly' param='horz' type-v2='layout-flow' w='80000' x='0' y='0'>
+                <zone h='18000' id='41' name='KPI Avg Amount' w='26666' x='0' y='0'>
+                  <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                  <zone-style>
+                    <format attr='border-style' value='none' />
+                    <format attr='border-width' value='0' />
+                    <format attr='margin' value='2' />
+                    <format attr='background-color' value='#f6f8fb' />
+                  </zone-style>
+                </zone>
+                <zone h='18000' id='42' name='KPI Sales per Active' w='26667' x='26666' y='0'>
+                  <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                  <zone-style>
+                    <format attr='border-style' value='none' />
+                    <format attr='border-width' value='0' />
+                    <format attr='margin' value='2' />
+                    <format attr='background-color' value='#f6f8fb' />
+                  </zone-style>
+                </zone>
+                <zone h='18000' id='43' name='KPI Pct Earnings' w='26667' x='53333' y='0'>
+                  <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                  <zone-style>
+                    <format attr='border-style' value='none' />
+                    <format attr='border-width' value='0' />
+                    <format attr='margin' value='2' />
+                    <format attr='background-color' value='#f6f8fb' />
+                  </zone-style>
+                </zone>
+              </zone>
+              <zone h='40000' id='44' name='Amount vs Growth' w='80000' x='0' y='18000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+              <zone h='42000' id='45' name='Weekly Forecast' w='80000' x='0' y='58000'>
+                <layout-cache minheight='1' minwidth='1' type-h='scalable' type-w='scalable' />
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='3' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='100000' id='60' param='vert' type-v2='layout-flow' w='20000' x='80000' y='0'>
+              <zone forceUpdate='true' h='6000' id='65' type-v2='text' w='20000' x='80000' y='0'>
+                <formatted-text>
+                  <run fontalignment='1' fontcolor='#1a1a2e' fontname='Tableau Bold' fontsize='14'>Wallet Pulse</run>
+                </formatted-text>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='4' />
+                </zone-style>
+              </zone>
+              <zone h='30000' id='61' mode='checkdropdown' name='Amount vs Growth' param='[federated.0pak0walletpulse01].[none:SITE_KEY:ok]' type-v2='filter' w='20000' x='80000' y='6000'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='4' />
+                </zone-style>
+              </zone>
+              <zone h='14000' id='62' param='[Parameters].[P_AnchorWeek]' type-v2='paramctrl' w='20000' x='80000' y='36000'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='4' />
+                </zone-style>
+              </zone>
+              <zone h='16000' id='63' mode='checklist' name='Weekly Forecast' param='[federated.0pak0walletpulse01].[none:Calculation_IsCurWeek:nk]' type-v2='filter' w='20000' x='80000' y='50000'>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='4' />
+                </zone-style>
+              </zone>
+              <zone forceUpdate='true' h='34000' id='64' type-v2='text' w='20000' x='80000' y='66000'>
+                <formatted-text>
+                  <run fontcolor='#5a6472' fontsize='9'> </run>
+                </formatted-text>
+                <zone-style>
+                  <format attr='border-style' value='none' />
+                  <format attr='border-width' value='0' />
+                  <format attr='margin' value='4' />
+                </zone-style>
+              </zone>
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+      <simple-id uuid='{CE300010-0000-4000-8000-000000000010}' />
+    </dashboard>
+  </dashboards>
+  <windows source-height='30'>
+    <window class='dashboard' maximized='true' name='Wallet Pulse'>
+      <viewpoints>
+        <viewpoint name='KPI Avg Amount'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='KPI Sales per Active'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='KPI Pct Earnings'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Amount vs Growth'>
+          <zoom type='entire-view' />
+        </viewpoint>
+        <viewpoint name='Weekly Forecast'>
+          <zoom type='entire-view' />
+        </viewpoint>
+      </viewpoints>
+      <active id='-1' />
+      <simple-id uuid='{CE300011-0000-4000-8000-000000000011}' />
+    </window>
+  </windows>
+</workbook>

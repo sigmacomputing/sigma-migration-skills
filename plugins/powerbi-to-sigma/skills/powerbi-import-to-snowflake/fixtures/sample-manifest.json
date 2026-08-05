@@ -1,0 +1,32 @@
+{
+  "_comment": "Sanitized example output from Microsoft's public Retail Analysis Sample. Real dataset/workspace/connection ids are replaced with placeholders. Shows the pbi_table.col -> sf_table.COLUMN mapping used to repoint the converted Sigma data model.",
+  "dataset": "<pbi-dataset-id>",
+  "workspace": "<pbi-workspace-id>",
+  "target": "YOUR_DB.YOUR_SCHEMA",
+  "tables": [
+    {
+      "pbi_table": "Sales",
+      "sf_table": "YOUR_DB.YOUR_SCHEMA.SALES",
+      "rows": 923371,
+      "columns": [
+        { "pbi": "MonthID", "sf": "MONTH_ID", "sf_type": "NUMBER(38,0)" },
+        { "pbi": "ItemID", "sf": "ITEM_ID", "sf_type": "NUMBER(38,0)" },
+        { "pbi": "LocationID", "sf": "LOCATION_ID", "sf_type": "NUMBER(38,0)" },
+        { "pbi": "Sum_GrossMarginAmount", "sf": "SUM_GROSS_MARGIN_AMOUNT", "sf_type": "FLOAT" },
+        { "pbi": "Sum_Regular_Sales_Dollars", "sf": "SUM_REGULAR_SALES_DOLLARS", "sf_type": "FLOAT" },
+        { "pbi": "Sum_Markdown_Sales_Dollars", "sf": "SUM_MARKDOWN_SALES_DOLLARS", "sf_type": "FLOAT" },
+        { "pbi": "Sum_Regular_Sales_Units", "sf": "SUM_REGULAR_SALES_UNITS", "sf_type": "FLOAT" }
+      ]
+    },
+    {
+      "pbi_table": "District",
+      "sf_table": "YOUR_DB.YOUR_SCHEMA.DISTRICT",
+      "rows": 9,
+      "columns": [
+        { "pbi": "DistrictID", "sf": "DISTRICT_ID", "sf_type": "NUMBER(38,0)" },
+        { "pbi": "District", "sf": "DISTRICT", "sf_type": "VARCHAR" },
+        { "pbi": "DM", "sf": "DM", "sf_type": "VARCHAR" }
+      ]
+    }
+  ]
+}

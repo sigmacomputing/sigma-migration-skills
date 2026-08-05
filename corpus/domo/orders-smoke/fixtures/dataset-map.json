@@ -1,0 +1,16 @@
+{
+  "ds-order-fact": {
+    "connectionId": "conn-demo-warehouse",
+    "database": "DEMO_DB",
+    "schema": "DEMO",
+    "table": "ORDER_FACT",
+    "name": "Order Fact"
+  },
+  "ds-customer-dim": {
+    "connectionId": "conn-demo-warehouse",
+    "database": "DEMO_DB",
+    "schema": "DEMO",
+    "table": "CUSTOMER_DIM",
+    "name": "Customer Dim"
+  }
+}
