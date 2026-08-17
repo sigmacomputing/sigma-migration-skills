@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fetch-converter.sh — get a LOCAL Tableau→Sigma converter build with one command,
-# for the no-egress mechanical path when you don't already have the sigma-data-model
-# MCP checked out elsewhere.
+# for the no-egress mechanical path when you don't already have the converter
+# source checked out elsewhere.
 #
 # It clones (or updates) the converter repo into a GITIGNORED vendor/ dir under the
 # skill and builds it. migrate-tableau.rb then auto-discovers vendor/sigma-data-model-mcp/
@@ -19,7 +19,7 @@
 # Requires: git + node/npm on PATH.
 set -euo pipefail
 
-REPO="${SIGMA_CONVERTER_REPO:-}"   # set to your sigma-data-model-mcp build source (no default — internal)
+REPO="${SIGMA_CONVERTER_REPO:-}"   # set to your converter build-source repo (no default — internal)
 REF="${1:-}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # the skill's scripts/ dir
 DEST="$HERE/vendor/sigma-data-model-mcp"
@@ -33,7 +33,7 @@ if [ -d "$DEST/.git" ]; then
   if [ -n "$REF" ]; then git -C "$DEST" checkout --quiet "$REF"; git -C "$DEST" pull --quiet --ff-only origin "$REF" 2>/dev/null || true
   else git -C "$DEST" pull --quiet --ff-only; fi
 else
-  [ -n "$REPO" ] || { echo "FATAL: no checkout at $DEST and SIGMA_CONVERTER_REPO is unset — point it at your sigma-data-model-mcp build source"; exit 1; }
+  [ -n "$REPO" ] || { echo "FATAL: no checkout at $DEST and SIGMA_CONVERTER_REPO is unset — point it at your converter build-source repo"; exit 1; }
   echo "→ cloning $REPO → $DEST"
   mkdir -p "$(dirname "$DEST")"
   git clone --quiet "$REPO" "$DEST"

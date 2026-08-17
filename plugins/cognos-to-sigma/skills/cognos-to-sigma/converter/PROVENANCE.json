@@ -10,5 +10,5 @@
     "metric-binding.ts",
     "sigma-ids.ts"
   ],
-  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <sigma-data-model-mcp> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
+  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source checkout> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
 }
