@@ -102,6 +102,19 @@ module Sigma
     ENV.fetch('SIGMA_BASE_URL') { raise Error, 'SIGMA_BASE_URL not set' }
   end
 
+  # Security (A2): only transmit Sigma credentials to an https://
+  # sigmacomputing.com host. A poisoned SIGMA_BASE_URL would otherwise
+  # exfiltrate the client id/secret. Opt out (self-hosted/dev) with
+  # SIGMA_ALLOW_INSECURE_BASE_URL=1 (loud warning).
+  def self.validate_base_url!(base)
+    if ENV['SIGMA_ALLOW_INSECURE_BASE_URL'] == '1'
+      warn "WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation (#{base})"; return
+    end
+    u = (URI.parse(base) rescue nil); host = u&.host&.downcase
+    abort "FATAL: SIGMA_BASE_URL must use https:// (got '#{base}') — refusing to send Sigma credentials." unless u&.scheme == 'https'
+    abort "FATAL: SIGMA_BASE_URL host '#{host}' is not a sigmacomputing.com host — refusing to send Sigma credentials. Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override." unless host == 'sigmacomputing.com' || host&.end_with?('.sigmacomputing.com')
+  end
+
   # Return a token that is safe to use RIGHT NOW.
   #   - No token anywhere → mint one.
   #   - Known mint time (this process minted it, a parent surfaced
@@ -149,6 +162,7 @@ module Sigma
     begin
       cid    = ENV.fetch('SIGMA_CLIENT_ID')     { raise AuthError, 'SIGMA_CLIENT_ID not set' }
       secret = ENV.fetch('SIGMA_CLIENT_SECRET') { raise AuthError, 'SIGMA_CLIENT_SECRET not set' }
+      Sigma.validate_base_url!(base_url)
       creds = Base64.strict_encode64("#{cid}:#{secret}")
       uri = URI("#{base_url}/v2/auth/token")
       req = Net::HTTP::Post.new(uri)

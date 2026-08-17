@@ -23,4 +23,4 @@ TOKEN=$(echo "$RESP" | python3 -c "import sys,json;print(json.load(sys.stdin)['t
 if [ -z "${TOKEN:-}" ] || [ "$TOKEN" = "null" ]; then
   echo "no token in response: ${RESP:0:200}" >&2; exit 1
 fi
-echo "export TS_TOKEN=${TOKEN}"
+printf 'export TS_TOKEN=%q\n' "$TOKEN"

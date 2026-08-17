@@ -91,6 +91,6 @@ print(d['credentials']['token'])
 
 SITE_ID=$(printf '%s' "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['credentials']['site']['id'])")
 
-echo "export TABLEAU_AUTH_TOKEN='${TOKEN}'"
-echo "export TABLEAU_SITE_ID='${SITE_ID}'"
-echo "export TABLEAU_API_VERSION='${API_VER}'"
+printf 'export TABLEAU_AUTH_TOKEN=%q\n' "$TOKEN"
+printf 'export TABLEAU_SITE_ID=%q\n' "$SITE_ID"
+printf 'export TABLEAU_API_VERSION=%q\n' "$API_VER"

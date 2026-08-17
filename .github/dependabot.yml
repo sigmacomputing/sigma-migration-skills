@@ -1,0 +1,36 @@
+version: 2
+# Automated dependency-advisory monitoring.
+# NOTE: Dependabot only sees DECLARED manifests (package-lock.json, requirements.txt).
+# It CANNOT see third-party libraries inlined into the pre-built converter *.mjs
+# bundles (e.g. fast-xml-parser, js-yaml) — those are refreshed out-of-band via
+# tools/vendor-converters.sh and must be tracked manually.
+updates:
+  # npm — the only Node manifest in the repo (Cognos converter dev/build + runtime dep)
+  - package-ecosystem: npm
+    directory: /plugins/cognos-to-sigma/skills/cognos-to-sigma/converter
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cognos-converter:
+        patterns: ["*"]
+
+  # pip — Power BI assessment scripts
+  - package-ecosystem: pip
+    directory: /plugins/powerbi-to-sigma/skills/powerbi-assessment/scripts
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      powerbi-assessment:
+        patterns: ["*"]
+
+  # pip — Power BI converter scripts
+  - package-ecosystem: pip
+    directory: /plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      powerbi:
+        patterns: ["*"]

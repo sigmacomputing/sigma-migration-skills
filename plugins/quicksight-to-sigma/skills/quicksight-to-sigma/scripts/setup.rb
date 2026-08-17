@@ -25,6 +25,7 @@ require 'io/console'
 require 'json'
 require 'fileutils'
 require 'optparse'
+require 'uri'
 begin
   require_relative 'lib/redact'   # vendored plugin layout (scripts/lib/redact.rb)
 rescue LoadError
@@ -161,6 +162,18 @@ base = DEFAULT_BASE if base.empty?
 
 if [base, cid, sec].any?(&:empty?)
   abort "Base URL, Client ID, and Client Secret are all required. Aborting without writing settings."
+end
+
+# Security (A2): refuse to persist credentials for a non-https / non-sigmacomputing.com
+# base URL — a poisoned base would exfiltrate the client id/secret on every run.
+# Opt out (self-hosted/dev) with SIGMA_ALLOW_INSECURE_BASE_URL=1 (loud warning).
+if ENV['SIGMA_ALLOW_INSECURE_BASE_URL'] == '1'
+  warn "WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation (#{base})"
+else
+  _bu = (URI.parse(base) rescue nil)
+  _bh = _bu&.host&.downcase
+  abort "SIGMA_BASE_URL must use https:// (got '#{base}'). Refusing to write credentials. Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override (self-hosted/dev)." unless _bu&.scheme == 'https'
+  abort "SIGMA_BASE_URL host '#{_bh}' is not a sigmacomputing.com host. Refusing to write credentials. Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override." unless _bh == 'sigmacomputing.com' || _bh&.end_with?('.sigmacomputing.com')
 end
 
 # The one-command orchestrators (migrate-looker.py, migrate-qlik.rb, ...) need

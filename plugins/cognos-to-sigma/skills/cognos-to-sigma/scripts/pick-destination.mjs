@@ -30,9 +30,19 @@ function loadNeutralEnv() {
 
 const BASE = () => (process.env.SIGMA_BASE_URL || 'https://aws-api.sigmacomputing.com').replace(/\/$/, '');
 let TOK = null;
+function validateBaseUrl(base) {
+  // Security (A2): only send Sigma client creds to an https:// sigmacomputing.com host.
+  if (process.env.SIGMA_ALLOW_INSECURE_BASE_URL === '1') { console.error(`WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation (${base})`); return; }
+  let u; try { u = new URL(base); } catch { console.error(`FATAL: invalid SIGMA_BASE_URL: ${base}`); process.exit(1); }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== 'https:' || !(host === 'sigmacomputing.com' || host.endsWith('.sigmacomputing.com'))) {
+    console.error(`FATAL: refusing to send Sigma credentials to ${base} — require https:// on a sigmacomputing.com host (set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override).`); process.exit(1);
+  }
+}
 async function token() {
   if (process.env.SIGMA_API_TOKEN) return process.env.SIGMA_API_TOKEN;
   loadNeutralEnv();
+  validateBaseUrl(BASE());
   const body = new URLSearchParams({ grant_type: 'client_credentials',
     client_id: process.env.SIGMA_CLIENT_ID, client_secret: process.env.SIGMA_CLIENT_SECRET });
   const r = await fetch(BASE() + '/v2/auth/token', { method: 'POST', body });

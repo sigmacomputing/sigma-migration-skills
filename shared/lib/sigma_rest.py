@@ -45,6 +45,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 NEUTRAL_ENV = os.path.expanduser("~/.sigma-migration/env")
@@ -155,6 +156,22 @@ def base_url():
     return v
 
 
+def validate_base_url(base):
+    """Security (A2): only transmit Sigma credentials to an https://
+    sigmacomputing.com host. A poisoned SIGMA_BASE_URL would otherwise
+    exfiltrate the client id/secret. Opt out (self-hosted/dev) with
+    SIGMA_ALLOW_INSECURE_BASE_URL=1 (loud warning)."""
+    if os.environ.get("SIGMA_ALLOW_INSECURE_BASE_URL") == "1":
+        print(f"WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation ({base})", file=sys.stderr)
+        return
+    p = urllib.parse.urlparse(base or "")
+    host = (p.hostname or "").lower()
+    if p.scheme != "https":
+        raise SystemExit(f"FATAL: SIGMA_BASE_URL must use https:// (got '{base}') — refusing to send Sigma credentials.")
+    if not (host == "sigmacomputing.com" or host.endswith(".sigmacomputing.com")):
+        raise SystemExit(f"FATAL: SIGMA_BASE_URL host '{host}' is not a sigmacomputing.com host — refusing to send Sigma credentials. Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override (self-hosted/dev).")
+
+
 def token_minted_at():
     """Epoch seconds when the current token was minted, if known. The in-memory
     stamp (set by refresh_token in this process) wins; else SIGMA_TOKEN_MINTED_AT
@@ -259,6 +276,7 @@ def refresh_token():
         secret = os.environ.get("SIGMA_CLIENT_SECRET")
         if not secret:
             raise SigmaAuthError("SIGMA_CLIENT_SECRET not set")
+        validate_base_url(base_url())
         creds = base64.b64encode(f"{cid}:{secret}".encode()).decode()
         resp = _send(
             "POST",
