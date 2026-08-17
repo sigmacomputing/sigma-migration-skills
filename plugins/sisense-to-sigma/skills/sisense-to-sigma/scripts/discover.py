@@ -33,10 +33,12 @@ BASE = os.environ.get("SISENSE_BASE_URL", "").rstrip("/")
 TOKEN = os.environ.get("SISENSE_API_TOKEN", "")
 
 # Some Sisense instances (notably trial/self-signed) present a cert chain that
-# Python's verifier rejects even though curl/browsers accept it. Try verified
-# first; on a cert-verification error, fall back to an unverified context (the
-# target is the customer's own instance, reached over their own creds) and warn.
+# Python's verifier rejects even though curl/browsers accept it. Always try
+# verified first. NEVER silently downgrade on a cert-verification error: an
+# unverified context is used ONLY when SISENSE_INSECURE_TLS=1 is explicitly
+# set, and it logs loudly.
 _UNVERIFIED = ssl._create_unverified_context()
+_INSECURE_OK = os.environ.get("SISENSE_INSECURE_TLS") == "1"
 _warned_ssl = False
 
 
@@ -53,9 +55,14 @@ def _get(path):
     except urllib.error.URLError as e:
         if not isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
             raise
+        if not _INSECURE_OK:
+            sys.exit(
+                "TLS cert not verifiable (trial/self-signed cert). Refusing to "
+                "silently fall back to an unverified connection. Set "
+                "SISENSE_INSECURE_TLS=1 to explicitly allow this (insecure).")
         if not _warned_ssl:
-            print("  ! TLS cert not verifiable — falling back to unverified "
-                  "context (trial/self-signed cert)", file=sys.stderr)
+            print("WARNING: SISENSE_INSECURE_TLS=1 — TLS verification DISABLED "
+                  "for sisense (insecure)", file=sys.stderr)
             _warned_ssl = True
         with urllib.request.urlopen(req, context=_UNVERIFIED) as r:
             body = r.read().decode("utf-8")

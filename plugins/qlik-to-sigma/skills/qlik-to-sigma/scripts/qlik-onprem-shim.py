@@ -69,6 +69,10 @@ def env(name, default=None, required=False):
 SERVER = env("QLIK_ONPREM_SERVER", required=True)
 AUTH = env("QLIK_ONPREM_AUTH", "certs")
 INSECURE = env("QLIK_ONPREM_INSECURE") == "1"
+if INSECURE:
+    sys.stderr.write(
+        "WARNING: QLIK_ONPREM_INSECURE=1 — TLS verification DISABLED for qlik "
+        "(insecure)\n")
 
 
 def ssl_ctx(with_client_cert):

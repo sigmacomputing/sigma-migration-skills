@@ -17,7 +17,9 @@ Usage: python3 apply_layouts.py [--workdir DIR]   # all workbooks in <workdir>/m
 Env: SIGMA_BASE_URL, SIGMA_API_TOKEN, TS_WORKDIR (default for --workdir), TS_ROW_SCALE
 """
 import argparse, json, os, ssl, sys, urllib.request, urllib.error
-_SSL = ssl._create_unverified_context()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ts_lib
+_SSL = ts_lib.ssl_context()
 
 TS_GRID_COLS = 12                                   # ThoughtSpot Liveboard grid
 COL_SCALE = 24 // TS_GRID_COLS                      # → Sigma's 24-col grid
