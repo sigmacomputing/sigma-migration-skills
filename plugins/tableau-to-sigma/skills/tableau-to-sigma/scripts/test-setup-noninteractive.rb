@@ -52,7 +52,7 @@ Dir.mktmpdir do |home|
 
   # (2) full flags => writes both stores non-interactively.
   code, out, = run_setup(home, ['--client-id', 'id-123', '--client-secret', 'sec-456',
-                                '--base-url', 'https://api.example-sigma.test',
+                                '--base-url', 'https://api.eu.aws.sigmacomputing.com',
                                 '--connection-id', 'conn-789'])
   check(code == 0, "flag mode exits 0 (got #{code})", fails)
   neutral = File.join(home, '.sigma-migration', 'env')
@@ -62,7 +62,7 @@ Dir.mktmpdir do |home|
   body = File.read(neutral)
   check(body.include?("export SIGMA_CLIENT_ID='id-123'") &&
         body.include?("export SIGMA_CLIENT_SECRET='sec-456'") &&
-        body.include?("export SIGMA_BASE_URL='https://api.example-sigma.test'") &&
+        body.include?("export SIGMA_BASE_URL='https://api.eu.aws.sigmacomputing.com'") &&
         body.include?("export SIGMA_CONNECTION_ID='conn-789'"),
         'neutral file carries all four exports', fails)
   check((File.stat(neutral).mode & 0o777) == 0o600, 'neutral file is 0600', fails)
@@ -90,7 +90,7 @@ Dir.mktmpdir do |home|
   secret = 'supersecret-abcdef-123456'
   code, out, hung = run_setup(home, [], env: { 'SIGMA_CLIENT_ID' => 'id-env',
                                                'SIGMA_CLIENT_SECRET' => secret,
-                                               'SIGMA_BASE_URL' => 'https://api.example-sigma.test' })
+                                               'SIGMA_BASE_URL' => 'https://api.eu.aws.sigmacomputing.com' })
   check(!hung, 'no-TTY env path does not hang', fails)
   check(code == 0, "no-TTY with env creds exits 0 (got #{code})", fails)
   check(out.include?('env SIGMA_CLIENT_ID') && out.include?('env SIGMA_CLIENT_SECRET'),
