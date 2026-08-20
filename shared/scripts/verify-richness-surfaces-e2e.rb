@@ -48,7 +48,7 @@
 #   4. Value styling + uniform card — a `kpi-chart` with
 #      `value: {columnId, color, fontSize}` (already individually documented
 #      in styling.md) placed as the MIDDLE of three stacked kpi-charts inside
-#      a `<GridContainer gridTemplateRows="repeat(3,1fr)">`. The new question
+#      a `<Container gridTemplateRows="repeat(3,1fr)">`. The new question
 #      is whether `repeat(3,1fr)` forces UNIFORM (equal) card heights even
 #      when one card's own content is visibly taller (a much bigger
 #      `value.fontSize`) — CSS Grid's `fr` unit is only guaranteed to
@@ -78,6 +78,7 @@ require 'shellwords'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sigma_rest'
 require 'export_pool'
+require 'code_rep'
 
 RUN_TAG       = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
 CONNECTION_ID = ENV.fetch('SIGMA_TEST_CONNECTION_ID', '362d859b-f432-4657-8e58-efc8535aa354')
@@ -203,7 +204,8 @@ def reference_schema_version
     wid = w['workbookId'] || w['id']
     next unless wid
     spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
-    return spec['schemaVersion'] if spec.is_a?(Hash) && spec['schemaVersion']
+    doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
+    return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
@@ -232,16 +234,23 @@ end
 
 def probe_cortex_model(home, schema_version, model)
   sql = "SELECT SNOWFLAKE.CORTEX.COMPLETE('#{model}', 'Respond with exactly the single word: OK') AS resp"
-  spec = {
-    'name' => "Cortex model probe — #{model} (#{RUN_TAG})",
-    'folderId' => home, 'schemaVersion' => schema_version,
-    'description' => 'Throwaway raw-SQL Cortex-availability probe. Not the richness workbook.',
-    'pages' => [{ 'id' => 'p1', 'name' => 'P1', 'elements' => [
+  doc = {
+    'schemaVersion' => schema_version,
+    'kind' => 'workbook', # PATCHED for live probe: current contract requires document.kind
+    'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+    'elements' => [
       { 'id' => 'cx', 'kind' => 'table', 'name' => 'Cx',
         'source' => { 'kind' => 'sql', 'connectionId' => CONNECTION_ID, 'statement' => sql },
         'columns' => [{ 'id' => 'r', 'name' => 'Resp', 'formula' => '[Custom SQL/resp]' }] }
-    ] }],
+    ],
+    'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">' \
+                '<Element elementId="cx" gridColumn="1 / 25" gridRow="1 / 10"/></Page>'
   }
+  spec = Sigma::CodeRep.wrap(doc, extra: {
+    'name' => "Cortex model probe — #{model} (#{RUN_TAG})",
+    'folderId' => home,
+    'description' => 'Throwaway raw-SQL Cortex-availability probe. Not the richness workbook.'
+  })
   wb = nil
   begin
     resp = post_or_put_workbook_spec(:post, '/v2/workbooks/spec', spec)
@@ -292,16 +301,7 @@ def build_spec(home, schema_version, cortex_model, flags)
             '"Write one short business-insight sentence (no preamble, no question) stating that total ' \
             "revenue across the period was \" & Text(Sum([Src/Revenue])) & \" dollars.\"), '\"', \"\") }}"
 
-  {
-    'name' => "WS3 richness-surface probe — E2E proof (#{RUN_TAG})",
-    'folderId' => home,
-    'schemaVersion' => schema_version,
-    'description' => 'Live GO/NO-GO proof of WS3 richness spec surfaces (sparkline-in-KPI, CallText, ' \
-                      'Switch-grain, value-style + uniform card). Throwaway test artifact.',
-    'pages' => [
-      {
-        'id' => PAGE1_ID, 'name' => 'Richness Probe — main',
-        'elements' => [
+  page1_elements = [
           { 'id' => SRC_ID, 'kind' => 'table', 'name' => SRC_NAME,
             'source' => { 'kind' => 'sql', 'connectionId' => CONNECTION_ID, 'statement' => DEMO_SQL },
             'columns' => src_cols },
@@ -340,25 +340,23 @@ def build_spec(home, schema_version, cortex_model, flags)
             ],
             'xAxis' => { 'columnId' => 'grain-dim' },
             'yAxis' => { 'columnIds' => ['grain-val'] } },
-        ],
-        'layout' => <<~XML,
-          <?xml version="1.0" encoding="utf-8"?>
-          <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE1_ID}">
-            <LayoutElement elementId="#{KPI_SPARK_ID}" gridColumn="1 / 13" gridRow="1 / 11"/>
-            <LayoutElement elementId="#{AI_TEXT_ID}" gridColumn="13 / 25" gridRow="1 / 11"/>
-            <LayoutElement elementId="#{GRAIN_CTL_ID}" gridColumn="1 / 9" gridRow="11 / 13"/>
-            <LayoutElement elementId="#{GRAIN_CHART_ID}" gridColumn="1 / 25" gridRow="13 / 25"/>
-            <LayoutElement elementId="#{SRC_ID}" gridColumn="1 / 25" gridRow="25 / 29"/>
-          </Page>
-        XML
-      },
-      {
-        # SURFACE 4 lives on its OWN page — a clean, predictable render
-        # (nothing above it) makes the equal/unequal-band pixel measurement
-        # reliable without having to first detect an arbitrary content
-        # boundary the way the styling probe's hero band needed to.
-        'id' => PAGE2_ID, 'name' => 'Richness Probe — uniform card',
-        'elements' => [
+  ]
+  page1_layout = <<~XML
+    <?xml version="1.0" encoding="utf-8"?>
+    <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE1_ID}">
+      <Element elementId="#{KPI_SPARK_ID}" gridColumn="1 / 13" gridRow="1 / 11"/>
+      <Element elementId="#{AI_TEXT_ID}" gridColumn="13 / 25" gridRow="1 / 11"/>
+      <Element elementId="#{GRAIN_CTL_ID}" gridColumn="1 / 9" gridRow="11 / 13"/>
+      <Element elementId="#{GRAIN_CHART_ID}" gridColumn="1 / 25" gridRow="13 / 25"/>
+      <Element elementId="#{SRC_ID}" gridColumn="1 / 25" gridRow="25 / 29"/>
+    </Page>
+  XML
+
+  # SURFACE 4 lives on its OWN page — a clean, predictable render
+  # (nothing above it) makes the equal/unequal-band pixel measurement
+  # reliable without having to first detect an arbitrary content
+  # boundary the way the styling probe's hero band needed to.
+  page2_elements = [
           { 'id' => UNIFORM_WRAP_ID, 'kind' => 'container', 'style' => { 'backgroundColor' => '#FFFFFF' } },
           { 'id' => CARD_A_ID, 'kind' => 'kpi-chart', 'name' => 'Card A (plain)',
             'source' => { 'kind' => 'table', 'elementId' => SRC_ID },
@@ -377,20 +375,32 @@ def build_spec(home, schema_version, cortex_model, flags)
             'columns' => [{ 'id' => 'c-val', 'name' => ' ', 'formula' => 'Sum([Src/Orders])' }],
             'value' => { 'columnId' => 'c-val' },
             'style' => { 'backgroundColor' => CARD_C_BG } },
-        ],
-        'layout' => <<~XML,
-          <?xml version="1.0" encoding="utf-8"?>
-          <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE2_ID}">
-            <GridContainer elementId="#{UNIFORM_WRAP_ID}" type="grid" gridColumn="1 / 25" gridRow="1 / 19" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="repeat(3, 1fr)">
-              <LayoutElement elementId="#{CARD_A_ID}" gridColumn="1 / 25" gridRow="1 / 2"/>
-              <LayoutElement elementId="#{CARD_B_ID}" gridColumn="1 / 25" gridRow="2 / 3"/>
-              <LayoutElement elementId="#{CARD_C_ID}" gridColumn="1 / 25" gridRow="3 / 4"/>
-            </GridContainer>
-          </Page>
-        XML
-      },
+  ]
+  page2_layout = <<~XML
+    <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE2_ID}">
+      <Container elementId="#{UNIFORM_WRAP_ID}" type="grid" gridColumn="1 / 25" gridRow="1 / 19" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="repeat(3, 1fr)">
+        <Element elementId="#{CARD_A_ID}" gridColumn="1 / 25" gridRow="1 / 2"/>
+        <Element elementId="#{CARD_B_ID}" gridColumn="1 / 25" gridRow="2 / 3"/>
+        <Element elementId="#{CARD_C_ID}" gridColumn="1 / 25" gridRow="3 / 4"/>
+      </Container>
+    </Page>
+  XML
+  doc = {
+    'schemaVersion' => schema_version,
+    'kind' => 'workbook', # PATCHED for live probe: current contract requires document.kind
+    'pages' => [
+      { 'id' => PAGE1_ID, 'name' => 'Richness Probe — main' },
+      { 'id' => PAGE2_ID, 'name' => 'Richness Probe — uniform card' }
     ],
+    'elements' => page1_elements + page2_elements,
+    'layout' => [page1_layout, page2_layout].join("\n")
   }
+  Sigma::CodeRep.wrap(doc, extra: {
+    'name' => "WS3 richness-surface probe — E2E proof (#{RUN_TAG})",
+    'folderId' => home,
+    'description' => 'Live GO/NO-GO proof of WS3 richness spec surfaces (sparkline-in-KPI, CallText, ' \
+                     'Switch-grain, value-style + uniform card). Throwaway test artifact.'
+  })
 end
 
 # ---------------------------------------------------------------------------
@@ -612,7 +622,8 @@ begin
 
   # --- STAGE 2: structural (GET) readback ----------------------------------
   spec_back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
-  els = spec_back['pages'].flat_map { |p| p['elements'] || [] }
+  spec_back = Sigma::CodeRep.document(spec_back)
+  els = Sigma::CodeRep.workbook_elements(spec_back)
   find_el = ->(id) { els.find { |e| e['id'] == id } }
 
   kpi_el    = find_el.call(KPI_SPARK_ID)

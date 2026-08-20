@@ -1,11 +1,20 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "hex-to-sigma",
-  "displayName": "Hex → Sigma",
-  "version": "0.1.2",
-  "description": "Migrate Hex projects to Sigma — SQL cells, single-value/METRIC cells, and EXPLORE charts → Sigma data model + workbook, built from a project's .hex.yaml export (Hex's REST API doesn't return cell content), with app layout carried over and warehouse parity verification. Bundles a read-only hex-assessment skill (scaffolded, not yet built out). Companion to the sigma-migration-skills converters.",
-  "author": { "name": "Sigma Computing" },
+  "displayName": "Hex \u2192 Sigma",
+  "version": "0.2.11",
+  "description": "Migrate Hex projects to Sigma \u2014 SQL cells, single-value/METRIC cells, and EXPLORE charts \u2192 Sigma data model + workbook, built from a project's .hex.yaml export (Hex's REST API doesn't return cell content), with app layout carried over and warehouse parity verification. Bundles a read-only hex-assessment skill (scaffolded, not yet built out). Companion to the sigma-migration-skills converters.",
+  "author": {
+    "name": "Sigma Computing"
+  },
   "license": "Apache-2.0",
-  "keywords": ["hex", "hex.tech", "sigma", "migration", "bi", "converter"],
+  "keywords": [
+    "hex",
+    "hex.tech",
+    "sigma",
+    "migration",
+    "bi",
+    "converter"
+  ],
   "skills": "./skills/"
 }

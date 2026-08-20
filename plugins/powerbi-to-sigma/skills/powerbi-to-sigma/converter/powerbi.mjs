@@ -1608,6 +1608,34 @@ function pbiExtractPathFromM(mExpr) {
   }
   return null;
 }
+function pbiDetectNonWarehouseSource(mExpr) {
+  if (!mExpr)
+    return null;
+  const m = mExpr;
+  const first = (re) => {
+    const mm = m.match(re);
+    return mm ? mm[1] : null;
+  };
+  if (/\b(?:PowerPlatform|PowerBI)\.Dataflows\s*\(/i.test(m)) {
+    return { kind: "dataflow", entity: first(/\[\s*entity\s*=\s*"([^"]+)"/i) };
+  }
+  if (/\bLakehouse\.Contents\s*\(/i.test(m) || /\bOneLake\b/i.test(m)) {
+    return {
+      kind: "lakehouse",
+      entity: first(/\[\s*Id\s*=\s*"([^"]+)"\s*,\s*ItemKind\s*=/i) || first(/\[\s*Name\s*=\s*"([^"]+)"/i)
+    };
+  }
+  if (/\bCommonDataService\.Database\s*\(/i.test(m) || /\bCds\.Contents\s*\(/i.test(m)) {
+    return {
+      kind: "dataverse",
+      entity: first(/\[\s*EntitySetName\s*=\s*"([^"]+)"/i) || first(/\[\s*Name\s*=\s*"([^"]+)"/i)
+    };
+  }
+  if (/\bExcel\.Workbook\s*\(|\bCsv\.Document\s*\(|\bSharePoint\.[A-Za-z]+\s*\(|\bWeb\.Contents\s*\(|\bAzureStorage\.DataLake\s*\(/i.test(m)) {
+    return { kind: "file", entity: first(/\[\s*(?:Name|Item)\s*=\s*"([^"]+)"/i) };
+  }
+  return null;
+}
 function daxCalendarDerivedToSql(expr) {
   const e = expr.trim();
   if (/^\[[^\]]+\]$/.test(e))
@@ -2384,6 +2412,7 @@ function convertPowerBIToSigma(modelJson, options = {}) {
   const schOverride = physCase(schema || "");
   const warnings = [];
   const security = [];
+  const nonWarehouseSourced = [];
   const elements = [];
   const tableIdMap = {};
   const tableColMap = {};
@@ -2535,7 +2564,7 @@ function convertPowerBIToSigma(modelJson, options = {}) {
           warnings.push(`\u2139 Calculated table "${tableName}": DAX GENERATESERIES \u2192 synthesized Sigma SQL element (VALUES list).`);
         }
       } else {
-        statement = `-- TODO (beads-sigma-w9s): ${built.reason}
+        statement = `-- TODO ([bead]): ${built.reason}
 -- Original DAX: ${ctExpr.replace(/\n/g, " ").slice(0, 300)}
 SELECT 1 AS _placeholder`;
         warnings.push(`\u26D4 Calculated table "${tableName}": ${built.reason} Emitted a placeholder SQL element (NOT a warehouse-table). Original DAX preserved as a comment.`);
@@ -2580,9 +2609,10 @@ SELECT 1 AS _placeholder`;
       continue;
     }
     let path = null;
+    const mText = partition?.source?.expression ? Array.isArray(partition.source.expression) ? partition.source.expression.join("\n") : partition.source.expression : "";
     if (partition?.source) {
-      if (partition.source.expression) {
-        path = pbiExtractPathFromM(Array.isArray(partition.source.expression) ? partition.source.expression.join("\n") : partition.source.expression);
+      if (mText) {
+        path = pbiExtractPathFromM(mText);
       }
       if (!path && partition.source.query) {
         const tblMatch = partition.source.query.match(/FROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?\.\[?(\w+)\]?/i);
@@ -2601,8 +2631,21 @@ SELECT 1 AS _placeholder`;
         path[0] = schOverride;
       }
     } else {
-      path = [dbOverride || physCase("DATABASE"), schOverride || physCase("SCHEMA"), physCase(tableName)];
-      warnings.push(`\u26A0 Table "${tableName}": could not extract source path from M expression \u2014 using default.`);
+      const nonWh = pbiDetectNonWarehouseSource(mText);
+      if (nonWh) {
+        path = [dbOverride || physCase("DATABASE"), schOverride || physCase("SCHEMA"), physCase(tableName)];
+        nonWarehouseSourced.push({ table: tableName, kind: nonWh.kind, entity: nonWh.entity });
+        const KIND_LABEL = {
+          dataflow: "Fabric/Power BI Dataflow",
+          lakehouse: "Fabric Lakehouse/OneLake",
+          dataverse: "Dataverse",
+          file: "file source (Excel/CSV/SharePoint/web)"
+        };
+        warnings.push(`\u26D4 Table "${tableName}" is sourced from a ${KIND_LABEL[nonWh.kind]}` + (nonWh.entity ? ` (entity "${nonWh.entity}")` : "") + `, not a warehouse Sigma can query. Any transformation logic in the ${nonWh.kind} is NOT in the semantic model and cannot be translated. To migrate: (1) land the data in your warehouse \u2014 run the powerbi-import-to-snowflake skill for Import-mode models \u2014 then (2) repoint this element with convert-model.rb --table-map. Emitted placeholder path ${path.join(".")} \u2014 it will NOT resolve until repointed.`);
+      } else {
+        path = [dbOverride || physCase("DATABASE"), schOverride || physCase("SCHEMA"), physCase(tableName)];
+        warnings.push(`\u26A0 Table "${tableName}": could not extract source path from M expression \u2014 using default.`);
+      }
     }
     const physPath = whLower && path ? path.map((s) => String(s).toLowerCase()) : path;
     const columns = [];
@@ -3225,7 +3268,12 @@ SELECT 1 AS _placeholder`;
       columns: elements.reduce((n, e) => n + (e.columns?.length || 0), 0),
       metrics: mc,
       relationships: rc,
-      ...cgCount > 0 ? { calculationGroups: cgCount } : {}
+      ...cgCount > 0 ? { calculationGroups: cgCount } : {},
+      // Tables whose M source is a Fabric Dataflow / Lakehouse / Dataverse / file
+      // (not a warehouse Sigma can query). Per-table kind + entity ride in the
+      // ⛔ warnings; this count is the machine-readable trigger for the skill's
+      // land-then-repoint handoff.
+      ...nonWarehouseSourced.length ? { nonWarehouseSourcedTables: nonWarehouseSourced.length } : {}
     }
   };
 }
@@ -3238,6 +3286,7 @@ export {
   isAggCombination,
   maskDaxStringLiterals,
   pbiDaxToSigma,
+  pbiDetectNonWarehouseSource,
   pbiParseEarlierWindow,
   stripDaxComments
 };

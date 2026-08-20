@@ -37,12 +37,19 @@ end
 
 puts 'Part A — verify-anchors per-displayed-tile coverage'
 def stage_verify_fixture(d, anchors, waivers: nil)
-  spec = { 'pages' => [{ 'id' => 'p', 'elements' => [
+  elements = [
     { 'id' => 'el-a', 'kind' => 'chart', 'name' => 'Alpha Chart', 'source' => { 'elementId' => 'base' } },
     { 'id' => 'el-b', 'kind' => 'chart', 'name' => 'Beta Chart' },
     { 'id' => 'el-c', 'kind' => 'chart', 'name' => 'Gamma Chart' },
     { 'id' => 'base', 'kind' => 'table', 'name' => 'Base' }
-  ] }] }
+  ]
+  spec = {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p', 'name' => 'Dashboard' }],
+    'elements' => elements,
+    'layout' => "<Page id=\"p\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  }
   File.write(File.join(d, 'wb.json'), JSON.generate(spec))
   exdir = File.join(d, 'exports')
   Dir.mkdir(exdir) unless Dir.exist?(exdir)

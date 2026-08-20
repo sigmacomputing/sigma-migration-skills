@@ -113,6 +113,23 @@ check(by['Dropped Seats'] && by['Dropped Seats']['class'] == 'silently-dropped',
 check(by['Declared Residue'] && by['Declared Residue']['class'] == 'manual-residue' && by['Declared Residue']['status'] == 'resolved',
       'explicit manual-residues.json entry → resolved manual-residue', fails)
 
+puts 'Part B1 — source census proves an un-emitted LOD is unused (resolved without waiver)'
+unused_entries = LodAudit.derive(
+  calcs,
+  dm_spec: JSON.parse(JSON.generate(DM_SPEC)),
+  wb_spec: nil,
+  manual_residues: JSON.parse(JSON.generate(MANUAL_RESIDUES)),
+  unused_fields: ['[Dropped Seats]', '[Aliased Seats]']
+)
+unused_by = unused_entries.each_with_object({}) { |entry, index| index[entry['calc']] = entry }
+check(unused_by['Dropped Seats']['class'] == 'unused-source' &&
+      unused_by['Dropped Seats']['status'] == 'resolved',
+      'un-emitted calc named by the source unused-field census → resolved unused-source', fails)
+check(unused_by['Dropped Seats'].dig('evidence', 'kind') == 'source-unused-field-census',
+      'unused-source resolution carries explicit census evidence', fails)
+check(unused_by['Aliased Seats']['class'] == 'suspect-alias',
+      'unused-field census never masks an emitted suspect alias', fails)
+
 puts 'Part B2 — reference-derived: a formula built strictly from the LOD refs resolves'
 wb = { 'pages' => [{ 'elements' => [
   { 'id' => 'el-kpi', 'kind' => 'kpi-chart', 'name' => 'Seats KPI',
@@ -135,6 +152,21 @@ wb3 = { 'pages' => [{ 'elements' => [
 e3 = LodAudit.derive(calcs, dm_spec: nil, wb_spec: wb3, manual_residues: nil)
 d3 = e3.find { |x| x['calc'] == 'Dropped Seats' }
 check(d3 && d3['class'] == 'lod-synth', 'grouped helper element → lod-synth even with rewired refs', fails)
+
+puts 'Part B3b — current flat workbook document.elements is audited too'
+wb3_flat = {
+  'document' => {
+    'schemaVersion' => 1,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p1', 'name' => 'Page 1' }],
+    'elements' => wb3['pages'][0]['elements'],
+    'layout' => '<Page id="p1"><Element elementId="el-h"/></Page>'
+  }
+}
+e3_flat = LodAudit.derive(calcs, dm_spec: nil, wb_spec: wb3_flat, manual_residues: nil)
+d3_flat = e3_flat.find { |x| x['calc'] == 'Dropped Seats' }
+check(d3_flat && d3_flat['class'] == 'lod-synth',
+      'flat workbook grouped helper is visible to the LOD audit', fails)
 
 puts 'Part B4 — passthrough-only ref is NOT evidence (still dropped)'
 wb4 = { 'pages' => [{ 'elements' => [
@@ -264,6 +296,19 @@ Dir.mktmpdir do |dir|
                                  '--resolve', idx['Active Seats'].to_s, '--how', 'waived', '--reason', 'x')
   check(!st4.success? && e4s.include?('only suspect-alias/silently-dropped'),
         'resolving a resolved entry is refused', fails)
+end
+
+puts 'Part D2 — audit script consumes source unused-field census'
+Dir.mktmpdir do |dir|
+  dropped_only = { 'calcs' => [CALC_FIELDS['calcs'].find { |calc| calc['name'] == 'Dropped Seats' }] }
+  gaps = { 'field_statistics' => { 'unused_field_names' => ['[Dropped Seats]'] } }
+  File.write(File.join(dir, 'calc-fields.json'), JSON.pretty_generate(dropped_only))
+  File.write(File.join(dir, 'workbook-content-gaps-report.json'), JSON.pretty_generate(gaps))
+
+  out, err, st = Open3.capture3(RbConfig.ruby, SCRIPT, '--workdir', dir)
+  check(st.success?, "unused-only LOD audit exits 0 (got #{st.exitstatus}: #{err.lines.first})", fails)
+  check(out.include?('[unused-source]') && out.include?('0 unresolved'),
+        'script reports unused-source as resolved without a manual/waived resolution', fails)
 end
 
 puts 'Part B6 — wave-2 §6.6: wrong-FROM grouped Custom-SQL helper is NOT synth evidence'

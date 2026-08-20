@@ -9,7 +9,7 @@
 #                      vy4k/nc6g/woaa/23xu) is now the single source of truth for
 #                      element/column naming, [Custom SQL/RAW] refs, multi-element +
 #                      relationship joins, window->Null+description, and CastColumnType
-#                      self-ref — those steps were REMOVED here (beads-sigma-dqyv,
+#                      self-ref — those steps were REMOVED here ([bead],
 #                      verified no-ops on D1/D5/D6/D10/D12). Remaining fixup steps:
 #                        - synthesize ONE denormalized kind:sql element for any
 #                          JoinInstruction dataset (CustomSql OR RelationalTable),
@@ -18,12 +18,12 @@
 #                          single element with simple [Custom SQL/RAW] refs (no builder
 #                          cross-element ref logic needed). KEPT because the converter's
 #                          CustomSql-join path emits NO derived view projecting the dim
-#                          columns, so the builder couldn't reach them. (beads-sigma-nc6g)
+#                          columns, so the builder couldn't reach them. ([bead])
 #                        - drop the UNAPPLIED FilterOperation boolean calc column the
 #                          converter emits and surface its predicate to dm-filters.json so
 #                          the workbook builder can apply it as a real element-level list
 #                          filter — a true row-filter genuinely cannot live on a
-#                          warehouse-table DM element. (beads-sigma-23xu)
+#                          warehouse-table DM element. ([bead])
 #                        - name the synthesized join element + its columns, force
 #                          schemaVersion = 1, inject folderId (REQUIRED by the API).
 #
@@ -76,7 +76,7 @@ end
 # element/column name. The converter sometimes emits cross-relation columns like
 # "Region (CUSTOMER_DIM)" — the parens collide with Sigma's function-call syntax
 # inside [..] refs, so a downstream [El/Region (CUSTOMER_DIM)] ref never resolves.
-# (beads-sigma-nc6g point 3)
+# ([bead] point 3)
 def sanitize_name(s)
   s.to_s.gsub(/\s*\([^)]*\)/, '').gsub(/[()\[\]]/, '').strip
 end
@@ -85,7 +85,7 @@ end
 # LogicalTableMap contains one or more JoinInstructions, so that a CustomSql
 # multi-table dataset (which the converter splits into N separate kind:sql
 # elements with no join) collapses to ONE kind:sql element that contains every
-# OutputColumn the visuals reference. (beads-sigma-nc6g — CustomSql-join path)
+# OutputColumn the visuals reference. ([bead] — CustomSql-join path)
 # Returns the SQL string, or nil if the dataset isn't a join.
 def synth_join_sql(ds)
   ltm = ds['LogicalTableMap'] || {}
@@ -206,7 +206,7 @@ if opts[:fixup]
   # fragile relationship "view" element that under-projects dimension columns and
   # drops the 2nd join hop on a chained 3-way join. We replace both with a single
   # denormalized kind:sql element built straight from the QS join tree, so the
-  # workbook master sources every charted column from one element. (beads-sigma-nc6g)
+  # workbook master sources every charted column from one element. ([bead])
   join_dataset = ds_jsons.find do |ds|
     (ds['LogicalTableMap'] || {}).values.any? { |v| v.dig('Source', 'JoinInstruction') }
   end
@@ -348,8 +348,8 @@ if opts[:fixup]
     # NOTE: window/table-calc neutralization, [Custom SQL/RAW] ref rewriting,
     # join-"view" ref rewriting and CastColumnType self-ref repair USED to live
     # here, but the merged QuickSight converter now does all of that at source
-    # (beads-sigma-vy4k/nc6g/woaa/23xu). Verified no-ops on D1/D5/D6/D10/D12, so
-    # they were removed (beads-sigma-dqyv). The fixup now only does post-processing
+    # ([bead]/nc6g/woaa/23xu). Verified no-ops on D1/D5/D6/D10/D12, so
+    # they were removed ([bead]). The fixup now only does post-processing
     # the converter genuinely cannot: collapse a join dataset to one SQL element
     # (above), surface an UNAPPLIED FilterOperation to the workbook builder (below),
     # set folderId/schemaVersion, and name the synthesized join element + its cols.

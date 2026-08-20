@@ -105,7 +105,7 @@ for m in u["source"]["matches"]:
     assert m["outputColumnName"] and m["outputColumnName"] == m["outputColumnName"].strip()
 assert all(c["formula"].startswith("[Union of 2 Sources/") for c in u["columns"]), u["columns"]
 assert not any(m.get("outputColumnName") == "Sheet" for m in u["source"]["matches"]), "bookkeeping column leaked"
-assert [m["name"] for m in u.get("metrics", [])] == ["Net Revenue"], "metric must attach to the union element"
+assert [m["name"] for m in u.get("metrics", [])] == ["Total Net Revenue"], "collision-safe metric must attach to the union element"
 assert not any(e.get("metrics") for e in els if e is not u), "no metric may attach to a member"
 PY
   if node "$TMP/convert.mjs" "$BUNDLE" "$TMP/single-member.twb" "$TMP/refused.json"; then

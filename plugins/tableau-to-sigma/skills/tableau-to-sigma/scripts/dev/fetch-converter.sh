@@ -4,7 +4,7 @@
 # source checked out elsewhere.
 #
 # It clones (or updates) the converter repo into a GITIGNORED vendor/ dir under the
-# skill and builds it. migrate-tableau.rb then auto-discovers vendor/sigma-data-model-mcp/
+# skill and builds it. migrate-tableau.rb then auto-discovers vendor/converter-source/
 # build/tableau.js (see the auto-discover block) — no TABLEAU_MCP_BUILD needed.
 #
 # This fetches the FRESH converter for DEVELOPERS. A committed, pinned snapshot also
@@ -13,7 +13,7 @@
 # build over the committed snapshot, so a dev always tests the latest; the snapshot
 # only kicks in when no fresher build exists. Re-run this script to refresh the dev copy.
 #
-#   ./scripts/dev/fetch-converter.sh            # clone/update + build (default branch)
+#   SIGMA_CONVERTER_REPO=<your converter-source git URL> ./scripts/dev/fetch-converter.sh
 #   ./scripts/dev/fetch-converter.sh <ref>      # build a specific branch/tag/sha
 #
 # Requires: git + node/npm on PATH.
@@ -22,7 +22,7 @@ set -euo pipefail
 REPO="${SIGMA_CONVERTER_REPO:-}"   # set to your converter build-source repo (no default — internal)
 REF="${1:-}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # the skill's scripts/ dir
-DEST="$HERE/vendor/sigma-data-model-mcp"
+DEST="$HERE/vendor/converter-source"
 
 command -v git  >/dev/null || { echo "FATAL: git not on PATH"; exit 1; }
 command -v npm  >/dev/null || { echo "FATAL: npm/node not on PATH — the local converter needs Node"; exit 1; }

@@ -1,0 +1,4 @@
+connections:
+  Warehouse:
+    type: snowflake
+    connectionstring: redacted

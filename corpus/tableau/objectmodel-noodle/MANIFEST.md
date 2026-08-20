@@ -110,7 +110,7 @@ node -e 'import("file://<repo>/plugins/tableau-to-sigma/skills/tableau-to-sigma/
       "relationships": 4,
       "pages": 1,
       "element_kinds": {"control": 1, "table": 6},
-      "metric_names": ["VISIT_REVENUE"],
+      "metric_names": ["Total VISIT_REVENUE"],
       "relationship_names": ["DIM_DATES", "DIM_SITES", "DIM_PROVIDERS", "ENTITLEMENTS"],
       "warnings": 15
     },

@@ -148,11 +148,13 @@ helper = data.find { |e| e['name'] == 'Region Options' }
 check(!helper.nil?, "hidden 'Region Options' helper emitted in data_elements (got #{data.map { |e| e['name'] }.inspect})", fails)
 if helper
   check(helper.dig('source', 'elementId') == 'master', 'helper sources the master', fails)
-  nn = (helper['columns'] || []).find { |c| c['formula'].to_s.start_with?('IsNotNull(') }
-  check(!nn.nil?, "helper carries an IsNotNull column (got #{helper['columns'].inspect})", fails)
+  nn = (helper['columns'] || []).find { |c| c['formula'].to_s.start_with?('Text(IsNotNull(') }
+  check(!nn.nil?, "helper carries a Text(IsNotNull) column (got #{helper['columns'].inspect})", fails)
   hf = (helper['filters'] || []).first
-  check(nn && hf && hf['columnId'] == nn['id'] && hf['values'] == [true],
-        "helper filters IsNotNull == true (got #{hf.inspect})", fails)
+  # S11/K20: string "true" against a Text()-cast column — JSON boolean values
+  # against a boolean column render "Invalid filter" and blank the tile.
+  check(nn && hf && hf['columnId'] == nn['id'] && hf['values'] == ['true'],
+        "helper filters Text(IsNotNull) == 'true' (got #{hf.inspect})", fails)
   # Field report: Sigma's spec verify endpoint 400s element filters without an
   # `id` (`filters[N].id: Invalid string: undefined`) — the helper's filter must
   # carry a deterministic one.

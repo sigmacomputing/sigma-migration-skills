@@ -2,15 +2,15 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen-coverage-matrix.py --catalogs refs/catalogs --skill gooddata --out refs/gooddata-coverage.md`. The JSON catalogs in `refs/catalogs/` are the single source of truth; the classifier (`scripts/build_workbook.py` / `build-sigma-workbook.py`) LOADS them via `shared/lib/coverage_catalog.py`. A no-drift test asserts this file matches the catalogs.
 
-Every documented source construct maps to a real, current Sigma target or a loud fallback — no silent wrong-defaults, no name-substring guessing.
+Every documented source construct maps to a real, current Sigma target or a loud fallback — no silent wrong-defaults, no name-substring guessing ([bead]).
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 31 documented constructs across 4 dimensions; 0 live-verified.
+**Coverage:** 45 documented constructs across 5 dimensions; 0 live-verified.
 
 ## Visualization / chart kind
 
-_GoodData insight `visualizationUrl` (a `local:<type>` token) -> Sigma workbook element kind. The single source of truth for build_workbook.py's insight classifier. `local:headline` and `local:table` are handled STRUCTURALLY in code (headline -> kpi-chart; table -> a flat `table` with groupings, or a `pivot-table` when a columns shelf is present) so they carry their canonical Sigma kind here for coverage but are matched by name, not through the derived CHART map. The six plain chart types (bar/column/line/area/pie/donut) drive the derived CHART dict. Rows with `sigma: null` are the FLAGGED set: GoodData chart types with no faithful Sigma equivalent — the classifier flags them (migrate as table or skip), it does NOT guess. An unmapped visualizationUrl also flags (loud else-branch). Mirrors refs/viz-type-mapping.md._
+_GoodData insight `visualizationUrl` (a `local:<type>` token) -> Sigma workbook element kind. The single source of truth for build_workbook.py's insight classifier. `local:headline`, `local:table`, and `local:repeater` are handled structurally. Plain cartesian/pie charts plus released `waterfall-chart` drive the derived CHART dict. Repeater emits a data-bound `repeated-container` only with one Rows attribute and resolvable Columns. Rows with `sigma:null` are loud gaps. `local:boxplot` is separately capability-gated and never emits by default. An unknown visualizationUrl also flags._
 
 Authoritative source: <https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/>
 
@@ -38,14 +38,16 @@ Authoritative source: <https://www.gooddata.com/docs/cloud/create-visualizations
 | | | | | _No Sigma equivalent -> flag._ |
 | `local:dependencywheel` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/dependency-wheel-chart/) | — (no Sigma equivalent) | 🟡 n | flag |
 | | | | | _No Sigma equivalent -> flag._ |
-| `local:waterfall` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/waterfall-chart/) | — (no Sigma equivalent) | 🟡 n | flag |
-| | | | | _No Sigma equivalent -> flag._ |
+| `local:waterfall` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | `waterfall-chart` | 🟡 n | flag |
+| | | | | _When the exported insight token is present with a View dimension and measure, emit native x/y axes, cumulative sum, hidden zero start, and connector line. Missing axis prerequisites stay loud._ |
 | `local:treemap` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/treemap/) | — (no Sigma equivalent) | 🟡 n | flag |
 | | | | | _No clean Sigma equivalent yet -> flag._ |
-| `local:repeater` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeater/) | — (no Sigma equivalent) | 🟡 n | flag |
-| | | | | _No Sigma equivalent -> flag._ |
-| `local:bullet` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/bullet-chart/) | — (no Sigma equivalent) | 🟡 n | flag |
-| | | | | _No Sigma equivalent -> flag._ |
+| `local:repeater` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeaters/) | `repeated-container` | 🟡 n | flag |
+| | | | | _Exactly one Rows attribute plus resolvable Columns grounds a grouped table source and repeated-container card. View-by inline sparklines are preserved as text/numeric cards with a loud mini-chart gap._ |
+| `local:bullet` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _No documented GoodData Cloud bullet/progress visualization contract; never infer native progress from a type token._ |
+| `local:boxplot` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _Capability-gated. Never emit a box element until the target workspace and released schema are verified._ |
 
 ## Number format
 
@@ -103,6 +105,41 @@ Authoritative source: <https://www.gooddata.com/docs/cloud/create-dashboards/fil
 | | | | | _granularity+from==to==0 -> Sigma date-range control, mode 'current' (e.g. 'this month')._ |
 | `relativeDateFilter (last N periods)` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/filters/date-filters/) | `date-range` | 🟡 n | flag |
 | | | | | _granularity+from==to==-n -> Sigma date-range control, mode 'last', value n, includeToday false._ |
+
+## Released workbook features
+
+_Audit of released Sigma workbook-as-code surfaces against documented GoodData Cloud semantics. The builder emits only from equivalent source evidence. Dashboard tabs become metadata pages plus auto navigation; chart legend and literal background style are allowlisted; native waterfall and data-bound repeater have prerequisite gates. Drill, page-break, progress, panels, and box stay explicit gaps where GoodData or Sigma does not provide an authorable equivalent._
+
+Authoritative source: <https://www.gooddata.com/docs/cloud/create-dashboards/>
+
+| construct | doc ref | Sigma target | sigma_verified | on-unmapped |
+|---|---|---|---|---|
+| `waterfall` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | `waterfall-chart` | 🟡 n | warn+skip |
+| | | | | _The exported local:waterfall token maps only with a View dimension and measure; no category or measure is invented._ |
+| `repeater` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeaters/) | `repeated-container` | 🟡 n | warn+skip |
+| | | | | _One Rows attribute and resolvable Columns ground a grouped table source and native repeated cards._ |
+| `repeater-inline-chart` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeaters/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _GoodData View-by line/bar charts inside repeater cells do not map to one repeated-container child shape; row cards and values are preserved while the mini-chart stays loud._ |
+| `legend` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-properties/) | `element.legend` | 🟡 n | warn+preserve-default |
+| | | | | _properties.controls.legend enabled and top/bottom/left/right map directly; unknown properties are omitted loudly._ |
+| `dashboard-tabs` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/) | `metadata pages + navigation:auto` | 🟡 n | warn+single-page |
+| | | | | _Each GoodData tab is a top-level page. Required layout owns membership; navigation:auto is emitted per tab and page tabs are shown._ |
+| `tab-filter` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _Tab-local YAML filters are loud unless the declarative export also provides a resolvable filterContext binding._ |
+| `attribute-hierarchy-drill` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/drilling-in-dashboards/set-drill-down/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _An attribute hierarchy proves drill intent, but the released workbook contract does not publish the source/category/target binding needed to author a working drill control. Inert drill UI is never emitted._ |
+| `navigation-interaction` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _Cross-dashboard and drill-to-tab interactions need a converted target document/page id. Auto navigation covers tabs in the current dashboard; unresolved destinations remain loud._ |
+| `page-break` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/export/export-accessible-pdf/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _GoodData dashboard metadata has no documented print page-break marker. Tab and section boundaries are not print intent._ |
+| `progress` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _GoodData Cloud has no documented standalone progress/bullet visualization with explicit value/min/max semantics. Repeater cell bars are not promoted to progress._ |
+| `panels` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _Dashboard sections and filter bars are in-canvas layout/application chrome, not Sigma document header/sidebar panels. document.panels remains explicit and empty._ |
+| `visual-style` | [doc](https://www.gooddata.com/docs/cloud/customize-appearance/create-custom-themes/) | `element.style.backgroundColor` | 🟡 n | warn+preserve-default |
+| | | | | _Only a resolved literal backgroundColor in exported insight style metadata is copied. Dynamic or unknown CSS is omitted loudly._ |
+| `box-chart` | [doc](https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/) | — (no Sigma equivalent) | 🟡 n | flag |
+| | | | | _Box visualization output is capability-gated until a generally released workbook kind and target-workspace entitlement are verified._ |
 
 ---
 _Compositional constructs that do not serialize to a flat table (Set Analysis, filtered `*If`, ratio measures, TO_CHAR/Excel mask parsers, count-on-joined-view) stay as cited predicates in the classifier; this matrix covers the enumerable maps._

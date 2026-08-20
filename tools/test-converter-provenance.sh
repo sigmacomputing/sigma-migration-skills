@@ -9,7 +9,7 @@
 #   Part B — schema pin: a local_patches entry missing upstream_pr fails;
 #            malformed JSON fails; deleting PROVENANCE.json while the bundle
 #            remains fails; a restored schema-complete file passes again
-#   Part C — in-skill converters ("source" key, no "source_repo": the static
+#   Part C — in-skill converters ("source" key: the static
 #            provenance a rebuild rewrites byte-identical): bundle + .ts
 #            source passes; bundle alone fails naming the achievable
 #            remediation; bundle + PROVENANCE change still passes
@@ -52,7 +52,6 @@ mkdir -p "$CONV"
 echo "export const v = 1;" > "$CONV/toolx.mjs"
 cat > "$CONV/PROVENANCE.json" <<'EOF'
 {
-  "source_repo": "example/fixture-converters",
   "source_commit": "0000000",
   "vendored_modules": "toolx.mjs",
   "local_patches": [
@@ -94,7 +93,6 @@ run_guard "$B1" "$B2"
 grep -q "not valid JSON" "$TMP/out"; check $? "failure says the file no longer parses"
 cat > "$CONV/PROVENANCE.json" <<'EOF'
 {
-  "source_repo": "example/fixture-converters",
   "source_commit": "0000002",
   "vendored_modules": "toolx.mjs",
   "local_patches": [
@@ -161,7 +159,6 @@ for t in "TASK 1 —" "TASK 2 —" "TASK 3 —" "TASK 4 —"; do
 done
 grep -q "scripts/dev/vendor-converter.sh" "$REAL"
 check $? "TASK 3 names the second (skill-local) regenerator"
-
 
 echo
 if [ "$fails" -gt 0 ]; then

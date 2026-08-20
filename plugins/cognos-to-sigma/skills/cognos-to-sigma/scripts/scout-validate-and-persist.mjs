@@ -17,7 +17,7 @@
 //     --folder <folderId> [--description '...'] [--hint '...'] \
 //     [--gap-id '<expr:... from migrate-cognos.mjs GAP-SCOUT REQUIRED>'] [--workdir <dir>]
 //
-// --gap-id + --workdir feed the run-each-time gap-scout gate (bead beads-sigma-5l5e):
+// --gap-id + --workdir feed the run-each-time gap-scout gate ():
 // the result (validated|escalated) is appended to <workdir>/scout-ledger.jsonl keyed
 // by --gap-id, so migrate-cognos.mjs's OPEN-QUESTIONS gate sees the flagged
 // expression as scouted and stops blocking it on the re-run.
@@ -75,7 +75,7 @@ if (resolved) {
   rules.push({ feature: a.feature, pattern: a.pattern || a['test-formula'], template: a.template, flags: 'gi', description: a.description || '', hint: a.hint || '', validatedAt: new Date().toISOString() });
   mkdirSync(join(homedir(), '.cognos-to-sigma'), { recursive: true });
   writeFileSync(RULES, JSON.stringify(rules, null, 2));
-  // Record to the run-each-time gap-scout ledger (bead beads-sigma-5l5e) so
+  // Record to the run-each-time gap-scout ledger () so
   // migrate-cognos.mjs's OPEN-QUESTIONS gate sees this gap as scouted. A
   // 'validated' row MUST carry live-probe evidence (issue #458): the real Sigma
   // probe data-model id this POST created + a SHA-256 of the live columns-readback

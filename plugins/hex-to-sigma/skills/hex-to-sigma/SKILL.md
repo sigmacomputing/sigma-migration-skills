@@ -16,11 +16,14 @@ user-invocable: true
 > Hex app (verified via PNG export, not just eyeballing the live UI).
 > `corpus/hex/commerce/` covers the structural regression test (no live org
 > needed to re-run it).
+> That live run predates the released wrapper/flat-element payload; the
+> migrated payload is offline-tested and still requires a fresh live
+> POST/readback/PNG pass before extending the live-validation claim to it.
 
 > Phase numbering is local to this skill; the canonical Assess→Discover→
 > Reuse→Convert→Post-DM→Build→Layout→Parity→Security→Enhance arc and this
 > skill's mapping live in
-> [`docs/phase-schema.md`](../../../../docs/phase-schema.md).
+> `docs/phase-schema.md` (full clone only — see repo `docs/phase-schema.md`).
 
 > Read `refs/hex-file-schema.json` (the vendored public JSON Schema for
 > Hex's `.hex.yaml` format) before relying on a cell shape not covered
@@ -127,8 +130,8 @@ python3 converter/convert_dm.py <project>.hex.yaml \
 
 Every Hex `SQL` cell is raw SQL with no query DSL (unlike Metabase's MBQL),
 so it always takes the "native SQL element" path — wrap the cell's `source`
-verbatim into `{kind:'table', source:{kind:'sql', statement}}`, the same shape
-used for a native-SQL fallback in the sibling converters (there's no Metabase-style
+verbatim into `{kind:'table', source:{kind:'sql', statement}}`, same shape
+metabase-to-sigma uses for ITS native-SQL fallback (there's no Metabase-style
 "auto-remodel a simple SELECT into a structured model" path here — nothing
 to remodel into). Column discovery uses the SQL cell's own
 `tableDisplayConfig.columnProperties[]` (Hex's stand-in for a
@@ -147,10 +150,15 @@ python3 converter/convert_workbook.py <project>.hex.yaml \
 - `METRIC` cells → `kpi-chart` elements (`value:{columnId}`), Hex's own
   `displayFormat` → a Sigma number/currency format.
 - `EXPLORE` cells → `bar-chart` / `line-chart` / `area-chart` /
-  `scatter-chart` / `pie-chart`, keyed off the cell's series `type`.
+  `scatter-chart` / `pie-chart`, keyed off the cell's series `type` through the cited
+  `refs/catalogs/viz-kind.json` catalog.
   Channel → Sigma shape: `base-axis`→`xAxis`, `cross-axis`→`yAxis`
   (cartesian) or `value` (pie), `color`→`color` (pie). `tooltip` fields and
   Hex's synthetic `_HEX_COUNT_STAR_ARG_` token are not carried over in v1.
+- Hex `chartConfig.settings.legend.position` maps to Sigma `legend`
+  (`none` → `{visibility:hidden}`; documented positions map verbatim).
+  Static series hex colors map to the single-color channel. Unknown styling
+  values warn and are omitted rather than guessed.
 - **Hex's `lump` (Top-N) is NOT a flagged gap** — Sigma has a native
   `filters: [{kind: top-n, ...}]` chart filter
   (`sigma-workbooks/reference/specification/charts.md`) that maps onto it
@@ -158,13 +166,15 @@ python3 converter/convert_workbook.py <project>.hex.yaml \
   most source-tool constructs with no obvious Sigma analog) it would need
   flagging — check the target skill's own reference docs before assuming
   something is unsupported.
-- Multi-series/combo `EXPLORE` cells and any series `type` outside
-  bar/line/area/scatter/pie (e.g. `histogram`) are skipped with a loud
-  warning — never faked.
+- Multi-series/combo `EXPLORE` cells and unmapped series types are skipped
+  with a loud warning — never faked. `histogram` is a known gap.
+  `boxplot`/`box` is gated: the released OpenAPI has no native box kind, so
+  a custom plugin can be emitted only after its workspace id and opaque
+  config are discovered and verified.
 
 **Formula prefix — confirmed, not just assumed (live-verified 2026-07-30):**
 column formulas are qualified `[Custom SQL/<column>]`, matching
-the established finding that "Sigma does NOT honor sql-element names
+metabase-to-sigma's finding that "Sigma does NOT honor sql-element names
 (all read back 'Custom SQL')" for SQL-sourced elements. This applies even to
 the DM element's OWN columns referencing their OWN SQL source — a bare
 `[<column>]` self-reference was tried first and compiles to a **`Ref Cycle`**
@@ -191,14 +201,24 @@ anything not genuinely selected, with a loud warning — see
 accepted for a fresh CREATE; the `sigma-workbooks` docs warn against
 hardcoding it for an UPDATE (re-fetch from the existing spec instead).
 
-**`layout` is a TOP-LEVEL spec field, not a page field** (live-verified
-2026-07-30): nesting it under `pages[].layout` (what the `sigma-workbooks`
-docs' phrasing "`layout` is a page-level property" reads as, at first
-glance) is silently ignored — no error, Sigma just falls back to its own
-auto-arrange (a single stacked column, every element full-width). The XML
-string itself still wraps each page's elements in a `<Page id="...">` tag;
-it's the JSON *placement* of that string that must be `spec.layout`, a
-sibling of `pages`, not `spec.pages[N].layout`.
+> **The two specs diverge: data-model nesting is unchanged, while workbook
+> uses the released code representation.** DM `schemaVersion`/`folderId`
+> stay flat and DM elements stay in `pages[].elements`. A workbook carries
+> outer metadata (`name`, `folderId`) plus `document: {schemaVersion, kind,
+> pages, elements, layout, settings}`. Workbook elements are flat;
+> workbook pages contain metadata only; required layout is authoritative
+> for page membership. `convert_workbook.py` emits this shape through the
+> vendored CodeRep helper. Never apply workbook flattening to a data model.
+
+**`layout` is a required field on `document`, not a page field** (live-verified
+2026-07-30, wrapper confirmed live 2026-08-03): nesting it under
+`pages[].layout` (what the `sigma-workbooks` docs' phrasing "`layout` is a
+page-level property" reads as, at first glance) is silently ignored — no
+error, Sigma just falls back to its own auto-arrange (a single stacked
+column, every element full-width). The XML string records each flat
+element's membership in a `<Page id="...">` block. It must be
+`spec.document.layout`, a sibling of metadata-only `document.pages` and
+flat `document.elements`, never `document.pages[N].layout`.
 
 **Chart axes need an explicit `sort`, or Sigma defaults to alphabetical**
 (live-verified 2026-07-30): without `xAxis.sort` (cartesian) or
@@ -245,8 +265,16 @@ workbook spec `convert_workbook.py` emits** — no separate `put-layout.rb`
 step for this skill. `appLayout.tabs[].rows[].columns[].{start,end}` is on a
 **0–120 scale** (confirmed from a real export — not Metabase's 24-col grid);
 `build_layout_xml()` maps it proportionally onto Sigma's 24-column
-`<Page>`/`<LayoutElement>` grammar. This is a first-pass proportional
-mapping — verify against a readback + PNG export
+live `<Page>`/`<Element>` grammar (`<Container>` is used for grouped grid
+regions). Legacy `<LayoutElement>`/`<GridContainer>` tags are accepted only
+when reading older artifacts and must never be emitted. This is a first-pass
+proportional mapping. Every Hex tab becomes a metadata-only Sigma page and
+an authoritative `<Page>` layout block; elements live flat under
+`document.elements`. Cell heights drive row spans, duplicate placements warn
+and keep the first, and converted cells absent from appLayout are appended
+visibly to page 1 rather than becoming layout orphans. Multi-tab workbooks
+explicitly show page tabs through
+`settings.navigation.pageTabsInViewMode`. Verify against a readback + PNG export
 (`scripts/sigma-export-png.py`, `refs/layout-visual-qa.md`) before treating
 it as final, same as every sibling skill's layout gate.
 
@@ -264,7 +292,8 @@ specs at POST and only surfaces the failure as a string literal baked into
 the compiled query, e.g. `select 'Unknown column "[X]"' ...`):
 
 ```bash
-bash ../sigma-authoring/skills/sigma-workbooks/scripts/verify-workbook.sh <workbookId>
+bash ../../../sigma-authoring/skills/sigma-workbooks/scripts/verify-workbook.sh <workbookId>
+# (full clone from this skill dir; Claude Code: run verify-workbook.sh from the installed sigma-workbooks skill)
 ```
 
 Then the numeric gate:
@@ -284,8 +313,24 @@ cells) before assuming there's nothing to port.
 ## Gaps
 
 Unsupported source features → `python3 scripts/escalate-gap.py` (opt-in
-issue filer). Never fake a feature; flag it. Known gaps as of this skill's
-first pass: Python (`CODE`) cells, multi-series/combo `EXPLORE` charts,
-`histogram` series, `INPUT`/`FILTER`/`WRITEBACK`/`PIVOT`/`DBT_METRIC`/
-`COMPONENT_IMPORT`/`BLOCK`/`COLLAPSIBLE` cell types, Git-Sync-based
-discovery (v1 is single manual-export only).
+issue filer). Never fake a feature; flag it. The grounded release matrix is
+`refs/catalogs/workbook-feature.json`. Known gaps include Python (`CODE`)
+cells, multi-series/combo `EXPLORE` charts, `histogram`, `INPUT`/`FILTER`/
+`WRITEBACK`/`PIVOT`/`DBT_METRIC`/`COMPONENT_IMPORT` cell types, and
+Git-Sync-based discovery (v1 is single manual-export only).
+
+Release boundaries are explicit:
+
+- Sigma now releases native `waterfall-chart`, but Hex's current public
+  export schema has no waterfall series token. The catalog records that
+  target capability without fabricating a source mapping.
+- Hex `explorable:true` lacks an exported drill hierarchy, so it warns;
+  Sigma drill is not invented.
+- Hex app tabs map to Sigma pages/page tabs, not a `tabbed-container`.
+  Hex has no source page-break or header/sidebar panel construct.
+- Hex METRIC lacks min/max/mode/shape semantics, so it stays a KPI rather
+  than being mislabeled as native `progress`.
+- Hex `BLOCK`/`COLLAPSIBLE` grouping is not row-driven card repetition and
+  does not map to `repeated-container`.
+- `boxplot`/`box` stays plugin-gated until a real `/v2/plugins` id and that
+  plugin's verified config are supplied; the converter skips it loudly.

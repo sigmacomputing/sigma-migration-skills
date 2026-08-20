@@ -35,14 +35,14 @@ Duration: 1
 - Qlik developers evaluating a move to Sigma
 
 You do **not** need to be a Sigma or Qlik internals expert — the skills carry the
-domain knowledge. You do need access to a Qlik Cloud tenant and a Sigma org whose
-connection reaches the same warehouse the Qlik app loads from.
+domain knowledge. You need either live Qlik access or a corectl unbuild export,
+plus a Sigma org whose connection reaches the same warehouse the Qlik app loads from.
 
 ## Prerequisites
 Duration: 2
 
 - **A coding agent that runs skills** — Claude Code (CLI or desktop), Cursor, Cortex Code, etc.
-- **qlik-cli** on your PATH (official; reaches both the REST API and the Engine/qix API — the Engine API is required for sheet/chart definitions, the data model, and the load script). Install the GitHub-release binary from `qlik-oss/qlik-cli`.
+- **qlik-cli** on your PATH for live discovery (official; reaches both the REST API and the Engine/qix API). If the customer supplies a standard `corectl unbuild` folder instead, qlik-cli and live Qlik access are not required; use `--unbuild <dir>`.
   - **On-prem (client-managed) Qlik Sense instead of Cloud?** Skip qlik-cli — it's
     Cloud-only. Use the bundled shim `qlik-onprem-shim.py` (QRS + Engine
     WebSocket, same command surface) instead. It ships **inside this skill**, in the
@@ -60,9 +60,9 @@ Duration: 2
     --prj <Name-prj> --connection <ID>` runs the full pipeline (**data model +
     workbook**, laid out from the `-prj` sheet geometry). Parity is warehouse-only
     (no live Qlik engine) — see the QlikView note in SKILL.md.
-- **Qlik Cloud access** — an API key *or* an OAuth client (Admin → OAuth). For creating/round-tripping content, an **M2M impersonation** client is ideal (acts as a real user so content is visible).
+- **Qlik Cloud access for live discovery** — an API key *or* an OAuth client (Admin → OAuth). For creating/round-tripping content, an **M2M impersonation** client is ideal (acts as a real user so content is visible). Not required for `--unbuild`.
 - **Sigma API credentials** (`SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`).
-- A **Sigma connection to the same warehouse** the Qlik app loads from (for true parity).
+- A **Sigma connection to the same warehouse** the Qlik app loads from (for true parity). The skill discovers its tables and columns through Sigma REST, so no Snowflake credentials, SQL CLI, or MCP are required.
 - The **`convert_qlik_to_sigma`** converter — ships inside the skill as a local vendored bundle (`converter/qlik.mjs`, run in-process via `node`, no clone/npm/network); the sigma-data-model MCP tool of the same name is only a manual fallback if the bundle is somehow missing.
 
 negative
@@ -169,15 +169,22 @@ it chains these phases (each also independently runnable from `scripts/*`):
    (lastReloadTime + an engine snapshot of the KPI totals) into `converter-input.json`
    and friends. The freshness preflight then tells you up front when the Qlik app is
    stale and Sigma (live warehouse) will show more data.
+   For an offline `corectl unbuild`, use `--unbuild <dir>` instead of `--app`;
+   nested `qChildren` are flattened into the same charts/layout artifacts.
 2. **Reconcile** (`reconcile-columns.py`) — auto-derive the Qlik-field → real-warehouse
    column map from the load script's `AS` aliases (`ORDER_STORE_KEY AS STORE_KEY`).
+   `preflight-warehouse.rb` then resolves the tables and columns through the supplied
+   Sigma connection's REST catalog, without direct warehouse access.
 3. **Convert** — the local vendored converter (`converter/qlik.mjs` via `node`, no clone/
    npm/network/MCP/data-egress) runs `convertQlikToSigma`, turning master measures into
    Sigma metrics and building relationships from shared keys. **Set Analysis** → Sigma
    `SumIf`/`CountIf`. A dev build wins via `QLIK_MCP_DIR`; the hosted
    `convert_qlik_to_sigma` MCP tool is only a manual fallback if no converter is found.
 4. **Build the data model** (`gen-denorm-sql.py` + `build-sigma-dm.py`) — a clean star
-   plus a denormalized SQL element; POST to `/v2/dataModels/spec`.
+   plus a denormalized SQL element. Supported row-wise LOAD expressions such as
+   `If(Match(...))` compile to SQL `CASE`; unsupported expressions block rather than
+   disappear. The DM and workbook are dry-compiled and source-coverage-linted before
+   the first POST to `/v2/dataModels/spec`.
 5. **Build the workbook** (`build-sigma-workbook.py`) — one Sigma page per Qlik sheet,
    KPIs/charts/tables translated from each object's hypercube; `put-layout.rb` applies
    the Qlik cell grid mapped onto Sigma's 24-col grid.
@@ -212,7 +219,8 @@ Duration: 3
   `[Custom SQL/<RAW_ALIAS>]`.
 - **Tables aggregate via `groupings`** (`groupBy` + `calculations`); bar/line via
   `xAxis`/`yAxis`; pie/donut via `value`+`color`; combo via dual-axis `yAxis.columnIds`.
-- **Workbook layout** is a separate top-level XML step (1-based grid lines).
+- **Workbook layout** is a separate `document.layout` XML step (1-based grid lines) —
+  the workbook body is `document`-wrapped as of 2026-08-03; see `refs/sigma-build-gotchas.md`.
 - **Building Qlik fixtures:** charts created via the API render only as `auto-chart`
   (concrete `bar`/`line`/`pie` come up blank); sheets must be UI-created (or impersonated)
   to list in the hub; copy an app to clone its data without a reload.
@@ -226,6 +234,11 @@ Duration: 3
   This is the #1 cause of a Qlik migration "running but producing nothing useful" —
   the M2M client must act as a user who can actually read the app (see Prerequisites).
   DirectQuery apps legitimately have no load script and are exempt.
+- **Empty `measures.json` is not an empty app.** In a corectl export, charts can be
+  inline children of a sheet under `qChildren`; `--unbuild` recursively extracts them.
+- **A Data-only workbook cannot pass.** `workbook-coverage.json` must show every
+  authored queryable source visual rebuilt and at least one queryable Sigma element,
+  in dry-run and live modes.
 
 ## The techniques worth carrying forward
 Duration: 1

@@ -31,7 +31,7 @@ Sourced from the translator code, not aspiration. Last reconciled 2026-07-10.
 | Physical joins (pre-2020.2) | relationships or physical joins | ✅ | Join Strategy dropdown: Auto routes `many_to_one`→relationship, else physical join |
 | Relationship model 2020.2+ ("noodles") | Sigma relationships carried by the ELECTED fact | 🟡 | Tableau serializes edges onto the `first-end-point` = the authoring-order BASE table (routinely a dimension) — fact-ness is NOT on the wire. Election is evidence-ranked (relationship degree → measure columns → not-dim-like name → width; `--fact-table` overrides) and ALWAYS announced: **VERIFY the announced fact** — every LOD/Top-N/window helper builds FROM it (wrong fact = mass `Dependency not found`, see `refs/troubleshooting.md`). Direction + keys are mapped; **Sigma stores no cardinality on a relationship** (fixed many-to-one/one-to-one LEFT join) — `unique-key` perf-option hints only produce verify warnings, they are not "preserved". Relationships without a serialized equality key (none/computed-only/non-equality/unresolved endpoints) are REFUSED into named gaps (gap-scan ❌ row + `object-graph-plan.json` punch list), never guessed. Corpus-pinned: `corpus/tableau/objectmodel-noodle`. |
 | Virtual connection (`type=collection`) | relationship model w/ role-playing dims | ✅ | columns read from `metadata-records`; GUID refs resolved to captions |
-| Custom SQL (`relation type=text`) | `kind:sql` element | ✅ | SQL passed through as-is; element name omitted, bare `[Display]` col refs |
+| Custom SQL (`relation type=text`) | warehouse-table model when equivalent; otherwise `kind:sql` | ✅ | Inventory the SQL first. Prefer tables/relationships/calcs when semantics and grain are equivalence-proven; preserve SQL as the fidelity fallback. |
 | **Data blend** (`<datasource-relationships>`) | **one merged model** | ✅ | secondary pre-grouped to link grain → `many_to_one` lookup; looked-up measure surfaced with `Max` (non-additive); cross-source `SUM(a)-SUM(b)`→`[Total a] op [b]`. See `refs/blending.md`. |
 | Derived element (fact w/ relationships) | derived element w/ `[FACT/REL/Col]` refs | ✅ | surfaces own + related columns; relationship's own key column skipped |
 | Multi-datasource (no blend link) | one model per datasource (`datasourceIndex`) | 🟡 | unrelated sources aren't merged; convert each separately |
@@ -167,8 +167,8 @@ All 🧩 forms are **chart-context only** — place in a grouped workbook elemen
 
 ## Known follow-ups (beads)
 
-- `beads-sigma-dnia` — ✅ scalar math/stat gaps closed 2026-06-15 (`LN/LOG/EXP/MOD/SIGN/PI`→Sigma equivs, `CORR`→`Corr` metric, `COVAR/COVARP` flagged; `ZN/ISNULL/IFNULL` were already fine; `DateParse` confirmed working). Remaining: the `INDEX()<=N`→Top-N idiom and Tableau set-membership `IN` rewrite on the Tableau path.
-- `beads-sigma-hnx0` — nested-LOD / double-aggregation grouped-child shape.
-- `beads-sigma-qtjz` — set parity edge cases (`%null%` members, `except`).
-- `beads-sigma-w9o4` — partial-date coercion (bare year / `FY2016` → full date).
-- `beads-sigma-3er3` — explicit skip-and-log list for non-warehouse sources.
+- `[bead]` — ✅ scalar math/stat gaps closed 2026-06-15 (`LN/LOG/EXP/MOD/SIGN/PI`→Sigma equivs, `CORR`→`Corr` metric, `COVAR/COVARP` flagged; `ZN/ISNULL/IFNULL` were already fine; `DateParse` confirmed working). Remaining: the `INDEX()<=N`→Top-N idiom and Tableau set-membership `IN` rewrite on the Tableau path.
+- `[bead]` — nested-LOD / double-aggregation grouped-child shape.
+- `[bead]` — set parity edge cases (`%null%` members, `except`).
+- `[bead]` — partial-date coercion (bare year / `FY2016` → full date).
+- `[bead]` — explicit skip-and-log list for non-warehouse sources.

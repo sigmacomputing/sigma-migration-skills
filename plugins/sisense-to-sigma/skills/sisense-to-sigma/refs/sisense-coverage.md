@@ -2,11 +2,11 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen-coverage-matrix.py --catalogs refs/catalogs --skill sisense --out refs/sisense-coverage.md`. The JSON catalogs in `refs/catalogs/` are the single source of truth; the classifier (`scripts/build_workbook.py` / `build-sigma-workbook.py`) LOADS them via `shared/lib/coverage_catalog.py`. A no-drift test asserts this file matches the catalogs.
 
-Every documented source construct maps to a real, current Sigma target or a loud fallback — no silent wrong-defaults, no name-substring guessing.
+Every documented source construct maps to a real, current Sigma target or a loud fallback — no silent wrong-defaults, no name-substring guessing ([bead]).
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 36 documented constructs across 4 dimensions; 0 live-verified.
+**Coverage:** 50 documented constructs across 5 dimensions; 0 live-verified.
 
 ## Visualization / chart kind
 
@@ -17,13 +17,15 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/widget-designe
 | construct | doc ref | Sigma target | sigma_verified | on-unmapped |
 |---|---|---|---|---|
 | `indicator` | [doc](https://docs.sisense.com/main/SisenseLinux/indicator.htm) | `kpi-chart` | 🟡 n | warn+flag |
-| | | | | _Single numeric value -> Sigma KPI. Gauge/ticker variants collapse to a KPI._ |
+| | | | | _Single numeric value -> Sigma KPI. A gauge with explicit min/max maps conditionally to native progress; an incomplete gauge range remains a KPI with a loud gap._ |
 | `chart/column` | [doc](https://docs.sisense.com/main/SisenseLinux/column-chart.htm) | `bar-chart` | 🟡 n | warn+flag |
 | | | | | _Vertical columns -> Sigma bar-chart (no orientation key = vertical)._ |
 | `chart/bar` | [doc](https://docs.sisense.com/main/SisenseLinux/bar-chart.htm) | `bar-chart` | 🟡 n | warn+flag |
 | | | | | _Horizontal bars -> Sigma bar-chart; orientation from sub-type is applied downstream._ |
 | `chart/line` | [doc](https://docs.sisense.com/main/SisenseLinux/line-chart.htm) | `line-chart` | 🟡 n | warn+flag |
 | `chart/area` | [doc](https://docs.sisense.com/main/SisenseLinux/area-chart.htm) | `area-chart` | 🟡 n | warn+flag |
+| `chart/waterfall` | [doc](https://docs.sisense.com/main/SisenseLinux/waterfall-chart.htm) | `waterfall-chart` | 🟡 n | warn+flag |
+| | | | | _Category and value panels map to native waterfall axes with cumulative sum and connector lines._ |
 | `chart/pie` | [doc](https://docs.sisense.com/main/SisenseLinux/pie-chart.htm) | `pie-chart` | 🟡 n | warn+flag |
 | `pivot2` | [doc](https://docs.sisense.com/main/SisenseLinux/pivot.htm) | `pivot-table` | 🟡 n | warn+flag |
 | | | | | _`pivot2` is the current Sisense pivot widget type; rows/columns/values panels -> Sigma grouped table._ |
@@ -40,6 +42,10 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/widget-designe
 | | | | | _No native Sigma equivalent -> convert_dashboard flags the widget (no element). Coverage report marks it MANUAL._ |
 | `sunburst` | [doc](https://docs.sisense.com/main/SisenseLinux/sunburst-widget.htm) | — (no Sigma equivalent) | 🟡 n | warn+flag |
 | | | | | _No native Sigma equivalent -> flagged (no element), MANUAL in the coverage report._ |
+| `chart/boxplot` | [doc](https://docs.sisense.com/main/SisenseLinux/box-and-whisker-plot.htm) | — (no Sigma equivalent) | 🟡 n | warn+flag |
+| | | | | _Sigma box-chart is workspace-gated; skip loudly until entitlement and readback are verified._ |
+| `boxplot` | [doc](https://docs.sisense.com/main/SisenseLinux/box-and-whisker-plot.htm) | — (no Sigma equivalent) | 🟡 n | warn+flag |
+| | | | | _Legacy/internal alias retained as a gated manual mapping; never emit box-chart optimistically._ |
 | `map/area` | [doc](https://docs.sisense.com/main/SisenseLinux/area-map.htm) | — (no Sigma equivalent) | 🟡 n | warn+flag |
 | | | | | _The coverage report suggests a Sigma geography-region map (HINT), but the builder has no SIGMA_KIND entry -> the widget is flagged (no element emitted) and the geo mapping is done manually. VERIFY geo level._ |
 | `map/scatter` | [doc](https://docs.sisense.com/win/SisenseWin/scatter-map.htm) | — (no Sigma equivalent) | 🟡 n | warn+flag |
@@ -47,7 +53,7 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/widget-designe
 
 ## Number format
 
-_Sisense widget JAQL number-format signal -> Sigma column `format` object. The ONLY documentation-grounded numeric-format signal convert.py ports is the currency mask (JAQL `format.mask.currency: true`), which maps to a Sigma currency number format. IMPORTANT (beads-sigma-kvza): the previous `_money_fmt` ALSO returned a $ format when the widget TITLE contained the substring 'Revenue' or 'Cost' — a name-guessing heuristic that mis-formatted any non-currency measure with those words in its title. That title-substring guess has been REMOVED. A JAQL `format.mask` that is present but is NOT a currency signal (e.g. a percent/number mask) is a formatting intent this converter does not yet port -> it now LOUDLY warns and ships the column unformatted, rather than silently dropping it or wrong-guessing. Sisense's default currency symbol is USD '$' per the cited doc._
+_Sisense widget JAQL number-format signal -> Sigma column `format` object. The ONLY documentation-grounded numeric-format signal convert.py ports is the currency mask (JAQL `format.mask.currency: true`), which maps to a Sigma currency number format. IMPORTANT ([bead]): the previous `_money_fmt` ALSO returned a $ format when the widget TITLE contained the substring 'Revenue' or 'Cost' — a name-guessing heuristic that mis-formatted any non-currency measure with those words in its title. That title-substring guess has been REMOVED. A JAQL `format.mask` that is present but is NOT a currency signal (e.g. a percent/number mask) is a formatting intent this converter does not yet port -> it now LOUDLY warns and ships the column unformatted, rather than silently dropping it or wrong-guessing. Sisense's default currency symbol is USD '$' per the cited doc._
 
 Authoritative source: <https://docs.sisense.com/main/SisenseLinux/formatting-numbers-in-widgets.htm>
 
@@ -104,6 +110,37 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/configuring-ho
 | | | | | _Alias of `numeric`._ |
 | `*` | [doc](https://docs.sisense.com/main/SisenseLinux/configuring-how-filters-affect-the-dashboard-and-widgets.htm) | `list` | 🟡 n | n/a |
 | | | | | _DOCUMENTED DEFAULT: an unrecognized filter datatype becomes a categorical list control (Sisense's own default filter kind for descriptive fields). Not a silent wrong-default — the fallback is the documented categorical control._ |
+
+## workbook-feature
+
+_Audit of released Sigma workbook-as-code features against documented Sisense dashboard and widget semantics. The converter emits only fields present in the discovered dashboard JSON with an equivalent published meaning; add-on payloads and unrelated Sigma capabilities remain explicit gaps._
+
+Authoritative source: <https://docs.sisense.com/main/SisenseLinux/widget-designer.htm>
+
+| construct | doc ref | Sigma target | sigma_verified | on-unmapped |
+|---|---|---|---|---|
+| `chart/waterfall` | [doc](https://docs.sisense.com/main/SisenseLinux/waterfall-chart.htm) | `waterfall-chart` | 🟡 n | warn+skip |
+| | | | | _A Sisense waterfall category and measures map to released x/y axes plus cumulative sum and visible connector lines._ |
+| `widget-style-legend` | [doc](https://developer.sisense.com/guides/sdk/modules/sdk-ui/type-aliases/type-alias.LegendOptions.html) | `element.legend` | 🟡 n | warn+preserve-default |
+| | | | | _Explicit enabled and top/bottom/left/right position values map to Sigma visibility and position. Other placement or styling values are warned and omitted._ |
+| `widget-drilldown-options` | [doc](https://docs.sisense.com/main/SisenseLinux/drilling-down-in-a-widget.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _Sisense can persist drill categories, but the released Sigma drill control publishes no hierarchy source/category/target binding. Explicit drill intent is flagged; dead drill UI is never emitted._ |
+| `jump-to-dashboard` | [doc](https://docs.sisense.com/main/SisenseLinux/jump-to-dashboard.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _The certified JTD add-on can carry a destination dashboard and filter behavior. Discovery does not normalize that add-on payload into a validated destination, so navigation is flagged rather than guessed._ |
+| `tabber-widget` | [doc](https://docs.sisense.com/main/SisenseLinux/tabber.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _Tabber is a certified add-on whose payload assigns widgets to regional tabs. Until discovery normalizes its tab labels and membership, neither metadata pages nor tabbed-container is emitted._ |
+| `print-page-break` | [doc](https://docs.sisense.com/main/SisenseLinux/exporting-dashboards.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _Discovered Sisense dashboard layout has no persisted print-pagination marker. Emitting page-break would invent source intent._ |
+| `indicator/gauge-with-explicit-range` | [doc](https://docs.sisense.com/main/SisenseLinux/indicator.htm) | `progress` | 🟡 n | warn+retain-kpi |
+| | | | | _A gauge maps to a ring-shaped value-mode progress element only when value, minimum, and maximum formulas or literal bounds are all available. A gauge without a complete range remains a KPI with a loud gap._ |
+| `dashboard-filter-panel` | [doc](https://docs.sisense.com/main/SisenseLinux/creating-dashboard-filters.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _Sisense dashboard filters become in-canvas Sigma controls. No document panel object is fabricated because the discovered panel chrome has no published page/header/sidebar binding equivalent._ |
+| `literal-widget-background` | [doc](https://docs.sisense.com/main/SisenseLinux/setting-widget-style.htm) | `element.style.backgroundColor` | 🟡 n | warn+preserve-default |
+| | | | | _A literal hex style.backgroundColor maps to released element styling. Scripts, theme tokens, and unknown style fields are omitted loudly._ |
+| `repeated-container` | [doc](https://docs.sisense.com/main/SisenseLinux/widget-designer.htm) | — (no Sigma equivalent) | 🟡 n | explicit-gap |
+| | | | | _Native Sisense dashboard widgets and columnar layout do not encode a data-bound repeating card region. Ordinary cells must not become repeated-container elements._ |
+| `box-and-whisker` | [doc](https://docs.sisense.com/main/SisenseLinux/box-and-whisker-plot.htm) | — (no Sigma equivalent) | 🟡 n | warn+skip |
+| | | | | _Sisense documents box plots, but Sigma box-chart is workspace-gated. Never emit one until entitlement and create/readback behavior are verified._ |
 
 ---
 _Compositional constructs that do not serialize to a flat table (Set Analysis, filtered `*If`, ratio measures, TO_CHAR/Excel mask parsers, count-on-joined-view) stay as cited predicates in the classifier; this matrix covers the enumerable maps._

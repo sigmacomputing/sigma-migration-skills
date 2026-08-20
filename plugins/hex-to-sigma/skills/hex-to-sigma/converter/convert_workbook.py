@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Convert a Hex project's METRIC/EXPLORE cells into a Sigma workbook spec,
-wired to the data model built by convert_dm.py, plus a page `layout` built
-from Hex's appLayout.
+"""Convert a Hex project's METRIC/EXPLORE cells into a released Sigma
+workbook code-representation payload wired to the data model built by
+convert_dm.py. The payload has outer metadata plus a `document` wrapper,
+flat elements, metadata-only pages, and authoritative layout from appLayout.
 
 Shapes below are taken directly from the sigma-workbooks skill's
 reference/specification/{kpis,charts,layout,sources}.md — not guessed:
@@ -22,7 +23,7 @@ reference/specification/{kpis,charts,layout,sources}.md — not guessed:
 One assumption, flagged for verification on the first live POST+readback
 (same "flag it, verify at POST" discipline used throughout this skill
 family): the formula prefix for columns on an element sourced from a DM's
-*native-SQL* element. Prior conversion work confirms "Sigma
+*native-SQL* element. metabase-to-sigma's design-notes.md confirms "Sigma
 does NOT honor sql-element names (all read back 'Custom SQL')" for
 SQL-sourced elements — so every column formula below is qualified
 `[Custom SQL/<column>]`, matching that confirmed behavior, not the DM
@@ -32,11 +33,18 @@ element's own (deliberately absent) `name`.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import os
 import sys
 
 import hex_yaml
 import sigma_ids
+
+LIB_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "scripts", "lib"))
+if LIB_DIR not in sys.path:
+    sys.path.insert(0, LIB_DIR)
+import code_rep  # noqa: E402
 
 SOURCE_PREFIX = "Custom SQL"  # see module docstring — flagged assumption
 
@@ -54,14 +62,29 @@ AGG_FORMULA = {
     "VariancePop": "VariancePop([{ref}])",
 }
 
-# Hex EXPLORE series `type` -> Sigma chart `kind`. Histogram has no confirmed
-# direct Sigma chart kind — flagged, never faked (falls back to a table).
+CATALOG_PATH = os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "refs", "catalogs", "viz-kind.json"
+))
+
+
+def _load_viz_catalog() -> dict[str, dict]:
+    """Load the documentation-grounded chart mapping. Missing/malformed
+    catalogs are fatal: silently falling back to an inline default would undo
+    the release coverage contract."""
+    with open(CATALOG_PATH, encoding="utf-8") as fh:
+        data = json.load(fh)
+    return {
+        str(row["source"]).strip().lower(): row
+        for row in data.get("rows", [])
+        if row.get("source")
+    }
+
+
+VIZ_CATALOG = _load_viz_catalog()
 CHART_KIND = {
-    "bar": "bar-chart",
-    "line": "line-chart",
-    "area": "area-chart",
-    "scatter": "scatter-chart",
-    "pie": "pie-chart",
+    source: row["sigma"]
+    for source, row in VIZ_CATALOG.items()
+    if row.get("sigma") and row.get("status") == "direct"
 }
 
 
@@ -163,6 +186,39 @@ def _top_n_filter(field: dict, measure_col_id: str, warnings: list[str], label: 
     }
 
 
+def _legend(settings: dict, warnings: list[str], label: str) -> dict | None:
+    """Hex chartConfig.settings.legend -> Sigma's released legend shape."""
+    source = (settings.get("legend") or {}).get("position")
+    if source is None:
+        return None
+    if source == "none":
+        return {"visibility": "hidden"}
+    if source in {
+        "auto", "top", "right", "bottom", "left",
+        "top-left", "top-right", "bottom-left", "bottom-right",
+    }:
+        return {"position": source}
+    warnings.append(
+        f"EXPLORE cell '{label}': Hex legend position '{source}' has no grounded "
+        "Sigma mapping — legend styling omitted."
+    )
+    return None
+
+
+def _single_series_color(series: dict, warnings: list[str], label: str) -> dict | None:
+    """Map Hex's explicit static series color to Sigma's single-color channel."""
+    value = (series.get("color") or {}).get("staticValue")
+    if value is None:
+        return None
+    if isinstance(value, str) and value.startswith("#") and len(value) in (4, 7):
+        return {"by": "single", "value": value}
+    warnings.append(
+        f"EXPLORE cell '{label}': static series color {value!r} is not a supported "
+        "hex color — chart color omitted."
+    )
+    return None
+
+
 def build_explore_element(cell: dict, dm_id: str, element_id: str,
                            columns_by_variable: dict, warnings: list[str]) -> dict | None:
     label = cell["label"] or cell["cell_id"]
@@ -172,10 +228,25 @@ def build_explore_element(cell: dict, dm_id: str, element_id: str,
                          "charts aren't handled by this skill yet) — skipped.")
         return None
     series_type = series[0].get("type")
-    kind = CHART_KIND.get(series_type)
+    source_type = str(series_type).strip().lower()
+    catalog_row = VIZ_CATALOG.get(source_type)
+    kind = CHART_KIND.get(source_type)
     if not kind:
-        warnings.append(f"EXPLORE cell '{label}': series type '{series_type}' has no confirmed "
-                         "Sigma chart-kind mapping — skipped (never faked). Rebuild by hand.")
+        if catalog_row and catalog_row.get("status") == "gated":
+            warnings.append(
+                f"EXPLORE cell '{label}': series type '{series_type}' is gated: "
+                f"{catalog_row.get('gap', 'no enabled target surface')} — skipped, never faked."
+            )
+        elif catalog_row:
+            warnings.append(
+                f"EXPLORE cell '{label}': series type '{series_type}' is a documented gap: "
+                f"{catalog_row.get('gap', 'no faithful Sigma mapping')} — skipped, never faked."
+            )
+        else:
+            warnings.append(
+                f"EXPLORE cell '{label}': series type '{series_type}' is absent from the "
+                "grounded viz catalog — skipped (never guessed). Add a cited catalog row."
+            )
         return None
 
     dataframe = cell["dataframe"]
@@ -251,6 +322,16 @@ def build_explore_element(cell: dict, dm_id: str, element_id: str,
         if top_n:
             filters.append(top_n)
 
+    legend = _legend(cell.get("settings") or {}, warnings, label)
+    if legend:
+        element["legend"] = legend
+    # Pie reserves `color` for the category channel. Cartesian charts can
+    # carry Hex's explicit static series color directly.
+    if kind != "pie-chart":
+        color = _single_series_color(series[0], warnings, label)
+        if color:
+            element["color"] = color
+
     element["columns"] = columns
     if filters:
         element["filters"] = filters
@@ -273,13 +354,14 @@ def _row_span(height: int | None) -> int:
 
 
 def build_layout_xml(page_id: str, tab: dict, elements_by_cell: dict[str, str]) -> str:
-    """Two-tag grammar (sigma-workbooks/reference/specification/layout.md):
-    one <Page> per workbook page, <LayoutElement> per leaf. Hex's column
-    start/end are on a 0-120 scale; Sigma's grid is 24 columns (1-25 lines).
-    Rows stack top-to-bottom per Hex row band; a band's height is its
-    tallest element's row span. This is a first-pass proportional mapping —
-    verify against a readback + PNG export (refs/layout-visual-qa.md) before
-    treating it as final, same as every sibling skill's layout gate."""
+    """Live layout grammar (sigma-workbooks/reference/specification/layout.md):
+    one <Page> per workbook page and <Element> for each leaf (<Container> is
+    reserved for grouped grid regions). Hex's column start/end are on a 0-120
+    scale; Sigma's grid is 24 columns (1-25 lines). Rows stack top-to-bottom
+    per Hex row band; a band's height is its tallest element's row span. This
+    is a first-pass proportional mapping — verify against a readback + PNG
+    export (refs/layout-visual-qa.md) before treating it as final, same as
+    every sibling skill's layout gate."""
     lines = [f'<Page type="grid" gridTemplateColumns="repeat({_SIGMA_GRID_WIDTH}, 1fr)" '
              f'gridTemplateRows="auto" id="{page_id}">']
     row_cursor = 1
@@ -287,18 +369,22 @@ def build_layout_xml(page_id: str, tab: dict, elements_by_cell: dict[str, str]) 
         band_span = 0
         col_lines = []
         for col in row["columns"]:
-            cell_ids = [cid for cid in col["cell_ids"] if cid in elements_by_cell]
-            if not cell_ids:
+            cells = col.get("cells")
+            if cells is None:
+                cells = [{"cell_id": cid, "height": None} for cid in col.get("cell_ids", [])]
+            cells = [cell for cell in cells if cell["cell_id"] in elements_by_cell]
+            if not cells:
                 continue
             start = round(col["start"] / _HEX_GRID_WIDTH * _SIGMA_GRID_WIDTH) + 1
             end = round(col["end"] / _HEX_GRID_WIDTH * _SIGMA_GRID_WIDTH) + 1
             # A Hex column can stack multiple cells; split its row range evenly.
-            heights = [_row_span(None) for _ in cell_ids]  # heights filled in by caller if known
             sub_cursor = row_cursor
-            for cid, span in zip(cell_ids, heights):
+            for cell in cells:
+                cid = cell["cell_id"]
+                span = _row_span(cell.get("height"))
                 el_id = elements_by_cell[cid]
                 col_lines.append(
-                    f'  <LayoutElement elementId="{el_id}" gridColumn="{start} / {end}" '
+                    f'  <Element elementId="{el_id}" gridColumn="{start} / {end}" '
                     f'gridRow="{sub_cursor} / {sub_cursor + span}"/>'
                 )
                 sub_cursor += span
@@ -307,6 +393,75 @@ def build_layout_xml(page_id: str, tab: dict, elements_by_cell: dict[str, str]) 
         row_cursor += band_span or _DEFAULT_ROW_SPAN
     lines.append("</Page>")
     return "\n".join(lines)
+
+
+def _prepare_tabs(tabs: list[dict], elements_by_cell: dict[str, str],
+                  warnings: list[str]) -> list[dict]:
+    """Make page membership explicit and total before generating layout.
+
+    Layout is authoritative in the released representation: every flat element
+    must occur in exactly one Page block. Duplicate source placements are
+    flagged and the first wins; converted cells omitted from Hex appLayout are
+    appended to the first page so they cannot become layout orphans.
+    """
+    tabs = copy.deepcopy(tabs)
+    if not tabs:
+        tabs = [{"name": "Page 1", "rows": []}]
+
+    placed_elements = set()
+    for tab in tabs:
+        for row in tab.get("rows", []):
+            for col in row.get("columns", []):
+                for unsupported in col.get("unsupported", []):
+                    warnings.append(
+                        f"appLayout element type '{unsupported['type']}' has no grounded "
+                        "Sigma layout mapping — omitted."
+                    )
+                cells = col.get("cells")
+                if cells is None:
+                    cells = [{"cell_id": cid, "height": None} for cid in col.get("cell_ids", [])]
+                kept = []
+                for cell in cells:
+                    cid = cell["cell_id"]
+                    element_id = elements_by_cell.get(cid)
+                    if not element_id:
+                        continue
+                    if cell.get("explorable") is True:
+                        warnings.append(
+                            f"cell '{cid}' enables Hex explorable/drill behavior, but the export "
+                            "does not carry a drill hierarchy — omitted; configure Sigma drill "
+                            "explicitly after migration."
+                        )
+                    if element_id in placed_elements:
+                        warnings.append(
+                            f"cell '{cid}' appears more than once in appLayout — kept its first "
+                            "placement because workbook layout membership must be unique."
+                        )
+                        continue
+                    placed_elements.add(element_id)
+                    kept.append(cell)
+                col["cells"] = kept
+                col["cell_ids"] = [cell["cell_id"] for cell in kept]
+
+    unplaced = [
+        cell_id for cell_id, element_id in elements_by_cell.items()
+        if element_id not in placed_elements
+    ]
+    for cell_id in unplaced:
+        tabs[0]["rows"].append({
+            "columns": [{
+                "start": 0, "end": _HEX_GRID_WIDTH,
+                "cell_ids": [cell_id],
+                "cells": [{"cell_id": cell_id, "height": None}],
+                "unsupported": [],
+            }]
+        })
+        placed_elements.add(elements_by_cell[cell_id])
+        warnings.append(
+            f"converted cell '{cell_id}' was absent from appLayout — appended to the first "
+            "page so required layout remains authoritative."
+        )
+    return tabs
 
 
 def build_workbook(doc: dict, dm_id: str, dm_element_id: str,
@@ -332,23 +487,35 @@ def build_workbook(doc: dict, dm_id: str, dm_element_id: str,
             elements.append(el)
             stats["elements"] += 1
 
-    page_id = sigma_ids.sigma_short_id()
-    tabs = hex_yaml.parse_app_layout(doc)
-    layout_xml = build_layout_xml(page_id, tabs[0], elements_by_cell) if tabs else None
+    tabs = _prepare_tabs(hex_yaml.parse_app_layout(doc), elements_by_cell, warnings)
+    pages = []
+    layout_blocks = []
+    for tab in tabs:
+        page_id = sigma_ids.sigma_short_id()
+        pages.append({"id": page_id, "name": tab["name"]})
+        layout_blocks.append(build_layout_xml(page_id, tab, elements_by_cell))
 
-    page = {"id": page_id, "name": tabs[0]["name"] if tabs else "Page 1", "elements": elements}
+    document = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": pages,
+        "elements": elements,
+        # Required and authoritative: page membership exists only in these
+        # Page blocks; pages[] deliberately contains metadata and no elements.
+        "layout": "\n".join(layout_blocks),
+    }
+    app_layout = doc.get("appLayout") or {}
+    if len(pages) > 1:
+        document["settings"] = {
+            "navigation": {"pageTabsInViewMode": "shown"}
+        }
+    if app_layout.get("fullWidth") is True:
+        code_rep.set_theme(document, overrides={"pageWidth": "full"})
 
-    spec = {"name": wb_name, "schemaVersion": 1, "pages": [page]}
-    if layout_xml:
-        # `layout` is a TOP-LEVEL spec field (sibling to `pages`), not nested
-        # inside the page object — live-verified 2026-07-30: nesting it under
-        # the page is silently ignored (no error), and Sigma falls back to its
-        # own auto-arrange (a single stacked column), exactly matching the
-        # doc's "omit layout" behavior. The XML itself still wraps each page's
-        # content in its own <Page id="..."> tag.
-        spec["layout"] = layout_xml
+    metadata = {"name": wb_name}
     if folder_id:
-        spec["folderId"] = folder_id
+        metadata["folderId"] = folder_id
+    spec = code_rep.wrap(document, extra=metadata)
     return {"workbook": spec, "warnings": warnings, "stats": stats}
 
 

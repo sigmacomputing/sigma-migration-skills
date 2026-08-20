@@ -249,13 +249,23 @@ check(!st.success? && err.include?('not found'), 'missing blind-grade.json → r
 # --- anti-gaming: family readings vs the mechanical kind census ---------------
 # wb-readback census: 1 kpi + 2 bar. Blind grade reads 1 kpi + 1 bar + 1 line
 # → 1 mismatch (tolerated). Reading 1 kpi + 2 line → 2 mismatches (refused).
-CENSUS_RB = { 'pages' => [{ 'elements' => [
+CENSUS_ELEMENTS = [
   { 'id' => 'e1', 'kind' => 'kpi-chart' },
   { 'id' => 'e2', 'kind' => 'bar-chart' },
   { 'id' => 'e3', 'kind' => 'bar-chart' },
   { 'id' => 'e4', 'kind' => 'control' },          # non-chart: never in the census
   { 'id' => 'e5', 'kind' => 'bar-chart', 'visibleAsSource' => false } # hidden master
-] }] }.freeze
+].freeze
+CENSUS_RB = {
+  'workbookId' => 'wb-test',
+  'document' => {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p1', 'name' => 'Dashboard' }],
+    'elements' => CENSUS_ELEMENTS,
+    'layout' => "<Page id=\"p1\">#{CENSUS_ELEMENTS.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  }
+}.freeze
 
 census_case = lambda do |families|
   lambda do |dir|

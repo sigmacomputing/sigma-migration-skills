@@ -259,11 +259,16 @@ display name) to the converter via `--metrics`. SAFE: KPI/crosstab measures are 
 measures and any non-match fall back to inline; no `--metrics` is byte-identical.
 **Re-vendor after editing `converter/*.ts`:** `tools/vendor-converters.sh <mcp> cognos`
 rebuilds `converter/cli.mjs` (production runs the bundle). This is **enforced** — `tools/check-cognos-bundle.rb`
-(governance hook + CI) fails if a `converter/*.ts` edit ships without re-bundling. Verified: `scripts/test-metric-reference.mjs`. Then post-and-readback POSTs
-the workbook and re-runs the error-column gate. **`apply-layout.mjs` then gives the page a
-clean 24-col grid** (controls on top, content stacked full-width with per-kind heights) —
-Sigma auto-arrange otherwise squishes every element to the same height. It writes the
-top-level `spec.layout` XML (matched to readback ids) and confirms it survives readback.
+(governance hook + CI) fails if a `converter/*.ts` edit ships without re-bundling. Verified: `scripts/test-metric-reference.mjs`. The converter emits the current
+workbook-code shape directly: outer metadata (`name`) plus a `document` wrapper
+with **flat `document.elements`**, **metadata-only `document.pages`**, and a
+required authoritative `document.layout` that is the sole
+page/panel/repeater-membership map. `post-and-readback.mjs` rejects a legacy
+page-nested or layout-less workbook before POST and runs the same gate on GET.
+**`apply-layout.mjs` verifies that authored layout; it no longer synthesizes a
+replacement that would erase source page/panel/tab intent.** Both use CodeRep
+helpers. Data-model specs are unaffected and keep their existing flat
+transport body with `pages[].elements`.
 **It then runs the shared layout-quality lint as a gate** (`scripts/lib/layout_lint.rb`,
 vendored byte-identical; cognos shells out to ruby) on the final readback spec — flags
 raw-id element display names, controls orphaned outside containers, and generic Sigma
@@ -292,7 +297,7 @@ A workbook that POSTs 200 and passes parity ($-total / row-count) can still be v
 1. Render every page to PNG (token first: `eval "$(scripts/get-token.sh)"`):
    `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600`
 2. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls in-band, no clipped titles, even heights, right chart kind/format; short map titles).
-3. Fix any failure in the spec — for multi-page workbooks use `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-read**.
+3. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
 4. Declare the migration done on a **clean render**, not on HTTP 200.
 
 ---
@@ -322,14 +327,26 @@ A workbook that POSTs 200 and passes parity ($-total / row-count) can still be v
   **charts (RAVE2 `<vizControl>`) → Sigma chart elements** (bar/column/line/area/pie/donut/
   combo/scatter via the slot model — see `refs/format-shapes.md`) and **maps (`tiledmap`) →
   Sigma region-map / point-map**.
+- Released workbook-code mappings: Cognos **waterfalls → `waterfall-chart`**;
+  explicit legend visibility/position → `legend`; non-empty hierarchy
+  `drillBehavior` → `controlType: drill`; report pages/tabs → metadata pages +
+  auto navigation; `pageBreak` → `page-break`; progress/bullet/gauge visuals →
+  `progress` backed by a hidden aggregate source; page headers →
+  `document.panels`; named blocks/styles → styled container sections;
+  repeaters → `repeated-container` cards.
 
 **Flagged with a warning (and a readable placeholder), never faked:** macros whose prompt
 value set isn't recoverable from the report, **running-total / moving-* / rank / lag / lead**
 (window funcs with no clean single-column analog), **GetResourceString** (localization),
 composite/non-equi **joins**, **summary filters** (post-aggregation), table **sort order**
 (not part of the workbook spec — apply in the UI), and Cognos viz types with no native Sigma
-element (network, word-cloud, packed-bubble, treemap → flagged table). Drill-through→actions
-and Framework Manager `.cpf` remain roadmap.
+element (network, word-cloud, packed-bubble, treemap → flagged table).
+**Box charts are workspace-gated** and stay a loud, data-preserving table
+fallback until entitlement is proven. Cross-report drill-through stays a loud
+gap (Sigma's drill control is hierarchy drill, not a cross-document action).
+Cognos page footers also stay loud because released workbook panels support
+header/sidebar, not footer. Framework Manager `.cpf` remains roadmap. See
+`refs/cognos-coverage.md` for the executable catalog and gap ledger.
 
 ## Security: Row- & Column-Level Security (RLS/CLS)
 

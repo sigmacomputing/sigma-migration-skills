@@ -40,6 +40,27 @@ FIXTURES = [
   { id: 'D-8', sql: 'ROUND([Margin Pct], 2)',                     expect: 'Round([Margin Pct], 2)' },
   { id: 'D-9', sql: "DATEDIFF('day', [Order Date], [Ship Date])", expect: 'DateDiff("day", [Order Date], [Ship Date])' },
   { id: 'D-10', sql: 'COALESCE([Discount], 0)',                   expect: 'Coalesce([Discount], 0)' },
+  # D-11..D-14 — MySQL 2-arg DATEDIFF/TIMEDIFF (, upstream
+  # PR #122, vendored at source 0641a62). D-9 above only ever covered the 3-arg
+  # form; the 2-arg form is what Domo Beast Modes actually emit, and it produced
+  # `DateDiff(Today(),[Date])` — wrong arity AND wrong operand order — which is
+  # not valid Sigma and caused 9 of the 15 type=error columns on the live
+  # 36-card cold run. These fixtures fail on the PRE-#122 bundle (measured:
+  # `DateDiff(Today(),[Date])`), so they are what makes a re-vendor regression
+  # loud on the domo side rather than only upstream.
+  #
+  # D-12 is the important one: both operands are columns, so a half-fix that adds
+  # the unit WITHOUT swapping still compiles and silently returns the negation —
+  # no error anywhere. Pinning the exact operand order is the only thing that
+  # catches it.
+  { id: 'D-11', sql: 'datediff(current_date(),[Date])',
+    expect: 'DateDiff("day", [Date], Today())' },
+  { id: 'D-12', sql: 'DATEDIFF([CloseDate],[CreatedDate])',
+    expect: 'DateDiff("day", [CreatedDate], [CloseDate])' },
+  { id: 'D-13', sql: 'TIMEDIFF([ended_at],[started_at])',
+    expect: 'DateDiff("second", [started_at], [ended_at])' },
+  { id: 'D-14', sql: 'SUM(CASE WHEN DATEDIFF(current_date(),[Date]) < 7 THEN 1 ELSE 0 END)',
+    expect: 'Sum(If(DateDiff("day", [Date], Today()) < 7, 1, 0))' },
 ]
 # NOTE (converted:false expected): the vendored converter has no Sigma mapping
 # for LIKE/BETWEEN — this is intentional, not a bug (see design doc's Error

@@ -18,7 +18,7 @@
 # dim (referenced from the fact via *_Key), and outputs a column-resolution
 # plan: which columns are direct, which need Lookup, with the exact formula.
 #
-# Closes beads-sigma-dd7. Companion to scripts/find-or-pick-dm.rb (Phase 1.5).
+# Closes [bead]. Companion to scripts/find-or-pick-dm.rb (Phase 1.5).
 #
 # Usage:
 #   ruby scripts/inspect-dm-shape.rb \

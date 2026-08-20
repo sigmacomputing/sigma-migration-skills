@@ -1,0 +1,112 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "sisense",
+  "authoritative_doc": "https://docs.sisense.com/main/SisenseLinux/widget-designer.htm",
+  "on_unmapped_default": "record-explicit-gap",
+  "description": "Audit of released Sigma workbook-as-code features against documented Sisense dashboard and widget semantics. The converter emits only fields present in the discovered dashboard JSON with an equivalent published meaning; add-on payloads and unrelated Sigma capabilities remain explicit gaps.",
+  "rows": [
+    {
+      "source": "chart/waterfall",
+      "sigma": "waterfall-chart",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/waterfall-chart.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+skip",
+      "notes": "A Sisense waterfall category and measures map to released x/y axes plus cumulative sum and visible connector lines."
+    },
+    {
+      "source": "widget-style-legend",
+      "sigma": "element.legend",
+      "doc_ref": "https://developer.sisense.com/guides/sdk/modules/sdk-ui/type-aliases/type-alias.LegendOptions.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+preserve-default",
+      "notes": "Explicit enabled and top/bottom/left/right position values map to Sigma visibility and position. Other placement or styling values are warned and omitted."
+    },
+    {
+      "source": "widget-drilldown-options",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/drilling-down-in-a-widget.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Sisense can persist drill categories, but the released Sigma drill control publishes no hierarchy source/category/target binding. Explicit drill intent is flagged; dead drill UI is never emitted."
+    },
+    {
+      "source": "jump-to-dashboard",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/jump-to-dashboard.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "The certified JTD add-on can carry a destination dashboard and filter behavior. Discovery does not normalize that add-on payload into a validated destination, so navigation is flagged rather than guessed."
+    },
+    {
+      "source": "tabber-widget",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/tabber.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Tabber is a certified add-on whose payload assigns widgets to regional tabs. Until discovery normalizes its tab labels and membership, neither metadata pages nor tabbed-container is emitted."
+    },
+    {
+      "source": "print-page-break",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/exporting-dashboards.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Discovered Sisense dashboard layout has no persisted print-pagination marker. Emitting page-break would invent source intent."
+    },
+    {
+      "source": "indicator/gauge-with-explicit-range",
+      "sigma": "progress",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/indicator.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+retain-kpi",
+      "notes": "A gauge maps to a ring-shaped value-mode progress element only when value, minimum, and maximum formulas or literal bounds are all available. A gauge without a complete range remains a KPI with a loud gap."
+    },
+    {
+      "source": "dashboard-filter-panel",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/creating-dashboard-filters.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Sisense dashboard filters become in-canvas Sigma controls. No document panel object is fabricated because the discovered panel chrome has no published page/header/sidebar binding equivalent."
+    },
+    {
+      "source": "literal-widget-background",
+      "sigma": "element.style.backgroundColor",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/setting-widget-style.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+preserve-default",
+      "notes": "A literal hex style.backgroundColor maps to released element styling. Scripts, theme tokens, and unknown style fields are omitted loudly."
+    },
+    {
+      "source": "repeated-container",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/widget-designer.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Native Sisense dashboard widgets and columnar layout do not encode a data-bound repeating card region. Ordinary cells must not become repeated-container elements."
+    },
+    {
+      "source": "box-and-whisker",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "release_gate": "box-chart workspace entitlement",
+      "converter_gap": true,
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/box-and-whisker-plot.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+skip",
+      "notes": "Sisense documents box plots, but Sigma box-chart is workspace-gated. Never emit one until entitlement and create/readback behavior are verified."
+    }
+  ]
+}

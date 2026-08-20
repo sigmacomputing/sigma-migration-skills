@@ -25,8 +25,8 @@
 #   T3 no-trip:  census names resolve via context / sidecar / --metrics /
 #                local element metrics (Parts A-D)
 #   T4 clear:    --type datamodel self-census admit + reject (Part I)
-#   T5 contract: NO census anywhere → the pre-W2.8 unknown-prefix ERROR is
-#                byte-compatible, plus a routing hint (Part H)
+#   T5 contract: NO census anywhere → a named metrics-census ERROR plus a
+#                routing hint (Part H); never fall back to column namespaces
 #   T6 degrade:  unparseable sidecar → WARN, never abort; validation proceeds
 #                census-less (Part J)
 #
@@ -47,6 +47,20 @@ end
 
 # A minimal workbook spec: one chart-ish table element sourcing a (DM-backed)
 # master by elementId, with one measure column whose formula is `formula`.
+def workbook_with(element)
+  {
+    'name' => 'metrics-ns-test',
+    'folderId' => 'folder-test',
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'pg-1', 'name' => 'P1' }],
+      'elements' => [element],
+      'layout' => %(<Page id="pg-1"><Element elementId="#{element['id']}"/></Page>)
+    }
+  }
+end
+
 def wb_spec(formula, extra_metrics: nil)
   el = {
     'id' => 'tbl-1', 'kind' => 'table', 'name' => 'Revenue Tile',
@@ -55,8 +69,7 @@ def wb_spec(formula, extra_metrics: nil)
                   { 'id' => 'c1', 'name' => 'Bound Measure', 'formula' => formula }]
   }
   el['metrics'] = extra_metrics if extra_metrics
-  { 'schemaVersion' => 1, 'name' => 'metrics-ns-test', 'folderId' => 'folder-test',
-    'pages' => [{ 'id' => 'pg-1', 'name' => 'P1', 'elements' => [el] }] }
+  workbook_with(el)
 end
 
 # dm-context shaped like post-and-readback output; per-element metrics arrays
@@ -135,11 +148,12 @@ Dir.mktmpdir do |dir|
   check(out.include?('prefix "Bogus" unknown'), 'bogus prefix still errors as unknown', fails)
 end
 
-puts 'Part H — NO census anywhere → unchanged unknown-prefix ERROR, with the routing hint'
+puts 'Part H — NO census anywhere → explicit metrics-census ERROR, with the routing hint'
 Dir.mktmpdir do |dir|
   out, code = run_validate(dir, wb_spec('[Metrics/Gross Revenue]'), ctx: dm_context) # no metrics, no sidecar
   check(code == 1, "no census → still exit 1 (got #{code})", fails)
-  check(out.include?('prefix "Metrics" unknown'), 'unknown-prefix error preserved', fails)
+  check(out.include?('no DM metrics census'),
+        'missing census is named explicitly (never resolved through columns)', fails)
   check(out.include?('--metrics'), 'error hints at the census routing (--metrics / sidecar)', fails)
 end
 
@@ -201,8 +215,7 @@ Dir.mktmpdir do |dir|
                   { 'id' => 'c1', 'name' => 'Bound Measure', 'formula' => '[Metrics/Damaged Units]' }],
     'metrics' => [{ 'name' => 'Damaged Units', 'formula' => 'Sum([Damaged Units])' }]
   }
-  spec = { 'schemaVersion' => 1, 'name' => 'metrics-ns-test', 'folderId' => 'folder-test',
-           'pages' => [{ 'id' => 'pg-1', 'name' => 'P1', 'elements' => [el] }] }
+  spec = workbook_with(el)
   out, code = run_validate(dir, spec, ctx: dm_context(with_metrics: GOV))
   check(code == 1 && out.include?('F4 collision shape'),
         "local collision-shaped element's metric rejected with the F4 error (exit #{code})", fails)

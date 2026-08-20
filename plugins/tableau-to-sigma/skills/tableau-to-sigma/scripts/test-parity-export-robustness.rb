@@ -102,7 +102,19 @@ STUB = <<~'RUBY'
   $LOADED_FEATURES << real if real && !$LOADED_FEATURES.include?(real)
 RUBY
 
-SPEC = { 'pages' => [{ 'elements' => [
+def workbook_spec(elements)
+  {
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'p1', 'name' => 'Overview' }],
+      'elements' => elements,
+      'layout' => "<Page id=\"p1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+    }
+  }
+end
+
+SPEC = workbook_spec([
   { 'id' => 'el-ok',      'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
   { 'id' => 'el-piv500',  'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
   # A pivot carrying a totals key — CSV export would 500; collect must go
@@ -110,7 +122,7 @@ SPEC = { 'pages' => [{ 'elements' => [
   { 'id' => 'el-totals',  'totals' => { 'showGrandTotals' => true },
     'columns' => [{ 'id' => 'c-q', 'name' => 'Quarter' }, { 'id' => 'c-n', 'name' => 'Net' }] },
   { 'id' => 'el-both500', 'columns' => [{ 'id' => 'c-a', 'name' => 'A' }, { 'id' => 'c-b', 'name' => 'B' }] }
-] }] }.freeze
+]).freeze
 
 PLAN_CHARTS = [
   { 'chart' => 'OK Chart',       'sigma_kind' => 'bar-chart', 'sigma_element_id' => 'el-ok',      'sigma_columns' => %w[c-r c-v] },
@@ -177,10 +189,10 @@ end
 # PLAN-v4 E3.1 acceptance (stubbed export seam, offline).
 # ============================================================================
 puts '-- Part 1b: E3.1 — 204 stream never increments the retry counter; a 5xx does --'
-SPEC_204 = { 'pages' => [{ 'elements' => [
+SPEC_204 = workbook_spec([
   { 'id' => 'el-204',   'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
   { 'id' => 'el-flaky', 'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] }
-] }] }.freeze
+]).freeze
 PLAN_204 = [
   { 'chart' => 'Slow Render', 'sigma_kind' => 'bar-chart', 'sigma_element_id' => 'el-204',   'sigma_columns' => %w[c-r c-v] },
   { 'chart' => 'Flaky 503',   'sigma_kind' => 'bar-chart', 'sigma_element_id' => 'el-flaky', 'sigma_columns' => %w[c-r c-v] }
@@ -226,7 +238,14 @@ def drift_run(env_extra, *args)
     spec_path = File.join(dir, 'wb-readback.json')
     out_path  = File.join(dir, 'parity-actuals.json')
     File.write(plan_path, JSON.pretty_generate('charts' => [], 'source_csv_max_mtime' => yield))
-    File.write(spec_path, JSON.pretty_generate('pages' => []))
+    File.write(spec_path, JSON.pretty_generate(
+                           'document' => {
+                             'schemaVersion' => 4,
+                             'kind' => 'workbook',
+                             'pages' => [],
+                             'elements' => [],
+                             'layout' => ''
+                           }))
     _o, err, st = run_collect(dir, env_extra.merge('STUB_LOG' => File.join(dir, 'log.jsonl')),
                               '--plan', plan_path, '--workbook-id', 'wb',
                               '--workbook-spec', spec_path, '--out', out_path, *args)

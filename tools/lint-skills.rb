@@ -189,6 +189,26 @@ Dir.glob('**/*.sh').sort.each do |f|
   end
 end
 
+# Field-caught (doctor.ps1 cred probes): Windows PowerShell 5.1 does NOT
+# escape embedded double quotes when passing arguments to a native exe — a
+# single-quoted `-e '...'` payload containing "quoted" strings reaches the
+# interpreter with the inner quotes stripped, dies at parse, and (with stderr
+# redirected) reads as a probe failure: a guaranteed false negative on every
+# Windows PowerShell box. CI cannot exercise these paths (creds-free), so
+# this static rule is the only guard. Remedy: keep -e payloads quote-free —
+# hoist load paths to -I and requires to -r flags.
+Dir.glob('**/*.ps1').sort.each do |f|
+  File.readlines(f).each_with_index do |line, i|
+    next if line =~ /\A\s*#/                           # skip PS comments
+    payload = line[/-e\s+'([^']*)'/, 1]
+    next unless payload && payload.include?('"')
+    port_fails << [f, i + 1,
+                   'native -e payload embeds double quotes — Windows PowerShell 5.1 strips them ' \
+                   'in native-arg passing and the payload dies at parse (silent false negative). ' \
+                   'Keep the payload quote-free: hoist load paths to -I and requires to -r.']
+  end
+end
+
 unless warns.empty?
   puts "Tracked baseline gaps (WARN — fix and remove from #{baseline_path}):"
   warns.each { |n, id, desc, r| puts "  ~ #{n}: #{desc}\n      #{r}" }

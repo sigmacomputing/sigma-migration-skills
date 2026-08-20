@@ -86,10 +86,12 @@ Encoding.default_external = Encoding::UTF_8
 #
 # Phase E (OPT-IN) — Enhance: pass --enhance (pass 1 or --finalize) to run the
 # shared enhancement engine AFTER all gates are green: enhance-scan.rb emits
-# candidates; nothing applies without --enhance-accept <ids|all-low-risk>
-# (without it the run stops at exit 14 with the proposals); enhance-apply.rb
-# then clones the parity workbook ("<name> — Enhanced") and applies accepted
-# items one at a time under a parity-unchanged gate. Default = OFF everywhere.
+# candidates + app_options; design interview via enhance-select.rb /
+# enhance-app-plan.rb; nothing applies without --enhance-accept
+# <ids|all-low-risk> (without it the run stops at exit 14 with the proposals);
+# enhance-apply.rb then clones the parity workbook ("<name> — Enhanced") and
+# applies accepted items one at a time under a parity-unchanged gate.
+# Default = OFF everywhere. See refs/phase-e-enhance.md.
 #
 # Exit codes: 0 = done (ALL gates green — only possible via --finalize);
 # 10 = decisions needed (OPEN QUESTIONS printed, NO Sigma objects created);
@@ -120,6 +122,15 @@ Encoding.default_external = Encoding::UTF_8
 # 19 = scoped-run mismatch: a --dashboard / mission.json stated scope named a
 #      dashboard that matches NOTHING in the workbook — the banner lists the
 #      workbook's dashboards (E9.6: never a silent full-workbook run);
+# 20 = the pre-POST Custom-SQL identifier gate (check-sql-idents.rb) found a
+#      statement referencing an identifier that does not exist on its FROM
+#      table — waive with --skip-sql-ident-gate "<reason>";
+# 21 = an element still carries the mechanical converter's placeholder
+#      warehouse-table name/path ("UNKNOWN") after every attribution chance
+#      (extract-landing manifest remap, phantom-column filter) has already
+#      run — POSTing it would 404 late with an unnamed "Source not found"
+#      error (#685-A). Land the embedded extract (or repoint the element by
+#      hand with --table-mapping) and re-run;
 # 3 = parity/guard fail; 4 = workbook layer needs the agent path; other = error.
 #
 # SINGLE-INVOCATION (speed review #2, wave 1):
@@ -163,7 +174,10 @@ require_relative 'lib/offramp' # structured "where did this run leave the golden
 require_relative 'lib/fast_path' # FAST-PATH routing + BOM-tolerant JSON reads
 require_relative 'lib/phase_cache' # sha-stamped phase-output reuse on re-entry (refs/performance.md)
 require_relative 'lib/sigma_rest' # in-process Sigma token minting (no bash/eval)
+require_relative 'lib/code_rep' # workbook code-rep document-wrapper adapter (nested GET/PUT shape)
+require_relative 'lib/workbook_code' # flat workbook elements + layout-owned page membership
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+require_relative 'lib/tableau_warehouse_column_refs'
 require_relative 'lib/tableau_rest' # in-process Tableau token minting (Windows-safe; no bash/eval)
 require_relative 'hydrate-custom-sql'
 
@@ -171,7 +185,7 @@ $stdout.sync = true # progress lines interleave correctly when piped/captured
 
 HERE = __dir__
 $LOAD_PATH.unshift File.expand_path('lib', HERE)
-require 'coverage_gate' # build-charts coverage.json → consolidated report (bead beads-sigma-59mk)
+require 'coverage_gate' # build-charts coverage.json → consolidated report ()
 # Local per-phase timing capture (wave-1, ratified decision #5: measure before
 # optimizing; files LOCAL, never sent off-box). The lib is owned by the
 # shared phase-metrics lane (shared/lib/phase_metrics.rb → lib/phase_metrics.rb);
@@ -182,7 +196,7 @@ begin
 rescue LoadError, StandardError
   nil
 end
-require 'join_plan_resolutions' # join-plan.json gate-16 resolutions → consolidated report (beads-sigma-zjkw)
+require 'join_plan_resolutions' # join-plan.json gate-16 resolutions → consolidated report ([bead])
 
 require 'rbconfig'
 # Children (post-and-readback.rb, phase6-parity.rb, …) inherit this marker so
@@ -194,7 +208,7 @@ ENV['SIGMA_ORCHESTRATED_RUN'] = '1'
 # rescue). :recommended reuse comes from auto-pick, never a CLI arg, so the
 # snapshot carries no --reuse-dm to strip.
 ORIGINAL_ARGV = ARGV.dup.freeze
-opts = {}
+opts = { per_page_masters: true }
 OptionParser.new do |o|
   o.banner = <<~BANNER
     Usage: ruby scripts/migrate-tableau.rb --workbook <name>|--workbook-id <luid> \\
@@ -299,8 +313,12 @@ OptionParser.new do |o|
                                         'landing manifest was found (exit 17 otherwise) — you own the DM table paths') { |v| opts[:skip_extract_landing] = v }
   o.on('--no-auto-land', 'keep the manual extract-landing gate (exit 17) instead of auto-running land-extracts.py ' \
                          'when the .twbx payload + connection id are already available') { opts[:no_auto_land] = true }
-  o.on('--skip-postpublish-guide REASON', 'waive the finalize gate that requires POSTPUBLISH_GUIDE.md when the ' \
-                                          'source carries dashboard actions (gate 11) — name it in your report') { |v| opts[:skip_postpublish_guide] = v }
+  o.on('--skip-postpublish-guide REASON', 'waive the shared gate 11 (POSTPUBLISH_GUIDE.md must exist when the ' \
+                                          'source carries dashboard actions) AND the Tableau-only guide-residue ' \
+                                          'check (assert-action-gates.rb — the guide must equal the action ' \
+                                          'ledger residue) — name it in your report. Does NOT waive G1 ' \
+                                          '(action-schema validation, also in assert-action-gates.rb): a waiver ' \
+                                          'on the hand-off guide is not a waiver on spec validity.') { |v| opts[:skip_postpublish_guide] = v }
   o.on('--skip-datasource-filters REASON', 'waive the #483 datasource-filter gate (always-on Tableau data-source ' \
                                            'filters must be applied as master defaults, not silently dropped) — REQUIRED reason; name it in your report') { |v| opts[:skip_datasource_filters] = v }
   o.on('--row-scale F', Float) { |v| opts[:row_scale] = v }
@@ -313,13 +331,13 @@ OptionParser.new do |o|
     abort "--master-col expects 'Name=<Sigma formula>', got #{v.inspect}" if nm.to_s.empty? || fx.to_s.empty?
     (opts[:master_cols] ||= []) << [nm, fx]
   end
-  # PLAN-v3 PR-17 (flag-staged, default OFF). De-share the single hidden master
+  # PLAN-v3 PR-17 (default ON). De-share the single hidden master
   # into per-page (per-dashboard) instances so a page's controls filter only
   # that page's tiles (a shared cross-page master composes every page's filters
   # on one master — V5.6-CONTROLS-AUDIT D11). Self-gating: a no-op unless >=2
   # pages draw on the master, so single-page builds stay byte-identical.
-  o.on('--per-page-masters', 'PR-17: give each dashboard page its own master instance (fixes cross-page control leakage; ' \
-                             'no-op for single-page workbooks)') { opts[:per_page_masters] = true }
+  o.on('--per-page-masters', 'give each dashboard page its own thin master instance (default; fixes cross-page control ' \
+                             'leakage and wide-master query cost; no-op for single-page workbooks)') { opts[:per_page_masters] = true }
   o.on('--finalize')         {     opts[:finalize] = true }
   o.on('--actuals PATH')     { |v| opts[:actuals] = File.expand_path(v) }
   # Finalize ergonomics (issue #422): forward two flags phase6-parity /
@@ -370,7 +388,7 @@ OptionParser.new do |o|
                                   'name it in your report.') { |v| opts[:skip_flip_test] = v }
   o.on('--converter MODE', %w[local hosted], "converter backend: 'local' (default; zero-config, no " \
        'data egress — uses the vendored converter/tableau.mjs unless TABLEAU_MCP_BUILD points at a ' \
-       "fresher build) or 'hosted' (sends the .twb to a user-provided hosted converter endpoint — explicit " \
+       "fresher build) or 'hosted' (sends the .twb to the configured SIGMA_MCP_CONVERTER_URL endpoint — explicit " \
        'consent to upload customer schema/SQL).') { |v| opts[:converter] = v }
   # ---- Per-dashboard scoping (LARGE workbooks: build+gate ONE tab at a time) ----
   # `--dashboard "<name>"` (repeatable) scopes parse-twb-layout, build-charts, and
@@ -924,6 +942,7 @@ PHASE_BUDGET = {
   'phase1-lane(bg)'   => 240, # Tableau 5-fetch discovery pool, cold 2-4min; stamp-reused <5s
   'join-wait'         => 240, # foreground wait on the lane (≈ lane time on a cold run, ~0s on reuse)
   'phase1.6-dm-scan'  => 45,  # DM list + ≤25 spec fetches; signature-cached re-entry <1s
+  'phase2.6-reuse-augment' => 30, # #691: reuse-candidate readback + gap plan + one optional DM PUT
   'phase2-columns'    => 90,  # ~2-5s per table via the Sigma catalog; cols-*.json reused on re-entry
   'phase1-join'       => 120, # calc extraction + custom-SQL scan + gap-report parse (sha-cached on re-entry)
   'phase0c-cost'      => 15,  # estimate-cost.rb over workdir artifacts (pure local) + sign-off print
@@ -940,6 +959,7 @@ PHASE_BUDGET = {
   'assert-run-state'  => 10,
   'assert-phase6-ran' => 90,
   'assert-datasource-filters' => 15, # one GET /v2/workbooks/<id>/spec + local checks (SKIPs offline)
+  'assert-action-gates' => 10, # local checks only (spec + ledger + guide) — no network
   'phaseE'            => 240,
   'pivot-totals-ship' => 20   # one GET+PUT to re-hide pivot grand totals at ship
 }.freeze
@@ -1340,6 +1360,46 @@ if opts[:finalize]
   dsfout, dsfst = sigma_run!(dsf_cmd, allow_fail: true)
   mark('assert-datasource-filters')
 
+  # Task 6 (2026-08-07 restructure) — action gates (G1 action-schema
+  # validation + the post-publish guide-residue check). Kept a STANDALONE
+  # tableau-local gate (scripts/assert-action-gates.rb, NOT folded into the
+  # SHARED assert-phase6-ran.rb — same #483 pattern as assert-datasource-
+  # filters.rb above) because the action-ledger concept it checks (Tableau
+  # dashboard filter/highlight/nav/parameter/set actions) has no equivalent in
+  # the other 7 converters that vendor assert-phase6-ran.rb.
+  #
+  # Resolve the built spec the SAME way Phase 4 itself wrote it: the
+  # mechanical/hosted-converter path writes <WORK>/wb-spec.json; the
+  # agent-authored manual-spec route (--wb-spec) writes
+  # <WORK>/wb-spec.resolved.json instead, specifically so the authored,
+  # re-resolvable placeholders file is never clobbered (see Phase 4's own
+  # "NON-DESTRUCTIVE placeholder resolution" comment). By --finalize time
+  # Phase 4 has ALWAYS run (migrate-state.json exists, wb_id resolved above),
+  # so exactly one of these two files must exist. If NEITHER does, that is a
+  # real gap, not a "nothing to check" SKIP — FAIL LOUDLY here rather than let
+  # G1 silently no-op on whichever route left no spec file behind (the
+  # manual-spec route is exactly the one MOST likely to carry a hand-authored
+  # action with a missing/duplicate id, so silently skipping it there would be
+  # worse than not having the gate at all).
+  ag_spec_path = File.join(WORK, 'wb-spec.json')
+  ag_spec_path = File.join(WORK, 'wb-spec.resolved.json') unless File.exist?(ag_spec_path)
+  unless File.exist?(ag_spec_path)
+    puts
+    puts '================ ACTION-GATES STOP (no built spec found) ===================='
+    puts "Neither #{File.join(WORK, 'wb-spec.json')} nor #{File.join(WORK, 'wb-spec.resolved.json')}"
+    puts 'exists, but Phase 4 must have already run by --finalize time (migrate-state.json'
+    puts 'and a workbook_id are both present). G1 (action-schema validation) cannot silently'
+    puts 'skip here — investigate why Phase 4 left no spec file on disk, then re-run --finalize.'
+    puts '==============================================================================='
+    exit 32
+  end
+  ag_cmd = ['ruby', File.join(HERE, 'assert-action-gates.rb'), '--workdir', WORK, '--spec', ag_spec_path]
+  # Waives the guide-residue check ONLY — assert-action-gates.rb never lets
+  # this flag touch G1.
+  ag_cmd += ['--skip-postpublish-guide', opts[:skip_postpublish_guide]] if opts[:skip_postpublish_guide]
+  agout, agst = sigma_run!(ag_cmd, allow_fail: true)
+  mark('assert-action-gates')
+
   if gst.exitstatus == 7
     census = (JSON.parse(File.read(File.join(WORK, 'parity-final.json')))['tile_census'] rescue {}) || {}
     unmatched = census['unmatched_zone_names'] || []
@@ -1411,9 +1471,19 @@ if opts[:finalize]
     puts 'parameter actions, dynamic zones, drills) that workbooks-as-code CANNOT port.'
     puts 'The user must be handed exact Sigma UI steps for each — generate the guide,'
     puts 'then re-run this exact --finalize command:'
+    # `--emitted-manifest` is the actions-emitted sidecar build-charts-from-signals.rb
+    # writes next to its --out (always 'chart-specs.json' in this orchestrator —
+    # see the build_cmd assembly above); derived with the SAME
+    # .sub(/\.json$/, '-actions-emitted.json') build-charts-from-signals.rb itself
+    # uses to write it, not a separately-guessed filename. Without this flag the
+    # guide can't tell an auto-wired nav-button apart from one still needing
+    # manual wiring, and will wrongly re-instruct the user to redo it by hand.
+    manifest_path = File.join(WORK, 'chart-specs.json').sub(/\.json$/, '-actions-emitted.json')
     puts "    ruby scripts/build-postpublish-guide.rb --twb #{File.join(WORK, 'workbook-content.twb')} \\"
     puts "      --wb-ids #{File.join(WORK, 'wb-ids.json')} --out #{File.join(WORK, 'POSTPUBLISH_GUIDE.md')} \\"
-    puts "      --json-out #{File.join(WORK, 'postpublish-guide.json')}"
+    puts "      --emitted-manifest #{manifest_path} \\"
+    # CONTRACTUAL path — gate 11 (a later task) reads exactly <workdir>/action-ledger.json.
+    puts "      --json-out #{File.join(WORK, 'action-ledger.json')}"
     puts 'LINK the guide in your migration report and walk the user through it.'
     puts 'Waivable ONLY via --skip-postpublish-guide "<reason>" — name it in the report.'
     puts '============================================================================='
@@ -1464,7 +1534,7 @@ if opts[:finalize]
   # With an explicit --min-pass-rate (honest NAMED divergences), the census-
   # aware gate is the parity authority — phase6's own exit stays strict-100%.
   parity_ok = p6st.success? || (opts[:min_pass_rate] && gst.success?)
-  all_green = parity_ok && clst.success? && gst.success? && dsfst.success?
+  all_green = parity_ok && clst.success? && gst.success? && dsfst.success? && agst.success?
 
   # ---------------------------------------------------------------------------
   # Phase E (OPT-IN) — Enhance. Runs ONLY when --enhance was passed (here or on
@@ -1487,13 +1557,41 @@ if opts[:finalize]
     if !est.success?
       enhance_line = 'scan FAILED (migration itself is green; see output above)'
     elsif opts[:enhance_accept].nil?
-      cands = (JSON.parse(File.read(enh_path))['candidates'] rescue [])
+      enh_doc = (JSON.parse(File.read(enh_path)) rescue {})
+      cands = enh_doc['candidates'] || []
+      app_options = enh_doc['app_options'] || []
       puts
       puts '==================== PHASE E PROPOSALS (acceptance required) ===================='
-      puts "#{cands.size} enhancement candidate(s) in #{enh_path}. NOTHING has been applied —"
-      puts 'present each candidate to the human (interactive: one AskUserQuestion checklist),'
-      puts 'then re-run this exact --finalize command adding:'
-      puts "  --enhance --enhance-accept <id,id,...>   # or: --enhance-accept all-low-risk"
+      puts "#{cands.size} enhancement candidate(s) in #{enh_path}. NOTHING has been applied."
+      if app_options.empty?
+        puts 'present each candidate to the human (interactive: one AskUserQuestion checklist),'
+        puts 'then re-run this exact --finalize command adding:'
+        puts '  --enhance --enhance-accept <id,id,...>   # or: --enhance-accept all-low-risk'
+      else
+        puts
+        puts 'RUN THE DESIGN INTERVIEW FIRST — ask what the app should BE, not which'
+        puts 'patches to apply. Options below are derived from this source\'s own data'
+        puts '(see refs/phase-e-enhance.md -> "The design interview"):'
+        app_options.each do |o|
+          detail = o['archetype'] ?
+            "#{o['archetype']} score=#{o['score']} confidence=#{o['confidence']}" :
+            o['risk'].to_s
+          puts format('  %-1s %-34s %s [%s]',
+                      o['recommended'] ? '*' : ' ', o['id'], o['label'], detail)
+          puts format('      why: %s', o['evidence'].to_s.gsub(/\s+/, ' ')[0, 96])
+        end
+        puts
+        puts 'Present these with ONE AskUserQuestion (include the parity-only choice),'
+        puts 'confirm any medium-risk item by name, then record the answer:'
+        puts "  ruby scripts/enhance-select.rb --enhancements #{enh_path} \\"
+        puts '    --option <option-id> [--confirm-medium <ids>]'
+        puts 'For an app archetype, ask editable/approval/scenario/agent/seed choices'
+        puts 'and write app-plan.json before authoring:'
+        puts "  ruby scripts/enhance-app-plan.rb --enhancements #{enh_path} \\"
+        puts '    --option <option-id> --out <workdir>/app-plan.json'
+        puts 'then re-run this exact --finalize command adding:'
+        puts '  --enhance --enhance-accept <accepted_candidate_ids from enhance-selection.json>'
+      end
       puts '================================================================================='
       mark('phaseE')
       phase_summary
@@ -1572,7 +1670,7 @@ if opts[:finalize]
   else
     puts "PARITY      : #{pf['status'] || '?'} (#{pf['charts_pass']}/#{pf['charts_total']} charts#{state['extract_mode'] ? ', extract-mode' : ''})"
   end
-  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"}"
+  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"}"
   puts "ENHANCE     : #{enhance_line}" if enhance_line
   puts "PUNCH LIST  : #{_pl_note}" if _pl_note
   puts "STATUS      : #{all_green ? 'GREEN' : 'NOT GREEN'}"
@@ -1580,21 +1678,24 @@ if opts[:finalize]
   quiet_event('result', 'stage' => 'finalize', 'status' => all_green ? 'GREEN' : 'NOT GREEN',
               'workbook_id' => wb_id, 'data_model_id' => state['data_model_id'],
               'gates' => { 'phase6' => p6st.exitstatus, 'cleanup' => clst.exitstatus,
-                           'assert_phase6_ran' => gst.exitstatus, 'ds_filters' => dsfst.exitstatus })
+                           'assert_phase6_ran' => gst.exitstatus, 'ds_filters' => dsfst.exitstatus,
+                           'action_gates' => agst.exitstatus })
   phase_summary
   # ── Same-failure loop breaker (signature + attempt cap) ────────────────────
   # A NOT-GREEN finalize records its gate signature; re-running --finalize into
   # the SAME failure a second time is grinding, not converging — hard-STOP and
   # hand control to the operator instead of looping toward a forced green
   # (refs/operating-contract.md: "don't spin, don't fake").
-  # The signature keys ALL FOUR gate statuses that decide all_green — phase6,
-  # cleanup, the census gate, AND assert-datasource-filters (PR-507 N1: the
+  # The signature keys ALL FIVE gate statuses that decide all_green — phase6,
+  # cleanup, the census gate, assert-datasource-filters (PR-507 N1: the
   # ds-filters status was in all_green but absent here, so a ds-filter-only
   # NOT-GREEN signed as a tuple naming three PASSING gates — the exact
-  # pathology the cleanup-key note below records) — PLUS a digest of the first
-  # FAILING child's error region. Exit codes alone collapse distinct root
-  # causes (assert-phase6-ran.rb folds 84 exit sites into 31 codes; exit 18
-  # alone carries 6 causes), so a sub-cause flip used to read as "the EXACT
+  # pathology the cleanup-key note below records), AND assert-action-gates
+  # (Task 6 restructure — same reasoning: an action-gates-only NOT-GREEN must
+  # not sign as a tuple naming four PASSING gates) — PLUS a digest of the
+  # first FAILING child's error region. Exit codes alone collapse distinct
+  # root causes (assert-phase6-ran.rb folds 84 exit sites into 31 codes; exit
+  # 18 alone carries 6 causes), so a sub-cause flip used to read as "the EXACT
   # same failure". No mode/measure here, deliberately: the S2 progress rule
   # needs a known-polarity count, and these gates emit bigger-is-better rate
   # lines ("pass-rate=83.3%") where "no strict decrease" would false-stop
@@ -1607,13 +1708,15 @@ if opts[:finalize]
     _fail_out = if !gst.success? then gout
                 elsif !parity_ok then p6out # p6 failure NOT excused by --min-pass-rate
                 elsif !dsfst.success? then dsfout
+                elsif !agst.success? then agout
                 else clout
                 end
     _fregion = Offramp.error_region(_fail_out)
     _fsig = Offramp.failure_signature(script: 'migrate-tableau', context: 'finalize',
                                       exit_code: { phase6: p6st.exitstatus, gate: gst.exitstatus,
                                                    cleanup: clst.exitstatus,
-                                                   dsfilters: dsfst.exitstatus },
+                                                   dsfilters: dsfst.exitstatus,
+                                                   actiongates: agst.exitstatus },
                                       error_region: _fregion)
     _fverdict = Offramp.loop_check(WORK, signature: _fsig, scope: 'migrate-tableau:finalize')
     if _fverdict != :first
@@ -1718,8 +1821,8 @@ if opts[:dm_spec] || opts[:wb_spec]
   end
   abort 'FATAL: --dm-spec JSON is not a page-bearing data-model spec (no top-level "pages" array)' \
     if dm_json && !(dm_json.is_a?(Hash) && dm_json['pages'].is_a?(Array))
-  abort 'FATAL: --wb-spec JSON is not a page-bearing workbook spec (no top-level "pages" array)' \
-    unless wb_json.is_a?(Hash) && wb_json['pages'].is_a?(Array)
+  abort 'FATAL: --wb-spec JSON is not a page-bearing workbook spec (no document.pages array)' \
+    unless wb_json.is_a?(Hash) && WorkbookCode.document(wb_json)['pages'].is_a?(Array)
   # Vendor-neutral CDW join-cost advisory (informational only; never gates). See refs/modeling-strategy.md.
   ModelingAdvisory.from_dm_spec(dm_json) if dm_json && defined?(ModelingAdvisory) && ModelingAdvisory.respond_to?(:from_dm_spec)
   Object.const_set(:Specs, Module.new do
@@ -2223,7 +2326,7 @@ if mechanical
   # would send it to a third-party server, which many customers cannot allow.
   #   1. LOCAL (default, no egress): TABLEAU_MCP_BUILD → a local build/tableau.js
   #      (or a locally-run sigma-data-model MCP). Data never leaves the machine.
-  #   2. HOSTED (a user-provided converter endpoint) ONLY on explicit consent
+  #   2. HOSTED (the configured SIGMA_MCP_CONVERTER_URL endpoint) ONLY on explicit consent
   #      (--converter hosted or SIGMA_CONVERTER_ALLOW_HOSTED=1) — the .twb is
   #      uploaded off-box.
   #   3. Otherwise STOP with both options — NEVER fall back to hosted silently.
@@ -2253,7 +2356,7 @@ if mechanical
   if mcp_build.nil? && opts[:converter] != 'hosted'
     auto = [
       (ENV['SIGMA_DATA_MODEL_MCP'] && File.join(ENV['SIGMA_DATA_MODEL_MCP'], 'build', 'tableau.js')),
-      File.join(HERE, 'vendor', 'sigma-data-model-mcp', 'build', 'tableau.js'), # fetch-converter.sh target (gitignored, explicit dev opt-in)
+      File.join(HERE, 'vendor', 'converter-source', 'build', 'tableau.js'), # fetch-converter.sh target (gitignored, explicit dev opt-in)
       File.expand_path('../converter/tableau.mjs', HERE) # vendored in-skill — always present
     ].compact.find { |p| File.exist?(p) }
     if auto
@@ -2268,7 +2371,7 @@ if mechanical
   if mcp_build
     line "converter: LOCAL build #{mcp_build} (no data leaves this machine)"
   elsif allow_hosted
-    line 'converter: HOSTED MCP (user-provided endpoint) — NOTE: the .twb is uploaded'
+    line 'converter: HOSTED MCP (the configured SIGMA_MCP_CONVERTER_URL endpoint) — NOTE: the .twb is uploaded'
     line '           to this third-party server (opted in via --converter hosted / SIGMA_CONVERTER_ALLOW_HOSTED).'
     if opts[:fact_table]
       line "WARN: --fact-table #{opts[:fact_table]} cannot reach the HOSTED converter (no factTable in its arg schema) —"
@@ -2310,7 +2413,7 @@ if mechanical
              • This runs validate → post-and-readback (preflight/control lint + column guard)
                → layout → parity, and STOPS at exit 12 for you to collect actuals + --finalize.
 
-        3. HOSTED converter (uploads the .twb to a user-provided hosted endpoint): re-run with
+        3. HOSTED converter (uploads the .twb to the configured SIGMA_MCP_CONVERTER_URL endpoint): re-run with
            --converter hosted (or SIGMA_CONVERTER_ALLOW_HOSTED=1) to consent.
 
       A conversion is NOT done until `scripts/assert-phase6-ran.rb` exits 0 — that is a hard
@@ -2343,9 +2446,29 @@ if mechanical
   # a stray class='MapBox' (from a geo mark) otherwise would — dropping the
   # embedded path, the landing manifest, and the source.path remap.
   nondata_classes = %w[mapbox tableau-map wms wms-server]
-  if have_twb && !HydrateCustomSql.twb_has_sqlproxy?(twb)
+  # #685-A: sqlproxy detection must be scoped PER-DATASOURCE, not per-workbook.
+  # twb_has_sqlproxy?(twb) is a workbook-wide "does ANY datasource here use
+  # sqlproxy" question — gating this whole embedded-extract-landing block on
+  # its negation used to disable landing/remap for the ENTIRE workbook the
+  # moment ONE unrelated datasource was sqlproxy-backed (e.g. Superstore's
+  # "Commission Model" dashboard, fed by a published/file-based datasource
+  # with no landing path), even though a perfectly landable SIBLING datasource
+  # (the embedded "Sample - Superstore" Hyper extract) sat right next to it.
+  # non_sqlproxy_conn_classes scopes the eligibility scan to datasources that
+  # are NOT themselves sqlproxy-only, so the sqlproxy sibling's class can never
+  # leak into "is everything else here an embedded extract" — the sqlproxy
+  # datasource itself is still handled separately by the PDS-hydration block
+  # below (HydrateCustomSql.twb_has_sqlproxy? there is unchanged; both blocks
+  # can now fire in the SAME run for a mixed workbook).
+  if have_twb
+    sqlproxy_ds_names = HydrateCustomSql.sqlproxy_only_datasource_names(twb)
+    if sqlproxy_ds_names.any?
+      line "sqlproxy datasource(s) detected (#{sqlproxy_ds_names.join(', ')}) — scoping embedded-extract " \
+           'detection to the REMAINING datasource(s) only (#685-A: a sqlproxy datasource must not disable ' \
+           'landing/remap for an unrelated, landable sibling datasource)'
+    end
     conn_classes = begin
-      File.read(twb, encoding: 'UTF-8').scan(/<connection[^>]*\bclass='([^']+)'/).flatten.uniq
+      HydrateCustomSql.non_sqlproxy_conn_classes(twb)
         .reject { |c| c == 'federated' || nondata_classes.include?(c.to_s.downcase) }
     rescue StandardError
       []
@@ -2733,6 +2856,16 @@ if mechanical
   fx = MechanicalSpecs.fixup_dm_spec(conv['model'])
   line "DM fixup: rewrote #{fx[:fixed]} formula(s); dropped #{fx[:dropped].size} unresolvable calc col(s)" if fx[:fixed].positive? || fx[:dropped].any?
   dropped_calcs = fx[:dropped]
+  grounding = TableauWarehouseColumnRefs.apply!(
+    conv['model'],
+    requester: ->(method, path, **kwargs) { Sigma.request(method, path, **kwargs) },
+    lister: ->(path) { Sigma.list_entries(path) },
+    drop_unresolved: true
+  )
+  modes = grounding[:connection_modes].map { |id, friendly| "#{id}=#{friendly ? 'friendly' : 'physical'}" }.join(', ')
+  line "connection naming: #{modes}; grounded #{grounding[:rewritten]} formula(s), " \
+       "re-keyed #{grounding[:rekeyed]} id(s), re-prefixed #{grounding[:reprefixed]} ref(s), " \
+       "dropped #{grounding[:dropped].size} catalog-missing passthrough(s)"
   # v5.4: prune orphaned BROKEN leftovers (union-collapse class) AFTER remap +
   # fixup have had their chance to repair refs — strict double condition
   # (broken cross-refs AND unreferenced), loud per-element log.
@@ -2906,9 +3039,16 @@ else
               '--auto-pick', '--auto-pick-threshold', '0.5'],
              allow_fail: true) # exit 1 = no candidate ≥ min-score (normal: build new)
   dm_match = (JSON.parse(File.read(match_path)) rescue {})
+  # #691: find-or-pick-dm.rb's own ambiguous_wide_tie guard only refuses a WIDE
+  # (>=3-way) tie; a narrow tie at an identical score still auto-picks (its
+  # rationale even says "collapsing a 0.9-score tie — duplicate-DM sprawl").
+  # Don't silently collapse that here either — prefer a source-name match,
+  # else refuse the auto-pick and fall back to a fresh build.
+  _tie = MechanicalSpecs.reuse_tie_guard(dm_match, wb_name)
+  line "DM-REUSE tie guard: #{_tie['reason']}" if _tie['blocked']
   # Reuse-first: if the picker auto-picked a safe candidate (covers ALL source
   # tables), reuse it automatically unless the user passed an explicit --reuse-dm.
-  if !opts[:reuse_dm] && dm_match['auto_picked'] && dm_match['recommended_dm_id']
+  if !opts[:reuse_dm] && _tie['auto_picked'] && dm_match['recommended_dm_id']
     opts[:reuse_dm] = :recommended
     line "DM-REUSE (auto): #{dm_match['rationale']}"
   end
@@ -3453,15 +3593,19 @@ calcs.select { |c| c['requires_custom_sql'] }.each do |c|
   }
 end
 
-# (b) custom-SQL datasource blocks — DM must source via kind:sql, not warehouse-table.
+# (b) custom-SQL datasource blocks — preserve the semantics, but do not mistake
+#     source SQL for a mandate to embed SQL in the target model. Tables are the
+#     maintainable default when decomposition is exact + equivalence-proven.
 custom_sql.each do |b|
   q = (b['query'] || b['sql'] || '').to_s.gsub(/\s+/, ' ').strip[0, 120]
   questions << {
     'id' => 'custom_sql_datasource', 'severity' => 'review',
-    'detail' => "Datasource is backed by Custom SQL; the DM element must use source.kind=sql: #{q}",
-    'options' => ['source the DM element via Custom SQL (kind: sql)',
+    'detail' => "Datasource is backed by Tableau Custom SQL. Prefer warehouse-table elements + relationships/calcs " \
+                "when they preserve every join/filter/grain rule and pass the equivalence probe; otherwise retain source.kind=sql: #{q}",
+    'options' => ['normalize to warehouse-table elements (only with a passing semantic equivalence proof)',
+                  'preserve the Custom SQL in source.kind=sql for exact parity',
                   'abort and refactor the source in the warehouse first'],
-    'default' => 'source the DM element via Custom SQL (kind: sql)'
+    'default' => 'normalize to warehouse-table elements when equivalence is provable; otherwise preserve source.kind=sql'
   }
 end
 
@@ -3910,6 +4054,67 @@ elsif DashboardRead.expected?(WORK)
 end
 
 # ---------------------------------------------------------------------------
+# Phase 2.6 — DM-reuse augmentation gate (#691). A reused DM never runs
+# through THIS conversion's Phase 3 build+POST, so the converter's own fact
+# element (conv_fact) can carry mechanically-derived columns (date-key
+# synthesis, cross-element Lookups, translated calc fields) that a fresh
+# build would have POSTed as real columns and reuse simply never emitted.
+# Verify the candidate against the ACTUAL columns the workbook will need
+# (not the raw column-superset score find-or-pick-dm.rb computed — a name
+# existing ANYWHERE in the DM is not the same as it being reachable from the
+# fact grain the workbook needs) and either author the missing ones onto the
+# live DM — replaying the SAME derivation a fresh build emits, never a second
+# implementation — or abandon reuse for a fresh build when a gap can't be
+# closed (a formula depends on an element/relationship the candidate lacks).
+# ---------------------------------------------------------------------------
+if reuse_dm_id && mechanical && conv_fact
+  hdr('2.6', 'DM-reuse augmentation gate')
+  $LOAD_PATH.unshift File.expand_path('lib', HERE) unless $LOAD_PATH.include?(File.expand_path('lib', HERE))
+  require 'sigma_rest'
+  _reuse_spec = begin
+    Sigma.request(:get, "/v2/dataModels/#{reuse_dm_id}/spec")
+  rescue StandardError => e
+    line "WARN: could not read back reuse candidate #{reuse_dm_id} to plan augmentation " \
+         "(#{e.class}: #{e.message.to_s[0, 100]}) — proceeding without it"
+    nil
+  end
+  if _reuse_spec.is_a?(Hash) && _reuse_spec['pages']
+    _reuse_els = MechanicalSpecs.all_elements(_reuse_spec)
+    _dim_re = /(^Dim\b| Dim$)/i
+    _reuse_fact = _reuse_els.reject { |e| e['name'] =~ _dim_re }
+                            .max_by { |e| (e['columns'] || []).size } ||
+                  _reuse_els.find { |e| e['name'] !~ _dim_re } || _reuse_els.first
+    if _reuse_fact
+      _plan = MechanicalSpecs.plan_reuse_derived_columns(conv_fact, _reuse_spec, _reuse_fact['name'])
+      if _plan['unclosable'].any?
+        _gap_names = _plan['unclosable'].map { |c| c['name'] }.join(', ')
+        line "REUSE REFUSED: candidate #{reuse_dm_id} is missing #{_plan['unclosable'].size} required " \
+             "derived field(s) with no derivable relationship/key on the live DM (#{_gap_names}) — " \
+             'abandoning reuse; building a fresh data model instead.'
+        Offramp.log(WORK, kind: 'reuse-gap-unclosable', detail: "#{reuse_dm_id}: #{_gap_names}") if defined?(Offramp)
+        reuse_dm_id = nil
+        opts[:reuse_dm] = nil
+      elsif _plan['closable'].any?
+        _added_names = _plan['closable'].map { |c| c['name'] }.join(', ')
+        line "REUSE AUGMENT: candidate #{reuse_dm_id} is missing #{_plan['closable'].size} derived " \
+             "field(s) a fresh build would have created (#{_added_names}) — authoring them onto the " \
+             'live DM (same derivation the fresh path would emit, not re-derived).'
+        _added = MechanicalSpecs.apply_reuse_augmentation!(_reuse_spec, _reuse_fact['name'], _plan['closable'])
+        _aug_path = File.join(WORK, 'dm-spec-reuse-augment.json')
+        File.write(_aug_path, JSON.pretty_generate(_reuse_spec))
+        sigma_run!(['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'datamodel',
+                    '--spec', _aug_path, '--update-id', reuse_dm_id,
+                    '--out', File.join(WORK, 'dm-ids-reuse-augment.json')])
+        line "REUSE AUGMENT: added #{_added} column(s) to '#{_reuse_fact['name']}' on #{reuse_dm_id}"
+      else
+        line "REUSE: candidate #{reuse_dm_id} already carries every field the workbook needs — no augmentation required."
+      end
+    end
+  end
+  mark('phase2.6-reuse-augment')
+end
+
+# ---------------------------------------------------------------------------
 # Phase 3 — Build + POST the data model.
 # ---------------------------------------------------------------------------
 hdr(3, 'Build data model')
@@ -3950,6 +4155,10 @@ if reuse_dm_id
       { 'id' => p['id'], 'name' => p['name'],
         'elements' => (p['elements'] || []).map do |e|
           el = { 'id' => e['id'], 'kind' => e['kind'], 'name' => e['name'] }
+          if e['kind'] == 'control'
+            el['controlId'] = e['controlId']
+            el['controlType'] = e['controlType']
+          end
           el['columnLabels'] = labels_by_el[e['id']] if labels_by_el.key?(e['id'])
           el
         end }
@@ -3988,9 +4197,48 @@ elsif mechanical
     dim_catalogs[tname.upcase] = cj['columns']
   end
   unless real_cols.empty?
+    # #700: the converter intentionally omits Tableau GUID-backed virtual-
+    # connection dates because their physical identity is not present in the
+    # converter output. Recover them BEFORE the phantom filter, and only when
+    # the TWB date metadata, owning relation, live physical column, and
+    # warehouse type all agree. --column-mapping is an explicit physical-name
+    # signal, but it does not weaken any of the other evidence requirements.
+    if have_twb
+      date_recovery = MechanicalSpecs.recover_guid_backed_date_fields!(
+        dm, File.binread(twb), real_cols, dim_catalogs,
+        column_mapping: opts[:column_mapping]
+      )
+      date_recovery[:messages].each do |message|
+        line message
+        Offramp.log(WORK, kind: 'guid-date-recovery-gap', detail: message.sub(/\AGAP:\s*/, '')) \
+          if message.start_with?('GAP:') && defined?(Offramp)
+      end
+    end
     pf = MechanicalSpecs.fixup_dm_spec(dm, real_cols, column_mapping: opts[:column_mapping])
     line "phantom-column filter: dropped #{pf[:phantom]} non-existent base column(s) using #{real_cols.size} live table catalog(s)" if pf[:phantom].to_i.positive?
     line "column-rename remap: rewired #{pf[:remapped]} base column(s) to their warehouse names (--column-mapping)" if pf[:remapped].to_i.positive?
+    # Calc-field-as-physical-column guard (#685-C): a generated Custom-SQL
+    # window/LOD helper can reference a Tableau CALCULATED field's sanitized
+    # caption (e.g. DAYS_TO_SHIP for "Days to Ship" = DATEDIFF('day',[Order
+    # Date],[Ship Date])) as though it were a physical warehouse column. Fix
+    # it here, BEFORE the sql-ident gate / POST, using the SAME live catalogs
+    # just loaded — never weakens that gate; only prevents feeding it something
+    # it would rightly reject.
+    begin
+      _calc_path = File.join(WORK, 'calc-fields.json')
+      if File.exist?(_calc_path)
+        _calc_doc = JSON.parse(File.read(_calc_path, encoding: 'UTF-8'))
+        _calcs = Array(_calc_doc['calcs'])
+        cf = MechanicalSpecs.fix_calc_masquerading_as_physical!(dm, _calcs, real_cols)
+        if cf[:rewritten].to_i.positive?
+          line "calc-as-physical guard: substituted #{cf[:rewritten]} calculated-field reference(s) " \
+               "with their own translated SQL in #{cf[:elements].uniq.join(', ')} (#685-C)"
+        end
+      end
+    rescue StandardError => e
+      line "WARN: calc-as-physical guard failed (#{e.class}: #{e.message.to_s[0, 100]}) — " \
+           'a phantom physical-column reference (if any) is left for check-sql-idents to catch'
+    end
     # Retain the multi-metric recipe's point-in-time columns on the fact (the
     # discriminator / rollup flag + year the source didn't plot) so the
     # real-entity filter can run instead of being skipped as a dangling ref.
@@ -4111,6 +4359,32 @@ rescue StandardError => e
 end
 unless reuse_dm_id
   dm['folderId'] = opts[:folder] if opts[:folder]
+  # Unresolved-warehouse-table GATE (#685-A part 2): remap_from_manifest! and
+  # fixup_dm_spec have both had their chance by now. An element STILL carrying
+  # the converter's "UNKNOWN" placeholder name/path means nothing could
+  # attribute it to a real warehouse table (no landing manifest, --skip-
+  # extract-landing was waived, or 0% column-caption overlap with any manifest
+  # entry) — POSTing it 404s late and cryptically ("Source not found:
+  # warehouse table '<schema>.UNKNOWN'"). Fail loud and NAMED here instead.
+  unresolved = MechanicalSpecs.unresolved_warehouse_elements(dm)
+  if unresolved.any?
+    puts
+    puts '========== UNRESOLVED WAREHOUSE TABLE (exit 21) =========='
+    puts "The mechanical converter could not resolve a real warehouse table for #{unresolved.size} " \
+         'element(s) below — every attribution chance (extract-landing manifest remap, phantom-column'
+    puts 'filter) has already run. POSTing this DM would fail LATE with an unnamed "Source not found"'
+    puts 'error instead. Offending element(s):'
+    unresolved.each { |e| puts "  - #{e['name'].inspect}  path=#{(e.dig('source', 'path') || []).inspect}" }
+    puts
+    puts 'Likely causes, in order of likelihood:'
+    puts '  * an embedded-extract datasource that never got landed — check for a landing-manifest.json'
+    puts '    in this workdir (refs/extract-landing.md); land it (scripts/land-extracts.py), then re-run;'
+    puts '  * --skip-extract-landing was used and the DM table paths were knowingly left on you;'
+    puts "  * the manifest could not attribute this element by column-caption overlap (0% overlap) —"
+    puts '    repoint it by hand with --table-mapping.'
+    puts '==========================================================='
+    exit 21
+  end
   File.write(dm_spec_path, JSON.pretty_generate(dm))
   # In mechanical mode validate-spec.rb is advisory only: it flags cross-element
   # sibling refs that Sigma actually resolves via relationships (documented
@@ -4387,6 +4661,31 @@ if mechanical
   File.write(metrics_path, JSON.pretty_generate(wb_metrics))
   line "metric-binding: #{wb_metrics.size} referenceable DM metric(s) for [Metrics/<name>] refs" if wb_metrics.any?
 
+  # 1.5) Detect Tableau dashboard actions from the .twb BEFORE the chart build.
+  #      Detection (build-postpublish-guide.rb's extract_* methods) only needs
+  #      the .twb, which has been sitting in WORK since Phase 1 — no need to
+  #      wait for wb-ids.json/--sigma-url, those are optional POST-PUBLISH
+  #      enrichment the LATE guide invocation (its two advisory print sites,
+  #      unchanged) applies after publish. Handing the raw detected-entries
+  #      array to build-charts-from-signals.rb via --detected-actions is the
+  #      BRIDGE between detection and emission; this step does not itself
+  #      auto-wire anything (no nav-action/parameter-action emission here —
+  #      that is a follow-up task). --detect-only never writes
+  #      action-ledger.json — only the late guide invocation owns that
+  #      CONTRACTUAL path, so an early run here can never be mistaken by gate
+  #      11 for the authoritative ledger.
+  #
+  #      NOT allow_fail. Detection feeding emission means a crashed detection and a
+  #      zero-action workbook produce the same downstream artifact — the exact
+  #      silent no-op this workstream has now hit four times. build-postpublish-guide.rb
+  #      aborts on a malformed parse and writes no file, so reaching here with a
+  #      non-zero status means something worse; fail the run.
+  detected_actions_path = File.join(WORK, 'detected-actions.json')
+  if have_twb
+    run!(['ruby', File.join(HERE, 'build-postpublish-guide.rb'),
+          '--twb', twb, '--detect-only', detected_actions_path])
+  end
+
   # 2) Build the chart-element specs from the parsed zones + view CSVs + map.
   #    ONE SIGMA PAGE PER TABLEAU DASHBOARD (bead ptrt) — a fat workbook's 4
   #    dashboards become 4 laid-out pages, each with its own banded layout.
@@ -4400,6 +4699,7 @@ if mechanical
                '--coverage-out', File.join(WORK, 'coverage.json')]
   build_cmd += ['--meta', layout_json.sub(/\.json$/, '-meta.json')] if File.exist?(layout_json.sub(/\.json$/, '-meta.json'))
   build_cmd += ['--auto-controls'] if File.exist?(layout_json.sub(/\.json$/, '-meta.json'))
+  build_cmd += ['--detected-actions', detected_actions_path] if File.exist?(detected_actions_path)
   # Per-dashboard scope (defensive — the layout is already pre-scoped, so a single
   # dashboard yields exactly one page; passing the flags keeps a standalone build
   # honest if it's ever handed a full layout).
@@ -4419,6 +4719,21 @@ if mechanical
     next if master_columns.any? { |c| c['id'] == dc['id'] }
     master_columns << dc
     line "integer-dim decode: added master column '#{dc['name']}' (#{dc['formula']}) — list control filters STRING values (raw numeric list-filter targets are silently stripped by Sigma)"
+  end
+  # A Tableau calculated filter's formula wins over a same-named DM physical
+  # passthrough. The builder emits only confidently translated, fully resolved
+  # replacements; preserving the passthrough can make a saved selection blank
+  # every dashboard tile when that physical column is NULL.
+  Array(raw_charts.is_a?(Hash) ? raw_charts['master_calc_columns'] : nil).each do |cc|
+    next unless cc.is_a?(Hash) && cc['id'] && cc['name'] && cc['formula']
+    existing = master_columns.find { |column| column['id'] == cc['id'] } ||
+               master_columns.find { |column| column['name'].to_s.casecmp?(cc['name'].to_s) }
+    if existing
+      existing['formula'] = cc['formula']
+    else
+      master_columns << cc
+    end
+    line "calculated-filter fidelity: master '#{cc['name']}' uses the translated Tableau formula, not a same-named passthrough"
   end
   # Dim-grain helper placeholder resolution: build-charts runs before it knows
   # the live DM element ids, so grain helpers carry source.elementId =
@@ -4540,7 +4855,7 @@ if mechanical
   end
 
   # MIGRATION COVERAGE — one consolidated "what carried over (and what didn't)"
-  # readout (bead beads-sigma-59mk; ports powerbi-to-sigma PR #177). Leads with
+  # readout (; ports powerbi-to-sigma PR #177). Leads with
   # what converted; nothing is silently dropped. Non-blocking — the build's
   # control_lint + visual-verify gates already hard-gate the recoverable classes.
   coverage = CoverageGate.load(File.join(WORK, 'coverage.json'))
@@ -4565,7 +4880,7 @@ if mechanical
   end
 
   # JOIN-CARDINALITY RESOLUTIONS — surfaces gate-16's operator-recorded
-  # explanations (beads-sigma-zjkw) for any join-plan.json entry resolved via
+  # explanations ([bead]) for any join-plan.json entry resolved via
   # `probe-join-keys.rb --resolve <i> --how preaggregated|waived --reason
   # "<...>"`. Without this, a `preaggregated` resolution's helper element (a
   # pre-aggregated / Custom-SQL-shaped table added to the DM to fix a
@@ -4593,9 +4908,9 @@ if mechanical
     chart_elements: (chart_pages && chart_pages.any? ? chart_pages : chart_elements),
     data_elements: data_elements,
     theme: (raw_charts.is_a?(Hash) ? raw_charts['theme'] : nil),
-    folder_id: opts[:folder])
-  if spec['themeOverrides']
-    line "theme: #{spec['themeOverrides'].keys.join(', ')} (derived from source style rules)"
+    folder_id: opts[:folder], canonical: false)
+  if (theme_overrides = spec.dig('settings', 'theme', 'overrides'))
+    line "theme: #{theme_overrides.keys.join(', ')} (derived from source style rules)"
   end
   # Formula-normalize hook (sibling workstream): case-fix converter-derived
   # formulas on the mechanical workbook spec before validate/POST.
@@ -4629,11 +4944,37 @@ else
   spec = MechanicalSpecs.bind_manual_wb_spec(
     spec, dm_id: dm_id, fact_eid: fact_eid,
     dm_els: (defined?(dm_els) && dm_els) || []) if opts[:wb_spec]
+  # Manual specs may already use the release document envelope. The
+  # Tableau-specific transforms below still need a transient page assignment;
+  # derive it from layout and never serialize this compatibility view.
+  if spec['document'].is_a?(Hash) || spec['elements'].is_a?(Array)
+    spec = WorkbookCode.legacy_view(WorkbookCode.canonicalize(spec))
+  end
   spec['name'] = display_wb_name if opts[:name]
   spec['folderId'] = opts[:folder] if opts[:folder]
   layout_xml = (Specs.respond_to?(:layout_xml) ? Specs.layout_xml : nil)
 end
-# ---- PR-17: per-page master instances (flag-staged, default OFF) ------------
+# A control in the workbook cannot reference a control in the data model by
+# merely reusing `[controlId]`: formula control scope is document-local. Bridge
+# every matching Tableau parameter control through the released parameters[]
+# target shape, using ONLY the post/GET readback census in dm_els.
+require File.join(HERE, 'lib', 'dm_control_binding')
+dm_control_bindings = DmControlBinding.bind!(
+  spec, data_model_id: dm_id, data_model_elements: dm_els
+)
+File.write(
+  File.join(WORK, 'dm-control-bindings.json'),
+  JSON.pretty_generate(dm_control_bindings)
+)
+if dm_control_bindings[:bound].any?
+  line "DM control binding: #{dm_control_bindings[:bound].size} workbook control instance(s) " \
+       'target readback-confirmed data-model controls through parameters[]'
+end
+dm_control_bindings[:ambiguous].each do |ambiguity|
+  line "WARN: workbook control '#{ambiguity['workbook_control']}' matches multiple data-model controls " \
+       "(#{ambiguity['data_model_controls'].join(', ')}) — no parameters[] target emitted; disambiguate the control IDs"
+end
+# ---- PR-17: thin per-page master instances (default ON) ---------------------
 # Final structural pass over the assembled spec — runs AFTER the multi-metric
 # recipe and formula-normalize so those see the shared-master shape they were
 # written against, then de-shares. Self-gating (no-op unless >=2 pages use the
@@ -4643,7 +4984,8 @@ if opts[:per_page_masters]
   ppm = PerPageMasters.split!(spec)
   if ppm[:applied]
     line "per-page-masters (PR-17): #{ppm[:masters]} master instance(s) across #{ppm[:pages]} page(s) " \
-         "(#{ppm[:clones]} Data-page element(s)); each page's controls now filter only its own tiles"
+         "(#{ppm[:clones]} Data-page element(s), #{ppm[:master_columns_before]} -> " \
+         "#{ppm[:master_columns_after]} master columns); each page's controls now filter only its own tiles"
   else
     line 'per-page-masters (PR-17): no split needed (<=1 page draws on the master) — shared master kept'
   end
@@ -4664,7 +5006,15 @@ if opts[:wb_target]
   existing = begin
     # accept: application/json ⇒ Sigma.request returns an ALREADY-PARSED Hash
     # (see lib/sigma_rest.rb) — do not JSON.parse again.
-    Sigma.request(:get, "/v2/workbooks/#{opts[:wb_target]}/spec", accept: 'application/json')
+    raw_existing = Sigma.request(:get, "/v2/workbooks/#{opts[:wb_target]}/spec", accept: 'application/json')
+    # Workbook code-rep GETs nest pages/schemaVersion under a top-level `document`
+    # key (live since 2026-08); flatten metadata+document onto ONE hash so the
+    # existing['pages']/existing_el_ids reads below (and the eventual PUT via
+    # post-and-readback --update-id, which re-wraps at the wire boundary) see the
+    # same flat shape this file always worked with. Without this, a bare
+    # existing['pages'] read is nil and the FATAL guard just below fires on
+    # EVERY --workbook-target append, even against a perfectly valid workbook.
+    WorkbookCode.legacy_view(raw_existing)
   rescue StandardError => e
     abort "FATAL: could not GET existing workbook #{opts[:wb_target]} spec for append (#{e.class}: #{e.message}). " \
           'Verify the id and that the token can read it.'
@@ -4719,11 +5069,11 @@ end
 # sibling file and leave the authored source untouched.
 if MANUAL_JSON_SPECS
   resolved_path = File.join(WORK, 'wb-spec.resolved.json')
-  File.write(resolved_path, JSON.pretty_generate(spec))
+  File.write(resolved_path, JSON.pretty_generate(WorkbookCode.canonicalize(spec)))
   line "resolved spec → #{File.basename(resolved_path)} (authored wb-spec.json left untouched — placeholders stay re-resolvable)"
   wb_spec_path = resolved_path
 else
-  File.write(wb_spec_path, JSON.pretty_generate(spec))
+  File.write(wb_spec_path, JSON.pretty_generate(WorkbookCode.canonicalize(spec)))
 end
 # LOD translation ledger (#423): one entry per source {FIXED/INCLUDE/EXCLUDE}
 # calc, classified against the emitted dm-spec + wb-spec. The converter/builder
@@ -4822,6 +5172,7 @@ begin
   ref_cmd = ['ruby', File.join(HERE, 'assert-wb-refs-resolve.rb'),
              '--wb-spec', wb_spec_path, '--dm-ids', dm_ids_path,
              '--workdir', WORK] # PR-14: a waived run records itself to offramps.jsonl
+  ref_cmd += ['--metrics', metrics_path] if metrics_path && File.exist?(metrics_path)
   ref_cmd += ['--skip-ref-check', opts[:skip_ref_check]] if opts[:skip_ref_check]
   run_wb!(ref_cmd)
   par_cmd = ['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'workbook',
@@ -5125,7 +5476,7 @@ def render_reuse_plan(work, doc_version)
   views = gw.dig('workbook', 'views', 'view') || gw.dig('views', 'view') || []
   views = [views] unless views.is_a?(Array)
   view_id_by_name = views.each_with_object({}) { |v, h| h[v['name']] = v['id'] if v.is_a?(Hash) && v['name'] }
-  page_id_by_name = (wb_ids['pages'] || []).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
+  page_id_by_name = WorkbookCode.pages(wb_ids).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
   slugify = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/^-|-$/, '')[0..50] }
   names = (dash_layout.is_a?(Array) ? dash_layout : []).map { |d| d['dashboard'] }
                                                        .reject { |n| n.to_s.start_with?('[synthetic]') }
@@ -5158,7 +5509,7 @@ end
 hdr('5b', 'Visual QA')
 vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
 wbspec_local = (JSON.parse(File.read(wb_spec_path)) rescue {})
-content_pages = (wbspec_local['pages'] || []).reject { |p| p['id'].to_s.downcase.include?('data') }
+content_pages = WorkbookCode.pages(wbspec_local).reject { |p| p['id'].to_s.downcase.include?('data') }
 # v5.2 (speed): pages render CONCURRENTLY (pool 3) — each export is a 30-90s
 # server-side render; multi-page workbooks paid it serially.
 rendered = 0
@@ -5178,6 +5529,12 @@ Array.new([3, content_pages.size].min.clamp(1, 3)) do
       o, st = Open3.capture2e({ 'SIGMA_API_TOKEN' => vqa_tok },
                               *PyResolve.argv, PyResolve.winpath(File.join(HERE, 'sigma-export-png.py')),
                               '--workbook', wb_id, '--page', pg['id'], '--out', PyResolve.winpath(out), '--w', '1800', '--h', '1000')
+      # K11: the PNG-export subprocess emits console-codepage bytes on Windows.
+      # Ruby tags Open3 output UTF-8 regardless, so `o.strip` on invalid bytes
+      # raises Encoding::CompatibilityError and kills this render thread. Scrub
+      # before ANY use of `o` — same idiom as :1191 and :2105.
+      o = o.force_encoding(Encoding::UTF_8)
+      o = o.scrub('?') unless o.valid_encoding?
       vqa_mx.synchronize do
         o.each_line { |l| puts "   #{l.rstrip}" } unless o.strip.empty?
         st.success? ? (rendered += 1) : line("WARN: visual-QA render failed for page #{pg['id']}")
@@ -5222,8 +5579,8 @@ col_entries = (Sigma.list_entries("/v2/workbooks/#{wb_id}/columns") rescue [])
 err_cols = col_entries.select { |c| c.dig('type', 'type') == 'error' }
 total_cols = col_entries.size
 # Compile-check chart elements (Unknown column / Circular ref markers).
-chart_els = wb_ids['pages'].reject { |p| p['id'].to_s =~ /data/ }
-                           .flat_map { |p| p['elements'] || [] }
+chart_els = WorkbookCode.pages(wb_ids).reject { |p| p['id'].to_s =~ /data/ }
+                           .flat_map { |p| WorkbookCode.elements_for_page(wb_ids, p) }
                            .select { |e| e['kind'].to_s.end_with?('-chart') }
 bad = []
 chart_els.each do |e|
@@ -5441,9 +5798,17 @@ puts 'INTERACTIVITY: generate the post-publish handoff guide — dashboard actio
 puts '              buttons, dynamic zones, drills, and tooltips cannot ride the spec;'
 puts '              the guide walks the user through adding each in the Sigma UI'
 puts '              (gate 11 at --finalize REQUIRES the file when the source has actions):'
+# Same derivation as the exitstatus==16 advisory above — recomputed locally
+# (not read off `charts_path`) since this print site is reached from a
+# different point in the run than that one; deriving it fresh from the same
+# fixed 'chart-specs.json' --out name build-charts-from-signals.rb was
+# actually invoked with, rather than assuming a variable from elsewhere in
+# the script is in scope, keeps both sites correct independently.
+manifest_path2 = File.join(WORK, 'chart-specs.json').sub(/\.json$/, '-actions-emitted.json')
 puts "                ruby scripts/build-postpublish-guide.rb --twb #{File.join(WORK, 'workbook-content.twb')} \\"
 puts "                  --wb-ids #{File.join(WORK, 'wb-ids.json')} --out #{File.join(WORK, 'POSTPUBLISH_GUIDE.md')} \\"
-puts "                  --json-out #{File.join(WORK, 'postpublish-guide.json')}"
+puts "                  --emitted-manifest #{manifest_path2} \\"
+puts "                  --json-out #{File.join(WORK, 'action-ledger.json')}"
 puts '              LINK the guide in your migration report and walk the user through it.'
 finalize_cmd = "  ruby scripts/migrate-tableau.rb #{opts[:wb_id] ? "--workbook-id #{opts[:wb_id]}" : "--workbook \"#{opts[:wb_name]}\""}" \
                "#{opts[:out] ? " --out #{WORK}" : ''} \\\n    --finalize --actuals #{File.join(WORK, 'parity-actuals.json')}"

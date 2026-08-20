@@ -1,0 +1,130 @@
+{
+  "name": "fixture_09_nonwarehouse_sources",
+  "comment": "Synthetic sanitized fixture: tables sourced from Fabric Dataflow / Lakehouse / Dataverse / file plus one real warehouse table. Exercises pbiDetectNonWarehouseSource + the ⛔ handoff warning + stats.nonWarehouseSourcedTables. M grammar is from documented Power Query connector syntax (no real dataflow-sourced .bim exists on disk) — validate against a real Fabric model before relying on the exact navigation keys.",
+  "model": {
+    "tables": [
+      {
+        "name": "Orders",
+        "partitions": [
+          {
+            "name": "Orders",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"acct.snowflakecomputing.com\", \"WH\"),",
+                "  #\"Navigation 1\" = Source{[Name = \"ANALYTICS\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"PUBLIC\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"ORDER_FACT\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ],
+        "columns": [
+          { "name": "OrderID", "dataType": "int64", "sourceColumn": "OrderID" },
+          { "name": "Amount", "dataType": "double", "sourceColumn": "Amount" }
+        ]
+      },
+      {
+        "name": "SalesFlow",
+        "partitions": [
+          {
+            "name": "SalesFlow",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = PowerPlatform.Dataflows(null),",
+                "  Workspaces = Source{[workspaceId = \"00000000-0000-0000-0000-000000000001\"]}[Data],",
+                "  Flow = Workspaces{[dataflowId = \"00000000-0000-0000-0000-000000000002\"]}[Data],",
+                "  Entity = Flow{[entity = \"Sales\", version = \"\"]}[Data]",
+                "in",
+                "  Entity"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          { "name": "SaleID", "dataType": "int64", "sourceColumn": "SaleID" },
+          { "name": "NetAmount", "dataType": "double", "sourceColumn": "NetAmount" }
+        ]
+      },
+      {
+        "name": "StoreLake",
+        "partitions": [
+          {
+            "name": "StoreLake",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Lakehouse.Contents(null),",
+                "  WS = Source{[workspaceId = \"00000000-0000-0000-0000-000000000003\"]}[Data],",
+                "  LH = WS{[lakehouseId = \"00000000-0000-0000-0000-000000000004\"]}[Data],",
+                "  Nav = LH{[Id = \"DimStore\", ItemKind = \"Table\"]}[Data]",
+                "in",
+                "  Nav"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          { "name": "StoreID", "dataType": "int64", "sourceColumn": "StoreID" },
+          { "name": "StoreName", "dataType": "string", "sourceColumn": "StoreName" }
+        ]
+      },
+      {
+        "name": "Accounts",
+        "partitions": [
+          {
+            "name": "Accounts",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = CommonDataService.Database(\"org.crm.dynamics.com\"),",
+                "  Nav = Source{[EntitySetName = \"accounts\"]}[Data]",
+                "in",
+                "  Nav"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          { "name": "AccountId", "dataType": "string", "sourceColumn": "AccountId" },
+          { "name": "AccountName", "dataType": "string", "sourceColumn": "AccountName" }
+        ]
+      },
+      {
+        "name": "Budget",
+        "partitions": [
+          {
+            "name": "Budget",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Excel.Workbook(File.Contents(\"C:\\\\data\\\\Budget.xlsx\"), null, true),",
+                "  Sheet = Source{[Item = \"Budget\", Kind = \"Sheet\"]}[Data]",
+                "in",
+                "  Sheet"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          { "name": "Period", "dataType": "string", "sourceColumn": "Period" },
+          { "name": "Planned", "dataType": "double", "sourceColumn": "Planned" }
+        ]
+      }
+    ],
+    "relationships": []
+  }
+}

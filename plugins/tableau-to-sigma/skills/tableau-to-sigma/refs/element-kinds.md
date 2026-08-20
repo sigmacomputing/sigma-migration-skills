@@ -15,7 +15,7 @@ the chart editor after publish.
 | Property | Set via spec? | How to apply post-publish |
 |---|---|---|
 | Bar chart orientation (horizontal vs vertical) | **Yes** — `"orientation": "horizontal"` on the `bar-chart` (omit for the default vertical) | n/a — set in spec |
-| Trellis (small multiples / panel charts) on any chart kind | No | Chart editor → Trellis panel → drag dimension to Trellis row / column / by-series |
+| Trellis (small multiples / panel charts) | **Yes on supported chart kinds** | `build-charts-from-signals.rb` collapses detected repeated worksheets to one chart with `trellis.rowsBy` or `columnsBy`; unsupported kinds remain explicit sibling elements |
 | Axis label rotation (0°, 45°, 90°) | No | Chart editor → Format → X-axis → Label rotation |
 | Series color | No (not yet) | Chart editor → Properties → Color |
 | Chart color palette | No | Chart editor → Properties → Color |
@@ -40,6 +40,7 @@ Per-series chart type for combo-chart goes in the `yAxis.columnIds` entry as `{"
 | `area-chart` | Area chart (filled line) |
 | `bar-chart` | Bar chart, horizontal bar, histogram |
 | `combo-chart` | Dual-axis / combination chart (bar + line) |
+| `waterfall-chart` | Tableau Gantt Bar with an explicit `RUNNING_SUM` signature; verify the bound y-series is the delta |
 | `scatter-chart` | Scatter / bubble chart |
 | `pie-chart` | Pie chart |
 | `donut-chart` | Donut / ring chart |
@@ -51,12 +52,24 @@ Per-series chart type for combo-chart goes in the `yAxis.columnIds` entry as `{"
 | `text` | Text / markdown block |
 | `image` | Embedded image |
 | `container` | Card group / container (wraps other elements) |
+| `navigation` | Story-point/page navigation; story conversion emits a manual page list |
+| `progress` | Released value/progress surface; emit only when Tableau exposes an unambiguous value/goal semantic |
+| `page-break` | Released print break; Tableau dashboard XML has no reliable authored-break signal |
+| `repeated-container` | Released record repeater; Tableau small multiples remain chart `trellis`, not a record repeater |
+| `tabbed-container` | Released alternate-view container; use only when mutually-exclusive view membership and labels are known |
+| `divider` / `button` | Thin rules and dashboard actions (`button` remains workspace-gated) |
 
 > **`pie-chart` not `pie`, `donut-chart` not `donut`.** The API rejects `"kind": "pie"` and `"kind": "donut"` with `Invalid kind`. Always use the `-chart` suffix for these two. The official example library shows the wrong values — do not follow it.
 
-Not supported via spec API: bullet chart, gantt. Invalid map-like kinds (rejected with `Invalid kind`): `bubble-map`, `geo-map`, `heat-map`, `choropleth-map`, `us-map`, `map`. Use `region-map` or `point-map`.
+Not published via the workbook spec: `box-chart`. Keep Tableau box plots as an
+explicit quartile/reference-mark or table fallback; never emit that kind.
+Gantt timelines/candlesticks remain manual (only Gantt Bar + `RUNNING_SUM`
+maps to waterfall). Invalid map-like kinds (rejected with `Invalid kind`):
+`bubble-map`, `geo-map`, `heat-map`, `choropleth-map`, `us-map`, `map`. Use
+`region-map` or `point-map`.
 
-Trellis (small multiples / panel charts) is supported in Sigma but **UI-only** — see the "Small multiples / trellis" section in `refs/chart-patterns.md` for the workflow.
+See `refs/workbook-code-release-gaps.md` for the source-semantics gate on
+navigation, drill controls, repeaters, tabs, page breaks, progress, and panels.
 
 ## Element-type field requirements
 
@@ -325,16 +338,16 @@ b64=$(base64 < extracted/Image/title-art.png | tr -d '\n')
 > backgroundImage. Composite art + text into one image only when the art must sit between two
 > specific elements rather than behind a whole page/container.
 
-In layout XML, image elements use a standard `<LayoutElement>`:
+In layout XML, image elements use a standard `<Element>`:
 ```xml
-<LayoutElement elementId="img-logo" gridColumn="1 / 9" gridRow="1 / 9"/>
+<Element elementId="img-logo" gridColumn="1 / 9" gridRow="1 / 9"/>
 ```
 
 ### Divider element
 
 `{"id": …, "kind": "divider", "direction": "horizontal|vertical", "style": {"color": "#hex6",
 "width": 1-4, "strokeStyle": "solid|dashed|dotted"}}` — live-verified POST + readback
-2026-07-11. The stroke centers in its grid cell, so a 1-row `<LayoutElement>` renders a clean
+2026-07-11. The stroke centers in its grid cell, so a 1-row `<Element>` renders a clean
 hairline. This is the native target for Tableau's thin filled rules (spacers / childless
 containers / blank-text bars ≤12px with a fill — `ZoneCensus.divider_zone?`); the layout
 builder emits them automatically (`dv-<page>-<zone>` ids). Unfilled thin zones are true gaps
@@ -355,8 +368,8 @@ nothing (named residue in coverage.json).
 
 ### Container element
 
-Uses `"kind": "container"`. Children are nested inside it via `<GridContainer>` in the layout
-XML (see the GridContainer section in `refs/layout-grid.md`). Style + background image are spec-supported (live-probed
+Uses `"kind": "container"`. Children are nested inside it via `<Container>` in the layout
+XML (see the Container section in `refs/layout-grid.md`). Style + background image are spec-supported (live-probed
 2026-07-11: pill radius + border + data-URI backgroundImage all render):
 
 ```json
@@ -396,7 +409,12 @@ Use a regular `bar-chart` with a manual `If()` bucketing formula as the `xAxis` 
 
 ## Control elements
 
-Controls are fully supported via the spec API. There are 9 control types.
+Controls are fully supported via the spec API. In addition to the established
+list/date/text/number/slider/top-N types below, the release publishes
+`controlType: "drill"`. Tableau drill paths are detected, but the converter
+does not emit an unattached drill control: each ordered category must align to
+the correct target chart column IDs. Wire that mapping manually and verify
+every target until the extractor can prove the alignment.
 
 ### Filter targets
 

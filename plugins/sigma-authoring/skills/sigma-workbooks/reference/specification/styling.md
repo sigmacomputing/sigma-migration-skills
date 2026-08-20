@@ -51,32 +51,41 @@ never an override of a user's stated branding or a migration's source fidelity.*
 
 ---
 
-## Workbook theme (2026-06-18 release; `themeOverrides` schema documented 2026-06-25)
+## Workbook theme (2026-06-18 release; `settings.theme.overrides` schema documented 2026-06-25)
 
-A workbook carries a **top-level theme**, alongside `pages` and `layout`:
+A workbook carries a theme under `document.settings`, alongside `pages` and `layout`:
 
 ```yaml
 name: My Workbook
-schemaVersion: 1
-pages: [ ... ]
-layout: ...
-themeName: Dark          # built-in: Light | Dark | Surface  — OR an org theme UUID
-themeOverrides:          # optional — colors / fonts / layout style / table defaults
-  colors:
-    text: "#FFFFFF"
-    highlight: "#1E88E5"
-    surface: "#101826"
+document:
+  schemaVersion: 1
+  pages: [ ... ]
+  layout: ...
+  settings:
+    theme:
+      name: Dark           # built-in: Light | Dark | Surface — OR an org theme UUID
+      overrides:           # optional — colors / fonts / layout style / table defaults
+        colors:
+          text: "#FFFFFF"
+          highlight: "#1E88E5"
+          surface: "#101826"
 ```
 
-The **full `themeOverrides` schema is now in the public OpenAPI** (`.../spec` POST/PUT request body and GET response — added 2026-06-25; earlier release notes shipped the feature before the spec documented it). The OpenAPI is the source of truth for every field; the list below is the verified summary.
+> **The theme moved.** It was once a top-level `themeName` + `themeOverrides` pair; both
+> were **removed from the API** and are now `settings.theme.name` and
+> `settings.theme.overrides` — inside `document`, alongside `pages`/`layout`. The individual
+> override keys below are unchanged; only the container moved. A spec that still writes the
+> old pair loses its whole theme **silently** (no error, just an unthemed workbook).
 
-### `themeName`
+The **full overrides schema is in the public OpenAPI** (`.../spec` POST/PUT request body and GET response). The OpenAPI is the source of truth for every field; the list below is the verified summary.
+
+### `settings.theme.name`
 
 - Accepts a **built-in** name (`Light` / `Dark` / `Surface`) or an **org theme id** (a UUID). All round-trip. Only the **format** is checked, not existence: a malformed value 400s, but a well-formed but nonexistent UUID is accepted as-is and renders broken (like a bad `pluginId`) — so a clean POST is not proof the theme exists.
 - **There is no API to discover theme names.** Built-ins are the three above; an org theme id can only be learned by reading a workbook spec that already uses it (admin Branding Settings shows names, not ids). So the theme id has to come from somewhere external — an agent cannot enumerate them from a single call.
-- **Use the per-org theme registry instead of asking blind.** `harvest-theme-registry.py` (in `sigma-migration-skills/shared/scripts/`) scans an org's workbook specs once and writes `~/.sigma-migration/theme-registry.yaml`, keyed by API host, with each `themeName` and how many workbooks use it. Read it to suggest the org's themes ranked by frequency — **the most-used org-UUID is almost always the org default.** If the registry is missing or stale, run the harvester (a full scan is ~20–40s and persists), then fall back to asking the user only if no org themes are found. Singletons are often test/transient junk — prefer the high-count entries.
+- **Use the per-org theme registry instead of asking blind.** `harvest-theme-registry.py` (in `sigma-migration-skills/shared/scripts/`) scans an org's workbook specs once and writes `~/.sigma-migration/theme-registry.yaml`, keyed by API host, with each `settings.theme.name` and how many workbooks use it. Read it to suggest the org's themes ranked by frequency — **the most-used org-UUID is almost always the org default.** If the registry is missing or stale, run the harvester (a full scan is ~20–40s and persists), then fall back to asking the user only if no org themes are found. Singletons are often test/transient junk — prefer the high-count entries.
 
-### `themeOverrides` — one-off tweaks stacked on the base theme
+### `settings.theme.overrides` — one-off tweaks stacked on the base theme
 
 Every field below **round-trips and renders** — verified live 2026-06-26 (POST → GET round-trip with 0 dropped fields, + PNG export showing the override applied; a 14-key override on a `Light` base produced a dark canvas, pill cards, cyan headers, row banding, and a monospace data font).
 
@@ -101,7 +110,7 @@ Every field below **round-trips and renders** — verified live 2026-06-26 (POST
 
 **Gotchas:**
 - The server **lowercases hex** on save (`#0F172A` → `#0f172a`) — cosmetic, not a drop; don't treat it as a failed round-trip.
-- `themeOverrides` is the spec path to **donut/pie slice colors** — set `categoricalScheme` here (the per-element `color.scheme` is still silently dropped on donut/pie — see Recipe 5). This supersedes the old "set the theme in the UI" workaround.
+- `settings.theme.overrides` is the spec path to **donut/pie slice colors** — set `categoricalScheme` here (the per-element `color.scheme` is still silently dropped on donut/pie — see Recipe 5). This supersedes the old "set the theme in the UI" workaround.
 - `titleFont` sets every element's title **by default**, but a per-element `name:{fontSize,color}` (live-verified 2026-07-28 — see *Things that are NOT designable via spec* below, now corrected) **wins over** `titleFont` for that one element when both are set. Use `titleFont` for a workbook-wide title style and per-element `name` only where one title needs to stand out.
 - Theme vs. the recipes below: a theme is the global skin (selected, org-managed). The recipes here style individual elements from spec fields and **stack on top of** whatever theme is set. For a migration, prefer the source dashboard's look; reach for a theme only when the user asks to apply one.
 
@@ -163,11 +172,11 @@ elements:
 ```
 
 ```xml
-<GridContainer elementId="hero" type="grid"
+<Container elementId="hero" type="grid"
                gridColumn="1 / 25" gridRow="1 / 5"
                gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-  <LayoutElement elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
-</GridContainer>
+  <Element elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
+</Container>
 ```
 
 Notes:
@@ -210,12 +219,12 @@ elements:
 ```
 
 ```xml
-<GridContainer elementId="kpi-net-box" type="grid"
+<Container elementId="kpi-net-box" type="grid"
                gridColumn="1 / 9" gridRow="5 / 12"
                gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-  <LayoutElement elementId="kpi-net-label" gridColumn="1 / 25" gridRow="1 / 3"/>
-  <LayoutElement elementId="kpi-net"       gridColumn="1 / 25" gridRow="3 / 8"/>
-</GridContainer>
+  <Element elementId="kpi-net-label" gridColumn="1 / 25" gridRow="1 / 3"/>
+  <Element elementId="kpi-net"       gridColumn="1 / 25" gridRow="3 / 8"/>
+</Container>
 ```
 
 Repeat the container + label + KPI triple for each metric, switching the label color (green for growth, purple for averages, amber for trailing-indicator metrics). Three across at columns `1/9`, `9/17`, `17/25` is the standard layout.
@@ -236,7 +245,7 @@ A heading row between groups of elements. Tighter than a hero, looser than a cha
 ```
 
 ```xml
-<LayoutElement elementId="section-charts" gridColumn="1 / 25" gridRow="12 / 14"/>
+<Element elementId="section-charts" gridColumn="1 / 25" gridRow="12 / 14"/>
 ```
 
 Use these between (a) KPI row and chart row, (b) chart row and detail table, (c) any two thematically distinct chunks. Two per dashboard is usually enough — more than that and the page reads as fragmented.
@@ -253,7 +262,7 @@ Between the high-level charts and the "drill down to raw rows" table, a horizont
 ```
 
 ```xml
-<LayoutElement elementId="divider-1" gridColumn="1 / 25" gridRow="26 / 27"/>
+<Element elementId="divider-1" gridColumn="1 / 25" gridRow="26 / 27"/>
 ```
 
 A 1-row span. The `divider` element is a first-class kind, not a hack — see `content-elements.md`.
@@ -293,7 +302,7 @@ For bar / line / area / combo charts, pin slice colors to the vetted palette:
 
 `scheme` is positional — pin colors to category sort order, not to category names. Sort by the value descending to get "biggest bar = primary blue, smaller = warning amber/red."
 
-> **Donut and pie do NOT accept `scheme`.** The field is silently stripped on those chart kinds. To customize donut/pie slice colors from spec, set `themeOverrides.categoricalScheme` at the workbook level (see *Workbook theme* above) — that path is now spec-authorable and verified. See `charts.md` donut section for the verified gotchas.
+> **Donut and pie do NOT accept `scheme`.** The field is silently stripped on those chart kinds. To customize donut/pie slice colors from spec, set `settings.theme.overrides.categoricalScheme` at the workbook level (see *Workbook theme* above) — that path is now spec-authorable and verified. See `charts.md` donut section for the verified gotchas.
 
 ---
 
@@ -341,27 +350,27 @@ XML:
 <?xml version="1.0" encoding="utf-8"?>
 <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-1">
 
-  <GridContainer elementId="hero" type="grid"
+  <Container elementId="hero" type="grid"
                  gridColumn="1 / 25" gridRow="1 / 5"
                  gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-    <LayoutElement elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
-  </GridContainer>
+    <Element elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
+  </Container>
 
-  <GridContainer elementId="kpi-net-box" type="grid"
+  <Container elementId="kpi-net-box" type="grid"
                  gridColumn="1 / 9" gridRow="5 / 12"
                  gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-    <LayoutElement elementId="kpi-net-label" gridColumn="1 / 25" gridRow="1 / 3"/>
-    <LayoutElement elementId="kpi-net"       gridColumn="1 / 25" gridRow="3 / 8"/>
-  </GridContainer>
+    <Element elementId="kpi-net-label" gridColumn="1 / 25" gridRow="1 / 3"/>
+    <Element elementId="kpi-net"       gridColumn="1 / 25" gridRow="3 / 8"/>
+  </Container>
   <!-- two more KPI containers at 9/17 and 17/25 -->
 
-  <LayoutElement elementId="section-charts"   gridColumn="1 / 25"  gridRow="12 / 14"/>
-  <LayoutElement elementId="chart-by-channel" gridColumn="1 / 13"  gridRow="14 / 26"/>
-  <LayoutElement elementId="chart-by-status"  gridColumn="13 / 25" gridRow="14 / 26"/>
+  <Element elementId="section-charts"   gridColumn="1 / 25"  gridRow="12 / 14"/>
+  <Element elementId="chart-by-channel" gridColumn="1 / 13"  gridRow="14 / 26"/>
+  <Element elementId="chart-by-status"  gridColumn="13 / 25" gridRow="14 / 26"/>
 
-  <LayoutElement elementId="divider-1"      gridColumn="1 / 25" gridRow="26 / 27"/>
-  <LayoutElement elementId="section-detail" gridColumn="1 / 25" gridRow="27 / 29"/>
-  <LayoutElement elementId="master"         gridColumn="1 / 25" gridRow="29 / 37"/>
+  <Element elementId="divider-1"      gridColumn="1 / 25" gridRow="26 / 27"/>
+  <Element elementId="section-detail" gridColumn="1 / 25" gridRow="27 / 29"/>
+  <Element elementId="master"         gridColumn="1 / 25" gridRow="29 / 37"/>
 </Page>
 ```
 
@@ -432,7 +441,7 @@ layout: { anchor: middle }            # also: verticalAnchor: start|middle, titl
 
 **KPI strip inside a dark hero** ✓ — the strongest "designed" move observed (KPIs live in the
 hero band, not below it): one dark container spans the full band; the title text, accent-colored
-labels, and the KPIs all lay out inside its `GridContainer`; each KPI pops with
+labels, and the KPIs all lay out inside its `Container`; each KPI pops with
 `value: {columnId: …, fontSize: 32, color: "#FFFFFF"}`. Use light accent tints for the labels on
 dark (`#93C5FD` blue, `#67E8F9` cyan, `#6EE7B7` green, `#C4B5FD` purple).
 
@@ -465,15 +474,18 @@ Neil-style gradient banners are NOT directly authorable:
 - `style.backgroundColor` with a CSS `linear-gradient(...)` string is **accepted by POST/PUT but
   silently dropped** — the container renders with *no* background at all (worse than a 400; only
   a render catches it). Hex only.
-- ✓ **The working recipe (re-verified 2026-06-26): `backgroundImage` is a TOP-LEVEL field on the
+- ✓ **The working recipe (re-verified 2026-08-08): `backgroundImage` is a TOP-LEVEL field on the
   container element — a SIBLING of `style`, NOT nested inside `style`.** Nesting it under `style`
   silently drops it (posts `200`, GET readback shows only `backgroundColor`, renders flat) — that was
-  a real mistake caught this session. The correct shape:
+  a real mistake caught this session. **Breaking change (live, 2026-08-08):** the url itself now
+  nests under `source: {kind: url, url: ...}` — the old flat `backgroundImage: {url: ...}` hard-400s
+  (`"backgroundImage.source: Invalid value: undefined"`). The correct shape:
   ```yaml
   - id: hero
     kind: container
     style: { backgroundColor: "#0B1120", borderRadius: round }   # solid fallback / load color
-    backgroundImage: { url: "https://…/gradient.png" }           # <-- sibling of style, not inside it
+    backgroundImage:
+      source: { kind: url, url: "https://…/gradient.png" }       # <-- sibling of style, not inside it
   ```
   Lay the title **text element inside the hero container** and it overlays the gradient (text-over-image
   works for a container background — unlike a separate `image` element, which does NOT z-stack under
@@ -534,13 +546,12 @@ value: Week
 ## Composition styling — the `Styling` module
 
 The recipes above are written to hand-author; the same moves are also available as a small
-shared helper library — Ruby `shared/lib/styling.rb`, with a byte-identical Python twin
-`shared/lib/styling.py` — for applying a professional look on top of a layout built with the
-`Composition` engine (`reference/workflows/composition.md`) instead of re-transcribing hex
-codes and container shapes into every dashboard. Every field these helpers emit is one of the
-Task-1 live-verified GO surfaces above (`.superpowers/sdd/styling-task-1-report.md`); each
-helper is gated behind an internal `SURFACES` map so a future regression can flip a surface off
-in one place instead of emitting an unverified (or now-rejected) shape at every call site.
+shared helper library — `scripts/lib/styling.rb` — for applying a professional look on top of
+a layout built with the `Composition` engine (`reference/workflows/composition.md`) instead of
+re-transcribing hex codes and container shapes into every dashboard. Every field these helpers
+emit is one of the live-verified GO surfaces above; each helper is gated behind an internal
+`SURFACES` map so a future regression can flip a surface off in one place instead of emitting
+an unverified (or now-rejected) shape at every call site.
 
 ### Theme
 
@@ -556,7 +567,9 @@ migration's source fidelity or a user's own branding always overrides this.
 
 - Single-series (default): `{ "color": { "by": "single", "value": theme[:categorical][0] } }` —
   merge onto a bar/line/area/combo element (Recipe 5's single-hue case).
-- Categorical (`categorical: true`): `{ "themeOverrides": { "categoricalScheme": theme[:categorical] } }`
+- Categorical (`categorical: true`): `{ "settings": { "theme": { "overrides": { "categoricalScheme": theme[:categorical] } } } }`
+  — **deep-merge** at the workbook level (inside `document`, a sibling of `pages`/`layout`), not per-element.
+  Deep-merge, not shallow: a shallow merge of `settings` clobbers `navigation`.
   — merge at the **workbook** level (a sibling of `pages`/`layout`), not per-element. This is the
   verified path for donut/pie slice colors too (per-element `color.scheme` is still silently
   dropped there — see Recipe 5 / *Workbook theme* above).
@@ -585,7 +598,7 @@ output rather than hand-writing the container + child XML per dashboard:
 - `header` emits a `kind: container` styled `theme[:header]`
   (`{backgroundColor:"#0F172A", borderRadius:"round"}`) plus a separate `kind: text` title child —
   a container has no field of its own that renders visible text, see `layout.md`'s Container
-  elements section — and the wrapping `<GridContainer>`/`<LayoutElement>` XML fragment.
+  elements section — and the wrapping `<Container>`/`<Element>` XML fragment.
 - `section_card` wraps one `Composition.bands()` band (`{role:, ids:, r0:, r1:}`) in a
   `kind: container` styled `theme[:card]`
   (`{backgroundColor:"#FFFFFF", borderColor:"#E2E8F0", borderWidth:1, borderRadius:"round"}`),
@@ -593,9 +606,10 @@ output rather than hand-writing the container + child XML per dashboard:
   `Composition.band` would use unwrapped.
 - Both container `style` shapes use the field name **`borderRadius`** (`square|round|pill`) —
   never the guessed `cornerRadius`, which is silently dropped on readback (the *container-style*
-  row of Task 1's GO/NO-GO table). And **never combine `padding` with `borderColor`/`borderWidth`**
-  on the same container — POST 400s ("padding is 'none' but border fields... require default
-  padding"); omit `padding` (its default) whenever a border is set.
+  row of the GO/NO-GO surface map above). Container `style.padding` accepts
+  only `none` or omission; values such as `small` are rejected. Also never
+  combine `padding: none` with `borderColor`/`borderWidth` on the same
+  container—border fields require default (omitted) padding.
 
 ### `gradient_header(id:, title:, subtitle:, gradient:, motif:, motif_side:, logo_url:, page_cols: 24)` — sleek header via a data-URI SVG
 
@@ -610,13 +624,18 @@ return contract as `header`, so it drops into the same composition call sites.
   kind: container
   style: { borderRadius: round }
   backgroundImage:
-    url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0i..."   # composed gradient(+motif) SVG
+    source:
+      kind: url
+      url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0i..."   # composed gradient(+motif) SVG
     style: { fit: cover }
 - id: hdr-title
   kind: text
   verticalAlign: middle
   body: '# <span style="color: #FFFFFF">Overview</span>'
 ```
+
+(Breaking change, live 2026-08-08: the url now nests under `source: {kind: url, url:}` — the
+old flat `backgroundImage: {url:}` hard-400s. Same shape applies to `gradient_card` below.)
 
 - `gradient:` is an array of **2–3 hex stops** (default: a neutral, host-agnostic
   3-stop slate→navy→blue ramp in `DEFAULT_THEME[:header_gradient]` — not red; red,
@@ -661,7 +680,7 @@ value legible on **any** gradient, bright or dark — not just a dark one — wh
 the brand gradient still reads through in the lower half (never fully blacked
 out). It never mutates `kpi_element` or `kpi_card.rb` — it returns
 `{ element:, child_layout:, patch: }`: the container element to add, the inner
-`<LayoutElement>` fragment positioning the KPI inside it, and a `patch` Hash
+`<Element>` fragment positioning the KPI inside it, and a `patch` Hash
 the caller merges onto their own copy of the KPI's `value`/`name`/`style` objects:
 
 ```yaml
@@ -725,10 +744,10 @@ Don't waste a round-trip trying to set these — the spec API silently drops the
 
 - **Chart tooltip customization** (spec-findings #10)
 - **Trellis / small-multiples layout** (spec-findings #11)
-- **Donut / pie slice colors** (spec-findings #22, per-element `color.scheme`; use workbook-level `themeOverrides.categoricalScheme` instead — see *Workbook theme* above)
-- ~~**KPI title color or "hide title" toggle** — `name` always renders as a black title~~ — **RESOLVED, live-verified 2026-07-28**: `name` on a `kpi-chart` (or any element) *is* colorable — `{ "name": { "text": "Revenue", "color": "#2563EB" } }` survives readback and renders the title in that color (workbook `e0586f0d-a2cd-431c-b495-555acf3ccae0`; see `.superpowers/sdd/styling-task-1-report.md`). This supersedes the "`name` always renders as a black title" claim this doc carried until now — for *this exact shape only*: there is still no `showTitle: false` / "hide title" toggle, so the `name: ' '` (single-space) workaround in Recipe 2 above still stands for suppressing a duplicate title.
-- ~~**Element title font size / font family** — the `name` field has no `style` sibling.~~ — **PARTIALLY RESOLVED, live-verified 2026-07-28**: a per-element `name` object also takes `fontSize` — `{ "name": { "text": "Category Detail", "fontSize": 22, "color": "#DC2626" } }` on a non-KPI element (e.g. a table) survives readback and renders both a visibly larger size and a distinct color, **overriding the workbook-wide `titleFont`** (see *Workbook theme* above) for that one element when both are set. This supersedes the "the `name` field has no `style` sibling" claim this doc carried until now. Font *family* per title remains untested — only `fontSize`/`color` were probed; `themeOverrides.fonts.textFont` (*Workbook theme* above) is still the only verified lever for text font family, and it's global, not per-title.
-- ~~**Workbook-level palette / theme** via spec~~ — **RESOLVED**: now spec-authorable via top-level `themeName` + `themeOverrides` (see *Workbook theme* above).
+- **Donut / pie slice colors** (spec-findings #22, per-element `color.scheme`; use workbook-level `settings.theme.overrides.categoricalScheme` instead — see *Workbook theme* above)
+- ~~**KPI title color or "hide title" toggle** — `name` always renders as a black title~~ — **RESOLVED, live-verified 2026-07-28**: `name` on a `kpi-chart` (or any element) *is* colorable — `{ "name": { "text": "Revenue", "color": "#2563EB" } }` survives readback and renders the title in that color. This supersedes the "`name` always renders as a black title" claim this doc carried until now — for *this exact shape only*: there is still no `showTitle: false` / "hide title" toggle, so the `name: ' '` (single-space) workaround in Recipe 2 above still stands for suppressing a duplicate title.
+- ~~**Element title font size / font family** — the `name` field has no `style` sibling.~~ — **PARTIALLY RESOLVED, live-verified 2026-07-28**: a per-element `name` object also takes `fontSize` — `{ "name": { "text": "Category Detail", "fontSize": 22, "color": "#DC2626" } }` on a non-KPI element (e.g. a table) survives readback and renders both a visibly larger size and a distinct color, **overriding the workbook-wide `titleFont`** (see *Workbook theme* above) for that one element when both are set. This supersedes the "the `name` field has no `style` sibling" claim this doc carried until now. Font *family* per title remains untested — only `fontSize`/`color` were probed; `settings.theme.overrides.fonts.textFont` (*Workbook theme* above) is still the only verified lever for text font family, and it's global, not per-title.
+- ~~**Workbook-level palette / theme** via spec~~ — **RESOLVED**: now spec-authorable via `settings.theme.name` + `settings.theme.overrides` (see *Workbook theme* above).
 - **Chart `tooltip` / `trellis*` fields** (UI-only)
 
 If a customer needs slice color branding on donut/pie, set the workbook theme in the UI after the spec is posted.

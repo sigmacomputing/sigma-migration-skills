@@ -13,6 +13,7 @@ Usage:
   SIGMA_CONNECTION_ID=<full-uuid> python3 post_dm.py <spec.json> [--folder-id <id>]
 """
 import argparse, json, os, re, sys, urllib.request, urllib.error
+from warehouse_column_refs import apply as ground_warehouse_refs
 
 BASE = os.environ["SIGMA_BASE_URL"]
 TOK = os.environ["SIGMA_API_TOKEN"]
@@ -205,6 +206,13 @@ def main():
     print("folderId:", folder, file=sys.stderr)
     if folder:
         spec["folderId"] = folder
+
+    grounding = ground_warehouse_refs(spec, api)
+    modes = ", ".join(f"{cid}={'friendly' if value else 'physical'}"
+                      for cid, value in grounding["connectionModes"].items())
+    print(f"connection naming: {modes}; grounded {grounding['rewritten']} formula(s), "
+          f"re-keyed {grounding['rekeyed']} id(s), re-prefixed {grounding['reprefixed']} ref(s)",
+          file=sys.stderr)
 
     res = post_dm_with_sync(spec)
     print(json.dumps(res, indent=2)[:600] if isinstance(res, dict) else str(res)[:600])

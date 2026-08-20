@@ -65,7 +65,7 @@ module ArrangementLint
 
   module_function
 
-  # Internal column count of a GridContainer tag (children's gridColumn refs
+  # Internal column count of a Container tag (children's gridColumn refs
   # are LOCAL to this) — same resolution rule as LayoutLint.grid_col_count.
   def container_cols(attrs)
     tmpl = attrs.to_s[/gridTemplateColumns="([^"]*)"/, 1]
@@ -98,11 +98,11 @@ module ArrangementLint
       [frame[:c0] + (c0 - 1) * unit, frame[:c0] + (c1 - 1) * unit,
        frame[:r0] + (r0 - 1), frame[:r0] + (r1 - 1)]
     end
-    page_xml.to_s.scan(%r{</GridContainer>|<GridContainer\b[^>]*?/?>|<LayoutElement\b[^>]*?/?>}m) do
+    page_xml.to_s.scan(%r{</Container>|<Container\b[^>]*?/?>|<Element\b[^>]*?/?>}m) do
       tag = Regexp.last_match(0)
-      if tag.start_with?('</GridContainer')
+      if tag.start_with?('</Container')
         stack.pop
-      elsif tag.start_with?('<GridContainer')
+      elsif tag.start_with?('<Container')
         frame = stack.last || root
         rect = abs.call(tag, frame)
         eid = tag[/elementId="([^"]*)"/, 1]

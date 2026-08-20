@@ -27,6 +27,8 @@ SKILL = os.path.dirname(HERE)
 SCRIPTS = os.path.join(SKILL, "scripts")
 FIX = os.path.join(SKILL, "fixtures", "skilltest-looks")
 VIEWS = os.path.join(FIX, "views")
+sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
+import code_rep  # noqa: E402
 
 # display names build_workbook derives via disp(leaf(field)) for the grouped_table fixture
 REGION, CATEGORY = "Region", "Category"
@@ -51,11 +53,8 @@ def build(contract):
 
 
 def _element(spec, kind):
-    els = []
-    for pg in spec.get("pages", []):
-        for e in pg.get("elements", []):
-            if e.get("kind") == kind and e.get("name") != "Data":
-                els.append(e)
+    els = [e for e in code_rep.workbook_elements(spec)
+           if e.get("kind") == kind and e.get("name") != "Data"]
     assert len(els) == 1, f"expected one {kind}, got {[e.get('kind') for e in els]}"
     return els[0]
 

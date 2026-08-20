@@ -94,11 +94,11 @@ LOOKML_DIR=/path/to/lookml \
   node --import tsx/esm scripts/convert_dm.mjs <explore> /tmp/look/dm-spec.json
 ```
 A dev's own checkout wins automatically when set — point `CONVERTER_SRC` at a patched
-`sigma-data-model-mcp/src/lookml.ts` (the long-running MCP server only serves its *deployed*
+`converter-source/src/lookml.ts` (the long-running MCP server only serves its *deployed*
 build, so a source-tree fix needs this direct path to take effect):
 ```bash
 LOOKML_DIR=/path/to/lookml \
-CONVERTER_SRC=/path/to/sigma-data-model-mcp/src/lookml.ts \
+CONVERTER_SRC=/path/converter-source/src/lookml.ts \
   node --import tsx/esm scripts/convert_dm.mjs <explore> /tmp/look/dm-spec.json
 ```
 The hosted **`convert_lookml_to_sigma`** MCP tool is a **manual fallback only** — reached when
@@ -128,8 +128,11 @@ python3 scripts/build_workbook.py /tmp/look/<dash>.contract.json \
   --out /tmp/look/<dash>.workbook.json
 ```
 Emits a `/v2/workbooks/spec` body: hidden Data page + master table, one element per tile,
-controls from filters, newspaper→24-col layout XML. POST it to `/v2/workbooks/spec` (returns
-YAML → record `workbookId`). **POST once; PUT every later edit** (re-POST leaves orphans).
+controls from filters, newspaper→24-col layout XML — **`document`-wrapped, not flat**
+(verified live 2026-08-03, including on `/verify` 2026-08-04): `schemaVersion`/`pages`/
+`kind`/`layout` nest under a top-level `document` key, `folderId` stays outside it. POST
+it to `/v2/workbooks/spec` (returns YAML → record `workbookId`). **POST once; PUT every
+later edit** (re-POST leaves orphans).
 
 ## 5. Verify parity (3-way) — MANDATORY (scripted hard gate)
 

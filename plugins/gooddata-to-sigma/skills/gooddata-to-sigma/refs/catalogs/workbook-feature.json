@@ -1,0 +1,113 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "gooddata",
+  "authoritative_doc": "https://www.gooddata.com/docs/cloud/create-dashboards/",
+  "on_unmapped_default": "record a loud feature gap; never fabricate workbook semantics",
+  "description": "Audit of released Sigma workbook-as-code surfaces against documented GoodData Cloud semantics. The builder emits only from equivalent source evidence. Dashboard tabs become metadata pages plus auto navigation; chart legend and literal background style are allowlisted; native waterfall and data-bound repeater have prerequisite gates. Drill, page-break, progress, panels, and box stay explicit gaps where GoodData or Sigma does not provide an authorable equivalent.",
+  "rows": [
+    {
+      "source": "waterfall",
+      "sigma": "waterfall-chart",
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+skip",
+      "notes": "The exported local:waterfall token maps only with a View dimension and measure; no category or measure is invented."
+    },
+    {
+      "source": "repeater",
+      "sigma": "repeated-container",
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeaters/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+skip",
+      "notes": "One Rows attribute and resolvable Columns ground a grouped table source and native repeated cards."
+    },
+    {
+      "source": "repeater-inline-chart",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/repeaters/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "GoodData View-by line/bar charts inside repeater cells do not map to one repeated-container child shape; row cards and values are preserved while the mini-chart stays loud."
+    },
+    {
+      "source": "legend",
+      "sigma": "element.legend",
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-properties/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+preserve-default",
+      "notes": "properties.controls.legend enabled and top/bottom/left/right map directly; unknown properties are omitted loudly."
+    },
+    {
+      "source": "dashboard-tabs",
+      "sigma": "metadata pages + navigation:auto",
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+single-page",
+      "notes": "Each GoodData tab is a top-level page. Required layout owns membership; navigation:auto is emitted per tab and page tabs are shown."
+    },
+    {
+      "source": "tab-filter",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "Tab-local YAML filters are loud unless the declarative export also provides a resolvable filterContext binding."
+    },
+    {
+      "source": "attribute-hierarchy-drill",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/drilling-in-dashboards/set-drill-down/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "An attribute hierarchy proves drill intent, but the released workbook contract does not publish the source/category/target binding needed to author a working drill control. Inert drill UI is never emitted."
+    },
+    {
+      "source": "navigation-interaction",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/dashboard-tabs/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "Cross-dashboard and drill-to-tab interactions need a converted target document/page id. Auto navigation covers tabs in the current dashboard; unresolved destinations remain loud."
+    },
+    {
+      "source": "page-break",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/export/export-accessible-pdf/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "GoodData dashboard metadata has no documented print page-break marker. Tab and section boundaries are not print intent."
+    },
+    {
+      "source": "progress",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "GoodData Cloud has no documented standalone progress/bullet visualization with explicit value/min/max semantics. Repeater cell bars are not promoted to progress."
+    },
+    {
+      "source": "panels",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-dashboards/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "Dashboard sections and filter bars are in-canvas layout/application chrome, not Sigma document header/sidebar panels. document.panels remains explicit and empty."
+    },
+    {
+      "source": "visual-style",
+      "sigma": "element.style.backgroundColor",
+      "doc_ref": "https://www.gooddata.com/docs/cloud/customize-appearance/create-custom-themes/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+preserve-default",
+      "notes": "Only a resolved literal backgroundColor in exported insight style metadata is copied. Dynamic or unknown CSS is omitted loudly."
+    },
+    {
+      "source": "box-chart",
+      "sigma": null,
+      "doc_ref": "https://www.gooddata.com/docs/cloud/create-visualizations/visualization-types/",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag",
+      "notes": "Box visualization output is capability-gated until a generally released workbook kind and target-workspace entitlement are verified."
+    }
+  ]
+}

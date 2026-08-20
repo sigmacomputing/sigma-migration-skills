@@ -53,7 +53,7 @@ end
 # 2) The OUTER tinted band container (the horizontal header row wrapping the 3
 # labels) shrinks too — band_max propagated up the nested containers. Its id is
 # the container built for the header band's zone-tree node (…-49 in the source).
-band = xml.match(/<GridContainer elementId="(tc-[^"]*-49)"[^>]*gridRow="(\d+)\s*\/\s*(\d+)"/)
+band = xml.match(/<Container elementId="(tc-[^"]*-49)"[^>]*gridRow="(\d+)\s*\/\s*(\d+)"/)
 check(band, 'outer header band container present', fails)
 check(band && (band[3].to_i - band[2].to_i) <= maxrows + 1,
       "outer band container shrank to ~#{maxrows} rows (got #{band && (band[3].to_i - band[2].to_i)}) — propagation reached it", fails)

@@ -10,7 +10,7 @@
 # Why a Ruby rewrite: the shell version processes elements serially with one
 # curl per element, ~5s each. For a 6-element workbook that's ~30s. This
 # version parallel-fetches with 5 threads + 429 backoff (same pattern as
-# find-or-pick-dm.rb) → ~6-8s. Phase 5 perf ticket beads-sigma-y2l.
+# find-or-pick-dm.rb) → ~6-8s. Phase 5 perf ticket [bead].
 #
 # Usage: ruby scripts/verify-workbook.rb <workbook-id>
 # Env: SIGMA_BASE_URL, SIGMA_API_TOKEN.

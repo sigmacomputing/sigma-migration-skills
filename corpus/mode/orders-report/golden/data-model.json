@@ -1,0 +1,57 @@
+{
+  "name": "Orders Report (Mode)",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "id0001",
+      "name": "Data",
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "table",
+          "name": "Monthly Revenue",
+          "source": {
+            "kind": "sql",
+            "connectionId": "conn-test",
+            "statement": "select order_month, revenue from widget_orders"
+          },
+          "columns": [
+            {
+              "id": "id0003",
+              "name": "Order Month",
+              "formula": "[Custom SQL/order_month]"
+            },
+            {
+              "id": "id0004",
+              "name": "Revenue",
+              "formula": "[Custom SQL/revenue]"
+            }
+          ]
+        },
+        {
+          "id": "id0005",
+          "kind": "table",
+          "name": "Region Revenue",
+          "source": {
+            "kind": "sql",
+            "connectionId": "conn-test",
+            "statement": "select region, revenue from widget_orders"
+          },
+          "columns": [
+            {
+              "id": "id0006",
+              "name": "Region",
+              "formula": "[Custom SQL/region]"
+            },
+            {
+              "id": "id0007",
+              "name": "Revenue",
+              "formula": "[Custom SQL/revenue]"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "folderId": "id0008"
+}

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import * as CodeRep from './lib/code_rep.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL = dirname(__dirname);
@@ -39,8 +40,7 @@ function build(metricsMap) {
   return JSON.parse(out);
 }
 
-const formulasOf = (wb) => (wb.pages || [])
-  .flatMap((p) => p.elements || [])
+const formulasOf = (wb) => CodeRep.workbookElements(wb)
   .flatMap((e) => (e.columns || []).map((c) => String(c.formula)));
 
 // 1) no --metrics → inline aggregates, no metric refs (byte-identical fallback)

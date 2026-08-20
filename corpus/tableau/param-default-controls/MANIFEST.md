@@ -53,7 +53,7 @@ the vendored bundle (which carries the W2.17 local patch — see
       "metrics": 1,
       "relationships": 0,
       "warnings": 7,
-      "metric_names": ["Net Revenue"]
+      "metric_names": ["Total Net Revenue"]
     }
   }
 }

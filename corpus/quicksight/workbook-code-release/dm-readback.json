@@ -1,0 +1,20 @@
+{
+  "dataModelId": "dm-1",
+  "pages": [
+    {
+      "id": "dm-page",
+      "name": "Data",
+      "elements": [
+        {
+          "id": "dm-orders",
+          "name": "Orders",
+          "columns": [
+            {"name": "Region"},
+            {"name": "State"},
+            {"name": "Amount"}
+          ]
+        }
+      ]
+    }
+  ]
+}

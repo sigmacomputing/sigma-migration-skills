@@ -1,0 +1,101 @@
+[
+  {
+    "id": "kpi_rev",
+    "title": "Net Revenue",
+    "datasetId": "ds-order-fact",
+    "chartType": "badge_singlevalue",
+    "sigmaKindHint": "kpi-chart",
+    "groupBy": [],
+    "columns": [
+      { "column": "NET_REVENUE", "aggregation": "SUM", "format": { "type": "currency", "precision": 1 } }
+    ],
+    "summaryNumber": {
+      "column": "NET_REVENUE",
+      "aggregation": "SUM",
+      "label": "Net Revenue",
+      "format": { "type": "currency", "precision": 1 },
+      "_defaultCountSuspect": false
+    },
+    "filters": []
+  },
+  {
+    "id": "kpi_ret",
+    "title": "Return Rate",
+    "datasetId": "ds-order-fact",
+    "chartType": "badge_singlevalue",
+    "sigmaKindHint": "kpi-chart",
+    "groupBy": [],
+    "columns": [
+      { "column": "IS_RETURNED", "aggregation": "AVG", "format": { "type": "percent", "precision": 1 } }
+    ],
+    "summaryNumber": {
+      "column": "IS_RETURNED",
+      "aggregation": "AVG",
+      "label": "Return Rate",
+      "format": { "type": "percent", "precision": 1 },
+      "_defaultCountSuspect": false
+    },
+    "filters": []
+  },
+  {
+    "id": "bar_channel",
+    "title": "Revenue by Channel",
+    "datasetId": "ds-order-fact",
+    "chartType": "badge_vert_bar",
+    "sigmaKindHint": "bar-chart",
+    "groupBy": ["ORDER_CHANNEL"],
+    "columns": [
+      { "column": "ORDER_CHANNEL", "alias": "Channel" },
+      { "column": "NET_REVENUE", "alias": "Net Revenue", "aggregation": "SUM", "format": { "type": "currency", "precision": 1 } }
+    ],
+    "summaryNumber": {
+      "column": "NET_REVENUE",
+      "aggregation": "SUM",
+      "label": "Net Revenue",
+      "format": { "type": "currency", "precision": 1 },
+      "_defaultCountSuspect": false
+    },
+    "filters": []
+  },
+  {
+    "id": "line_month",
+    "title": "Revenue by Month",
+    "datasetId": "ds-order-fact",
+    "chartType": "badge_symbolline",
+    "sigmaKindHint": "line-chart",
+    "groupBy": ["CalendarMonth"],
+    "dateGrain": { "column": "ORDER_DATE", "dateTimeElement": "MONTH" },
+    "columns": [
+      { "column": "CalendarMonth", "alias": "Month", "calendar": true },
+      { "column": "NET_REVENUE", "alias": "Net Revenue", "aggregation": "SUM", "format": { "type": "currency", "precision": 1 } }
+    ],
+    "summaryNumber": {
+      "column": "NET_REVENUE",
+      "aggregation": "SUM",
+      "label": "Net Revenue",
+      "format": { "type": "currency", "precision": 1 },
+      "_defaultCountSuspect": false
+    },
+    "filters": []
+  },
+  {
+    "id": "table_detail",
+    "title": "Order Detail",
+    "datasetId": "ds-order-fact",
+    "chartType": "badge_table",
+    "sigmaKindHint": "table",
+    "groupBy": ["ORDER_ID"],
+    "columns": [
+      { "column": "ORDER_ID", "alias": "Order ID" },
+      { "column": "NET_REVENUE", "alias": "Net Revenue", "aggregation": "SUM", "format": { "type": "currency", "precision": 1 } }
+    ],
+    "summaryNumber": {
+      "column": "NET_REVENUE",
+      "aggregation": "SUM",
+      "label": "Net Revenue",
+      "format": { "type": "currency", "precision": 1 },
+      "_defaultCountSuspect": false
+    },
+    "filters": []
+  }
+]

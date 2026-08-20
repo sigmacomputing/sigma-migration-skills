@@ -25,6 +25,7 @@ Prints JSON: {status: validated|error, workbook_id, error, ...}. Cleans up the t
 import json, os, sys, urllib.request, argparse, datetime, re, hashlib
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import scout_gate
+import code_rep
 
 BASE = os.environ["SIGMA_BASE_URL"]; TOK = os.environ["SIGMA_API_TOKEN"]
 def api(method, path, body=None, accept_json=True):
@@ -111,8 +112,26 @@ def main():
     else:
         test = {"id":"scout","kind":"table","name":"scout","source":{"elementId":"m","kind":"table"},
                 "columns":[{"id":"sc","formula":a.formula,"name":"scout_test"}]}
-    spec = {"name":f"SCOUT TEST {a.feature}","folderId":a.folder_id,"schemaVersion":1,
-            "pages":[{"id":"d","name":"Data","elements":[master]},{"id":"t","name":"Test","elements":[test]}]}
+    layout = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+        'gridTemplateRows="auto" id="d">\n'
+        '  <Element elementId="m" gridColumn="1 / 25" gridRow="1 / 11"/>\n'
+        '</Page>\n'
+        '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+        'gridTemplateRows="auto" id="t">\n'
+        '  <Element elementId="scout" gridColumn="1 / 25" gridRow="1 / 11"/>\n'
+        '</Page>'
+    )
+    doc = {"schemaVersion": 1, "kind": "workbook",
+           "pages": [{"id": "d", "name": "Data", "visibility": "hidden"},
+                     {"id": "t", "name": "Test"}],
+           "elements": [master, test], "layout": layout}
+    # Live POST /v2/workbooks/spec now REJECTS the old flat body with a 400
+    # (verified 2026-08-03/04) — every non-metadata field must nest under a
+    # top-level `document` key. code_rep.wrap keeps the metadata (name,
+    # folderId) alongside it.
+    spec = code_rep.wrap(doc, {"name":f"SCOUT TEST {a.feature}","folderId":a.folder_id})
     st, body = api("POST","/v2/workbooks/spec",spec)
     wb = None
     try: wb = json.loads(body).get("workbookId")
@@ -156,7 +175,7 @@ def main():
         result["escalation"] = build_escalation(a, err)
     # cleanup test workbook
     api("DELETE", f"/v2/files/{wb}")
-    # record to the run-each-time gap-scout ledger (bead beads-sigma-5l5e) so the
+    # record to the run-each-time gap-scout ledger () so the
     # migrate-looker.py type=error readback gate sees this gap as scouted. A
     # 'validated' row MUST carry live-probe evidence (issue #458): the real Sigma
     # workbook id this POST created + a SHA-256 of the live columns-readback + the

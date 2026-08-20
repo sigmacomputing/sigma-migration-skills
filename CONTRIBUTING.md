@@ -14,7 +14,15 @@ phase-number mapping. **Never renumber a skill's phases** — scripts, gates, an
 memory notes reference the local numbers. When you add a converter, add its
 column to that table.
 
+Agent load rules (Claude marketplace vs full clone), maturity labels, and MCP
+stance: `docs/agent-entry.md`. Docs taxonomy (durable vs
+session residue) and the structure follow-up backlog:
+`docs/README.md`, `docs/structure-roadmap.md`.
+Update the maturity column in [`AGENTS.md`](AGENTS.md) when a skill graduates.
+
 Mandatory gates (CI lints each converter SKILL.md for them — `tools/lint-skills.rb`):
+
+Path hygiene is separate: `tools/lint-skill-paths.rb` bans legacy `sigma-skills/` runtime paths and marketplace-unsafe `../../../../docs/` relatives from skills.
 
 - **C3 Reuse-check** — score existing Sigma DMs before creating one (`find-or-pick-dm.rb`).
 - **C5 Post-DM gate** — POST the DM, **read back** real ids, wire the workbook to those.
@@ -71,9 +79,10 @@ ruby tools/check-shared.rb && ruby tools/lint-skills.rb   # both green
 ```
 
 The scaffolder stamps both skills with the mandatory gates documented, syncs +
-registers the shared infra, and adds a `docs/phase-schema.md` stub. Then do the
-printed human TODOs: marketplace entry, `AGENTS.md` row, a `corpus/` case, and
-fill the SKILL.md prose.
+registers the shared infra, adds a `docs/phase-schema.md` stub, writes
+`plugin.json`, appends a marketplace entry, and adds `AGENTS.md` index rows.
+Then do the printed human TODOs: a `corpus/` case, fill the SKILL.md prose, and
+replace the scaffold marketplace blurb before release.
 
 ## Local hooks (recommended — catch gate failures before you push)
 

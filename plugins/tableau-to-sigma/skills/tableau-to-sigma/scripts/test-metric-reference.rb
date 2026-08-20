@@ -190,7 +190,7 @@ check(f5 == '[Metrics/Gross Revenue]',
 #    exits 1 (the fix stops the EMISSION; the gate keeps catching real misses).
 GATE = File.join(DIR, 'assert-wb-refs-resolve.rb')
 require 'open3'
-def run_gate(formula)
+def run_gate(formula, metric: true)
   Dir.mktmpdir do |d|
     wb = { 'schemaVersion' => 1, 'name' => 'gate-probe', 'pages' => [
       { 'id' => 'pg1', 'name' => 'P1', 'elements' => [
@@ -198,9 +198,12 @@ def run_gate(formula)
           'columns' => [{ 'id' => 'c1', 'name' => 'Probe Measure', 'formula' => formula }] }
       ] }
     ] }
+    dm_element = { 'id' => 'el1', 'name' => 'Freight Fact',
+                   'columnLabels' => ['Depot', 'Linehaul Cost'] }
+    dm_element['metrics'] = [{ 'id' => 'metric-linehaul-cost', 'name' => 'Linehaul Cost' }] if metric
     ids = { 'dataModelId' => 'dm-fixture', 'pages' => [
       { 'id' => 'dp1', 'name' => 'Data', 'elements' => [
-        { 'id' => 'el1', 'name' => 'Freight Fact', 'columnLabels' => ['Depot', 'Linehaul Cost'] }
+        dm_element
       ] }
     ] }
     File.write(File.join(d, 'wb-spec.json'), JSON.dump(wb))
@@ -214,7 +217,10 @@ gout, gcode = run_gate('[Metrics/Ghost Rate]')
 check(gcode == 1 && gout.include?('Ghost Rate'),
       "ref gate fails closed on a genuinely-absent metric (exit #{gcode})", fails)
 _gout2, gcode2 = run_gate('[Metrics/Linehaul Cost]')
-check(gcode2 == 0, "ref gate control: a readback-backed name still passes (exit #{gcode2})", fails)
+check(gcode2 == 0, "ref gate control: a readback metric still passes (exit #{gcode2})", fails)
+gout3, gcode3 = run_gate('[Metrics/Linehaul Cost]', metric: false)
+check(gcode3 == 1 && gout3.include?('no DM metrics census'),
+      "ref gate refuses to resolve [Metrics/name] from columnLabels alone (exit #{gcode3})", fails)
 
 if fails.empty?
   puts 'ALL PASS — tableau workbook measures bind to [Metrics/<name>] (byte-identical fallback; F4 collision shape stays inline)'

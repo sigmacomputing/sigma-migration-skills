@@ -12,7 +12,7 @@ DEMO_DB.DEMO Snowflake connection block matches the live demo warehouse.
 |---|---|
 | `workbook-content.twb` | Synthetic workbook XML: 3 worksheets, 1 dashboard, 1 storyboard (3 story points), Snowflake primary + textscan secondary blend, nested-FIXED / iso-year / FINDNTH / bin calc columns |
 | `get-workbook.json`, `views/*.csv`, `master-columns.json` | Minimal discovery fixtures so `build-charts-from-signals.rb` runs offline |
-| `wb-spec.json`, `wb-ids.json` | Workbook-spec + readback-ids fixtures for `build-story-pages.rb` pass 1 / pass 2 |
+| `wb-spec.json`, `wb-ids.json` | Current workbook-code envelope + readback fixtures for `build-story-pages.rb` pass 1 / pass 2: metadata-only pages, flat document elements, and authoritative layout |
 | `story-plan.json` | PINNED `parse-twb-layout.rb` output: 1 story, 3 points (dashboard + 2 worksheet captures) |
 | `blend-plan.json` | PINNED `scan-workbook-gaps.rb` output: 1 blend, linking field `Region`, route `materialize-via-vds` (textscan secondary) |
 | `chart-specs-lod-chains.json` | PINNED `build-charts-from-signals.rb` sidecar: 2-level nested-FIXED helper chain (`LOD Helper 1` = Sum(Sales) by Region+Customer Id → `LOD Helper 2` = Avg by Region) |
@@ -45,6 +45,8 @@ regenerable intermediates and are not pinned.
 - story-plan: 3 points in story order; `sheet_kind` resolves `Overview Dash`
   → `dashboard`, the two sheets → `worksheet`; storyboard dashboard flagged
   `is_story: true` in dashboard-layout.json.
+- story build: each point emits a native `navigation` element; readback page
+  ownership is recovered from `document.layout`, not `pages[].elements`.
 - blend-plan: blend detected ONLY on the 2-datasource worksheet; linking
   field = `Region` (caption present in both dependency blocks); textscan
   secondary routes to `materialize-via-vds` per refs/blending.md.

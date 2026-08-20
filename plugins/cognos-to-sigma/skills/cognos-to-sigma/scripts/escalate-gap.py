@@ -5,7 +5,7 @@ Shared across every migration skill (vendored identically into each plugin's
 scripts/). When the gap scout can't find a working Sigma translation for a
 source feature, the main agent offers the user the *option* to open a tracking
 issue in the appropriate repo. This script is what turns that "yes" into filed
-issues — with dedupe, repo routing, and converter-repo mirroring.
+issues — with dedupe, repo routing, and cross-linked mirroring.
 
 DESIGN: opt-in, never automatic.
   - Default (no --yes): DRY RUN. Prints the drafted issue(s), the target repo(s),
@@ -14,10 +14,11 @@ DESIGN: opt-in, never automatic.
   - With --yes: actually files. Skips any repo where dedupe already found a match
     (unless --force).
 
-ROUTING (category -> repos):
-  converter  -> sigma-data-model-manager + sigma-data-model-mcp
-               (a source expression the *converter* failed to translate — the
-                browser tool and the MCP must stay in sync, so mirror to both)
+ROUTING (category -> repos): every category files against this public repo —
+converter/builder/skill gaps are all tracked here, distinguished by the
+`category:<name>` label, so there is a single public place to look.
+  converter  -> sigmacomputing/sigma-migration-skills   (a source expression the
+                *converter* failed to translate)
   builder    -> sigmacomputing/sigma-migration-skills   (workbook/DM spec builder gap)
   skill      -> sigmacomputing/sigma-migration-skills   (skill-logic / discovery gap)
 
@@ -34,18 +35,17 @@ Usage (dry-run draft the agent shows the user):
 
 Then, only if the user says yes, the agent re-runs the same command with --yes.
 
-Requires `gh` on PATH and authed for the target repos.
+Requires `gh` on PATH and authed for the target repo.
 Exit codes: 0 = ok (drafted or filed), 3 = nothing fileable / gh missing on --yes.
 """
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
 
 ROUTES = {
-    "converter": ["sigma-data-model-manager", "sigma-data-model-mcp"],
+    "converter": ["sigmacomputing/sigma-migration-skills"],
     "builder":   ["sigmacomputing/sigma-migration-skills"],
     "skill":     ["sigmacomputing/sigma-migration-skills"],
 }

@@ -22,11 +22,12 @@ What it ships (the proven pattern from the validated migrations, generalized):
      carries every field, so no cross-element errors). Metrics whose refs don't
      resolve on the denorm columns are dropped + reported.
   The converter's auto "Dim View" derived elements are NOT shipped — the denorm
-  SQL element supersedes them (see beads-sigma-hsua: multi-fact View bloat).
+  SQL element supersedes them (see [bead]: multi-fact View bloat).
 
 Prints a JSON result: {dataModelId, denormElementId, folderId, folderName,
-metricsKept, metricsDropped, columnsDropped}. With --dry-run nothing is POSTed
-(dataModelId=null) and the spec lands in --spec-out.
+metricsKept, metricsDropped, columnsDropped, denormOnlyColumns}. With --dry-run nothing is POSTed
+     (dataModelId=null) and the spec lands in --spec-out. Calculated LOAD fields
+     are denorm-only because warehouse-table elements can reference only physical columns.
 
 Env (live mode): SIGMA_BASE_URL + SIGMA_API_TOKEN (eval "$(scripts/vendor/get-token.sh)").
 """
@@ -112,7 +113,7 @@ def main():
     all_metrics = [m for el in cmodel.get("pages", [{}])[0].get("elements", [])
                    for m in (el.get("metrics") or [])]
 
-    elements, columns_dropped = [], []
+    elements, columns_dropped, denorm_only = [], [], []
     for el in cmodel.get("pages", [{}])[0].get("elements", []):
         src = el.get("source", {})
         if src.get("kind") != "warehouse-table":
@@ -128,8 +129,14 @@ def main():
                 f = field_by_disp.get(m.group(2).lower()) if m else None
                 if f is None:
                     new_cols.append(c); order.append(c["id"]); continue
-                if f.get("isExpression") or f["realColumn"] == "*":
-                    columns_dropped.append(f"{rec['qlikTable']}.{f['qlikField']} (LOAD expression)")
+                if f.get("isExpression"):
+                    # A warehouse-table element can only reference physical columns.
+                    # The calculated field is preserved on the custom-SQL denorm
+                    # element, which is the workbook's source of truth.
+                    denorm_only.append(f"{rec['qlikTable']}.{f['qlikField']}")
+                    continue
+                if f["realColumn"] == "*":
+                    columns_dropped.append(f"{rec['qlikTable']}.{f['qlikField']} (*)")
                     continue
                 new_cols.append({"id": c["id"], "name": disp(f["qlikField"]),
                                  "formula": f"[{rt}/{disp(f['realColumn'])}]"})
@@ -171,7 +178,8 @@ def main():
 
     result = {"dataModelId": None, "denormElementId": denorm["id"], "folderId": a.folder,
               "folderName": None, "metricsKept": len(kept), "metricsDropped": dropped,
-              "columnsDropped": columns_dropped, "starElements": len(elements) - 1}
+              "columnsDropped": columns_dropped, "denormOnlyColumns": denorm_only,
+              "starElements": len(elements) - 1}
     if a.dry_run:
         print(f"DRY RUN: spec -> {a.spec_out} ({len(elements)} elements, {len(kept)} metrics on denorm)",
               file=sys.stderr)

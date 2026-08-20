@@ -1,0 +1,96 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "hex",
+  "authoritative_doc": "https://static.hex.site/hex-file-schema.json",
+  "sigma_target_doc": "../../../../sigma-authoring/skills/sigma-workbooks/reference/",
+  "on_unmapped_default": "warn+skip (preserve neither unsupported behavior nor invented semantics)",
+  "description": "Grounded coverage for workbook-as-code features released in August 2026. A direct row names the precise Hex export signal and emitted Sigma path. A gap means the Hex export lacks enough source semantics for a faithful automatic mapping. Gated means Sigma can host a plugin implementation, but the converter refuses to guess a workspace plugin id or opaque config.",
+  "rows": [
+    {
+      "source": "waterfall",
+      "sigma": null,
+      "status": "not-in-source",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md#other-chart-kinds",
+      "gap": "Sigma has a released native waterfall-chart, but Hex's current public export schema has no waterfall series token; no source mapping is asserted without a grounded Hex fixture"
+    },
+    {
+      "source": "chartConfig.settings.legend.position",
+      "sigma": "elements[].legend",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md#more-cartesian-options",
+      "notes": "none -> {visibility:hidden}; supported positions map verbatim; unknown values warn and are omitted."
+    },
+    {
+      "source": "appLayout.tabs[]",
+      "sigma": "document.pages[] + document.layout/Page + document.settings.navigation.pageTabsInViewMode",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/schema.md#pages",
+      "notes": "Hex app tabs are workbook pages, not tabbed-container children. pages contain metadata only; layout is authoritative."
+    },
+    {
+      "source": "chartConfig.series[].color.staticValue",
+      "sigma": "cartesian/waterfall elements[].color={by:single,value:<hex>}",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md#bar-chart-with-custom-category-colors"
+    },
+    {
+      "source": "appLayout.fullWidth=true",
+      "sigma": "document.settings.theme.overrides.pageWidth=full",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/styling.md"
+    },
+    {
+      "source": "appLayout.elements[].explorable=true",
+      "sigma": null,
+      "status": "gap",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/controls.md",
+      "gap": "Hex exports the explorable flag but not an authoritative drill hierarchy; the converter warns per cell instead of inventing a Sigma drill control"
+    },
+    {
+      "source": "page-break",
+      "sigma": null,
+      "status": "not-in-source",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/content-elements.md#page-break",
+      "gap": "the Hex project export has no page-break cell/layout construct to map"
+    },
+    {
+      "source": "progress",
+      "sigma": null,
+      "status": "gap",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/content-elements.md#progress",
+      "gap": "Hex METRIC cells do not carry the min/max/mode/shape semantics required to choose a native Sigma progress element faithfully; they remain KPI charts"
+    },
+    {
+      "source": "header/sidebar panels",
+      "sigma": null,
+      "status": "not-in-source",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/schema.md",
+      "gap": "Hex appLayout has rows/columns/tabs but no page header/sidebar panel model; panel settings are not synthesized"
+    },
+    {
+      "source": "BLOCK/COLLAPSIBLE",
+      "sigma": null,
+      "status": "gap",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/layout.md#repeated-container--cards-that-repeat-once-per-source-row",
+      "gap": "Hex grouping/collapsible cells do not encode row-driven card repetition and therefore cannot be mapped to repeated-container without inventing semantics"
+    },
+    {
+      "source": "boxplot/box series",
+      "sigma": null,
+      "status": "gated",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/content-elements.md#plugin-2026-06-18-release",
+      "gap": "no native box kind exists; require a discovered workspace plugin id and verified plugin config before enabling emission"
+    }
+  ]
+}

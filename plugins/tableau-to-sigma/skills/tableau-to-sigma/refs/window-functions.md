@@ -1,6 +1,6 @@
 # Tableau window / table calcs → Sigma-native window math
 
-**Status: WINPROBE-validated 2026-06-12 (bead beads-sigma-427).** Every mapping
+**Status: WINPROBE-validated 2026-06-12 ().** Every mapping
 below was proven live against a live Sigma org with **930/930
 cells exact** vs warehouse SQL ground truth, on **ONE data-model base element
 with ZERO Custom SQL elements**. Regression fixture:

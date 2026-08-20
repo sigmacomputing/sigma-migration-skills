@@ -31,6 +31,8 @@
 #     [--wb-spec PATH]          # default <WORK>/wb-spec.resolved.json,
 #                               #   else <WORK>/wb-spec.json
 #     [--manual-residues PATH]  # default <WORK>/manual-residues.json
+#     [--gaps-report PATH]      # default <WORK>/workbook-content-gaps-report.json;
+#                               #   proves fields unused by every source worksheet
 #     [--out PATH]              # default <WORK>/lod-audit.json
 #   ruby scripts/audit-lod-calcs.rb --workdir <WORK> --resolve <INDEX> \
 #     --how <manual|waived> --reason "<evidence>"
@@ -60,6 +62,7 @@ OptionParser.new do |p|
   p.on('--dm-spec PATH')        { |v| opts[:dm_spec] = v }
   p.on('--wb-spec PATH')        { |v| opts[:wb_spec] = v }
   p.on('--manual-residues PATH') { |v| opts[:residues] = v }
+  p.on('--gaps-report PATH')    { |v| opts[:gaps_report] = v }
   p.on('--out PATH')            { |v| opts[:out] = v }
   p.on('--resolve INDEX', Integer) { |v| opts[:resolve] = v }
   p.on('--how HOW', 'manual|waived') { |v| opts[:how] = v }
@@ -121,9 +124,12 @@ else
   dm  = read_json.call(opts[:dm_spec] || File.join(work, 'dm-spec.json'))
   wb  = read_json.call(opts[:wb_spec] || File.join(work, wb_default))
   mr  = read_json.call(opts[:residues] || File.join(work, 'manual-residues.json'))
+  gaps = read_json.call(opts[:gaps_report] || File.join(work, 'workbook-content-gaps-report.json'))
+  unused_fields = gaps.is_a?(Hash) ? Array(gaps.dig('field_statistics', 'unused_field_names')) : []
   prior = read_json.call(out_path)
 
-  entries = LodAudit.derive(calcs, dm_spec: dm, wb_spec: wb, manual_residues: mr, prior: prior)
+  entries = LodAudit.derive(calcs, dm_spec: dm, wb_spec: wb, manual_residues: mr,
+                            prior: prior, unused_fields: unused_fields)
   LodAudit.write(out_path, entries)
   entries.each_with_index do |e, i|
     tag = LodAudit.resolved?(e) ? 'ok    ' : 'BLOCK '
@@ -179,6 +185,8 @@ res_n = entries.count { |e| e['resolution'].is_a?(Hash) }
 puts "audit-lod-calcs: #{entries.size} LOD calc(s) — " \
      "#{entries.count { |e| e['class'] == 'lod-synth' }} synth, " \
      "#{entries.count { |e| e['class'] == 'manual-residue' }} manual-residue, " \
-     "#{entries.count { |e| e['class'] == 'reference-derived' }} reference-derived" \
+     "#{entries.count { |e| e['class'] == 'reference-derived' }} reference-derived, " \
+     "#{entries.count { |e| e['class'] == 'unused-source' }} unused-source, " \
+     '0 unresolved' \
      "#{res_n.positive? ? ", #{res_n} resolved-by-hand" : ''}. Ledger: #{out_path}"
 exit 0

@@ -70,7 +70,7 @@ def headcount_formula(metrics)
                                  '--coverage-out', File.join(d, 'cov.json'))
     abort "builder failed:\n#{err}" unless st.success?
     spec = JSON.parse(File.read(wb))
-    els = spec['pages'] ? spec['pages'].flat_map { |p| p['elements'] || [] } : (spec['elements'] || [])
+    els = spec.dig('document', 'elements') || []
     # the bar-chart element (NOT the Data-page master 'table', which also carries a
     # plain "Headcount" column)
     chart = els.find { |e| e['name'].to_s == 'HC by Dept' }
@@ -94,6 +94,19 @@ check(f1 == '[Metrics/Distinct Headcount]',
 f2 = headcount_formula([{ 'name' => 'Unrelated', 'formula' => 'Sum([Something Else])' }])
 check(f2 == 'CountDistinct([master-emp/Headcount])',
       "non-matching metric: measure stays inline (got #{f2.inspect})", fails)
+
+# 4) Shipped guidance must describe the same reference contract as the builder.
+skill = File.read(File.join(SKILL, 'SKILL.md'), encoding: 'UTF-8')
+patterns = File.read(File.join(SKILL, 'refs', 'measure-patterns.md'), encoding: 'UTF-8')
+enhance = File.read(File.join(SCRIPTS, 'enhance-scan.rb'), encoding: 'UTF-8')
+check(skill.include?('[Metrics/<metric name>]'),
+      'skill documents the governed metric namespace', fails)
+check(patterns.include?('Reference DM metrics as `[Metrics/<name>]`'),
+      'measure guidance identifies [Metrics/name] as the valid form', fails)
+check(!patterns.include?('UI-only-referenceable'),
+      'measure guidance does not classify governed metrics as UI-only', fails)
+check(!enhance.include?('descoped-dm-metric-promotion'),
+      'enhancement scanner does not emit an obsolete metric warning', fails)
 
 if fails.empty?
   puts 'ALL PASS — powerbi workbook measures bind to [Metrics/<name>] (byte-identical fallback)'

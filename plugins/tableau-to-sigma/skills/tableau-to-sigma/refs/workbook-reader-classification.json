@@ -1,0 +1,123 @@
+{
+  "contract": {
+    "workbook": "document.elements is flat; layout owns page membership",
+    "dataModel": "pages[].elements remains nested"
+  },
+  "readers": [
+    {
+      "path": "scripts/auto-parity-plan.rb",
+      "classification": "workbook",
+      "reason": "Phase 6 workbook readback and page-scoped parity"
+    },
+    {
+      "path": "scripts/export-chart-png.rb",
+      "classification": "workbook",
+      "reason": "GET workbook spec before chart exports"
+    },
+    {
+      "path": "scripts/remap-wb-spec-to-dm-ids.rb",
+      "classification": "workbook",
+      "reason": "Rewrites workbook sources after a DM re-POST; DM id-map readers remain nested"
+    },
+    {
+      "path": "scripts/migration-notes.rb",
+      "classification": "workbook",
+      "reason": "Reads final workbook element ids; chart-spec input remains a transitional nested build artifact"
+    },
+    {
+      "path": "scripts/lib/action_gates.rb",
+      "classification": "workbook",
+      "reason": "Validates actions on workbook elements"
+    },
+    {
+      "path": "scripts/lib/control_field_census.rb",
+      "classification": "workbook",
+      "reason": "Compares posted and read-back workbook controls"
+    },
+    {
+      "path": "scripts/lib/datasource_filter_check.rb",
+      "classification": "workbook",
+      "reason": "Checks workbook elements for applied filters and controls"
+    },
+    {
+      "path": "scripts/lib/style_normalize.rb",
+      "classification": "workbook",
+      "reason": "Mutates workbook element styling before POST"
+    },
+    {
+      "path": "scripts/scan-customer-style.rb",
+      "classification": "workbook",
+      "reason": "Scans live workbook specs for style patterns"
+    },
+    {
+      "path": "scripts/post-and-readback.rb",
+      "classification": "dual",
+      "reason": "Workbook paths use flat helpers; data-model paths intentionally use pages[].elements"
+    },
+    {
+      "path": "scripts/validate-spec.rb",
+      "classification": "dual",
+      "reason": "Validates both workbook and data-model specs"
+    },
+    {
+      "path": "scripts/lib/lod_audit.rb",
+      "classification": "dual",
+      "reason": "Audits nested data-model elements and flat workbook elements for emitted LOD translations"
+    },
+    {
+      "path": "scripts/lib/workbook_code.rb",
+      "classification": "adapter",
+      "reason": "Canonical workbook adapter with legacy nested-artifact compatibility"
+    },
+    {
+      "path": "scripts/build-dashboard-layout.rb",
+      "classification": "transitional",
+      "reason": "Uses WorkbookCode.legacy_view for in-memory layout transforms and canonicalizes before emission"
+    },
+    {
+      "path": "scripts/build-workbook-spec.rb",
+      "classification": "transitional",
+      "reason": "Consumes nested DM id maps and pre-release workbook build artifacts"
+    },
+    {
+      "path": "scripts/build-story-pages.rb",
+      "classification": "transitional",
+      "reason": "Mutates the legacy in-memory workbook builder shape before canonicalization"
+    },
+    {
+      "path": "scripts/mechanical-specs.rb",
+      "classification": "data-model",
+      "reason": "All model pages[].elements access is to data-model specs"
+    },
+    {
+      "path": "scripts/find-or-pick-dm.rb",
+      "classification": "data-model",
+      "reason": "Scores data-model readbacks; nested page elements are correct"
+    },
+    {
+      "path": "scripts/validate-sigma-formula.rb",
+      "classification": "data-model",
+      "reason": "Resolves formulas against data-model elements"
+    },
+    {
+      "path": "scripts/inspect-dm-shape.rb",
+      "classification": "data-model",
+      "reason": "Inspects data-model spec shape"
+    },
+    {
+      "path": "scripts/lib/column_census.rb",
+      "classification": "data-model",
+      "reason": "Compares posted and read-back data-model elements"
+    },
+    {
+      "path": "scripts/lib/dm_quarantine.rb",
+      "classification": "data-model",
+      "reason": "Quarantines invalid data-model elements"
+    },
+    {
+      "path": "scripts/lib/equivalence_probe.rb",
+      "classification": "data-model",
+      "reason": "Builds semantic-equivalence probes from data-model elements"
+    }
+  ]
+}

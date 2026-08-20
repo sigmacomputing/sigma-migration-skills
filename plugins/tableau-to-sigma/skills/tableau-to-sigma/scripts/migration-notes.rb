@@ -18,6 +18,7 @@
 require 'json'
 require 'set'
 require 'optparse'
+require_relative 'lib/workbook_code'
 
 opts = {}
 OptionParser.new do |p|
@@ -80,7 +81,7 @@ ctx = { name_to_cap: name_to_cap, cap_by_norm: cap_by_norm, param_switch: param_
         param_filter: param_filter, inert: inert, met_norm: met_norm, col_norm: col_norm,
         nk: method(:nk), calc_internal: calc_internal }
 
-kept = Set.new((wb['pages'] || []).flat_map { |pg| (pg['elements'] || []).map { |e| e['id'] } })
+kept = Set.new(WorkbookCode.elements(wb).map { |element| element['id'] })
 ref_re = /\[master\/([^\]]+)\]/i
 collect = lambda do |o, acc|
   case o
@@ -93,18 +94,17 @@ end
 
 PRIORITY = %w[absent-from-sql unresolved-calc aggregate-metric inert-in-source param-measure-picker param-driven].freeze
 rows = []
-(specs['pages'] || []).each do |pg|
-  (pg['elements'] || []).each do |e|
-    next if kept.include?(e['id'])
-    refs = collect.call(e, []).uniq.reject { |r| col_lc.include?(r.downcase) }
-    cats = refs.map { |r| classify(r, ctx) }
-    cats << ['unresolved-calc', 'no resolvable reason captured'] if cats.empty?
-    distinct = cats.map(&:first).uniq.sort_by { |c| PRIORITY.index(c) || 99 }
-    primary = distinct.first
-    reason = (cats.find { |c| c[0] == primary } || cats[0])[1]
-    rows << { page: pg['name'] || pg['id'], tile: e['id'], kind: e['kind'] || e['type'],
-              category: primary, also: distinct[1..] || [], reason: reason, refs: refs.first(5) }
-  end
+WorkbookCode.elements_with_pages(specs).each do |element, page|
+  next if kept.include?(element['id'])
+  refs = collect.call(element, []).uniq.reject { |ref| col_lc.include?(ref.downcase) }
+  cats = refs.map { |ref| classify(ref, ctx) }
+  cats << ['unresolved-calc', 'no resolvable reason captured'] if cats.empty?
+  distinct = cats.map(&:first).uniq.sort_by { |category| PRIORITY.index(category) || 99 }
+  primary = distinct.first
+  reason = (cats.find { |category| category[0] == primary } || cats[0])[1]
+  rows << { page: page && (page['name'] || page['id']), tile: element['id'],
+            kind: element['kind'] || element['type'], category: primary,
+            also: distinct[1..] || [], reason: reason, refs: refs.first(5) }
 end
 
 by_cat = Hash.new(0); rows.each { |r| by_cat[r[:category]] += 1 }

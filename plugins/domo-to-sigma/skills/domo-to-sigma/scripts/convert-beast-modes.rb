@@ -2,7 +2,7 @@
 # Phase 2 — Beast Mode (MySQL SQL) → Sigma formula.
 #
 # Beast Mode is MySQL-dialect SQL. The actual translation runs LOCALLY via the
-# vendored converter/sql.mjs bundle (esbuild-bundled from sigma-data-model-mcp's
+# vendored converter/sql.mjs bundle (esbuild-bundled from converter-source's
 # src/formulas.ts by `tools/vendor-converters.sh <checkout> domo` — see
 # converter/PROVENANCE.json for the pinned source commit), invoked through
 # `node`. No MCP call and no network in the automated path — see
@@ -14,12 +14,15 @@
 # This script does NOT reimplement translation itself. It adds the two layers
 # the generic SQL converter can't know about:
 #
-#   PRE  — Domo-specific normalization (backtick identifiers → [Col], WEEKDAY →
-#          DAYOFWEEK, flag unsupported fns, flag the CEILING/FLOOR-are-aggregates
-#          trap, flag window/LOD Beast Modes) — see refs/beast-mode-to-sigma.md.
-#   POST — Sigma-specific lint of the returned formula (leftover IN(, And()/Or()/
-#          Not() function-call forms that silently null, window-fn workbook-master
-#          limits) — see refs/beast-mode-to-sigma.md + feedback_sigma_window_functions.
+#   PRE  — Domo-specific normalization (backtick identifiers → [Col], flag
+#          unsupported fns, flag the WEEKDAY day-numbering mismatch (MySQL vs.
+#          Sigma disagree on which int means which weekday) and the
+#          CEILING/FLOOR-are-aggregates trap, flag window/LOD Beast Modes) —
+#          see refs/beast-mode-to-sigma.md.
+#   POST — Sigma-specific lint of the returned formula (leftover infix IN(/LIKE,
+#          And()/Or()/Not() function-call forms that silently null, window-fn
+#          workbook-master limits) — see refs/beast-mode-to-sigma.md +
+#          feedback_sigma_window_functions.
 #
 # Three-step flow (SKILL.md's Phase 2 runs all three; no agent/MCP call in the
 # middle step unless the exit-10 GATE fires):
@@ -32,7 +35,7 @@
 #
 # UPDATE 2026-07-30: the shared `convert_sql_to_sigma_formula` DOES now
 # translate `CASE WHEN` (→ `If(cond, then, else)`) and `COUNT(DISTINCT x)`
-# (→ `CountDistinct(x)`) — fixed upstream in sigma-data-model-mcp PR #115
+# (→ `CountDistinct(x)`) — fixed upstream in converter-source PR #115
 # (squashed as 2ba3ea8). Beads jva2 and sqp1 are closed.
 #
 # UPDATE 2026-07-30 (later same day): the double-bracketing collision this
@@ -40,7 +43,7 @@
 # ALREADY-bracketed, ALL-CAPS identifier (`SUM(\`NET_REVENUE\`)` → step 1 →
 # `SUM([NET_REVENUE])`), which the converter's own bracket-wrapping pass used
 # to wrap AGAIN into invalid `Sum([[Net Revenue]])` — is **also fixed**
-# upstream, in sigma-data-model-mcp PR #116. Bead `qorq` is closed. Re-verified
+# upstream, in converter-source PR #116. Bead `qorq` is closed. Re-verified
 # live against PR #116: all four Beast Modes that previously needed this
 # sidecar (Margin Pct, Margin Pct 2, Avg Order Value, Return Rate) now convert
 # to the hand-authored formula exactly (two of the four differ only by a
@@ -119,7 +122,7 @@ VENDORED_SQL = File.expand_path('../converter/sql.mjs', __dir__)
 
 # Converter resolution, same 3-tier ladder as powerbi-to-sigma's
 # migrate-powerbi.rb#resolve_converter: the vendored bundle is the DEFAULT (byte-
-# identical output on any machine); a local sigma-data-model-mcp build is used
+# identical output on any machine); a local converter-source build is used
 # ONLY when explicitly opted into via --mcp-dir/DOMO_MCP_DIR — no silent ~/…
 # auto-discovery (that's the "works in my checkout, differs for the customer"
 # footgun powerbi's own comment names). If neither resolves, the caller's
@@ -152,23 +155,36 @@ def normalize_bm(sql, klass = nil)
   # 1. Backtick / bracket MySQL identifier quoting → Sigma [Column Name].
   s = s.gsub(/`([^`]+)`/) { "[#{$1}]" }
 
-  # 2. WEEKDAY → DAYOFWEEK (Beast Mode does this itself; replicate for parity).
+  # 2. WEEKDAY name-matches Sigma's Weekday() but the two use DIFFERENT day
+  #    numbering — not just an off-by-one. Do NOT rewrite the SQL text.
   #
-  # ⚠️ MEASURED 2026-07-30 (bead, not fixed here — see progress ledger for
-  # 2026-07-30-track-a-sql-formula-converter, "LIKELY REAL PRODUCTION BUG"):
-  # this rewrite makes the formula WORSE, not better. `WEEKDAY(...)` passed to
-  # the shared converter comes back clean (`Weekday(...)` — Sigma has it), but
-  # this step rewrites it to `DAYOFWEEK(...)` FIRST, and `Dayofweek(...)` is
-  # NOT a real Sigma function — the converter now warns on it
-  # (lookUnknownFunctions) where the untouched WEEKDAY form would not have
-  # warned at all. Do not "fix" this by just deleting the rewrite without
-  # checking Sigma's WEEKDAY offset (1=Sunday) actually matches Beast Mode's —
-  # that offset question is exactly why this was added "for parity" in the
-  # first place, and is unverified either way. Tracked as its own bead; needs
-  # its own investigation, not a silent revert.
+  # HISTORY (): a prior version of this step rewrote
+  # `WEEKDAY(...)` to `DAYOFWEEK(...)` "for parity" with a substitution Beast
+  # Mode was believed to do itself. That rewrite was itself the bug:
+  # `WEEKDAY(...)` handed to the shared converter comes back clean
+  # (`Weekday(...)` — Sigma has it by that exact name), but the old rewrite
+  # renamed it to `DAYOFWEEK(...)` FIRST, and `Dayofweek(...)` is NOT a real
+  # Sigma function — the converter then warned on it (lookUnknownFunctions)
+  # where the untouched WEEKDAY form would not have warned at all. Fixed:
+  # let `WEEKDAY(...)` pass through unchanged; it converts to `Weekday(...)`
+  # by name with no help needed here.
+  #
+  # But name-matching isn't the whole story. VERIFIED 2026-08-03 against both
+  # vendors' official docs — these are genuinely DIFFERENT numbering
+  # conventions, not just an off-by-one:
+  #   MySQL  WEEKDAY(date):  0=Monday .. 6=Sunday
+  #   Sigma  Weekday(date):  1=Sunday .. 7=Saturday
+  # So a Beast Mode formula that compares the raw WEEKDAY() result to a
+  # literal (e.g. `WEEKDAY(x) = 0` meaning "is Monday") translates to a NAME
+  # match with SILENTLY WRONG values (Sigma's Weekday(x) returns 2 for
+  # Monday, not 0). Same class of trap as the CEILING/FLOOR aggregate trap
+  # below (generic converter succeeds syntactically but gets the SEMANTICS
+  # wrong) — flag for a hand override rather than auto-rewriting the formula.
+  # `Mod(Weekday([col])+5,7)` reproduces MySQL's exact WEEKDAY() numbering
+  # from Sigma's Weekday() output (verified for all 7 days in
+  # test/test-convert-beast-modes.rb).
   if s =~ /\bWEEKDAY\s*\(/i
-    s = s.gsub(/\bWEEKDAY\s*\(/i, 'DAYOFWEEK(')
-    warnings << 'WEEKDAY → DAYOFWEEK (1=Sunday base; verify offset).'
+    warnings << 'WEEKDAY() converts to Sigma Weekday() by NAME, but the two use DIFFERENT day numbering (MySQL WEEKDAY: 0=Monday..6=Sunday; Sigma Weekday: 1=Sunday..7=Saturday) — override to Mod(Weekday([col])+5,7) to preserve the original MySQL day numbers, or verify downstream logic does not depend on the raw numeric value.'
   end
 
   # 3. Unsupported functions.
@@ -199,6 +215,69 @@ end
 
 NEEDS_REVIEW = %w[window lod].freeze
 
+# Is this `IN(`/`in(` occurrence a raw SQL INFIX construct (`x IN (a, b)`,
+# unsupported by Sigma) rather than Sigma's own `In([col], "a", "b")`
+# FUNCTION form (real, documented, must NOT be flagged — see
+# plugins/sigma-authoring/skills/sigma-workbooks/reference/specification/formulas.md)?
+#
+# Shape, not substring: a genuine infix always has a VALUE EXPRESSION
+# directly before the `IN` token (only whitespace between) — a `]`, a
+# closing `)`, a quoted string, or a bare identifier/number. Sigma's
+# function-call form instead sits in a function-NAME position: the very
+# start of the formula, immediately after `(`, `,`, `and`, or `or`, or right
+# after a comparison operator (`=`, `<>`, `!=`, `>`, `<`, `>=`, `<=` — the
+# full set the vendored SQL-formula converter itself recognizes, converter/
+# sql.mjs) used as In(...)'s left-hand operand, e.g. `[a] = In([b], "x")` —
+# wherever a function name is syntactically expected.
+#
+# `not` is deliberately NOT treated as its own function-name-position marker
+# here (unlike a natural first reading of that rule): `not` is itself a
+# prefix operator in Sigma, so whatever precedes IT determines the shape —
+# `not In([c], "a")` (legitimate: `not` prefixing a real function call) and
+# `[c] not in (1, 2)` (a genuine, still-unsupported infix `NOT IN`) are
+# lexically identical right at the `in(` token, and only resolvable by
+# looking through the `not` to what's underneath it. So trailing `not`s are
+# stripped and the position underneath is re-checked (iteratively — the
+# `loop do` below walks back through as many chained `not`s as are present,
+# so `not not In(...)` still resolves correctly) rather than treating `not`
+# itself as a free pass.
+def raw_infix_in_position?(prefix)
+  s = prefix.rstrip
+  loop do
+    return false if s.empty? # formula start → function-name position
+    return false if s =~ /(?:\(|,|>=|<=|!=|<>|[=<>]|\b(?:and|or)\b)\z/i # function-name position
+
+    stripped = s.sub(/\bnot\z/i, '')
+    return true if stripped == s # a real value sits directly before IN/In → infix
+
+    s = stripped.rstrip # strip one trailing "not" and re-check what's under it
+  end
+end
+
+# True if `f` contains at least one genuine infix `IN(`/`in(` occurrence
+# (checked per-occurrence via raw_infix_in_position?, not a single formula-wide
+# substring test — a formula can legitimately mix a real In(...) call with
+# other text elsewhere).
+def contains_raw_infix_in?(f)
+  f.to_s.enum_for(:scan, /\bIN\s*\(/i).each do
+    m = Regexp.last_match
+    return true if raw_infix_in_position?(f[0...m.begin(0)])
+  end
+  false
+end
+
+# Strip out quoted string literals and [Column Name] references so a
+# residual-SQL-keyword scan never mistakes the CONTENTS of a string or an
+# identifier for the keyword itself (e.g. a pattern literal "united states"
+# or a column named [Like Button Clicks]). Same masking the vendored
+# converter's own hasResidualInfixOperator/hasResidualCaseKeyword do
+# (converter/sql.mjs) — reproduced independently here because lint_formula
+# runs on the FINAL sigmaFormula, downstream of that converter, not on its
+# internals.
+def mask_strings_and_brackets(f)
+  f.to_s.gsub(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\]]*\]/, ' ')
+end
+
 # Lint a translated Sigma formula for the traps that ship silently-broken output.
 # Returns [errors, warnings].
 def lint_formula(sigma, klass = nil)
@@ -206,9 +285,61 @@ def lint_formula(sigma, klass = nil)
   warnings = []
   f = sigma.to_s
 
-  # IN(...) survived translation → Sigma has no IsIn; it silently blanks the column.
-  if f =~ /\bIN\s*\(/i && f !~ /\bContains\s*\(/i
-    errors << 'Contains a raw IN(...) — Sigma has no IsIn; expand to an OR-chain ([c]=a or [c]=b) or it silently blanks the column (feedback_sigma_formula_isin).'
+  # A raw SQL infix `x IN (a, b)` survived translation → Sigma has no infix
+  # IN/IsIn operator; it silently blanks the column. Sigma's own `In(...)`
+  # FUNCTION form (e.g. `In([Region], "East", "West")`) is real, documented
+  # syntax and must NOT be flagged — see contains_raw_infix_in? /
+  # raw_infix_in_position? above for the shape this distinguishes on.
+  #
+  # (No separate `Contains(` guard here anymore — it used to blanket-suppress
+  # this whole check whenever a formula contained an unrelated Contains(...)
+  # call ANYWHERE, e.g. from a translated LIKE clause, which could mask a
+  # genuine infix-IN bug coexisting in the same formula. `\bIN\s*\(/i` never
+  # actually matches inside the word "Contains(" in the first place — \b
+  # requires "in" to start a fresh token, and "Contains(" doesn't create that
+  # boundary — so the guard was never protecting against a real false
+  # positive; it only ever introduced that false-negative loophole. The
+  # per-occurrence, shape-based check above already excludes legitimate
+  # Contains(...)/In(...) calls on its own, so the guard is both redundant
+  # and actively wrong to keep.)
+  if contains_raw_infix_in?(f)
+    errors << "Contains a raw SQL infix IN (...) — Sigma has no infix IN/IsIn operator; expand to an OR-chain ([c]=a or [c]=b), or rewrite as Sigma's own In([c], a, b) function, or it silently blanks the column (feedback_sigma_formula_isin)."
+  end
+
+  # A raw SQL infix `x LIKE 'pattern'` (or `NOT LIKE`) survived translation —
+  # Sigma has no LIKE operator at all (unlike IN, there is no Sigma FUNCTION
+  # form named Like(...) to also rule out — LIKE is always a bare infix SQL
+  # keyword), and it will fail to evaluate rather than silently blank. Checked
+  # as a WHOLE-WORD match on the formula with quoted strings and [bracketed]
+  # identifiers masked out first (mask_strings_and_brackets, above) — not a
+  # bare substring test. A bare /like/i substring test is exactly the
+  # false-positive class this file has already been burned by twice on the
+  # IN( rule above (see raw_infix_in_position?'s and the removed Contains(
+  # guard's history comments): it would misfire on a pattern literal that
+  # itself contains the word ("...LIKE 'i like turtles'" — masked away here)
+  # or a column reference that happens to contain "Like" as a standalone word
+  # ([Like Button Clicks] — also masked away), even though Sigma has entirely
+  # legitimate string functions (Contains/StartsWith/EndsWith) that a LIKE
+  # clause should have been translated to instead.
+  #
+  # WARNING, not error (2026-08-05 batch-verify blocker 1): a raw infix IN(
+  # above is a hard error because Sigma silently BLANKS the column — the
+  # wrong-but-quiet failure mode this file's error tier exists to catch
+  # loudly before it ships. A residual LIKE is a DIFFERENT failure shape: it
+  # fails to evaluate (loud, visible in Sigma's own UI), and it is exactly
+  # the shape `--convert` already flags via `converted:false` (see
+  # resolve_entry) — a Beast Mode has never had a "missing" tier separate
+  # from converted:false to route this through cleanly. Making it a hard
+  # lintError with no override path meant this check aborted the very cold
+  # run it was added to protect (migrate-domo.rb's convert-beast-modes phase
+  # treats any --lint exit 1 as fatal, with no waiver — measured on the real
+  # "Non-US Leads" Beast Mode). A warning still lands in the emitted entry's
+  # `lintWarnings` (formulas.json) AND gets a loud stderr summary at --lint
+  # time (see the CLI section below) — never silenced — but does not abort
+  # the run; discovery/formula-overrides.json remains the fix path for the
+  # underlying formula.
+  if mask_strings_and_brackets(f) =~ /\bLIKE\b/i
+    warnings << "Contains a raw SQL infix LIKE '...' — Sigma has no LIKE operator; rewrite using Contains([col], \"pattern\"), StartsWith([col], \"pattern\"), or EndsWith([col], \"pattern\"), or it will fail to evaluate. Non-fatal (see discovery/formula-overrides.json), but review before shipping."
   end
 
   # And()/Or()/Not() as FUNCTION CALLS silently produce null rows — must be infix.
@@ -291,11 +422,12 @@ def resolve_entry(entry, overrides)
       "discovery/formula-overrides.json (hand-authored) — automated conversion " \
       "did not produce a fully reliable formula for this Beast Mode (missing, or " \
       "flagged converted:false); verify by hand. CASE WHEN / COUNT(DISTINCT) / " \
-      "double-bracketed ALL-CAPS refs are fixed (sigma-data-model-mcp PR #115, " \
+      "double-bracketed ALL-CAPS refs are fixed (converter-source PR #115, " \
       "#116) so this is NOT that historical 74%-fail case — check " \
       "refs/live-validation-2026-07-30.md and this script's still-open gaps " \
-      "(WEEKDAY→DAYOFWEEK, CEILING/FLOOR aggregates, untranslatable infix LIKE) " \
-      "for what actually still needs a hand-authored formula."
+      "(WEEKDAY day-numbering mismatch [override: Mod(Weekday([col])+5,7)], " \
+      "CEILING/FLOOR aggregates, untranslatable infix LIKE) for what actually " \
+      "still needs a hand-authored formula."
   elsif entry['converted'] == false
     # Track E: --convert already computed a REAL converted flag (via the
     # vendored hasResidualCaseKeyword/hasResidualInfixOperator) — surface it
@@ -390,7 +522,7 @@ if opts[:convert]
   end
   if conv.nil? || !node_available
     if conv.nil?
-      warn '  vendored converter (converter/sql.mjs) missing and no local sigma-data-model-mcp ' \
+      warn '  vendored converter (converter/sql.mjs) missing and no local converter-source ' \
            'build (--mcp-dir / DOMO_MCP_DIR).'
     else
       warn "  converter: #{desc}"
@@ -420,7 +552,7 @@ if opts[:convert]
       import { readFileSync, writeFileSync } from 'node:fs';
       import { lookSqlToSigmaRules, lookConvertExpression, hasResidualCaseKeyword, hasResidualInfixOperator, lookUnknownFunctions } from #{import_specifier.to_json};
       const pending = JSON.parse(readFileSync(#{in_path.to_json}, 'utf8'));
-      // Same per-formula orchestration as sigma-data-model-mcp's src/tools.ts
+      // Same per-formula orchestration as converter-source's src/tools.ts
       // convert_sql_to_sigma_formula tool handler — try the rule engine first,
       // fall back to the total mechanical converter, then check for residual
       // untranslated SQL syntax the same way the live tool already does.
@@ -487,6 +619,18 @@ elsif opts[:lint]
   unless bad.empty?
     warn "\n  ⚠ #{bad.size} formula(s) have lint ERRORS — fix before building:"
     bad.each { |e| warn "    - #{e['name'] || e['id']}: #{e['lintErrors'].join('; ')}" }
+  end
+  # Blocker 1 (2026-08-05 batch-verify): lint_formula's per-entry `lintWarnings`
+  # (e.g. residual infix LIKE, And()/Or()/Not() function-call form, window
+  # functions) already ride along in formulas.json, but until now nothing
+  # printed a loud stderr summary of them the way the ERRORS block above
+  # does — a real finding (residual LIKE) could sit in the artifact
+  # unnoticed. Non-fatal (does not affect the exit code below), but never
+  # silent.
+  cautioned = final.select { |e| !Array(e['lintWarnings']).empty? }
+  unless cautioned.empty?
+    warn "\n  ⚠ #{cautioned.size} formula(s) have lint WARNINGS — non-fatal, review before shipping:"
+    cautioned.each { |e| warn "    - #{e['name'] || e['id']}: #{Array(e['lintWarnings']).join('; ')}" }
   end
   unless unresolved.empty?
     warn "\n  ⚠ #{unresolved.size} Beast Mode(s) still lack a sigmaFormula: #{unresolved.join(', ')}"

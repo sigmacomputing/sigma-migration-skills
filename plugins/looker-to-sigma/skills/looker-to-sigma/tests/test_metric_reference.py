@@ -24,6 +24,8 @@ SKILL = os.path.dirname(HERE)
 SCRIPTS = os.path.join(SKILL, "scripts")
 FIX = os.path.join(SKILL, "fixtures", "skilltest-looks")
 VIEWS = os.path.join(FIX, "views")
+sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
+import code_rep  # noqa: E402
 
 # metrics whose formulas match the grouped_table fixture's Sum/CountDistinct measures
 # (master prefix stripped) — mirrors what migrate-looker reads off the DM spec.
@@ -45,7 +47,7 @@ def build(dm_elements=None):
         r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 0, f"build_workbook failed:\n{r.stderr}"
         spec = json.load(open(op))
-        t = [e for pg in spec["pages"] for e in pg["elements"]
+        t = [e for e in code_rep.workbook_elements(spec)
              if e.get("kind") == "table" and e.get("name") != "Data"][0]
         return {c.get("name"): c["formula"] for c in t["columns"]}
 

@@ -72,7 +72,7 @@ end
 # behavior: {"kind":"image","url":...}).
 # =============================================================================
 out, cov = run_builder(sig: SIG, mmap: MMAP, image_map: { 'logo1' => 'https://example.com/logo.png' })
-els = out['pages'].flat_map { |p| p['elements'] }
+els = out.dig('document', 'elements')
 unresolved = cov['unresolved']
 
 # --- control: third-party datepicker (custom role `categories`) ------------
@@ -129,7 +129,7 @@ check(unresolved.none? { |u| u['pbi_type'] == 'image' },
 # before it reaches its own build/coverage logic.
 # =============================================================================
 _out2, cov2 = run_builder(sig: SIG, mmap: MMAP)
-els2 = _out2['pages'].flat_map { |p| p['elements'] }
+els2 = _out2.dig('document', 'elements')
 check(els2.none? { |e| e['kind'] == 'image' },
       'without --image-map, no image element is built', fails)
 img_drop = cov2['unresolved'].find { |u| u['pbi_type'] == 'image' }
@@ -166,7 +166,7 @@ heuristic_signals = {
 model_string_col = { 'model' => { 'tables' => [{ 'name' => 'H', 'columns' => [{ 'name' => 'Status', 'dataType' => 'string' }] }],
                                   'relationships' => [] } }
 out3, = run_builder(sig: heuristic_signals, mmap: heuristic_mmap, model: model_string_col)
-els3 = out3['pages'].flat_map { |p| p['elements'] }
+els3 = out3.dig('document', 'elements')
 ctl3 = els3.find { |e| e['kind'] == 'control' }
 check(ctl3 && ctl3['controlType'] == 'list',
       "heuristic sigma_target='date-range' does NOT override a modeled STRING column (got controlType=#{ctl3 && ctl3['controlType'].inspect})",
@@ -194,7 +194,7 @@ empty_role_signals = {
     ] }],
 }
 out4, = run_builder(sig: empty_role_signals, mmap: MMAP)
-els4 = out4['pages'].flat_map { |p| p['elements'] }
+els4 = out4.dig('document', 'elements')
 ctl4 = els4.find { |e| e['kind'] == 'control' }
 check(ctl4 && (ctl4['filters'] || []).any? { |f| f['columnId'] == 'mc-name' },
       'DECLARED: an empty Values=[] role falls through to Category (control wired to T.Name, not dropped)', fails)

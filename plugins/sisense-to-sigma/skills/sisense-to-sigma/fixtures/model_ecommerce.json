@@ -786,10 +786,10 @@
   "schedule": null,
   "creator": {
     "id": "6a32fb475397399ec0a31c8f",
-    "userName": "user@example.com",
+    "userName": "tj@pivotanalyticsllc.net",
     "active": true,
     "created": "2026-06-17T19:53:43.397Z",
-    "email": "user@example.com",
+    "email": "tj@pivotanalyticsllc.net",
     "encryptionSHA": null,
     "firstName": "Thomas",
     "lastName": "Wells",

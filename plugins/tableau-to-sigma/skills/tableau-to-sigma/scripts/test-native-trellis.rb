@@ -5,7 +5,7 @@
 # small multiples (N sibling per-member worksheets, each pinned to one member of
 # the same field) must convert to the CORRECT Sigma shape: a SINGLE viz element
 # carrying a native `trellis` property (rowsBy / columnsBy) — NOT N cloned chart
-# elements in N GridContainer "cards" (the wrong #451 shape).
+# elements in N Container "cards" (the wrong #451 shape).
 #
 #   PARSER  detect the repetition → ONE dashboard-level `trellis` group carrying
 #           the facet field, the ordered members / zone_ids / captions, and the
@@ -17,7 +17,7 @@
 #           Emission is GATED on the readback-safe kinds (bar/line/area/combo/
 #           scatter/donut); a faceted PIE is converted to a DONUT first.
 #   LAYOUT  place that ONE element once, full-size (base zone expanded to the
-#           group bbox) — NO per-category GridContainer cards.
+#           group bbox) — NO per-category Container cards.
 # A NON-trellis dashboard must be UNCHANGED: no `trellis` key, one flat chart,
 # no trellis containers.
 #

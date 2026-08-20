@@ -84,7 +84,7 @@ Dir.mktmpdir do |d|
         'authorized via gap-scan-stop (exit-code contract unchanged)', fails)
 end
 
-puts 'T3 — --answers re-entry: proceeds; ledger + consent + targeted precedence'
+puts 'T3 — --answers re-entry: proceeds; ledger + targeted precedence'
 Dir.mktmpdir do |d|
   Wave1Fixture.build(d)
   _, st1 = Wave1Fixture.run(d, ['--folder', 'fold-x'])

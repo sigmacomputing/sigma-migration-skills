@@ -83,7 +83,7 @@ ready-to-run commands for the shared `escalate-gap.py` filer. The main agent:
 3. Only if the user says yes, runs `escalation.file_cmd` (the same command + `--yes`).
 
 LookML construct gaps are **converter** gaps, so they mirror to both converter repos
-(`sigma-data-model-manager` + `sigma-data-model-mcp`) with a cross-link and a bead as the
+(`sigma-data-model-manager` + `converter-source`) with a cross-link and a bead as the
 authoritative tracker. (A workbook-builder gap — e.g. a layout / format / tile-mapping miss in
 `build_workbook.py` — uses `--category builder`, which routes to `sigma-migration-skills`.)
 See `scripts/escalate-gap.py`.

@@ -229,6 +229,55 @@ module HydrateCustomSql
     (conn.attributes['class'].to_s == 'sqlproxy')
   end
 
+  # Per-datasource sqlproxy detection (issue #685-A). twb_has_sqlproxy? answers
+  # a WORKBOOK-scoped question ("does this .twb contain ANY sqlproxy datasource
+  # anywhere") — using it to gate the embedded-extract landing/remap flow for
+  # the ENTIRE workbook silently disables landing for an unrelated, perfectly
+  # landable SIBLING datasource (a workbook mixing an embedded Hyper extract
+  # with an unrelated sqlproxy-backed published datasource, e.g. Superstore's
+  # "Commission Model" dashboard). Returns the datasource `name` (falling back
+  # to `caption`) of every top-level datasource that is sqlproxy with no real
+  # relation — the ones hydrate_pds! / the PDS-chase path still own.
+  def sqlproxy_only_datasource_names(twb_path)
+    return [] unless File.exist?(twb_path)
+    doc = REXML::Document.new(File.read(twb_path, encoding: 'UTF-8'))
+    names = []
+    doc.each_element('/workbook/datasources/datasource') do |ds|
+      conn = ds.elements['connection']
+      next unless conn && sqlproxy_connection?(conn) && !has_real_relation?(conn)
+      nm = ds.attributes['name'].to_s
+      names << (nm.empty? ? ds.attributes['caption'].to_s : nm)
+    end
+    names
+  rescue StandardError
+    []
+  end
+
+  # Every <connection class='...'> value carried by a top-level datasource that
+  # is NOT itself sqlproxy-only (see sqlproxy_only_datasource_names above) —
+  # i.e. exactly the answer migrate-tableau.rb's embedded-extract-landing gate
+  # needs ("is everything OUTSIDE the sqlproxy-handled datasources an embedded
+  # extract, and therefore landable") without an unrelated sqlproxy sibling's
+  # 'sqlproxy' class polluting the eligibility check. A pure-sqlproxy workbook
+  # correctly returns [] (nothing left to land; falls through to hydration).
+  def non_sqlproxy_conn_classes(twb_path)
+    return [] unless File.exist?(twb_path)
+    doc = REXML::Document.new(File.read(twb_path, encoding: 'UTF-8'))
+    classes = []
+    doc.each_element('/workbook/datasources/datasource') do |ds|
+      conn = ds.elements['connection']
+      next unless conn
+      next if sqlproxy_connection?(conn) && !has_real_relation?(conn)
+      REXML::XPath.each(ds, './/connection') do |c|
+        cls = c.attributes['class'].to_s
+        classes << cls unless cls.empty?
+      end
+    end
+    classes.uniq
+  rescue StandardError
+    []
+  end
+
   # Connection classes whose dbname is NOT a warehouse database: sqlproxy's is a
   # published-DS contentUrl, hyper/file classes carry a file path, and a virtual
   # connection's is the VC name. None of them may seed a warehouse table path.

@@ -94,7 +94,7 @@ When `scout-validate-and-persist.rb` returns `status=escalated`, the main agent:
 
 Routing is by gap category. Tableau calc-field gaps are **converter** gaps, so
 they mirror to both converter repos (`sigma-data-model-manager` +
-`sigma-data-model-mcp`) with a cross-link; a bead is created/linked as the
+`converter-source`) with a cross-link; a bead is created/linked as the
 authoritative tracker. Builder/spec gaps would route to `sigma-migration-skills`
 instead (`--category builder`). See `scripts/escalate-gap.py`.
 

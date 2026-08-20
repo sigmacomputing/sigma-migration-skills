@@ -79,7 +79,7 @@ TWB = <<~XML
             </zone>
             <zone id='12' type-v2='text' x='0' y='90000' w='50000' h='4000'>
               <formatted-text>
-                <run fontcolor='#b4b4b4' fontsize='8'>Data: example.org | Design: @analyst</run>
+                <run fontcolor='#b4b4b4' fontsize='8'>Data: EPI.org | Design: @DatavizChimdi</run>
               </formatted-text>
             </zone>
             <zone id='13' type-v2='text' x='50000' y='90000' w='50000' h='4000'>

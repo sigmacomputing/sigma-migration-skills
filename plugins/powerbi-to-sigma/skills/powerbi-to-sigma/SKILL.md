@@ -108,7 +108,7 @@ If a destination is already supplied, honor it silently — don't ask.
 > **READ FIRST — `refs/operating-contract.md`**: the fidelity guardrails (render + value-check EVERY page against the source; never ship empty or silently drop a tile; don't spin — surface blockers).
 > **Modeling strategy — `refs/modeling-strategy.md`**: faithful star reproduction is the DEFAULT (parity is the gate); an upstream OBT or Sigma-native materialization is an OPT-IN optimization for hot, join-heavy dashboards, re-verified against the same parity oracle. The converter never auto-flattens. (Measured: flat beats live-join joins by 1.35–2.5× on join queries, but is neutral/worse join-free.)
 > Status: **foundation** (validated end-to-end 2026-05-31 on the "Employee Dashboard" workforce report).
-> Beads: build = `beads-sigma-cs2`; converter gaps = `j89` (M-Snowflake path), `tkd` (element names / schemaVersion / folderId).
+> Beads: build = `[bead]`; converter gaps = `j89` (M-Snowflake path), `tkd` (element names / schemaVersion / folderId).
 > Defers to: `sigma-workbooks` (canonical workbook spec), `sigma-data-models` (DM spec), the `convert_powerbi_to_sigma` MCP tool, and `tableau-to-sigma/scripts/*` (reused verbatim for posting + layout + parity).
 
 ## What's proven (the happy path, validated once)
@@ -166,7 +166,7 @@ The corporate tenant blocks Entra app creation, Git integration, and XMLA (PPU).
 - **Layout**: a `.pbix` is a zip; `Report/Layout` is **UTF-16LE** JSON with per-visual `x,y,w,h` (canvas px, 1280×720 default). `extract-report-classic.py --pbix <file>` unzips + decodes it locally (or `--report-layout <file>` for an extracted Layout).
 - **Local `.pbix` DataModel is now extractable** (no Fabric): the `.pbix`'s `DataModel` is a *binary* VertiPaq blob — `extract-model-pbix.py --pbix <file>` reads it with **pbixray** (measures/schema/relationships/M) and emits a TMSL `model.bim` the converter eats. See `refs/local-pbix.md` (incl. the pbixray from-source install for its broken `xpress9`/`xmhuffman` deps). getDefinition / a `.pbit`'s `DataModelSchema` remain alternatives when Fabric is reachable.
 - See `refs/powerbi-visual-layout.md` for the Report/Layout & PBIR parsers and the visualType→Sigma-kind table. The shared fetch layer (token, fast LRO, pooled fetch, estate cache, timings) lives in `scripts/pbi_fabric.py`.
-- **Style fidelity — `refs/style-fidelity.md`**: reproducing the PBI report's *look*, not just its data. The extractor captures the report theme name, card value color, and matrix totals; the builder emits a Sigma `themeName`/`themeOverrides` (palette from `lib/pbi_theme.rb` — drives donut/pie + series colors), KPI-card styling (`value.color` + `titleOrient: bottom`), a donut null→`(Blank)` coalesce so the palette maps per-slice like PBI, and re-expresses a totals-bearing tableEx/matrix as a `pivot-table` with a grand-total row. **Table/matrix conditional formatting** (color scales, font-color scales, data bars, and rules/thresholds) is carried onto the Sigma table as element-level `conditionalFormats` (`extract-pbir.py` `_conditional_formats` → `lib/pbi_conditional_formats.rb`): gradient→`backgroundScale`/`fontScale`, dataBars→`dataBars`, rules→one `single` per band (ranges via `condition: formula`). Field-value (DAX-measure-driven) CF and un-mappable rule shapes (cross-column, else-default) are recorded to `coverage.json` (never silently dropped). Also documents the one deliberate non-transform (PBI thousands-K number format).
+- **Style fidelity — `refs/style-fidelity.md`**: reproducing the PBI report's *look*, not just its data. The extractor captures the report theme name, card value color, and matrix totals; the builder emits a Sigma `settings.theme.name`/`settings.theme.overrides` (palette from `lib/pbi_theme.rb` — drives donut/pie + series colors), KPI-card styling (`value.color` + `titleOrient: bottom`), a donut null→`(Blank)` coalesce so the palette maps per-slice like PBI, and re-expresses a totals-bearing tableEx/matrix as a `pivot-table` with a grand-total row. **Table/matrix conditional formatting** (color scales, font-color scales, data bars, and rules/thresholds) is carried onto the Sigma table as element-level `conditionalFormats` (`extract-pbir.py` `_conditional_formats` → `lib/pbi_conditional_formats.rb`): gradient→`backgroundScale`/`fontScale`, dataBars→`dataBars`, rules→one `single` per band (ranges via `condition: formula`). Field-value (DAX-measure-driven) CF and un-mappable rule shapes (cross-column, else-default) are recorded to `coverage.json` (never silently dropped). Also documents the one deliberate non-transform (PBI thousands-K number format).
 
 ## Phase 2.5 — SOURCE-FRESHNESS PREFLIGHT (import-mode models, bead fmte)
 Import-mode PBI models are **frozen snapshots**; Sigma reads the LIVE warehouse. Before any parity side-by-side, capture the dataset's freshness so staleness deltas are called out UP FRONT (mirrors qlik-to-sigma Phase 1.5):
@@ -188,7 +188,7 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
 
 `convertPowerBIToSigma(model_json, connection_id, database, schema)`.
 
-> **Databricks / lower-case warehouses (beads-sigma-lanq.7):** physical identifiers default to
+> **Databricks / lower-case warehouses ([bead].7):** physical identifiers default to
 > UPPER (Snowflake/BigQuery fold that way). Databricks/Spark store identifiers **lower-case** and
 > bind only against a lower-cased warehouse path, so an UPPER path fails at POST with
 > `Source not found`. `migrate-powerbi.rb` reads the resolved connection's `type` from
@@ -197,7 +197,7 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
 > `--connection <id>`, since that path doesn't populate the type). The element name and
 > `[Table/Col]` formula refs stay UPPER (Sigma-internal) — only `source.path` + column physical
 > names fold to the warehouse case. A single `--schema` also no longer collapses a multi-schema
-> model (beads-sigma-lanq.6): it's applied as a repoint only on a single-schema model.
+> model ([bead].6): it's applied as a repoint only on a single-schema model.
 
 > ⚠️ **`--converter-out` takes the converter's output — never a hand-authored spec.**
 > The flag exists so you can run the converter (the fallback `convert_powerbi_to_sigma`
@@ -212,6 +212,7 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
 - DAX measures → Sigma metrics. ~70% mechanical; see `refs/dax-to-sigma-coverage.md` and `fixtures/MANIFEST.md` (test oracle: 94 DAX expressions bucketed a/b/c).
 - **PromoteHeaders**: if `pbi-dm-signature.py` reports `promoted_header_tables` (the model's M-query used `Table.PromoteHeaders`), the warehouse table's real columns are auto-named (`C1`, `C2`, …) with the semantic names in row 0 — the TMSL `sourceColumn` names will NOT resolve. Verify the landed table's real columns and remap with `convert-model.rb --table-map` (in Sigma formulas the columns appear as `C 1`, `C 2`, … and in JOIN SQL alias them, e.g. `c.C2 AS CUSTOMER_NAME`).
 - **Known gap `j89`**: the Snowflake `Snowflake.Databases(...) + Navigation` M pattern isn't parsed → pass `database`/`schema` explicitly until fixed.
+- **Non-warehouse sources (Fabric Dataflow / Lakehouse / OneLake / Dataverse / file)**: when a table's M source is a `PowerPlatform.Dataflows` / `Lakehouse.Contents` / `CommonDataService` / `Excel.Workbook`-style connector, the data is NOT in a warehouse Sigma can query and the dataflow's transform logic is NOT in the semantic model (so it can't be translated). The converter flags each such table with a `⛔` warning + a placeholder path and reports `stats.nonWarehouseSourcedTables`; `migrate-powerbi.rb` surfaces a **`non_warehouse_source` decision** at the checkpoint. **Handoff:** run the **`powerbi-import-to-snowflake`** skill to land the data (it works for Import-mode models — the dataflow already materialized the rows), then re-run **Phase 3 Build** with `convert-model.rb --table-map <manifest.json>` — the loader reads the landing manifest directly (no manual map) and repoints the elements. The `powerbi-assessment` readout flags these tables up front under "Data-source patterns".
 - **DAX gaps → gap-scout**: for measures the converter buckets `b` (restructure) or `c` (no-equivalent) — `RANKX`, `ALLEXCEPT`, `SUMMARIZE`, `USERELATIONSHIP`, `PATH*` — spawn the **gap-scout** sub-agent (`scripts/gap-scout.md`): it proposes a Sigma translation, validates it against the live API (`scripts/scout-validate.py`), and persists the rule to `~/.powerbi-to-sigma/learned-rules.yaml` (loaded by `scripts/learned-rules.py`) so future conversions auto-apply it. Time-intelligence (YTD/SPLY) is usually translatable — see `refs/measure-patterns.md`, not the scout.
 
 ## Phase 3.5 — Reuse an existing DM? (avoid sprawl — the reuse-first DM gate every converter runs before building)
@@ -243,12 +244,12 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
 > **halts (exit 2) on any column that resolves to `type "error"`, before the workbook is built** —
 > catching bad refs, missing physical columns, and non-existent functions. It does **NOT** catch a
 > column that resolves to its *declared* type here but fails at actual **query time**: a physical-name
-> **case** mismatch on a case-sensitive-stored warehouse (Databricks stores lower-case — `beads-sigma-lanq.7`),
-> a wrong per-table **schema** (`beads-sigma-lanq.6`), or an **ungranted schema**. Those surface only at
+> **case** mismatch on a case-sensitive-stored warehouse (Databricks stores lower-case — `[bead].7`),
+> a wrong per-table **schema** (`[bead].6`), or an **ungranted schema**. Those surface only at
 > Phase 6 — so a model that looks "validated" here can still error *after* the workbook exists (the
 > delete-and-recreate trap). **A clean Phase 4 is not a warehouse-resolution guarantee.** If Phase 6
 > shows `type "error"` columns Phase 4 didn't, suspect warehouse **casing / schema / grants** first,
-> and confirm the connection identity can read every schema the model spans. (Follow-up `beads-sigma-q48b`:
+> and confirm the connection identity can read every schema the model spans. (Follow-up `[bead]`:
 > an optional pre-workbook query-probe that runs one live query per DM element to surface these early.)
 
 ## Phase 5 — Build the workbook
@@ -256,9 +257,11 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
 - **Chart elements** source from a master (`source:{kind:table, elementId:<master>}`), columns `[dim, meas]`:
   - bar/line: `xAxis:{columnId}`, `yAxis:{columnIds:[...]}`
   - pie/donut: `color:{id}`, `value:{id}`
+  - waterfall/gauge: native `waterfall-chart` / ring `progress`; never coerce them to bar/KPI.
+  - a proven chart hierarchy emits `controlType:drill`; a visible categorical legend on a supported chart emits `controlType:legend`. Emit neither unless every source/target column resolves.
   - text: `{kind:text, body:"## ..."}`
   - measure formula wraps the master col: `CountDistinct([Master/Col])`, `Sum([Master/Col])`, date dim `DateTrunc("month",[Master/Col])`.
-- `POST /v2/workbooks/spec` (post-and-readback `--type workbook`). Chart-element shapes mirror `tableau-to-sigma/scripts/build-charts-from-signals.rb`.
+- `POST /v2/workbooks/spec` (post-and-readback `--type workbook`). Chart-element shapes mirror `tableau-to-sigma/scripts/build-charts-from-signals.rb`. **The body is an outer metadata envelope plus `document`** (verified live 2026-08-03, including on `/verify` 2026-08-04): `name`/`folderId` stay outside; `document` owns `schemaVersion`, `kind:"workbook"`, metadata-only `pages`, one flat `elements` collection, required authoritative `layout`, settings, panels, and overlays. Every element must occur exactly once in layout. Never put workbook elements back under a page (data-model specs are unchanged and remain nested). `post-and-readback.rb` preserves the complete workbook document on write. See `refs/spec-fixups.md` and `refs/workbook-code-release-gaps.md`.
 
 ## Phase 5c — Coverage report (NEVER silently drop a component)
 The build **never silently drops** what it can't resolve — every drop, downgrade,
@@ -272,13 +275,13 @@ its data; only a `dropped` visual is truly absent) so the common "it drops a lot
 perception — usually just gaps that were never surfaced in one place — is
 answered with the real number.
 
-- `severity`: `dropped` (no element built) · `degraded` (built, lost a role/field/sort) · `approximated` (built as a substituted Sigma kind, e.g. treemap/funnel/gauge/waterfall → bar/kpi).
+- `severity`: `dropped` (no element built) · `degraded` (built, lost a role/field/sort) · `approximated` (built as a substituted Sigma kind, e.g. treemap/funnel → bar).
 - `recoverable: true` items carry a concrete **action** (supply `--image-map`, add a joined master, re-point a drill level, supply a geo column). In an interactive run they print as an **ASSISTANCE AVAILABLE** block — present them to the user (one `AskUserQuestion` checklist: *recover* vs *accept*). Under `--yes`/`--answers` they take the accept default and are recorded as accepted degradations.
-- `recoverable: false` items are genuine Sigma spec limitations (no native gauge; region maps have no categorical legend) — reported, never asked about.
+- `recoverable: false` items are genuine Sigma spec limitations (for example, region maps have no categorical legend) — reported, never asked about.
 - The recoverable items are **hard-gated** at Phase 5e: `assert-visual-compare.rb --coverage` will not go GREEN until each is recovered or explicitly acknowledged.
 
 ## Phase 5d — Layout (do NOT skip — stacked ≠ done)
-Map each visual's `x,y,w,h` → 24-col grid (`COL_UNIT = page_w/24`, `ROW_UNIT ≈ 30`) → single top-level `layout` XML (one `<Page>` per page, server page IDs) → `tableau-to-sigma/scripts/put-layout.rb`. Math + snap rules in `research/powerbi-visual-layout.md §4`.
+Map each visual's `x,y,w,h` → 24-col grid (`COL_UNIT = page_w/24`, `ROW_UNIT ≈ 30`) → single `document.layout` XML (one `<Page>` per page, server page IDs) → `tableau-to-sigma/scripts/put-layout.rb`. Math + snap rules in `research/powerbi-visual-layout.md §4`.
 
 ## Phase 5e — VISUAL COMPARE vs the SOURCE (MANDATORY — numbers lie about looks)
 Phase 6 proves the NUMBERS; this phase proves the PAGES. A conversion shipped
@@ -341,7 +344,7 @@ A workbook that POSTs 200 and passes numeric parity can still be visually broken
 
 1. Render every page to PNG: `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600` (or use `scripts/assert-visual-compare.rb` for source-vs-target).
 2. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls in their own band, no clipped titles, even heights, right chart kind/format).
-3. Fix any failure in the spec — for multi-page workbooks use `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-read**.
+3. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
 4. Declare the migration done on a **clean render**, not on HTTP 200.
 
 ## Phase 6 — Verify (mandatory)
@@ -381,108 +384,52 @@ python3 scripts/build-bookmark-workbooks.py --signals $WORK/signals.json \
 
 **OFF by default, everywhere.** Phase E never runs in batch/headless mode
 without the explicit `--enhance` flag on `migrate-powerbi.rb`, and it only
-ever starts from a **parity-verified** workbook (Phase 6 PASS). It is powered
-by the shared engine vendored byte-identically into the covered plugins
-(`scripts/enhance-scan.rb` + `scripts/enhance-apply.rb` — md5 discipline,
-same as `escalate-gap.py`).
+ever starts from a **parity-verified** workbook (Phase 6 PASS). Full contract
+(design interview, detectors, layout checklist): `refs/phase-e-enhance.md` +
+`refs/app-recommendation-signals.md`. Shared engine:
+`enhance-scan.rb` / `enhance-select.rb` / `enhance-app-plan.rb` /
+`enhance-apply.rb` + `scripts/lib/enhance_options.rb`.
 
 ```bash
 ruby scripts/migrate-powerbi.rb ... --yes \
   --enhance                       # scan only → exit 14 with proposals
-# present each candidate to the user (one AskUserQuestion checklist), then:
+# run the design interview (refs/phase-e-enhance.md), then:
+ruby scripts/enhance-select.rb --enhancements <workdir>/enhancements.json \
+  --option <option-id> --out <workdir>/enhance-selection.json
 ruby scripts/migrate-powerbi.rb ... --yes \
-  --enhance --enhance-accept all-low-risk    # or: id1,id2,...
+  --enhance --enhance-accept "$(ruby scripts/enhance-select.rb \
+    --enhancements <workdir>/enhancements.json \
+    --option <option-id> --print-accept)"
 ```
 
-The contract (trial-validated, 2026-06-10):
+Power BI–specific detector notes (on top of the shared catalog):
 
-1. **Clone-first.** `enhance-apply.rb` GETs the parity workbook's spec and
-   POSTs it as `"<name> — Enhanced"`. The 1:1 parity artifact is **never
-   written** (the report records its `updatedAt` before/after as proof).
-2. **Scan-then-propose.** `enhance-scan.rb` reads source signals (workdir
-   artifacts: `signals.json`, `freshness.json`) + the built spec + live
-   element exports, and emits `enhancements.json` — each candidate
-   `{id, category, evidence, proposed, risk, verdict_hint, patch}`.
-   **Nothing applies without acceptance**: interactive runs present a per-item
-   checklist (AskUserQuestion); headless runs pass `--enhance-accept id1,id2`
-   or `--enhance-accept all-low-risk`.
-3. **Apply + parity-unchanged gate.** Accepted items apply **one at a time**
-   to the clone; after each, 2-3 untouched elements are spot-queried on the
-   clone AND the original at the same instant (live-drift-proof) — any shift
-   auto-reverts that item and flags it in `enhance-report.json`
-   (applied/skipped/reverted + evidence).
+- **grain switcher** restores the PBI date-hierarchy drill intent.
+- **map restoration** — `azureMap`/`filledMap` approximated as a bar →
+  point-map with `Switch()` centroid synthesis (medium risk; centroids must
+  be filled into the patch before apply).
+- **freshness note** is fed by the Phase 2.5 freshness preflight
+  (`freshness.json`).
+- DM-metric promotion is not an enhancement candidate here: the normal
+  workbook build already binds formula-equivalent metrics through
+  `[Metrics/<metric name>]`.
 
-Detector catalog (trial-validated; nothing speculative):
-
-- **comparison-enrichment** — date-grouped master + revenue-like measure →
-  latest-period KPI + delta-% KPI pair. KPI value columns INLINE the full
-  `Sum(If(D = Max(D), v, Null))` expression — cross-column aggregate refs
-  silently misevaluate in kpi-charts.
-- **interactivity-recovery** — (a) list **selection controls** on
-  reasonable-cardinality dims wired to the shared master (empty default =
-  identical render); (b) **grain switcher** — segmented control + DateTrunc
-  switch restoring the PBI date-hierarchy drill intent, default = parity
-  grain; (c) **drill switcher** — segmented control + `If()` dimension switch
-  where a finer dim exists (medium risk: heuristic hierarchy pairing);
-  (d) **map restoration** — an `azureMap`/`filledMap` visual the migration
-  approximated as a bar → point-map with `Switch()` centroid synthesis
-  (medium risk: centroids must be filled into the patch before apply).
-- **fidelity-polish** — null-bucket labeling (`Coalesce → "No <Dim>"`),
-  month/date axis canonicalization (`MakeDate`; medium risk on multi-year
-  sources — intentionally un-pools), stale-source freshness note (time-boxed
-  wording, fed by the Phase 2.5 freshness preflight), title corrections from
-  source captions.
-
-**Descoped — emitted as propose-in-UI notes, never spec changes** (all
-trial-proven spec-unsupported): DM-metric promotion (metric refs don't resolve
-through a workbook table), chart-as-filter (`useAsFilter` silently dropped on
-readback), pie percent labels (`valueFormat:'percent'` silently dropped).
+**Phase 7 Bookmarks** remain a separate post-parity path — do not fold them
+into Phase E.
 
 ### Phase E layout placement + HARD screenshot checklist
 
-Every applied item lands in the **container system** — never appended at the
-page foot (that was the "PHASEE PBI Employee Dashboard" regression):
-
-- selection controls → the **control band** (created under the header if the
-  clone lacks one);
-- comparison KPIs → the **KPI band**;
-- grain/drill switchers → a slim row **inside the container of the chart they
-  drive**;
-- migration/freshness notes → a **slim note band directly under the header**.
-
-If the cloned parity workbook predates container layouts (no `<GridContainer>`
-in its layout), `enhance-apply.rb` **regenerates a banded layout** for the
-clone first (builder machinery, `scripts/lib/layout.rb`), then applies items.
-The finalize runs the shared layout lint (`scripts/lib/layout_lint.rb`: no
-raw-id display names, no controls outside containers, no dead zones, no
-generic header-band title — "Page 1"/"Sheet N"/"Dashboard N" never titles a
-dashboard; the header carries the promoted source title → source display
-name → workbook name — and no band whose elements fill <60% of the grid
-columns, KPI bands of ≤4 tiles exempt) and
-**exits 4 on violations** — a lint-failing clone must be fixed and re-PUT
-before the run may be declared done.
-
-**HARD screenshot checklist (mandatory at finalize).** The lint is mechanical;
-your eyes are the last gate. Export the clone's **full-page PNG**
-(`scripts/sigma-export-png.py`) and verify EVERY item, listing each with
-pass/fail in your report:
-
-- [ ] every chart/control title is human-readable (no raw element ids)
-- [ ] the page has a header band (dark, full-width, carrying the SOURCE title
-      or display name — never a generic "Page 1")
-- [ ] selection controls sit together in a control band near the top
-- [ ] every control is adjacent to / inside the container of what it filters
-      (grain/drill switchers INSIDE their chart's container)
-- [ ] no orphan elements below the fold (nothing dumped at the page foot)
-- [ ] no dead zones; row heights look even across each band
-
+Follow the shared checklist in `refs/phase-e-enhance.md` (container bands,
+layout lint exit 4, full-page PNG gate). The "PHASEE PBI Employee Dashboard"
+regression is why every applied item lands in the container system — never
+appended at the page foot.
 ## Reverse direction — author INTO Power BI
 The Fabric API is symmetric: `POST .../semanticModels` (TMSL parts) + `POST .../reports` (PBIR) create live items. Same device-code token (`user_impersonation` covers writes). Needs a Fabric-capacity workspace. See `scripts/fabric-auth-check.py` for the write-capability/capacity check.
 
 ## Scripts — the conversion pipeline
 The conversion is script-driven (mirrors `tableau-to-sigma/scripts/`). `scripts/run.sh` orchestrates connect → extract → convert → post-DM → build-workbook → layout → parity; it runs every deterministic stage and STOPS at the two MCP gates (the `convert_powerbi_to_sigma` conversion and the `sigma-mcp-v2` actuals collection) with a clear instruction, then resume any stage with `--from <stage>`. All scripts are idempotent and re-run-safe.
 
-**Python prereq:** the Microsoft-auth scripts (`fabric-extract.py`, `extract-pbir.py` live-fetch, `phase6-parity-pbi.rb`'s DAX harness) need `msal` + `requests` + `truststore` — pinned in `scripts/requirements.txt`. The LOCAL `.pbix` model front door (`extract-model-pbix.py` / `migrate-powerbi.rb --pbix`) additionally needs **pbixray** — NOT in `requirements.txt` because its `xpress9`/`xmhuffman` deps ship broken sdists and must be built from source (see `refs/local-pbix.md`; `doctor.sh` reports its presence + the install command). Everything else (including `extract-report-classic.py --pbix`) is stdlib-only. `run.sh` **bootstraps a venv at `<work-dir>/.venv` automatically** when no suitable interpreter is found; override with `$PBI_PY` (or `migrate-powerbi.rb --python`). **Converter — zero-config, local, no MCP.** A self-contained converter bundle ships in the skill at `converter/powerbi.mjs` and is the default: `migrate-powerbi.rb` runs `convertPowerBIToSigma` in-process via a `node` shim with no clone, no `npm install`, no network, no MCP. A dev's own build still wins via `--mcp-dir`/`$PBI_MCP_DIR` (or `~/Desktop/sigma-data-model-mcp`, `~/sigma-data-model-mcp`). Refresh the bundle with `tools/vendor-converters.sh`. Only if the bundle is **also** absent does it gate (exit 10) with instructions to run the `convert_powerbi_to_sigma` MCP **tool** and resume with `--converter-out`.
+**Python prereq:** the Microsoft-auth scripts (`fabric-extract.py`, `extract-pbir.py` live-fetch, `phase6-parity-pbi.rb`'s DAX harness) need `msal` + `requests` + `truststore` — pinned in `scripts/requirements.txt`. The LOCAL `.pbix` model front door (`extract-model-pbix.py` / `migrate-powerbi.rb --pbix`) additionally needs **pbixray** — NOT in `requirements.txt` because its `xpress9`/`xmhuffman` deps ship broken sdists and must be built from source (see `refs/local-pbix.md`; `doctor.sh` reports its presence + the install command). Everything else (including `extract-report-classic.py --pbix`) is stdlib-only. `run.sh` **bootstraps a venv at `<work-dir>/.venv` automatically** when no suitable interpreter is found; override with `$PBI_PY` (or `migrate-powerbi.rb --python`). **Converter — zero-config, local, no MCP.** A self-contained converter bundle ships in the skill at `converter/powerbi.mjs` and is the default: `migrate-powerbi.rb` runs `convertPowerBIToSigma` in-process via a `node` shim with no clone, no `npm install`, no network, no MCP. A dev's own build still wins via `--mcp-dir`/`$PBI_MCP_DIR` (or `~/converter-source`, `~/converter-source`). Refresh the bundle with `tools/vendor-converters.sh`. Only if the bundle is **also** absent does it gate (exit 10) with instructions to run the `convert_powerbi_to_sigma` MCP **tool** and resume with `--converter-out`.
 
 | Script | Stage | What it does |
 |---|---|---|
@@ -497,10 +444,12 @@ The conversion is script-driven (mirrors `tableau-to-sigma/scripts/`). `scripts/
 | `sigma-export-png.py` | 5e/5f compare | Renders a built Sigma page to PNG (`--workbook <id> --page <pageId> --out … --w 1600`) for the source-vs-target compare AND the Phase 5f Visual QA read (checked against `refs/layout-visual-qa.md`). |
 | `assert-visual-compare.rb` | 5e gate | HARD GATE: blocks Phase 6 unless visual-compare.json has a PASS/ACCEPTED verdict (with explained deltas) for every content page. |
 | `convert-model.rb` | 2–3 convert/post | MODE A prints the exact `convert_powerbi_to_sigma` MCP call for a `model.bim`; MODE B takes the converter output and applies the 3 fixups (schemaVersion + folderId/ownerId via a ref-DM harvest + base-element names) → postable DM spec. |
-| `build-workbook-from-pbir.rb` | 4 build | `signals.json` + a `master-map.json` → full workbook spec + 24-col layout XML. Applies the measure-translation patterns in `refs/measure-patterns.md`; **line charts default to a single series** (`beads-sigma-c07`) unless PBI bound a Series/Legend role. **Carries the PBI visual sort** (`f972` — PBIR `query.sortDefinition` / classic `prototypeQuery.OrderBy` → chart `xAxis.sort`/`color.sort`; grouped table → `groupings[0].sort` — element-level sort is rejected on grouped tables). Analog of `build-charts-from-signals.rb`. **Writes `coverage.json`** (`--coverage-out`): every dropped/degraded/approximated component aggregated (Phase 5c) — nothing silently dropped. |
+| `build-workbook-from-pbir.rb` | 4 build | `signals.json` + a `master-map.json` → full workbook spec + 24-col layout XML. Applies the measure-translation patterns in `refs/measure-patterns.md`; **line charts default to a single series** (`[bead]`) unless PBI bound a Series/Legend role. **Carries the PBI visual sort** (`f972` — PBIR `query.sortDefinition` / classic `prototypeQuery.OrderBy` → chart `xAxis.sort`/`color.sort`; grouped table → `groupings[0].sort` — element-level sort is rejected on grouped tables). Analog of `build-charts-from-signals.rb`. **Writes `coverage.json`** (`--coverage-out`): every dropped/degraded/approximated component aggregated (Phase 5c) — nothing silently dropped. |
 | `phase6-parity-pbi.rb` | 7 parity | executeQueries(DAX) adapter: `--emit-dax` runs the PBI side and writes the parity plan's `expected` rows; `--finalize` injects Sigma actuals and runs the shared `verify-parity.rb`. The PBI analog of Tableau's view-CSV parity adapter. |
-| `enhance-scan.rb` | E scan (opt-in) | **Phase E part 1 — SCAN (read-only).** Source signals + built spec + live element exports → `enhancements.json` candidates `{id, category, evidence, proposed, risk, verdict_hint, patch}` + descoped propose-in-UI notes. Shared Phase-E engine, vendored byte-identical across plugins (md5 discipline). |
-| `enhance-apply.rb` | E apply (opt-in) | **Phase E part 2 — APPLY (accept-only, clone-first).** Clones the parity workbook as `"<name> — Enhanced"` (1:1 artifact never written), applies ONLY `--accept`-ed candidates one at a time, each gated by an untouched-element clone-vs-original spot-check (auto-revert on shift). Writes `enhance-report.json`. Byte-identical twin of the tableau copy. |
+| `enhance-scan.rb` | E scan (opt-in) | **Phase E — SCAN (read-only).** Source signals + built spec + live exports → `enhancements.json` (`candidates`, `app_options`, `signals`, descoped notes). |
+| `enhance-select.rb` | E select (opt-in) | **Phase E — SELECT.** Design-interview answer → `enhance-selection.json` / `--print-accept` list for apply. No Sigma writes. |
+| `enhance-app-plan.rb` | E plan (opt-in) | **Phase E — APP PLAN.** Archetype option + architecture choices → `app-plan.json` (validate with `schemas/app-plan.schema.json`). No Sigma writes. |
+| `enhance-apply.rb` | E apply (opt-in) | **Phase E — APPLY (accept-only, clone-first).** Clones `"<name> — Enhanced"`, applies `--accept`-ed candidates one at a time with parity-unchanged spot-check. |
 
 The agent authors one PBI-specific artifact: `master-map.json` (maps each PBI Entity → a Data-page master element and each `Entity.Field` queryRef → `{ref, agg}`), which encodes the DM element ids + DAX-measure→Sigma-aggregator decisions. Everything else is mechanical.
 
@@ -508,10 +457,10 @@ The agent authors one PBI-specific artifact: `master-map.json` (maps each PBI En
 
 **Validated unattended end-to-end 2026-05-31** against the KitchenSink (PBI report/model pair on the demo warehouse): `run.sh` drove extract → convert (MCP gate) → post-DM (26 cols, 0 errors) → build → post-WB → **layout** into a throwaway DM + workbook in the demo Sigma org. `assert-phase6-ran.rb` passed all 4 gates: **0 `error` columns** (34 live cols), grouped `Department Summary` table (6 depts, real ranked rows), **single-series** YTD line (2025 Jul–Dec = `3536,7412,10932,14700,18080,21844`, parity-exact vs PBI), pivot with `rowsBy`/`values`, and a 12-element grid layout that **survived the final write** (no single-column wipe). Throwaway items deleted after.
 
-> **Phase 5 time-intelligence tradeoff (`beads-sigma-c07`):** the builder emits PBI line charts as a **single series** (`xAxis`=month, `yAxis`=`CumulativeSum(Sum(...))`, **no `color` block**). A continuous `CumulativeSum` reproduces a within-year YTD exactly (2025 matched PBI to the unit) but does NOT reset at the Jan year boundary. For a true `TOTALYTD` per-year-reset on one line, precompute a year-partitioned YTD in a hidden grouped level table and plot it with `Max()` (recipe in `refs/measure-patterns.md §4`). Never reproduce the reset by adding `color:{by:category,column:year}` — that renders TWO lines, diverging from PBI's one.
+> **Phase 5 time-intelligence tradeoff (`[bead]`):** the builder emits PBI line charts as a **single series** (`xAxis`=month, `yAxis`=`CumulativeSum(Sum(...))`, **no `color` block**). A continuous `CumulativeSum` reproduces a within-year YTD exactly (2025 matched PBI to the unit) but does NOT reset at the Jan year boundary. For a true `TOTALYTD` per-year-reset on one line, precompute a year-partitioned YTD in a hidden grouped level table and plot it with `Max()` (recipe in `refs/measure-patterns.md §4`). Never reproduce the reset by adding `color:{by:category,column:year}` — that renders TWO lines, diverging from PBI's one.
 
 ## Reuse, don't reinvent (and packaging)
-These vendor-agnostic Sigma-side scripts are reused: `get-token.sh`, `lib/sigma_rest.rb`, `post-and-readback.rb`, `put-layout.rb`, `find-or-pick-dm.rb`, `validate-spec.rb`, `verify-parity.rb`, `cleanup-orphan-workbooks.rb`. In the repo they are **symlinks** into `tableau-to-sigma/scripts/` (DRY), but symlinks break when the skill is downloaded standalone — so always ship via **`./package.sh`**, which dereferences every symlink into a real file and vendors the out-of-tree reference docs into `refs/vendored/`. The result (`dist/powerbi-to-sigma/`) is fully self-contained: 0 symlinks, the whole pipeline runs from inside the bundle. The shared core is being extracted to `sigma-conversion-core` (`beads-sigma-6k9`); until then, package before distributing.
+These vendor-agnostic Sigma-side scripts are reused: `get-token.sh`, `lib/sigma_rest.rb`, `post-and-readback.rb`, `put-layout.rb`, `find-or-pick-dm.rb`, `validate-spec.rb`, `verify-parity.rb`, `cleanup-orphan-workbooks.rb`. In the repo they are **symlinks** into `tableau-to-sigma/scripts/` (DRY), but symlinks break when the skill is downloaded standalone — so always ship via **`./package.sh`**, which dereferences every symlink into a real file and vendors the out-of-tree reference docs into `refs/vendored/`. The result (`dist/powerbi-to-sigma/`) is fully self-contained: 0 symlinks, the whole pipeline runs from inside the bundle. The shared core is being extracted to `sigma-conversion-core` (`[bead]`); until then, package before distributing.
 
 
 ## Security: Row- & Column-Level Security (RLS/CLS)

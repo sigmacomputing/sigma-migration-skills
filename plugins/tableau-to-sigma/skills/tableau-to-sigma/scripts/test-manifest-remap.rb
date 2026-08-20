@@ -185,6 +185,48 @@ check(!names_left.include?('el-orphan'), 'orphan removed from the page', fails)
 check(names_left.include?('el-used') && names_left.include?('el-sql2'),
       'referenced-but-broken and source-relative elements KEPT', fails)
 
+puts "Part H — #685-C secondary: derived-view refs repaired via elementId even when the STRING " \
+     "identifier is ambiguous (Tableau's own duplicate-datasource shape: two DIFFERENT datasources " \
+     "reuse the identical internal relation name 'Orders' — the Executive Dashboard cold-run's " \
+     '"Orders View" prefix-mismatch)'
+dup_el = lambda do |id, caps|
+  { 'id' => id, 'kind' => 'table', 'name' => nil,
+    'source' => { 'kind' => 'warehouse-table', 'connectionId' => 'conn-1', 'path' => %w[WHDB WHSCHEMA ORDERS] },
+    'columns' => caps.each_with_index.map { |c, i| { 'id' => "#{id}-#{i}", 'name' => c, 'formula' => "[ORDERS/#{c}]" } } }
+end
+orders_a = dup_el.call('el-orders-a', ['Row ID', 'Order Date', 'Ship Date', 'Sales'])
+orders_b = dup_el.call('el-orders-b', %w[Order\ ID Customer\ Name Sales Discount])
+view_a = {
+  'id' => 'el-view-a', 'kind' => 'table', 'name' => 'Orders View',
+  'source' => { 'kind' => 'table', 'elementId' => 'el-orders-a' },
+  'columns' => [{ 'id' => 'c-va1', 'name' => nil, 'formula' => '[ORDERS/Row ID]' }]
+}
+dup_model = { 'pages' => [{ 'elements' => [orders_a, orders_b, view_a] }] }
+dup_manifest = [
+  { 'slug' => 'wb', 'datasource' => 'federated.orders_a', 'caption' => 'Sample - Superstore',
+    'hyper' => 'a.hyper', 'hyper_table' => 'Orders', 'sf_table' => 'WHDB.WHSCHEMA.FIXTURE_ORDERS', 'rows' => 100,
+    'columns' => { 'Row ID' => 'ROW_ID', 'Order Date' => 'ORDER_DATE', 'Ship Date' => 'SHIP_DATE', 'Sales' => 'SALES' } },
+  { 'slug' => 'wb', 'datasource' => 'federated.orders_b', 'caption' => 'Sample - Superstore (2)',
+    'hyper' => 'b.hyper', 'hyper_table' => 'Orders', 'sf_table' => 'WHDB.WHSCHEMA.FIXTURE_ORDERS_DUP',
+    'rows' => 100,
+    'columns' => { 'Order ID' => 'ORDER_ID', 'Customer Name' => 'CUSTOMER_NAME', 'Sales' => 'SALES',
+                   'Discount' => 'DISCOUNT' } }
+]
+Dir.mktmpdir do |dir|
+  mpath = File.join(dir, 'landing-manifest.json')
+  File.write(mpath, JSON.generate(dup_manifest))
+  MechanicalSpecs.remap_from_manifest!(dup_model, mpath)
+end
+els_h = dup_model['pages'][0]['elements']
+view_ref = els_h.find { |e| e['id'] == 'el-view-a' }['columns'][0]['formula']
+check(view_ref == '[FIXTURE_ORDERS/Row ID]',
+      "derived view's ref repointed to ITS OWN base's landed table via elementId (not the ambiguous " \
+      "shared string 'ORDERS') (got #{view_ref})", fails)
+check(els_h.find { |e| e['id'] == 'el-orders-a' }.dig('source', 'path') == %w[WHDB WHSCHEMA FIXTURE_ORDERS],
+      'the first duplicate claims its own manifest entry', fails)
+check(els_h.find { |e| e['id'] == 'el-orders-b' }.dig('source', 'path') == %w[WHDB WHSCHEMA FIXTURE_ORDERS_DUP],
+      'the second (duplicate-named) datasource claims its OWN, different manifest entry', fails)
+
 puts
 if fails.empty?
   puts 'ALL PASS'

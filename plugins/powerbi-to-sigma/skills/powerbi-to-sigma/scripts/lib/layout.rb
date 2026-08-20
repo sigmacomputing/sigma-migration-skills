@@ -3,8 +3,7 @@
 # Container-based layouts (layout-playbook.md, verified 2026-06-10):
 #   - spec side: a `kind: container` placeholder element per band
 #     (container_el / header_text_el below build those spec objects)
-#   - layout side: a <GridContainer> (NOT <LayoutElement type="grid">, which
-#     silently drops children) whose child <LayoutElement>s use
+#   - layout side: a <Container> whose child <Element>s use
 #     CONTAINER-RELATIVE coordinates (rows restart at 1).
 module SigmaLayout
   module_function
@@ -30,14 +29,14 @@ module SigmaLayout
     candidates.map { |c| c.to_s.strip }.find { |c| !c.empty? && !generic_title?(c) }
   end
 
-  def gc(eid, c0, c1, r0, r1, inner)
-    "<GridContainer elementId=\"#{eid}\" type=\"grid\" " \
+  def gc(eid, c0, c1, r0, r1, inner, row_template: 'auto')
+    "<Container elementId=\"#{eid}\" type=\"grid\" " \
     "gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\" " \
-    "gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</GridContainer>"
+    "gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"#{row_template}\">\n#{inner}\n</Container>"
   end
 
   def le(eid, c0, c1, r0, r1)
-    "  <LayoutElement elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
+    "  <Element elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
   end
 
   def page_xml(page_id, *children)
@@ -60,8 +59,13 @@ module SigmaLayout
 
   # Spec-side page-title text element (white text over the dark header band).
   def header_text_el(id, title)
+    lines = title.to_s.lines.map(&:strip).reject(&:empty?)
+    heading = lines.shift.to_s
+    subtitle = lines.join(' ')
+    body = %(# <span style="color: #FFFFFF">#{heading}</span>)
+    body += %(\n<span style="color: #94A3B8">#{subtitle}</span>) unless subtitle.empty?
     { 'id' => id, 'kind' => 'text',
-      'body' => %(# <span style="color: #FFFFFF">#{title}</span>) }
+      'body' => body }
   end
 
   # Header band XML: dark full-width container at the top of the page wrapping
@@ -157,7 +161,7 @@ module SigmaLayout
     end
   end
 
-  # One band of items -> a full-width GridContainer spanning the band's row
+  # One band of items -> a full-width Container spanning the band's row
   # range at page level, children re-emitted with CONTAINER-RELATIVE rows.
   # row_offset shifts the container's page-level position (e.g. +3 when a
   # header band was prepended above the original geometry).

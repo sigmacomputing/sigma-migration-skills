@@ -1,4 +1,4 @@
-// ../mcp-fresh/build/sigma-ids.js
+// ../../../tmp/converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var _idCounter = 0;
@@ -287,7 +287,7 @@ function buildDerivedElements(elements) {
   return derived;
 }
 
-// ../mcp-fresh/build/qlik.js
+// ../../../tmp/converter-source/build/qlik.js
 function convertQlikToSigma(rawJson, options = {}) {
   resetIds();
   const { connectionId = "<CONNECTION_ID>", database: dbOverride = "", schema: schOverride = "" } = options;

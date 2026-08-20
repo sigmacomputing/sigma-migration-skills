@@ -29,8 +29,11 @@ end
 def master_el
   { 'id' => 'master', 'kind' => 'table', 'name' => 'Master', 'visibleAsSource' => false,
     'source' => { 'kind' => 'data-model', 'dataModelId' => 'dm-1', 'elementId' => 'fact-1' },
-    'columns' => [{ 'id' => 'm-region', 'name' => 'Region', 'formula' => '[Order Fact/Region]' }],
-    'order' => ['m-region'] }
+    'columns' => [
+      { 'id' => 'm-region', 'name' => 'Region', 'formula' => '[Order Fact/Region]' },
+      { 'id' => 'm-unused', 'name' => 'Unused Payload', 'formula' => '[Order Fact/Unused Payload]' }
+    ],
+    'order' => %w[m-region m-unused] }
 end
 
 def helper_el
@@ -55,11 +58,21 @@ def content_page(id, name, chart_src)
 end
 
 def two_page_spec
-  { 'name' => 'WB', 'schemaVersion' => 1, 'pages' => [
+  spec = { 'name' => 'WB', 'schemaVersion' => 1, 'pages' => [
     { 'id' => 'page-data', 'name' => 'Data', 'elements' => [master_el, helper_el] },
     content_page('dash-1', 'Overview', 'topn-src'), # chart sources the helper (which sources master)
     content_page('dash-2', 'Detail',   'master')    # chart sources the master directly
   ] }
+  # Simulate the pre-split builder's workbook-wide fan-out: both page copies
+  # still carry a target for topn-src, even though only Overview uses it.
+  spec['pages'].drop(1).each do |page|
+    page['elements'].find { |element| element['kind'] == 'control' }['filters'] << {
+      'id' => 'flt-global-helper',
+      'source' => { 'kind' => 'table', 'elementId' => 'topn-src' },
+      'columnId' => 'h-region'
+    }
+  end
+  spec
 end
 
 puts 'test-per-page-masters:'
@@ -87,6 +100,8 @@ res = PerPageMasters.split!(spec)
 check(res[:applied], 'two master-using pages → transform APPLIES', fails)
 check(res[:pages] == 2, 'reports 2 pages split', fails)
 check(res[:masters] == 2, 'reports 2 distinct master instances', fails)
+check(res[:master_columns_before] == 4 && res[:master_columns_after] == 2,
+      "slims each clone to its referenced columns (got #{res[:master_columns_before]} -> #{res[:master_columns_after]})", fails)
 
 dp = spec['pages'].find { |p| p['name'] == 'Data' }
 master_ids = dp['elements'].select { |e| e.dig('source', 'kind') == 'data-model' }.map { |e| e['id'] }
@@ -114,6 +129,8 @@ check(ov_tgt == 'master-overview', "Overview control filters master-overview (go
 check(dt_tgt == 'master-detail',   "Detail control filters master-detail (got #{dt_tgt})", fails)
 check(ov['source']['source']['elementId'] == 'master-overview', 'Overview control value-list sources its own master', fails)
 check(ov_tgt != dt_tgt, 'the two pages target DIFFERENT masters (leakage impossible)', fails)
+check(dt['filters'].length == 1,
+      "Detail drops the copied Overview-only helper target (got #{dt['filters'].map { |f| f.dig('source', 'elementId') }.inspect})", fails)
 
 # the helper closure is cloned per page and re-sourced to that page's master
 ov_chart = spec['pages'].find { |p| p['name'] == 'Overview' }['elements'].find { |e| e['kind'] == 'bar-chart' }

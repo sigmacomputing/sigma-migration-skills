@@ -1,0 +1,12 @@
+{
+  "token": "qr1",
+  "state": "succeeded",
+  "row_count": 3,
+  "created_at": "2026-01-20T10:00:00Z",
+  "completed_at": "2026-01-20T10:00:05Z",
+  "_links": {
+    "self": { "href": "/api/acme/reports/r1/runs/run1/query_runs/qr1" },
+    "query": { "href": "/api/acme/reports/r1/queries/q1" },
+    "content": { "href": "/api/acme/reports/r1/queries/q1/runs/qr1/results/content.csv?page=1" }
+  }
+}

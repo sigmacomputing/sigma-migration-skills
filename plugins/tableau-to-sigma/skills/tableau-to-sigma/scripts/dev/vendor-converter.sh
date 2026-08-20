@@ -11,7 +11,7 @@
 #
 # The vendored snapshot can drift from the live converter. That is the accepted
 # trade for a zero-setup, no-data-egress default; a dev's own local checkout (or
-# TABLEAU_MCP_BUILD / SIGMA_DATA_MODEL_MCP / fetch-converter.sh) still WINS over the
+# TABLEAU_MCP_BUILD / SIGMA_CONVERTER_SRC / fetch-converter.sh) still WINS over the
 # vendored copy, so the floor only kicks in when nothing fresher exists. Re-run this
 # after the converter source changes and commit the result.
 #

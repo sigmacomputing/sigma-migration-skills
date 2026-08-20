@@ -1,11 +1,11 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 #
-# Grounding regression for build-workbook-from-quicksight.rb (beads-sigma-kvza).
+# Grounding regression for build-workbook-from-quicksight.rb ([bead]).
 #
 # Proves the QuickSight dashboard classifier is DOCUMENTATION-GROUNDED and LOUD-on-miss,
 # mirroring the merged Looker/Qlik pilot (tests/test_grounding.py):
-#   1. CATALOGS      — all four refs/catalogs/*.json load, are cited (real doc URLs),
+#   1. CATALOGS      — all refs/catalogs/*.json load, are cited (real doc URLs),
 #      have unique sources, and are tagged source_tool == "quicksight".
 #   2. NO INLINE MAP — the viz/aggregation/control maps are DERIVED from the catalogs;
 #      no residual inline literal bypasses the single source of truth, and the two named
@@ -17,8 +17,8 @@
 #      aggregation is neutralized to Null, NOT quietly summed.
 #   4. MATRIX FRESH  — refs/quicksight-coverage.md is regenerated from the catalogs.
 #
-# No byte-golden: the builder is non-deterministic (SecureRandom element ids) and ships no
-# offline dashboard fixture, so verbatim extraction + these unit checks are the contract.
+# The builder uses deterministic ids; focused shape/feature goldens live in the
+# QuickSight workbook-code release corpus.
 #
 # Run: ruby tests/test-grounding.rb   (exit 0 = pass)
 
@@ -44,8 +44,8 @@ end
 # ---- 1. catalogs load, cited, unique sources -------------------------------
 def test_catalogs_valid
   cats = Coverage.load_all(CATDIR)
-  assert(cats.keys.sort == %w[aggregation control number-format viz-kind],
-         "expected 4 catalogs, got #{cats.keys.sort.inspect}")
+  assert(cats.keys.sort == %w[aggregation control number-format viz-kind workbook-feature],
+         "expected 5 catalogs, got #{cats.keys.sort.inspect}")
   cats.each do |name, cat|
     assert(!cat.rows.empty?, "#{name}: no rows")
     assert(cat.source_tool == 'quicksight', "#{name}: source_tool=#{cat.source_tool.inspect}")
@@ -65,10 +65,13 @@ def test_catalogs_valid
       # equivalent), which legitimately carries sigma:null + an unsupported_reason.
       has_target = !r['sigma'].nil?
       drop_row = name == 'viz-kind' && r['sigma'].nil? && r['unsupported_reason']
-      assert(has_target || drop_row, "#{name}: #{r['source']} has no Sigma target and is not a drop row")
+      explicit_gap = name == 'workbook-feature' && r['sigma'].nil? &&
+                     (r['source_gap'] || r['release_gate'])
+      assert(has_target || drop_row || explicit_gap,
+             "#{name}: #{r['source']} has no Sigma target and is not an explicit gap")
     end
   end
-  puts '[ok] catalogs: 4 dimensions load, cited (quicksight), unique sources, all sigma_verified=n'
+  puts '[ok] catalogs: 5 dimensions load, cited (quicksight), unique sources'
 end
 
 # ---- 2. no residual inline map bypasses the catalog ------------------------
@@ -139,6 +142,18 @@ end
 def test_loud_fallbacks
   spec, warns, err = build(synthetic_analysis, synthetic_readback)
   blob = JSON.generate(warns) + "\n" + err
+  doc = spec['document'] || {}
+  elements = doc['elements'] || []
+
+  assert(spec['name'] && !spec.key?('pages'), 'workbook create metadata must stay outside document')
+  assert(doc['kind'] == 'workbook' && doc['schemaVersion'] == 1,
+         'workbook document kind/schemaVersion missing')
+  assert(Array(doc['pages']).all? { |page| !page.key?('elements') },
+         'workbook pages must be metadata-only')
+  placed = doc['layout'].to_s.scan(/\belementId="([^"]+)"/).flatten
+  ids = elements.map { |element| element['id'] }
+  assert(ids.sort == placed.sort && placed.uniq.length == placed.length,
+         'authoritative layout must place every flat element exactly once')
 
   # (a) unmapped aggregation STDEV -> LOUD Aggregation warn + neutralize to Null (no silent Sum)
   assert(warns.any? { |w| w['type'] == 'Aggregation' && w['reason'].include?('STDEV') &&
@@ -147,7 +162,7 @@ def test_loud_fallbacks
   assert(JSON.generate(spec).include?("unmapped QuickSight aggregation 'STDEV'"),
          'expected the STDEV measure neutralized to Null with a cited description')
   # the STDEV KPI must NOT have been quietly summed
-  kpi = spec['pages'].flat_map { |p| p['elements'] }.find { |e| e['name'] == 'Stdev KPI' }
+  kpi = elements.find { |e| e['name'] == 'Stdev KPI' }
   assert(kpi, 'Stdev KPI element missing')
   stdev_formula = (kpi['columns'] || []).map { |c| c['formula'] }.first
   assert(stdev_formula == 'Null', "STDEV measure was not neutralized (formula=#{stdev_formula.inspect}) — silent default returned?")
@@ -159,7 +174,7 @@ def test_loud_fallbacks
   # (b) number format: no source format found -> LOUD note, and NO format guessed onto the measure
   assert(warns.any? { |w| w['type'] == 'NumberFormat' && w['reason'].include?('no QuickSight source format found') },
          "missing number format did not warn loudly:\n#{blob}")
-  bar = spec['pages'].flat_map { |p| p['elements'] }.find { |e| e['name'] == 'Rev by Region' }
+  bar = elements.find { |e| e['name'] == 'Rev by Region' }
   measure_cols = (bar['columns'] || []).select { |c| c['formula'].to_s.start_with?('Sum(') }
   assert(measure_cols.any? && measure_cols.none? { |c| c.key?('format') },
          'a measure carried a guessed number format — name-substring guessing must be gone')
@@ -167,7 +182,7 @@ def test_loud_fallbacks
   # (c) unknown visual type -> loud drop, not silently emitted
   assert(warns.any? { |w| w['type'] == 'BogusFunkyVisual' && w['reason'].include?('unrecognized') },
          "unknown visual type did not warn loudly:\n#{blob}")
-  names = spec['pages'].flat_map { |p| p['elements'] }.map { |e| e['name'] }
+  names = elements.map { |e| e['name'] }
   assert(!names.include?('Funky'), 'unmapped visual type was silently emitted as an element')
 
   puts '[ok] loud fallbacks: unmapped STDEV neutralized+warns, unformatted measure warns, unknown viz drops+warns'

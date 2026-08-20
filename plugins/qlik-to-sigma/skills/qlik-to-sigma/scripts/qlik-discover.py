@@ -65,6 +65,10 @@ charts.json must never silently become an incomplete Sigma workbook.
 import json, os, re, subprocess, sys, argparse, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from qlik_load_script import parse_tables
+from qlik_object_props import effective_chart_properties
+
 T0 = time.time()
 STAGES = {}          # stage name -> seconds (timings.json evidence trail)
 RETRIES = {"n": 0}
@@ -142,6 +146,117 @@ def _reflines(refline):
                         "value": e.get("value"), "expr": e.get("label")})
         return out
     return {"x": conv(refline.get("refLinesX")), "y": conv(refline.get("refLines"))}
+
+
+def _legend(props):
+    """Normalize the authored legend fields the Sigma builder can preserve."""
+    raw = props.get("legend")
+    if not isinstance(raw, dict):
+        return None
+    show = raw.get("show")
+    if show is None:
+        show = raw.get("showLegend")
+    dock = raw.get("dock") or raw.get("position")
+    out = {}
+    if show is not None:
+        out["show"] = bool(show)
+    if dock:
+        out["dock"] = str(dock).lower()
+    return out or None
+
+
+def _presentation(props):
+    """Normalize only released chart presentation fields; never copy CSS."""
+    data_point = props.get("dataPoint") or {}
+    bar_grouping = props.get("barGrouping") or {}
+    orientation = props.get("orientation")
+    grouping = props.get("grouping") or bar_grouping.get("grouping")
+    show_labels = data_point.get("showLabels")
+    if show_labels is None:
+        show_labels = props.get("showLabels")
+    out = {}
+    if orientation:
+        out["orientation"] = str(orientation).lower()
+    if grouping:
+        out["grouping"] = str(grouping).lower()
+    if show_labels is not None:
+        out["showLabels"] = bool(show_labels)
+    line_type = props.get("lineType")
+    if line_type:
+        out["lineType"] = str(line_type).lower()
+    donut = props.get("donut") or {}
+    if isinstance(donut, dict) and donut.get("showAsDonut") is not None:
+        out["showAsDonut"] = bool(donut["showAsDonut"])
+    return out or None
+
+
+def _combo_series(measure):
+    """Return the authored Qlik combo-series type; absent means Qlik's bar default."""
+    qdef = measure.get("qDef") or {}
+    raw = measure.get("series") or qdef.get("series")
+    if isinstance(raw, dict):
+        raw = raw.get("type")
+    raw = raw or measure.get("representation") or qdef.get("representation") or "bar"
+    return "line" if str(raw).lower() == "line" else "bar"
+
+
+def _content_fields(props, qtype):
+    """Static Qlik content that must survive even though it has no hypercube."""
+    if qtype != "text-image":
+        return {}
+    markdown = props.get("markdown")
+    return {"markdown": markdown} if isinstance(markdown, str) and markdown.strip() else {}
+
+
+def _gauge(props):
+    """Normalize Qlik gauge value-range/presentation fields."""
+    raw = props.get("gauge") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    out = {}
+    for key in ("min", "max"):
+        value = raw.get(key)
+        if value is None:
+            value = props.get(key)
+        if value is not None:
+            out[key] = value
+    shape = raw.get("shape") or raw.get("presentation") or props.get("shape")
+    if shape:
+        out["shape"] = shape
+    return out or None
+
+
+def _drill_groups(qdims):
+    """Capture every authored Qlik drill hierarchy, not just its active level."""
+    out = []
+    for i, dd in enumerate(qdims):
+        qdef = dd.get("qDef") or {}
+        fields = [f for f in (qdef.get("qFieldDefs") or []) if f]
+        if qdef.get("qGrouping") == "H" or len(fields) > 1:
+            labels = qdef.get("qFieldLabels") or []
+            out.append({"dimensionIndex": i, "fields": fields, "labels": labels})
+    return out
+
+
+def _container(props):
+    """Best-effort Qlik container children + tab labels from engine properties."""
+    content = props.get("content") or {}
+    raw = props.get("children") or props.get("cells") or content.get("children") or []
+    children, labels = [], []
+    for child in raw:
+        if isinstance(child, str):
+            cid, label = child, None
+        elif isinstance(child, dict):
+            info = child.get("qInfo") or {}
+            meta = child.get("qMeta") or child.get("qMetaDef") or {}
+            cid = child.get("name") or child.get("id") or child.get("qId") or info.get("qId")
+            label = child.get("label") or child.get("title") or meta.get("title")
+        else:
+            continue
+        if cid:
+            children.append(cid)
+            labels.append(label)
+    return children, labels
 
 
 def _trellis_field(d):
@@ -291,44 +406,9 @@ def enumerate_master(app, ctx_args, kind, pool):
     return [shape(it, props) for it, props in zip(items, prop_list)]
 
 
-# ---- load-script → tables/fields (best-effort) ----
-def split_fields(s):
-    """Split a LOAD field list on top-level commas only (paren-depth aware), so
-    function-built fields like `Dual(MONTH_NAME, MONTH_NUMBER) AS MONTH` stay
-    one token instead of shedding a bogus duplicate column."""
-    parts, depth, cur = [], 0, []
-    for ch in s:
-        if ch in "([":
-            depth += 1
-        elif ch in ")]":
-            depth = max(0, depth - 1)
-        if ch == "," and depth == 0:
-            parts.append("".join(cur)); cur = []
-        else:
-            cur.append(ch)
-    if cur:
-        parts.append("".join(cur))
-    return parts
-
+# ---- load-script → final warehouse-backed tables/fields ----
 def parse_script(qvs):
-    tables = []
-    # Match  Label:\n LOAD <fields> (FROM|RESIDENT|SQL|AUTOGENERATE|INLINE)
-    for m in re.finditer(r'(\w+)\s*:\s*\n\s*LOAD\b(.*?)(?:\bFROM\b|\bRESIDENT\b|\bSQL\b|\bSELECT\b|\bAUTOGENERATE\b|\bINLINE\b)',
-                         qvs, re.IGNORECASE | re.DOTALL):
-        name, body = m.group(1), m.group(2)
-        fields = []
-        for tok in split_fields(body):
-            tok = tok.strip().strip(";").strip()
-            if not tok: continue
-            mm = re.search(r'\bAS\s+"?([A-Za-z0-9_]+)"?\s*$', tok, re.IGNORECASE)  # alias wins
-            if mm:
-                fields.append(mm.group(1))
-            else:
-                mm2 = re.match(r'"?([A-Za-z0-9_]+)"?$', tok)
-                if mm2: fields.append(mm2.group(1))
-        if fields:
-            tables.append({"name": name, "noOfRows": 0, "fields": [{"name": f} for f in fields]})
-    return tables
+    return parse_tables(qvs)
 
 
 def qlik_eval(app, ctx_args, expr):
@@ -572,6 +652,20 @@ def main():
     with stage("filterpane-children"):
         fp_children = dict(zip(fp_ids, pmap(_fp_children, fp_ids, a.pool)))
 
+    # Standard Qlik containers also keep their tabs in evaluated child lists on
+    # some engine versions. Preserve that source composition signal so the
+    # workbook builder can emit a real tabbed-container instead of flattening.
+    container_ids = [o.get("qId") for o in objs if o.get("qType") == "container"]
+    def _container_meta(cid):
+        lay = qlik("app", "object", "layout", cid, "-a", a.app, *ctx) or {}
+        kids, labels = _container(lay)
+        if not kids:
+            items = ((lay.get("qChildList") or {}).get("qItems")) or []
+            kids, labels = _container({"children": items})
+        return {"children": kids, "labels": labels}
+    with stage("container-children"):
+        container_meta = dict(zip(container_ids, pmap(_container_meta, container_ids, a.pool)))
+
     # Listbox field metadata from the EVALUATED layout (qListObject.qDimensionInfo):
     # qTags carries the field's type tags ($date/$timestamp) — the workbook builder
     # needs them to emit a date-range control instead of a list (a list control's
@@ -597,7 +691,8 @@ def main():
         oid, qtype = o.get("qId"), o.get("qType")
         if qtype == "sheet": continue
         props = all_props[oid]
-        hc = props.get("qHyperCubeDef", {})
+        effective, effective_type = effective_chart_properties(props, qtype)
+        hc = effective.get("qHyperCubeDef", {})
         # Carry the object's sort definition so the workbook build can reproduce it:
         # per-dimension qSortCriterias (qSortByNumeric/qSortByAscii/qSortByExpression),
         # per-measure qSortBy, and the column precedence (qInterColumnSortOrder).
@@ -619,25 +714,44 @@ def main():
                     qdims, qmeas = lhc.get("qDimensions", []), lhc.get("qMeasures", [])
                     break
         rec = {
-            "id": oid, "vizType": qtype,
-            "title": _resolve_title(props, a.app, ctx),
+            "id": oid, "vizType": effective_type,
+            "title": _resolve_title(effective, a.app, ctx) or _resolve_title(props, a.app, ctx),
             "sheet": obj_sheet.get(oid),
             "dimensions": [ (dd.get("qDef", {}).get("qFieldDefs") or [dd.get("qLibraryId")]) for dd in qdims ],
             "dimLabels": [ ((dd.get("qDef", {}).get("qFieldLabels") or [None]) or [None])[0] for dd in qdims ],
             "dimNullSuppression": [ bool(dd.get("qNullSuppression")) for dd in qdims ],
             "measures":   [ (mm.get("qDef", {}).get("qDef") or mm.get("qLibraryId")) for mm in qmeas ],
             "measureLabels": [ mm.get("qDef", {}).get("qLabel") for mm in qmeas ],
-            "measureFmts": [ (mm.get("qDef", {}).get("qNumFormat") or {}).get("qFmt") for mm in qmeas ],
+            "measureFmts": [
+                ((mm.get("qNumFormat") or mm.get("qDef", {}).get("qNumFormat") or {}).get("qFmt"))
+                for mm in qmeas
+            ],
             "sort": sort,
             # color encoding (byMeasure gradient / byDimension category) so the
             # builder can reproduce the Qlik chart's color, not default it.
-            "color": props.get("color"),
+            "color": effective.get("color"),
             # reference lines (e.g. a "Margin Target" at x=0.45). refLinesX sit on
             # the X axis, refLines on the measure/Y axis. The builder emits Sigma
             # refMarks from these. value comes from refLineExpr.value (a constant)
             # or refLineExpr.label (an expression string).
-            "refLines": _reflines(props.get("refLine") or {}),
+            "refLines": _reflines(effective.get("refLine") or {}),
         }
+        legend = _legend(effective)
+        if legend:
+            rec["legend"] = legend
+        presentation = _presentation(effective)
+        if presentation:
+            rec["presentation"] = presentation
+        if effective_type == "combochart":
+            rec["seriesTypes"] = [_combo_series(measure) for measure in qmeas]
+        rec.update(_content_fields(effective, effective_type))
+        drills = _drill_groups(qdims)
+        if drills:
+            rec["drillGroups"] = drills
+        if qtype == "gauge":
+            gauge = _gauge(props)
+            if gauge:
+                rec["gauge"] = gauge
         # Filter objects (control-targeting wave): a listbox's field lives on
         # qListObjectDef (NOT the hypercube), and an alternate-state object
         # carries qStateName — the workbook builder turns these into Sigma list
@@ -667,6 +781,13 @@ def main():
             rec["children"] = kids
             if tsig:
                 rec["trellis"] = tsig
+        elif qtype == "container":
+            kids, labels = _container(props)
+            if not kids:
+                meta = container_meta.get(oid) or {}
+                kids, labels = meta.get("children") or [], meta.get("labels") or []
+            rec["children"] = kids
+            rec["childLabels"] = labels
         else:
             # Chart-level native trellis (Appearance>Trellis): faceting one chart
             # into a panel grid. Only added when present -> byte-identical charts.json

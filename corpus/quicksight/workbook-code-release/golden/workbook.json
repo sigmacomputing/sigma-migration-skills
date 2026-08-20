@@ -1,0 +1,326 @@
+{
+  "name": "QuickSight Workbook Code Release (from QuickSight)",
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      {
+        "id": "page-data",
+        "name": "Data",
+        "visibility": "hidden"
+      },
+      {
+        "id": "page-dash",
+        "name": "Overview"
+      },
+      {
+        "id": "page-sheet-1",
+        "name": "Detail"
+      }
+    ],
+    "elements": [
+      {
+        "id": "master",
+        "name": "Orders",
+        "kind": "table",
+        "visibleAsSource": false,
+        "source": {
+          "dataModelId": "dm-1",
+          "elementId": "dm-orders",
+          "kind": "data-model"
+        },
+        "columns": [
+          {
+            "id": "m-b9f64b7c70",
+            "formula": "[Orders/State]",
+            "name": "State"
+          },
+          {
+            "id": "m-86e4dd7e8a",
+            "formula": "[Orders/Amount]",
+            "name": "Amount"
+          },
+          {
+            "id": "m-b30558dcab",
+            "formula": "[Orders/Region]",
+            "name": "Region"
+          }
+        ]
+      },
+      {
+        "id": "repeat-src-e9b01df198",
+        "kind": "table",
+        "name": "Detail REGION Repeat Source",
+        "visibleAsSource": false,
+        "source": {
+          "kind": "table",
+          "elementId": "master"
+        },
+        "columns": [
+          {
+            "id": "repeat-col-1a5f7cbf55",
+            "name": "Region",
+            "formula": "[Orders/Region]"
+          }
+        ],
+        "groupings": [
+          {
+            "id": "repeat-group-dad3c36132",
+            "groupBy": [
+              "repeat-col-1a5f7cbf55"
+            ],
+            "calculations": [
+
+            ]
+          }
+        ]
+      },
+      {
+        "id": "nav-ed6ea16c58",
+        "kind": "navigation",
+        "mode": "auto",
+        "pageLabels": {
+          "page-dash": "Overview",
+          "page-sheet-1": "Detail"
+        }
+      },
+      {
+        "id": "el-16bbf314d6",
+        "kind": "waterfall-chart",
+        "name": "Amount Change",
+        "source": {
+          "elementId": "master",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "d-88022a794a",
+            "formula": "[Orders/State]",
+            "name": "State"
+          },
+          {
+            "id": "m-59340540f4",
+            "formula": "Sum([Orders/Amount])",
+            "name": "Amount"
+          },
+          {
+            "id": "d-aba1836eea",
+            "formula": "[Orders/Region]",
+            "name": "Region"
+          },
+          {
+            "id": "drill-7e8709411a",
+            "name": "Region",
+            "formula": "[Orders/Region]",
+            "hidden": true
+          }
+        ],
+        "xAxis": {
+          "columnId": "d-88022a794a"
+        },
+        "yAxis": {
+          "columnIds": [
+            "m-59340540f4"
+          ]
+        },
+        "splitBy": {
+          "id": "d-aba1836eea"
+        },
+        "waterfallShape": {
+          "calculation": "sum",
+          "connectorLine": "shown"
+        },
+        "startPoint": {
+          "value": {
+            "type": "constant",
+            "value": 0
+          },
+          "visibility": "hidden"
+        },
+        "grouping": "stacked",
+        "color": {
+          "by": "single",
+          "value": "#2563EB"
+        },
+        "legend": {
+          "visibility": "hidden"
+        }
+      },
+      {
+        "id": "ctl-drill-8d56087627",
+        "kind": "control",
+        "name": "Amount Change Drill",
+        "controlId": "Drill67f0aef070",
+        "controlType": "drill",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "master"
+          },
+          "columnId": "m-b9f64b7c70"
+        },
+        "categories": [
+          {
+            "columnId": "m-b30558dcab"
+          },
+          {
+            "columnId": "m-b9f64b7c70"
+          }
+        ],
+        "targets": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "el-16bbf314d6"
+            },
+            "columnIds": [
+              "drill-7e8709411a",
+              "d-88022a794a"
+            ]
+          }
+        ],
+        "value": "m-b9f64b7c70",
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "el-16bbf314d6"
+            },
+            "columnId": "d-88022a794a"
+          }
+        ],
+        "controlScope": [
+          "el-16bbf314d6"
+        ]
+      },
+      {
+        "id": "el-25022c7942",
+        "kind": "progress",
+        "name": "Goal",
+        "mode": "value",
+        "shape": "ring",
+        "value": "Sum([Orders/Amount])",
+        "min": "10",
+        "max": "500"
+      },
+      {
+        "id": "el-6382608e0b",
+        "kind": "table",
+        "name": "Distribution",
+        "source": {
+          "elementId": "master",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "d-aba1836eea-2",
+            "formula": "[Orders/Region]",
+            "name": "Region"
+          },
+          {
+            "id": "m-59340540f4-3",
+            "formula": "Sum([Orders/Amount])",
+            "name": "Amount"
+          }
+        ],
+        "groupings": [
+          {
+            "id": "g-2a2046df22",
+            "groupBy": [
+              "d-aba1836eea-2"
+            ],
+            "calculations": [
+              "m-59340540f4-3"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "nav-662cd74d9a",
+        "kind": "navigation",
+        "mode": "auto",
+        "pageLabels": {
+          "page-dash": "Overview",
+          "page-sheet-1": "Detail"
+        }
+      },
+      {
+        "id": "el-ecd9f1b859",
+        "kind": "table",
+        "name": "Regional Detail",
+        "source": {
+          "elementId": "master",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "d-aba1836eea-3",
+            "formula": "[Orders/Region]",
+            "name": "Region"
+          },
+          {
+            "id": "m-59340540f4-4",
+            "formula": "Sum([Orders/Amount])",
+            "name": "Amount"
+          }
+        ],
+        "groupings": [
+          {
+            "id": "g-a350b1b7be",
+            "groupBy": [
+              "d-aba1836eea-3"
+            ],
+            "calculations": [
+              "m-59340540f4-4"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "repeat-73b04b0d33",
+        "kind": "repeated-container",
+        "source": {
+          "kind": "table",
+          "elementId": "repeat-src-e9b01df198",
+          "groupingId": "repeat-group-dad3c36132"
+        },
+        "arrangement": "list"
+      },
+      {
+        "id": "page-break-repeat-a51b1e60ec",
+        "kind": "page-break"
+      },
+      {
+        "id": "page-break-939bf3ae0e",
+        "kind": "page-break"
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n  <Element elementId=\"repeat-src-e9b01df198\" gridColumn=\"1 / 25\" gridRow=\"13 / 23\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-dash\">\n  <Element elementId=\"nav-ed6ea16c58\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n  <Element elementId=\"el-16bbf314d6\" gridColumn=\"1 / 25\" gridRow=\"4 / 14\"/>\n  <Element elementId=\"ctl-drill-8d56087627\" gridColumn=\"1 / 25\" gridRow=\"14 / 17\"/>\n  <Element elementId=\"el-25022c7942\" gridColumn=\"1 / 25\" gridRow=\"17 / 20\"/>\n  <Element elementId=\"el-6382608e0b\" gridColumn=\"1 / 25\" gridRow=\"20 / 32\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-sheet-1\">\n  <Element elementId=\"nav-662cd74d9a\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n<Container elementId=\"repeat-73b04b0d33\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 18\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-ecd9f1b859\" gridColumn=\"1 / 13\" gridRow=\"1 / 13\"/>\n  <Element elementId=\"page-break-repeat-a51b1e60ec\" gridColumn=\"1 / 13\" gridRow=\"13 / 14\"/>\n</Container>\n  <Element elementId=\"page-break-939bf3ae0e\" gridColumn=\"1 / 25\" gridRow=\"18 / 19\"/>\n</Page>",
+    "panels": [
+
+    ],
+    "overlays": [
+
+    ],
+    "settings": {
+      "navigation": {
+        "pageTabsInViewMode": "shown"
+      },
+      "theme": {
+        "overrides": {
+          "categoricalScheme": [
+            "#2563EB",
+            "#F97316"
+          ],
+          "hasCards": "shown",
+          "borderRadius": "round",
+          "elementBorder": {
+            "color": "#E2E8F0",
+            "width": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,15 +1,29 @@
-{ "workbookId": "fake-wb", "pages": [
-  { "id": "pg-data", "name": "Data", "elements": [ { "id": "master-srv", "name": "Master", "kind": "table" } ] },
-  { "id": "pg-ov", "name": "Overview Dash", "elements": [] },
-  { "id": "pg-sp1", "name": "Where FY26 landed", "elements": [
+{
+  "workbookId": "fake-wb",
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      { "id": "pg-data", "name": "Data" },
+      { "id": "pg-ov", "name": "Overview Dash" },
+      { "id": "pg-sp1", "name": "Where FY26 landed" },
+      { "id": "pg-sp2", "name": "Regional attainment deep-dive" },
+      { "id": "pg-sp3", "name": "What changed in Q4" }
+    ],
+    "elements": [
+      { "id": "master-srv", "name": "Master", "kind": "table" },
       { "id": "an1", "name": null, "kind": "text" },
+      { "id": "nav1", "name": null, "kind": "navigation" },
       { "id": "c1", "name": "Attainment by Region", "kind": "bar-chart" },
       { "id": "c2", "name": "Sales Trend", "kind": "line-chart" },
-      { "id": "c3", "name": "Customer Detail", "kind": "table" } ] },
-  { "id": "pg-sp2", "name": "Regional attainment deep-dive", "elements": [
+      { "id": "c3", "name": "Customer Detail", "kind": "table" },
       { "id": "an2", "name": null, "kind": "text" },
-      { "id": "c4", "name": "Attainment by Region", "kind": "bar-chart" } ] },
-  { "id": "pg-sp3", "name": "What changed in Q4", "elements": [
+      { "id": "nav2", "name": null, "kind": "navigation" },
+      { "id": "c4", "name": "Attainment by Region", "kind": "bar-chart" },
       { "id": "an3", "name": null, "kind": "text" },
-      { "id": "c5", "name": "Sales Trend", "kind": "line-chart" } ] }
-] }
+      { "id": "nav3", "name": null, "kind": "navigation" },
+      { "id": "c5", "name": "Sales Trend", "kind": "line-chart" }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" id=\"pg-data\"><Element elementId=\"master-srv\"/></Page>\n<Page type=\"grid\" id=\"pg-ov\"></Page>\n<Page type=\"grid\" id=\"pg-sp1\"><Element elementId=\"an1\"/><Element elementId=\"nav1\"/><Element elementId=\"c1\"/><Element elementId=\"c2\"/><Element elementId=\"c3\"/></Page>\n<Page type=\"grid\" id=\"pg-sp2\"><Element elementId=\"an2\"/><Element elementId=\"nav2\"/><Element elementId=\"c4\"/></Page>\n<Page type=\"grid\" id=\"pg-sp3\"><Element elementId=\"an3\"/><Element elementId=\"nav3\"/><Element elementId=\"c5\"/></Page>"
+  }
+}

@@ -1,5 +1,5 @@
 {
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "qlik.mjs",
-  "note": "Self-contained generated bundle; not source — do not hand-edit."
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes."
 }

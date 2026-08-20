@@ -20,33 +20,56 @@ The workbook **spec** — the JSON you POST to `/v2/workbooks/spec` defining pag
 
 ## Sources of truth
 
-Sigma's public API docs are an index at `https://help.sigmacomputing.com/openapi.json` that lists two **canonical split specs** (split from one large spec to fix compilation / out-of-memory errors — so the structure changed subtly):
+Sigma's public API docs are an index at `https://help.sigmacomputing.com/openapi.json` that lists two **canonical split specs** (split from one large spec to fix compilation / out-of-memory errors — so the structure changed subtly). **That index now serves an HTML page, not JSON** (verified 2026-08-05) — it renders links to the two specs rather than returning a machine-readable list, so treat it as a human landing page and go straight to the two URLs below:
 
 1. **`https://help.sigmacomputing.com/openapi/openapi/sigma-rest-api.json`** — the REST API: endpoint request/response shapes (workbooks, data models, members, connections, exports, materialization, …). Use for API *calls*.
 2. **`https://help.sigmacomputing.com/openapi/openapi/code-representation.json`** — the "code representation" (as-code) spec. Today it documents the **data-model** spec (`/v2/dataModels/spec`); use it for data-model element shapes.
 
-**Workbook element/control/format shapes** (the `bar-chart` / `kpi-chart` / `control` / format `kind`s that go under `/v2/workbooks/spec`) are **not inlined in either split spec** — get them from one of:
+**Workbook element/control/format shapes** (the `bar-chart` / `kpi-chart` / `control` / format `kind`s that go under `/v2/workbooks/spec`) are **not inlined in either split spec** — get them from one of, roughly in this order.
 
-- **A live workbook readback** — `GET /v2/workbooks/{id}/spec` on the user's org. The durable, always-current source: read a real workbook and navigate `pages[].elements[]` by `kind`. **Prefer this.**
-- **The full compiled OpenAPI** — one spec that *does* inline every workbook `kind`, served as a content-addressed Fern docs asset (the sanctioned reference for now):
-  `https://files.buildwithfern.com/sigma.docs.buildwithfern.com/006ce360082503c7b849529b4c183cc4dc63360aff76038ca64669572c662b87/assets/openapi/sigma-computing-public-rest-api.json`
-  Good for offline `jq` navigation. Caveats: it may **lag** the live API slightly (it's refreshed out-of-band — manually today, moving to an automated refresh + a dedicated reliably-hosted asset that will also back the CLI), and the hash pins a build so the path can change on a docs redeploy. So treat a **live workbook readback** (above) as the always-current source, and if this asset 404s, rediscover the current link from the Sigma API reference docs. (The retired `help.sigmacomputing.com/openapi/sigma-computing-public-rest-api.json` path now 404s.)
+> **The split specs don't document the workbook spec endpoint at all** (verified 2026-08-05): `sigma-rest-api.json` has **zero** paths matching `spec` — no `/v2/workbooks/spec`, no `/v2/workbooks/spec/verify`, no `/v2/workbooks/{id}/spec` — and `code-representation.json` carries only the two `/v2/dataModels/spec*` paths. So for workbook authoring the split specs are not merely missing the inlined element shapes; the endpoint itself is absent. Use a per-endpoint reference page, the compiled asset, or a live readback (all below).
+
+- **A live workbook readback** — `GET /v2/workbooks/{id}/spec` on the user's org. Read literal elements from flat `document.elements[]`; pages, overlays, and panels are metadata and layout determines placement.
+- **A single endpoint's stable reference page** — `https://help.sigmacomputing.com/reference/<endpoint-slug>`. Use it to confirm one endpoint's current request/response envelope. Create and verify use `{name, folderId, document: {...}}`; update accepts exactly `{document: {...}}`. <!-- pragma: allowlist secret -->
+- **The full compiled OpenAPI** — one document covering every workbook `kind`, and the **only** source that documents `/v2/workbooks/spec` at all. Use it for bulk discovery ("list every kind the API accepts") that no single per-endpoint page can do. **This is the canonical, stable, unauthenticated URL — use it directly:**
+
+  ```
+  https://assets.sigmacomputing.com/openapi/public-rest-api/sigma-computing-public-rest-api.json
+  ```
+
+### Fetching the compiled asset
+
+```bash
+curl -sfL https://assets.sigmacomputing.com/openapi/public-rest-api/sigma-computing-public-rest-api.json \
+  -o /tmp/sigma-api.json
+```
+
+Plain `GET`, no auth, no signature, no content hash — safe to hardcode. Title "Sigma Computing Public REST API", `version: 2.0.0`, ~6.8 MB (it uses `$ref`s into `components.schemas`, so **deref as you walk** — element kinds are behind `#/components/schemas/WorkbookElement`).
+
+> **Do not use the old Fern docs asset** (`fdr-prod-docs-files-public.s3.amazonaws.com/sigma.docs.buildwithfern.com/<hash>/…`). It is content-addressed, now requires AWS presigned query params (a bare fetch 403s), and — the reason that actually matters — **it lags the live API**. As of 2026-08-05 it was missing `/v2/reports/spec*` entirely, still documented the pre-`document`-wrapper request body, and **did not contain the `repeated-container` element kind**, which caused this skill to previously assert that repeated containers were not spec-authorable. They are. Working from a stale asset produces confidently wrong documentation; prefer the `assets.sigmacomputing.com` URL above, and treat a live workbook readback as the tiebreaker.
+
+The old `help.sigmacomputing.com/openapi.json` index is now an HTML landing page and does not link the compiled asset at all.
 
 When this skill and the spec (or a live readback) disagree, the spec wins. When a feature isn't covered here, consult the spec / a live workbook and use what it documents.
 
-## Consulting the shapes (compiled OpenAPI or a live readback)
+## Consulting the shapes (per-endpoint pages, compiled OpenAPI, or a live readback)
 
-**The field lists and examples in this skill are illustrative, not exhaustive** — when you need the complete, current shape of anything, query the full compiled spec (the Fern asset in *Sources of truth*) or a live workbook readback. Fetch the compiled spec once per session and inspect with `jq`:
+**The field lists and examples in this skill are illustrative, not exhaustive** — when you need the complete, current shape of anything, pick the right tool for the question:
+
+- **One endpoint, one doubt** (does this field still exist, is the body wrapped or flat, what's required) — go straight to that endpoint's stable reference page, `https://help.sigmacomputing.com/reference/<endpoint-slug>` (see *Sources of truth*). No caching, no `jq`, just read the page.
+- **Every `kind` the API accepts, or every field on a `kind`** (bulk discovery — e.g. building out `reference/specification/*.md`) — the per-endpoint pages don't help here (one endpoint each); use the compiled OpenAPI or a live workbook readback instead. Fetch the compiled spec once per session and inspect with `jq`:
 
 ```bash
-curl -sf https://files.buildwithfern.com/sigma.docs.buildwithfern.com/006ce360082503c7b849529b4c183cc4dc63360aff76038ca64669572c662b87/assets/openapi/sigma-computing-public-rest-api.json > /tmp/sigma-api.json
-# ^ content-addressed docs asset (see "Sources of truth"); if it 404s, use the current link from the Sigma API reference docs, or read a live workbook spec (GET /v2/workbooks/{id}/spec) and navigate pages[].elements[] by kind.
+# Assumes /tmp/sigma-api.json from "Fetching the compiled asset" above.
+# If a field looks wrong, check that field's per-endpoint page, or read a live workbook spec
+# (GET /v2/workbooks/{id}/spec) and navigate document.elements[] by kind.
 
-# The entire workbook spec request body lives under one path (it is not split into named schemas):
+# The workbook spec request body. NOTE: the outer object is {name, folderId, description?, document},
+# so elements/pages/overlays/panels/layout/settings/agents are under .document:
 jq '.paths."/v2/workbooks/spec".post.requestBody.content."application/json".schema' /tmp/sigma-api.json
 ```
 
-Element, source, control, and format shapes are **inlined** under that path and identified by their `kind` value (e.g. `bar-chart`, `kpi-chart`, `join`, `warehouse-table`) — not by a top-level schema name. Navigate by the `kind` discriminator:
+Element, source, control, and format shapes are identified by their `kind` value (e.g. `bar-chart`, `kpi-chart`, `join`, `warehouse-table`) rather than by a top-level schema name. They live in `components.schemas` and are reached by `$ref` (element kinds hang off `#/components/schemas/WorkbookElement`) — so **deref as you walk** if you're writing your own traversal. The `jq` recipes below scan the whole document, so they work regardless:
 
 ```bash
 # List every kind the spec accepts (elements, sources, controls, formats, …):
@@ -61,16 +84,6 @@ jq --arg k bar-chart 'first(.. | objects | select((.allOf? and any(.allOf[]?; .p
 ```
 
 `WebFetch` works for the JSON too. Either path is fine.
-
-**Or navigate a live workbook readback** (durable, when the compiled asset is unavailable) — same `kind` discriminator, just walk the elements directly:
-
-```bash
-curl -sf -H "Authorization: Bearer $SIGMA_API_TOKEN" "$SIGMA_BASE_URL/v2/workbooks/<id>/spec" > /tmp/wb.json
-# list the kinds a real workbook uses; inspect one element's full shape:
-jq -r '[.. | objects | select(.kind) | .kind] | unique[]' /tmp/wb.json
-jq 'first(.. | objects | select(.kind=="bar-chart"))' /tmp/wb.json
-```
-(`wb-rep.rb capabilities --workbook <id>` does the same enumeration in pure Ruby — no `jq` needed.)
 
 No `curl`/`jq` on the machine (e.g. Windows without WSL)? `scripts/wb-rep.rb`
 ships a `capabilities` subcommand that does the same three queries with
@@ -127,7 +140,8 @@ curl -s -H "Authorization: Bearer $SIGMA_API_TOKEN" \
   > /tmp/reference-spec.yaml
 ```
 
-Look at source structure, column ID patterns, formula syntax, element naming, layout XML idioms. The `pages` array shape is exactly what you'll POST when creating.
+Look at source structure, column IDs, formulas, flat `document.elements`, page
+metadata, and layout XML. Do not copy an obsolete `pages[].elements` shape.
 
 ### Step 3 — Discover data sources
 
@@ -152,10 +166,19 @@ Write the spec YAML to disk (e.g., `/tmp/workbook-spec.yaml`). YAML is preferred
 - Every element needs a unique `id` and a descriptive `name`.
 - Every column needs a unique `id`, a `name`, and a `formula`.
 - Follow the formula reference rules in `reference/specification/formulas.md` exactly — most spec errors happen here.
-- **Write explicit `layout` XML for multi-element workbooks.** Auto-arrange (omitting `layout`) is acceptable only for single-element pages or a uniform stack of tables. See `reference/specification/layout.md` for the rubric.
+- **Write explicit `document.layout` XML whenever elements are non-empty.** It
+  is the source of truth for page/container/tab organization.
+- Emit `<Element>` for layout leaves and `<Container>` for nested grids,
+  including repeated-container elements. `<TabbedContainer>` / `<Tab>` remain
+  valid. Never emit the legacy `<LayoutElement>` / `<GridContainer>` aliases;
+  live verification rejects `<LayoutElement>` with HTTP 400.
 - Start with 1–2 pages. Add more later via update.
 
-For **create**, the file must include top-level `name`, `folderId`, `schemaVersion`, and `pages`. `description` is optional. `layout` is technically optional but expected for multi-element workbooks. `schemaVersion` is usually `1` — that's the current value; it may change in the future, so if the API rejects the spec on that field, check what your reference-workbook GET in Step 2 returned and use that instead. Full CRUD mechanics are in `reference/workflows/crud.md`.
+For **create**, include outer `name`/`folderId` and `document` with required
+`schemaVersion`, `kind: workbook`, flat `elements`, and metadata-only `pages`.
+Optional document fields include `overlays`, `panels`, `settings`, and `agents`.
+This skill requires `layout` whenever `elements` is non-empty. See
+`reference/specification/schema.md`.
 
 ### Step 6 — Validate the spec
 
@@ -200,18 +223,22 @@ After initial creation, use `PUT /v2/workbooks/<id>/spec` to add pages or refine
 
 **For anything beyond ~1 page / ~10 elements, switch to the element rep** (`reference/workflows/element-rep.md`): `scripts/wb-rep.rb pull <id> <dir>` explodes the spec into one file per element so each edit touches a ~½KB file instead of the whole spec, `push` handles drift-check + validation + PUT, and `render` exports page PNGs you can actually look at. The raw GET/PUT flow below remains fine for small workbooks and one-off tweaks.
 
-> **IDs are preserved on CREATE.** The `id` values you POST (pages, elements, columns) are kept verbatim, and `layout` `elementId` references stay valid — so you can edit your saved spec and `PUT` it back directly. `GET` the current spec first only if you don't have your latest copy. See `reference/workflows/crud.md`.
+> **IDs are preserved on CREATE.** The `id` values you POST (pages, elements, columns) are kept verbatim, and `layout` `elementId` references stay valid — so you can edit your saved spec and `PUT` it back, re-wrapped as just `{document: {...}}` (see below — PUT does not take the outer `name`/`folderId`). `GET` the current spec first only if you don't have your latest copy. See `reference/workflows/crud.md`.
 
 ```bash
 curl -s -H "Authorization: Bearer $SIGMA_API_TOKEN" \
   "$SIGMA_BASE_URL/v2/workbooks/<workbook-id>/spec" \
   > /tmp/current-spec.yaml
 
-# Edit /tmp/current-spec.yaml, then:
+# Edit /tmp/current-spec.yaml inside .document; preserve elements, pages,
+# overlays, panels, layout, settings, and agents.
+# then PUT only the document object — see reference/workflows/crud.md for why
+# sending the outer name/folderId/response-only fields alongside it 400s:
+yq '{document: .document}' /tmp/current-spec.yaml > /tmp/current-spec-put.yaml
 curl -s -X PUT -H "Authorization: Bearer $SIGMA_API_TOKEN" \
   -H "Content-Type: application/yaml" \
   -H "Accept: application/yaml" \
-  --data-binary @/tmp/current-spec.yaml \
+  --data-binary @/tmp/current-spec-put.yaml \
   "$SIGMA_BASE_URL/v2/workbooks/<workbook-id>/spec" | yq .
 
 cp /tmp/current-spec.yaml "/tmp/workbook-spec-<workbook-id>.yaml"
@@ -238,15 +265,14 @@ The reference is feature-sliced — don't read every file up-front. The index ha
 | File | When to load |
 |------|--------------|
 | `reference/specification/tables.md` | Table element, tabular data, data grid, spreadsheet-style list. Also element-level filters (top N, limit, rank), groupings (pivot, group by), the `pivot-table` and editable `input-table` element kinds, and `conditionalFormats` (threshold-based cell coloring, on pivot/input tables). |
-| `reference/specification/charts.md` | Chart, graph, visualization, line / bar / column / stacked / grouped / combo / donut / pie / scatter / share-of / breakdown. Cartesian axes, color channel, trellis, trendlines, reference marks. |
+| `reference/specification/charts.md` | Chart, graph, visualization, line / bar / column / stacked / grouped / combo / donut / pie / scatter / waterfall / share-of / breakdown. Cartesian axes, color, trellis, legend, trendlines, reference marks. Box chart is unsupported/pending because it is absent from the live OpenAPI. |
 | `reference/specification/maps.md` | Map visualizations — `geography-map` (GeoJSON shapes), `point-map` (lat/long bubbles), `region-map` (states / counties / countries). |
-| `reference/specification/kpis.md` | KPI, stat, big number, single value, metric card — layout / value styling, and the spec limits of the trend-sparkline block (still UI-bound). Comparative KPIs (a Δ badge vs. a prior/target column) are the house default — see the dedicated row below. |
-| `refs/kpi-comparison.md` + `examples/comparative-kpi-card.yaml` | Comparative KPI card, delta badge, vs.-prior / vs.-target number. The verified, readback-stable `comparisonColumn` + `comparison:{display:"delta"}` shape, its gotchas, the `KpiCard.build`/`kpi_card.build` emitter that produces it, and a clone-able spec fragment. |
-| `reference/specification/controls.md` | Filter, dropdown, picker, multi-select, date range, date picker, text filter, number range, slider, segmented, hierarchy. |
-| `reference/specification/content-elements.md` | The non-data elements — `text` (Markdown + inline styling), `image`, `divider`, `embed` (external URLs). Titles, callouts, logos, rules, embedded content. |
-| `reference/specification/input-tables.md` | Operational supplement for `input-table` (spec shape lives in `tables.md`): write-connection requirement, the publish gate, reading data back via warehouse views, element endpoints for auditing, cross-connection linked-table pull, and migration patterns (Excel/planning models). |
-| `reference/specification/styling.md` | **Load when building a dashboard from scratch.** Design recipe library — vetted color palette, hero header strip, KPI card row, section headers, divider rhythm, categorical chart colors, gradient headers/cards + motif menu, the composite-sparkline pattern. Turns a default-arrange workbook into a designed-looking one without UI editing. |
-| `reference/specification/agents.md` | Workbook AI agent, chat panel, "ask a question about this data." The workbook-top-level `agents:[]` array + the `chat` element — read-only analyst vs. write/action-tool agent, the org-feature gate, and the graceful-degrade fallback. |
+| `reference/specification/kpis.md` | KPI, stat, big number, single value, metric card — including layout / value styling, the comparison Δ badge (`comparisonColumn` + `comparison:{display:"delta"}` — spec-authorable and readback-stable; the house default), and the trend/sparkline block (still UI-bound). |
+| `reference/specification/controls.md` | Filter, dropdown, picker, multi-select, date range, date picker, text filter, number range, slider, segmented, hierarchy, legend, and drill controls. Also entry controls and formula handles. |
+| `reference/specification/content-elements.md` | The non-data elements — `text` (Markdown + inline styling), `image`, `divider`, `embed` (external URLs), `page-break` (PDF/print pagination), `form`, `progress`, `navigation`, `plugin`. Titles, callouts, logos, rules, embedded content. |
+| `reference/specification/input-tables.md` | Operational supplement for `input-table` (spec shape lives in `tables.md`): write-connection requirement, the publish gate, reading data back via warehouse views, element endpoints for auditing, and migration patterns (Excel/planning models). |
+| `reference/specification/styling.md` | **Load when building a dashboard from scratch.** Design recipe library — vetted color palette, hero header strip, gradient header/KPI cards + composite sparkline, KPI card row, section headers, divider rhythm, categorical chart colors. Turns a default-arrange workbook into a designed-looking one without UI editing. |
+| `reference/specification/agents.md` | Workbook AI agent, chat with your data, agent, chatbot, AI assistant. The workbook-top-level `agents:[]` array + page-level `chat` element; read-only analyst vs. write/action agent; the four `tools[]` kinds (`action`, `mcp-connector`, `warehouse-agent`, `search-service`), `greeting`, `requiresApproval`, why action sequences are referenceable but not authorable; org-feature gate + graceful degrade. |
 
 ### Sources
 
@@ -259,23 +285,24 @@ The reference is feature-sliced — don't read every file up-front. The index ha
 
 | File | When to load |
 |------|--------------|
-| `reference/specification/schema.md` | Always — load before drafting any spec. Top-level shape, required fields, response-only fields to strip. |
+| `reference/specification/schema.md` | Always — wrapped shape, required flat `document.elements`, metadata-only pages, overlays, panels, settings, backgrounds, and the PUT-only-document rule. |
 | `reference/specification/formulas.md` | Always — load before drafting any spec. Formula syntax, qualification, special characters, the #1 mistake. |
 | `reference/specification/formatting.md` | Format, currency, percentage, date format, decimals — column formatting. |
-| `reference/specification/layout.md` | **Always load for multi-element workbooks.** Layout XML, GridContainer/LayoutElement, container elements, tabbed containers (pack multiple views into one region — spec-authorable, not UI-only), page visibility / background, auto-arrange fallback rules, when to write explicit layout vs. omit. |
+| `reference/specification/layout.md` | **Always load.** Required layout policy; page/container organization; backgrounds/spacing; panels, headers, sidebars, navigation; repeated and tabbed containers. |
 | `reference/specification/example-full.yaml` | A real multi-page reference spec (KPIs, charts, joins, controls, layout) — copy shapes from when in doubt. |
+| `reference/specification/comparative-kpi-card.yaml` | Minimal clone-able comparative KPI card — `value` + `comparisonColumn` + `comparison:{display:"delta"}`, the house-default comparative shape (see `kpis.md`). |
 
 ### Workflows
 
 | File | When to load |
 |------|--------------|
 | `reference/workflows/discover.md` | Finding connections, tables, and column names. Load before composing a new spec. |
-| `reference/workflows/composition.md` | Open-ended design decisions — calibrating workbook complexity to the request, when to ask the user, what to ask, surfacing structural choices in the final summary, and three opinionated layout patterns (`exec` KPI-strip dashboards, `master-detail` pick-one-see-its-detail, optional `overview` KPI/trend/pivot stack) backed by `shared/lib/composition.rb` — plus an optional, independently-selectable richness menu (comparative KPI cards, AI-insight callout, grain/filter controls, wide pivot) backed by `shared/lib/kpi_card.rb` and `shared/lib/richness.rb`. Load before drafting anything when the prompt leaves significant design choices unmade. |
+| `reference/workflows/composition.md` | Open-ended design decisions — calibrating workbook complexity to the request, when to ask the user, what to ask, surfacing structural choices in the final summary, and a few safe defaults (hidden source pages, ranked-table sort direction). Load before drafting anything when the prompt leaves significant design choices unmade. |
+| `reference/workflows/actions.md` | Buttons, write-back, and **all twelve** action effects — insert/update/delete-rows, clear-control, set-control-value, open/close-overlay (modal **and** drawer), open-url, open-document (incl. passing `targetControls` into another workbook), navigate, select-tab, refresh-element — plus the append-only-log pattern and the masked-error catalog. Load when the user wants a button, a "log/save/submit" action, tab/page navigation, a deep link, or a write-back workflow. |
 | `reference/workflows/crud.md` | POST / GET / PUT against the workbook spec endpoints. Load when creating, retrieving, or updating a workbook. |
 | `reference/workflows/validate.md` | Pre-submit + post-create validation. Load before any POST or PUT. |
 | `reference/workflows/from-image.md` | The user supplied a target image (screenshot, mockup, BI-tool export) to reproduce. Load *before* discovery — it adds explicit observation and validation steps. |
 | `reference/workflows/element-rep.md` | **Large or multi-page workbooks, parallel element work, or iterative refinement.** `scripts/wb-rep.rb` explodes the spec into one small file per element (pull/status/push/render) so edits never drag the whole spec through context — element-level semantics over the whole-spec API, plus PNG renders to inspect what you built. |
-| `reference/workflows/actions.md` | Button, click-to-write, insert a row, reset/set a control, write-back workflow, append-only log, modal / overlay. Verified `insert-rows`/`clear-control`/`set-control-value` effect shapes (+ `open-overlay`/`close-overlay` for modals), the append-only-log recipe, and the masked-error catalog (`inputMode`, entry-control fields, element-scoped `clear-control`) — backed by `shared/lib/actions.rb`. |
 
 ## Quick Formula Rules
 
@@ -290,15 +317,21 @@ The single most common spec error is bare `[column_name]` references to warehous
 - References a column defined in this element by its `name` field.
 - A column cannot reference itself (circular reference error).
 
+**Data-model metrics** — use `[Metrics/<metric name>]`:
+- `Metrics` is a reserved namespace; use the metric's `name`, not its ID.
+- `[<element name>/<metric>]` is a column reference and can fail with
+  `Dependency not found` even though the metric exists.
+- Confirm the metric survives the data-model GET readback before binding it.
+
 ## Troubleshooting
 
 ### "I don't see this field in the skill"
 
-Fetch the OpenAPI. The skill documents stable, common surface area; the API has more. See **Consulting the OpenAPI** above.
+Fetch the OpenAPI. The skill documents stable, common surface area; the API has more. See **Consulting the shapes** above.
 
 ### API schema mismatch (skill is stale)
 
-A 400 about request *shape* — `invalid argument`, `unknown field`, `unexpected property`, `missing required field` — usually means the API moved past the skill. Fetch the OpenAPI (see **Consulting the OpenAPI**), diff the live shape for that `kind`, and retry **once** with the correction. Tell the user it looks like the skill is out of date and worth updating through whatever channel they installed it from; don't loop on retries.
+A 400 about request *shape* — `invalid argument`, `unknown field`, `unexpected property`, `missing required field` — usually means the API moved past the skill. Fetch the OpenAPI (see **Consulting the shapes**), diff the live shape for that `kind`, and retry **once** with the correction. Tell the user it looks like the skill is out of date and worth updating through whatever channel they installed it from; don't loop on retries.
 
 ### 401 Unauthorized
 
@@ -338,7 +371,7 @@ The most common spec issue. A bare `[column_name]` was used where `[TABLE/column
 
 ### "Unknown column" errors
 
-The column name in the formula doesn't match what the warehouse actually has. Re-confirm the column names via `GET /v2/connections/tables/{inodeId}/columns` (raw warehouse names) and the readback (`GET /v2/workbooks/<id>/spec`, which shows Sigma's normalized friendly names). Use those names verbatim.
+The column name in the formula doesn't match what the warehouse actually has. Re-confirm the column names via `GET /v2/connections/tables/{inodeId}/columns` (raw warehouse names) and the readback (`GET /v2/workbooks/<id>/spec`, which may preserve the raw spelling or show Sigma's canonicalized friendly form). Raw names are accepted authoring input; use the returned readback form for later edits.
 
 ### `jq` or `yq` not installed
 
@@ -349,4 +382,4 @@ The column name in the formula doesn't match what the warehouse actually has. Re
 
 ### Cryptic validation errors / silent bad data
 
-See `reference/workflows/validate.md` for the full triage table (mapping `Invalid kind: pages[0].elements[N]...` style errors to the right spec file).
+See `reference/workflows/validate.md` for `document.elements[N]` and layout error triage.

@@ -31,41 +31,49 @@ end
 # control with a scalar value, a conditional format with includeValues:true,
 # and an If() with an explicit comparison.
 def valid_spec
+  elements = [
+    { 'id' => 'el-master', 'kind' => 'table', 'name' => 'Master',
+      'columns' => [
+        { 'id' => 'col-region', 'name' => 'Region', 'formula' => '[Src/Region]' },
+        { 'id' => 'col-rev', 'name' => 'Revenue', 'formula' => '[Src/Revenue]' },
+        { 'id' => 'col-flagged', 'name' => 'Flagged Revenue',
+          'formula' => 'If([Src/Flag] = 1, [Src/Revenue], 0)' }
+      ] },
+    { 'id' => 'el-kpi', 'kind' => 'kpi-chart', 'name' => 'Total Revenue',
+      'source' => { 'kind' => 'table', 'elementId' => 'el-master' },
+      'columns' => [{ 'id' => 'col-kpi-val', 'name' => 'Total Revenue',
+                      'formula' => 'Sum([Revenue])' }],
+      'value' => { 'columnId' => 'col-kpi-val' } },
+    { 'id' => 'el-bar', 'kind' => 'bar-chart', 'name' => 'Revenue by Region',
+      'source' => { 'kind' => 'table', 'elementId' => 'el-master' },
+      'style' => { 'legend' => { 'position' => 'bottom' } },
+      'columns' => [
+        { 'id' => 'col-bar-dim', 'name' => 'Region', 'formula' => '[Region]' },
+        { 'id' => 'col-bar-val', 'name' => 'Revenue', 'formula' => 'Sum([Revenue])' }
+      ] },
+    { 'id' => 'el-pivot', 'kind' => 'pivot-table', 'name' => 'Waffle',
+      'columns' => [{ 'id' => 'col-cell', 'name' => 'Filled', 'formula' => 'Max([Revenue])' }],
+      'conditionalFormats' => [{ 'columnId' => 'col-cell', 'includeValues' => true,
+                                 'backgroundScale' => { 'kind' => 'sequential' } }] },
+    { 'id' => 'el-ctl', 'kind' => 'control', 'controlId' => 'ctl-region',
+      'controlType' => 'list', 'name' => 'Region Filter',
+      'selectionMode' => 'single', 'value' => 'East',
+      'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'el-bar' },
+                      'columnId' => 'col-bar-dim' }] }
+  ]
   JSON.parse(JSON.generate(
-    'pages' => [{
-      'name' => 'Dash',
-      'elements' => [
-        { 'id' => 'el-master', 'kind' => 'table', 'name' => 'Master',
-          'columns' => [
-            { 'id' => 'col-region', 'name' => 'Region', 'formula' => '[Src/Region]' },
-            { 'id' => 'col-rev', 'name' => 'Revenue', 'formula' => '[Src/Revenue]' },
-            { 'id' => 'col-flagged', 'name' => 'Flagged Revenue',
-              'formula' => 'If([Src/Flag] = 1, [Src/Revenue], 0)' }
-          ] },
-        { 'id' => 'el-kpi', 'kind' => 'kpi-chart', 'name' => 'Total Revenue',
-          'source' => { 'kind' => 'table', 'elementId' => 'el-master' },
-          'columns' => [{ 'id' => 'col-kpi-val', 'name' => 'Total Revenue',
-                          'formula' => 'Sum([Revenue])' }],
-          'value' => { 'columnId' => 'col-kpi-val' } },
-        { 'id' => 'el-bar', 'kind' => 'bar-chart', 'name' => 'Revenue by Region',
-          'source' => { 'kind' => 'table', 'elementId' => 'el-master' },
-          'style' => { 'legend' => { 'position' => 'bottom' } },
-          'columns' => [
-            { 'id' => 'col-bar-dim', 'name' => 'Region', 'formula' => '[Region]' },
-            { 'id' => 'col-bar-val', 'name' => 'Revenue', 'formula' => 'Sum([Revenue])' }
-          ] },
-        { 'id' => 'el-pivot', 'kind' => 'pivot-table', 'name' => 'Waffle',
-          'columns' => [{ 'id' => 'col-cell', 'name' => 'Filled', 'formula' => 'Max([Revenue])' }],
-          'conditionalFormats' => [{ 'columnId' => 'col-cell', 'includeValues' => true,
-                                     'backgroundScale' => { 'kind' => 'sequential' } }] },
-        { 'id' => 'el-ctl', 'kind' => 'control', 'controlId' => 'ctl-region',
-          'controlType' => 'list', 'name' => 'Region Filter',
-          'selectionMode' => 'single', 'value' => 'East',
-          'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'el-bar' },
-                          'columnId' => 'col-bar-dim' }] }
-      ]
-    }]
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'p1', 'name' => 'Dash' }],
+      'elements' => elements,
+      'layout' => "<Page id=\"p1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+    }
   ))
+end
+
+def fixture_elements(spec)
+  spec.fetch('document').fetch('elements')
 end
 
 def rule(errs, id)
@@ -80,7 +88,7 @@ check(w.empty?, "valid spec → zero warnings (got #{w.inspect})", fails)
 
 # ---- K1: kpi-chart value column with a bare sibling ref ----------------------
 s = valid_spec
-kpi = s['pages'][0]['elements'][1]
+kpi = fixture_elements(s)[1]
 kpi['columns'][0]['formula'] = '[Total Calls]'
 errs = lint(s)
 k1 = rule(errs, 'K1')
@@ -90,13 +98,13 @@ check(k1.first.to_s.include?('render null') && k1.first.to_s.include?('Total Rev
 
 # K1 only fires on the VALUE column — a bare-ref helper sibling is fine.
 s = valid_spec
-s['pages'][0]['elements'][1]['columns'] << { 'id' => 'col-helper', 'name' => 'Helper', 'formula' => '[Revenue]' }
+fixture_elements(s)[1]['columns'] << { 'id' => 'col-helper', 'name' => 'Helper', 'formula' => '[Revenue]' }
 check(rule(lint(s), 'K1').empty?, 'K1: bare ref on a NON-value kpi column → no violation', fails)
 
 # ---- S1: backgroundColor on kpi-chart / bar-chart ----------------------------
 %w[kpi-chart bar-chart].each_with_index do |kind, i|
   s = valid_spec
-  s['pages'][0]['elements'][1 + i]['style'] = { 'backgroundColor' => '#00000000' }
+  fixture_elements(s)[1 + i]['style'] = { 'backgroundColor' => '#00000000' }
   s1 = rule(lint(s), 'S1')
   check(s1.size == 1, "S1: backgroundColor on #{kind} → 1 violation", fails)
   check(s1.first.to_s.include?('blanks the tile in PNG export') && s1.first.to_s.include?('container styling'),
@@ -104,12 +112,12 @@ check(rule(lint(s), 'K1').empty?, 'K1: bare ref on a NON-value kpi column → no
 end
 # other kinds keep backgroundColor legally (e.g. text elements / tables)
 s = valid_spec
-s['pages'][0]['elements'][0]['style'] = { 'backgroundColor' => '#FFFFFF' }
+fixture_elements(s)[0]['style'] = { 'backgroundColor' => '#FFFFFF' }
 check(rule(lint(s), 'S1').empty?, 'S1: backgroundColor on a table → no violation', fails)
 
 # ---- C5: single-select control carrying values:[] ----------------------------
 s = valid_spec
-ctl = s['pages'][0]['elements'][4]
+ctl = fixture_elements(s)[4]
 ctl.delete('value')
 ctl['values'] = ['East']
 c5 = rule(lint(s), 'C5')
@@ -118,7 +126,7 @@ check(c5.first.to_s.include?('value: "East"'), 'C5 message spells out the scalar
 
 # multi-select values arrays are legal
 s = valid_spec
-ctl = s['pages'][0]['elements'][4]
+ctl = fixture_elements(s)[4]
 ctl.delete('value')
 ctl['selectionMode'] = 'multi'
 ctl['values'] = %w[East West]
@@ -126,26 +134,26 @@ check(rule(lint(s), 'C5').empty?, 'C5: selectionMode multi + values array → no
 
 # ---- N1: whitespace-only names ------------------------------------------------
 s = valid_spec
-s['pages'][0]['elements'][2]['name'] = '  '
+fixture_elements(s)[2]['name'] = '  '
 n1 = rule(lint(s), 'N1')
 check(n1.size == 1, 'N1: whitespace-only element name → 1 violation', fails)
 check(n1.first.to_s.include?('parity header matching') && n1.first.to_s.include?('title hiding belongs on the element'),
       'N1 message names the breakage + the real fix', fails)
 
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'][1]['name'] = ''
+fixture_elements(s)[0]['columns'][1]['name'] = ''
 n1c = rule(lint(s), 'N1')
 check(n1c.size == 1 && n1c.first.to_s.include?("column 'col-rev'"),
       'N1: empty column name → 1 violation naming the column', fails)
 
 # an element with NO name key at all is not an N1 (Sigma derives a name)
 s = valid_spec
-s['pages'][0]['elements'][0].delete('name')
+fixture_elements(s)[0].delete('name')
 check(rule(lint(s), 'N1').empty?, 'N1: absent name key → no violation', fails)
 
 # ---- P1 (WARN): conditionalFormats includeValues:false ------------------------
 s = valid_spec
-s['pages'][0]['elements'][3]['conditionalFormats'][0]['includeValues'] = false
+fixture_elements(s)[3]['conditionalFormats'][0]['includeValues'] = false
 warns = lint_warnings(s)
 p1 = warns.select { |x| x.start_with?('P1 ') }
 check(p1.size == 1, 'P1: includeValues:false → 1 WARNING', fails)
@@ -154,7 +162,7 @@ check(rule(lint(s), 'P1').empty?, 'P1 is WARN-only — never in the FAIL set', f
 
 # ---- I1 (WARN): If()/Switch() over a bare column ref ---------------------------
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'][2]['formula'] = 'If([Src/Flag], [Src/Revenue], 0)'
+fixture_elements(s)[0]['columns'][2]['formula'] = 'If([Src/Flag], [Src/Revenue], 0)'
 warns = lint_warnings(s)
 i1 = warns.select { |x| x.start_with?('I1 ') }
 check(i1.size == 1, 'I1: If() over bare column ref → 1 WARNING', fails)
@@ -165,12 +173,12 @@ check(rule(lint(s), 'I1').empty?, 'I1 is WARN-only — never in the FAIL set', f
 # matched SUBJECT (the builder's own SORT_ORD ordering columns are exactly
 # this shape) and must NOT warn. I1 is If-only now.
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'][2]['formula'] = 'Sum(Switch([Status], "done", 1, 0))'
+fixture_elements(s)[0]['columns'][2]['formula'] = 'Sum(Switch([Status], "done", 1, 0))'
 check(lint_warnings(s).none? { |x| x.start_with?('I1 ') }, 'I1: match-form Switch over bare subject → NO warning (v5.4)', fails)
 
 # explicit comparison must NOT warn
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'][2]['formula'] = 'If([Src/Flag] = 1, [Src/Revenue], 0)'
+fixture_elements(s)[0]['columns'][2]['formula'] = 'If([Src/Flag] = 1, [Src/Revenue], 0)'
 check(lint_warnings(s).none? { |x| x.start_with?('I1 ') }, 'I1: If() with explicit comparison → no warning', fails)
 
 # ---- A1 (WARN): DROPPED_BY_API fields — accepted then silently ignored (#417) --
@@ -180,7 +188,7 @@ check(lint_warnings(s).none? { |x| x.start_with?('I1 ') }, 'I1: If() with explic
 # A1-warned on mere presence — they are asserted separately just below.
 DROPPED_BY_API.reject { |_f, info| info['conditional'] }.each_key do |field|
   s = valid_spec
-  s['pages'][0]['elements'][4][field] = false
+  fixture_elements(s)[4][field] = false
   warns = lint_warnings(s)
   a1 = warns.select { |x| x.start_with?('A1 ') }
   check(a1.size == 1, "A1: `#{field}` on a control → exactly 1 WARNING (got #{a1.inspect})", fails)
@@ -207,19 +215,19 @@ check(lint_warnings(valid_spec).none? { |x| x.start_with?('A1 ') && x.include?('
 end
 # multiple dropped fields on one control → one warning each
 s = valid_spec
-s['pages'][0]['elements'][4]['showNullOption'] = false
-s['pages'][0]['elements'][4]['showSearchBox'] = true
+fixture_elements(s)[4]['showNullOption'] = false
+fixture_elements(s)[4]['showSearchBox'] = true
 check(lint_warnings(s).count { |x| x.start_with?('A1 ') } == 2,
       'A1: two dropped fields on one control → two warnings', fails)
 # the showNullOption workaround is the option-source IsNotNull filter
 s = valid_spec
-s['pages'][0]['elements'][4]['showNullOption'] = false
+fixture_elements(s)[4]['showNullOption'] = false
 a1 = lint_warnings(s).find { |x| x.start_with?('A1 ') }
 check(a1.to_s.include?('IsNotNull'), 'A1 showNullOption workaround names the option-source IsNotNull filter', fails)
 
 # ---- A2 (WARN): date-range bare-date default (#415) ---------------------------
 def date_range_ctl(s, start_d, end_d = nil)
-  ctl = s['pages'][0]['elements'][4]
+  ctl = fixture_elements(s)[4]
   ctl['controlType'] = 'date-range'
   ctl.delete('selectionMode')
   ctl.delete('value')
@@ -257,7 +265,7 @@ check(lint_warnings(s).none? { |x| x.start_with?('A2 ') },
       'A2: relative startDate hash (custom mode) → no warning', fails)
 # A2 is date-range-only: a bare-date scalar on a `date` control is a `value`, not startDate
 s = valid_spec
-ctl = s['pages'][0]['elements'][4]
+ctl = fixture_elements(s)[4]
 ctl['controlType'] = 'date'; ctl['mode'] = '='; ctl.delete('selectionMode'); ctl['value'] = '2026-01-01'
 check(lint_warnings(s).none? { |x| x.start_with?('A2 ') },
       'A2: date control with scalar value → no warning', fails)
@@ -265,40 +273,40 @@ check(lint_warnings(s).none? { |x| x.start_with?('A2 ') },
 # ---- regression: pre-existing rules untouched ---------------------------------
 # T1: aggregate + dimension table without groupings still fails
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'][1]['formula'] = 'Sum([Src/Revenue])'
+fixture_elements(s)[0]['columns'][1]['formula'] = 'Sum([Src/Revenue])'
 check(rule(lint(s), 'T1').size == 1, 'T1 regression: agg+dim table without groupings still fails', fails)
 
 # C2: control value fields nested under an OBJECT still fail; scalar value stays legal
 s = valid_spec
-s['pages'][0]['elements'][4]['value'] = { 'low' => 1, 'high' => 5 }
+fixture_elements(s)[4]['value'] = { 'low' => 1, 'high' => 5 }
 check(rule(lint(s), 'C2').size == 1, 'C2 regression: value OBJECT on a control still fails', fails)
 check(rule(lint(valid_spec), 'C2').empty?, 'C2 regression: scalar value on a control stays legal', fails)
 
 # C3: unwired list control still fails
 s = valid_spec
-s['pages'][0]['elements'][4].delete('filters')
+fixture_elements(s)[4].delete('filters')
 check(rule(lint(s), 'C3').size == 1, 'C3 regression: list control wired to nothing still fails', fails)
 
 # ---- C6: controlType enum + docs-only top-n ---------------------------------
 s = valid_spec
-s['pages'][0]['elements'][4]['controlType'] = 'dropdown'
+fixture_elements(s)[4]['controlType'] = 'dropdown'
 c6 = rule(lint(s), 'C6')
 check(c6.size == 1 && c6.first.include?('unknown controlType "dropdown"'), 'C6: unknown controlType flagged', fails)
 s = valid_spec
-s['pages'][0]['elements'][4]['controlType'] = 'top-n'
-s['pages'][0]['elements'][4].delete('selectionMode')   # avoid unrelated C5 noise
+fixture_elements(s)[4]['controlType'] = 'top-n'
+fixture_elements(s)[4].delete('selectionMode')   # avoid unrelated C5 noise
 c6b = rule(lint(s), 'C6')
 check(c6b.size == 1 && c6b.first.include?('docs-only'), 'C6: docs-only top-n flagged with the element rank-filter fix', fails)
 
 # ---- C7: required per-type fields -------------------------------------------
 s = valid_spec
-ct = s['pages'][0]['elements'][4]
+ct = fixture_elements(s)[4]
 ct['controlType'] = 'number'; ct.delete('selectionMode'); ct['value'] = 5
 check(rule(lint(s), 'C7').size == 1, 'C7: number control missing `mode` → 1 violation', fails)
 ct['mode'] = '>='
 check(rule(lint(s), 'C7').empty?, 'C7: number control WITH `mode` → clean', fails)
 s = valid_spec
-rs = s['pages'][0]['elements'][4]
+rs = fixture_elements(s)[4]
 rs['controlType'] = 'range-slider'; rs.delete('selectionMode'); rs.delete('value')
 check(rule(lint(s), 'C7').any? { |e| e.include?('low`/`high') }, 'C7: range-slider without low/high → violation', fails)
 rs['low'] = 0; rs['high'] = 100
@@ -310,7 +318,7 @@ check(rule(lint(s), 'C7').empty?, 'C7: range-slider with low/high → clean', fa
 # 400s the whole POST. C7 must HARD-error it (in lint(), the FAIL set), name the
 # fix, and NEVER flag the valid keys-omitted unbounded form.
 def number_range_ctl(s)
-  ctl = s['pages'][0]['elements'][4]
+  ctl = fixture_elements(s)[4]
   ctl['controlType'] = 'number-range'
   ctl.delete('selectionMode')
   ctl.delete('value')
@@ -354,7 +362,7 @@ check(rule(lint(s), 'C7').size == 1, 'C7: number-range with min:null (max absent
 # quantitative quick-filter — an ELEMENT filter, not a control. C7 must catch it
 # too (element filters were previously unlinted).
 s = valid_spec
-s['pages'][0]['elements'][1]['filters'] = [
+fixture_elements(s)[1]['filters'] = [
   { 'columnId' => 'col-kpi-val', 'kind' => 'number-range', 'mode' => 'between',
     'min' => nil, 'max' => nil, 'includeNulls' => 'never' }
 ]
@@ -365,22 +373,22 @@ check(c7ef.first.to_s.include?('drop the filter'),
       'C7 element-filter message names the fix (drop the no-op filter)', fails)
 # a bounded number-range element filter passes; keys-omitted passes.
 s = valid_spec
-s['pages'][0]['elements'][1]['filters'] = [
+fixture_elements(s)[1]['filters'] = [
   { 'columnId' => 'col-kpi-val', 'kind' => 'number-range', 'mode' => 'between', 'min' => 1, 'max' => 9, 'includeNulls' => 'never' }
 ]
 check(rule(lint(s), 'C7').empty?, 'C7: bounded number-range element filter → clean', fails)
 s = valid_spec
-s['pages'][0]['elements'][1]['filters'] = [
+fixture_elements(s)[1]['filters'] = [
   { 'columnId' => 'col-kpi-val', 'kind' => 'list', 'mode' => 'include', 'values' => %w[a b] }
 ]
 check(rule(lint(s), 'C7').empty?, 'C7: non-number-range element filter → clean', fails)
 
 # ---- C8: includeNulls placement --------------------------------------------
 s = valid_spec
-s['pages'][0]['elements'][4]['includeNulls'] = true    # on a `list` control (off-schema)
+fixture_elements(s)[4]['includeNulls'] = true    # on a `list` control (off-schema)
 check(rule(lint(s), 'C8').size == 1, 'C8: includeNulls on a list control → 1 violation', fails)
 s = valid_spec
-n = s['pages'][0]['elements'][4]
+n = fixture_elements(s)[4]
 n['controlType'] = 'number'; n['mode'] = '='; n.delete('selectionMode'); n['value'] = 1; n['includeNulls'] = true
 check(rule(lint(s), 'C8').empty?, 'C8: includeNulls on a number control → allowed (no violation)', fails)
 
@@ -390,13 +398,20 @@ check(rule(lint(s), 'C8').empty?, 'C8: includeNulls on a number control → allo
 def a3_spec(target_col_id, with_decode: false)
   master_cols = [{ 'id' => 'm-store', 'name' => 'Store Key', 'formula' => '[Src/STORE_KEY]' }]
   master_cols << { 'id' => 'skt-store', 'name' => 'Store Key (Text)', 'formula' => 'Text([Store Key])' } if with_decode
+  elements = [
+    { 'id' => 'master', 'kind' => 'table', 'name' => 'Master', 'columns' => master_cols },
+    { 'id' => 'el-ctl-store', 'kind' => 'control', 'controlId' => 'ctl-store',
+      'controlType' => 'list', 'name' => 'Store Key', 'selectionMode' => 'multiple',
+      'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'master' }, 'columnId' => target_col_id }] }
+  ]
   JSON.parse(JSON.generate(
-    'pages' => [{ 'name' => 'Dash', 'elements' => [
-      { 'id' => 'master', 'kind' => 'table', 'name' => 'Master', 'columns' => master_cols },
-      { 'id' => 'el-ctl-store', 'kind' => 'control', 'controlId' => 'ctl-store',
-        'controlType' => 'list', 'name' => 'Store Key', 'selectionMode' => 'multiple',
-        'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'master' }, 'columnId' => target_col_id }] }
-    ] }]
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'p1', 'name' => 'Dash' }],
+      'elements' => elements,
+      'layout' => "<Page id=\"p1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+    }
   ))
 end
 scope_int = ->(status = nil) { { 'controls' => [{ 'controlId' => 'ctl-store', 'integer_dim' => true }.tap { |h| h['decode'] = { 'status' => status } if status }] } }
@@ -432,16 +447,16 @@ check(rule(lint_warnings(valid_spec), 'A3').empty?, 'A3: ordinary string list co
 # '/' inside a display name is ambiguous against the [Element/Column] path
 # syntax: cross-element refs to it mis-resolve and derived elements drop it.
 s = valid_spec
-s['pages'][0]['elements'][0]['columns'] << { 'id' => 'col-slash', 'name' => 'Date (Month /Year)',
-                                             'formula' => '[Src/Date Month Year]' }
+fixture_elements(s)[0]['columns'] << { 'id' => 'col-slash', 'name' => 'Date (Month /Year)',
+                                       'formula' => '[Src/Date Month Year]' }
 n2 = rule(lint_warnings(s), 'N2')
 check(n2.size == 1 && n2.first.include?('Date (Month /Year)') && n2.first.include?('Rename'),
       "N2: slash-named column → 1 WARNING naming the column + rename fix (got #{n2.inspect})", fails)
 check(rule(lint(s), 'N2').empty?, 'N2 is WARN-only — never in the FAIL set', fails)
 # metrics are covered too
 s = valid_spec
-(s['pages'][0]['elements'][0]['metrics'] ||= []) << { 'id' => 'met-slash', 'name' => 'Rev H/L',
-                                                      'formula' => 'Sum([Revenue])' }
+(fixture_elements(s)[0]['metrics'] ||= []) << { 'id' => 'met-slash', 'name' => 'Rev H/L',
+                                                'formula' => 'Sum([Revenue])' }
 check(rule(lint_warnings(s), 'N2').size == 1, 'N2: slash-named METRIC → warning', fails)
 # slash in a FORMULA (an [Element/Column] ref) must never trip N2
 check(rule(lint_warnings(valid_spec), 'N2').empty?,

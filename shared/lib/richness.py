@@ -230,7 +230,8 @@ def wide_pivot(id, source_element_id, rows_by, values, columns, surfaces=None):
     }
 
 
-def agent(id, name, instructions, data_source_ids, tools=None, surfaces=None):
+def agent(id, name=None, instructions=None, data_source_ids=None, tools=None, surfaces=None,
+          description=None, greeting=None):
     """Returns a workbook-level `agents[]` entry (NOT a page element -- the
     workbook spec's top-level `agents:` array; pair with `chat` below for
     the page-level element that surfaces it). `data_source_ids` map 1:1, in
@@ -249,18 +250,21 @@ def agent(id, name, instructions, data_source_ids, tools=None, surfaces=None):
     s = SURFACES if surfaces is None else surfaces
     if not id:
         raise ValueError("id required")
-    if not name:
-        raise ValueError("name required")
-    if not instructions:
+    if instructions is None:
         raise ValueError("instructions required")
     if not s["agent"]:
         return {"opt_in": True, "id": id}
     out = {
         "id": id,
-        "name": name,
         "instructions": instructions,
         "dataSources": [{"kind": "table", "elementId": eid} for eid in (data_source_ids or [])],
     }
+    if name is not None:
+        out["name"] = name
+    if description is not None:
+        out["description"] = description
+    if greeting is not None:
+        out["greeting"] = greeting
     if tools:
         out["tools"] = tools
     return out

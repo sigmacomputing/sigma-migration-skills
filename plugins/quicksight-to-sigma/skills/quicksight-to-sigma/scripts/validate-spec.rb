@@ -15,6 +15,7 @@ require 'optparse'
 require 'set'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_functions'
+require 'code_rep'
 
 opts = { type: nil, dm_context: nil }
 op = OptionParser.new do |p|
@@ -26,6 +27,19 @@ abort('--type required (datamodel|workbook)') unless opts[:type]
 abort('usage: validate-spec.rb --type T [--dm-context P] <spec.json>') if ARGV.empty?
 
 spec = JSON.parse(File.read(ARGV[0]))
+document = opts[:type] == 'workbook' ? Sigma::CodeRep.document(spec) : spec
+validation_pages =
+  if opts[:type] == 'workbook'
+    by_page = Sigma::CodeRep.workbook_page_element_ids(document)
+    by_id = Sigma::CodeRep.workbook_elements(document).each_with_object({}) do |element, index|
+      index[element['id']] = element if element['id']
+    end
+    Array(document['pages']).map do |page|
+      page.merge('elements' => Array(by_page[page['id']]).filter_map { |id| by_id[id] })
+    end
+  else
+    Array(document['pages'])
+  end
 
 # Known prefixes the validator considers valid for cross-element refs
 external_names = []  # element names that are sources OUTSIDE this spec (e.g., DM elements when validating a workbook)
@@ -48,16 +62,16 @@ end
 
 errors = []
 all_element_names = []
-spec.fetch('pages', []).each do |page|
+validation_pages.each do |page|
   page.fetch('elements', []).each { |el| all_element_names << el['name'] if el['name'] }
 end
 all_known_prefixes = (all_element_names + external_names).to_set rescue (all_element_names + external_names)
 require 'set' rescue nil
 all_known_set = all_known_prefixes.is_a?(Set) ? all_known_prefixes : Set.new(all_known_prefixes)
 
-errors << 'spec contains rgb(...) color strings (Cloudflare WAF blocks)' if JSON.generate(spec).include?('rgb(')
+errors << 'spec contains rgb(...) color strings (Cloudflare WAF blocks)' if JSON.generate(document).include?('rgb(')
 
-spec.fetch('pages', []).each do |page|
+validation_pages.each do |page|
   page.fetch('elements', []).each do |el|
     kind = el['kind'] || ''
     name = el['name'] || el['id'] || '?'
@@ -156,7 +170,7 @@ spec.fetch('pages', []).each do |page|
 
     # --- Color-channel shape — cartesian + map charts use {by, column}, NOT {id}.
     # Pie/donut use {id}. Caught 2 of Superstore's HTTP 400s (area + region-map).
-    if %w[bar-chart line-chart area-chart combo-chart scatter-chart region-map point-map].include?(kind)
+    if %w[bar-chart line-chart area-chart combo-chart waterfall-chart scatter-chart region-map point-map].include?(kind)
       if (color = el['color']).is_a?(Hash) && color['id'] && !color['by'] && !color['column']
         errors << "#{name}: #{kind} color uses pie/donut shape {id: ...} — must be {by: \"category\"|\"scale\", column: \"...\"} for cartesian + map charts (API rejects with `Invalid value: object`)"
       end
@@ -175,7 +189,7 @@ spec.fetch('pages', []).each do |page|
       end
     end
 
-    if %w[bar-chart line-chart area-chart combo-chart scatter-chart].include?(kind)
+    if %w[bar-chart line-chart area-chart combo-chart waterfall-chart scatter-chart].include?(kind)
       errors << "#{name}: use yAxis not measures for #{kind}" if el['measures']
       errors << "#{name}: #{kind} missing yAxis" unless el['yAxis']
       # Breaking-change-2026-05-21: xAxis / yAxis took new shape.
@@ -234,7 +248,37 @@ spec.fetch('pages', []).each do |page|
 end
 
 if opts[:type] == 'workbook'
-  spec.fetch('pages', []).each do |page|
+  errors << 'document.schemaVersion is required' unless document.key?('schemaVersion')
+  errors << 'document.kind must be "workbook"' unless document['kind'] == 'workbook'
+  errors << 'document.pages must be an array' unless document['pages'].is_a?(Array)
+  errors << 'document.elements must be an array' unless document['elements'].is_a?(Array)
+  errors << 'document.layout is required' if document['layout'].to_s.strip.empty?
+  Array(document['pages']).each_with_index do |page, index|
+    errors << "document.pages[#{index}] must be metadata-only; remove nested elements" if page.key?('elements')
+  end
+  element_ids = Sigma::CodeRep.workbook_elements(document).map { |element| element['id'] }.compact
+  placed_ids = document['layout'].to_s.scan(/\belementId="([^"]+)"/).flatten
+  duplicate_elements = element_ids.tally.select { |_id, count| count > 1 }.keys
+  duplicate_placements = placed_ids.tally.select { |_id, count| count > 1 }.keys
+  errors << "duplicate document element ids: #{duplicate_elements.join(', ')}" if duplicate_elements.any?
+  errors << "layout places elements more than once: #{duplicate_placements.join(', ')}" if duplicate_placements.any?
+  missing = element_ids - placed_ids
+  unknown = placed_ids - element_ids
+  errors << "layout does not place elements: #{missing.join(', ')}" if missing.any?
+  errors << "layout references unknown elements: #{unknown.join(', ')}" if unknown.any?
+  page_break_ids = Sigma::CodeRep.workbook_elements(document)
+                                  .select { |element| element['kind'] == 'page-break' }
+                                  .map { |element| element['id'] }
+  page_break_ids.each do |id|
+    placement = document['layout'].to_s.match(
+      /elementId="#{Regexp.escape(id)}"[^>]*gridRow="(\d+)\s*\/\s*(\d+)"/
+    )
+    if placement.nil? || placement[2].to_i - placement[1].to_i != 1
+      errors << "page-break #{id.inspect} must be placed at exactly one grid row"
+    end
+  end
+
+  validation_pages.each do |page|
     els = page.fetch('elements', [])
     masters = els.select do |e|
       e['kind'] == 'table' &&
@@ -243,7 +287,13 @@ if opts[:type] == 'workbook'
     end
     next if masters.empty?
 
-    others = els.reject { |e| masters.include?(e) }
+    # Hidden table helpers (grouped scatter/repeater sources and secondary
+    # masters) belong on the Data page beside the primary master. The guard is
+    # for visible charts/controls mixed into that page, not for source helpers.
+    others = els.reject do |element|
+      masters.include?(element) ||
+        (element['kind'] == 'table' && element['visibleAsSource'] == false)
+    end
     unless others.empty?
       master_names = masters.map { |m| m['name'] || m['id'] }.join(', ')
       kind_counts = Hash.new(0)

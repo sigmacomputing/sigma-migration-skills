@@ -34,6 +34,10 @@
 #                     passthrough of a column that appears ONLY in the LOD's
 #                     filter condition does NOT qualify — that is a fuzzy alias
 #                     (#452), classified suspect-alias below.
+#   unused-source     resolved — no translation was emitted, and the source
+#                     workbook field census proves that no worksheet references
+#                     the calc. This is scope evidence, not a waiver; an emitted
+#                     suspect alias still blocks even when listed as unused.
 #   suspect-alias     UNRESOLVED — an emitted column carries the calc's name but
 #                     its formula either references a base/physical column that
 #                     is NOT in the LOD expression's own reference set, OR is a
@@ -56,6 +60,7 @@
 require 'json'
 require_relative 'calc_coverage'
 require_relative 'sql_ident_check'
+require_relative 'workbook_code'
 
 module LodAudit
   GRAIN_NOTE = 'A {FIXED/INCLUDE/EXCLUDE} calc must translate to the documented LOD strategy ' \
@@ -167,24 +172,28 @@ module LodAudit
   def emitted_columns(spec, spec_label)
     return [] unless spec.is_a?(Hash)
     out = []
-    (spec['pages'] || []).each do |pg|
-      (pg['elements'] || []).each do |el|
-        el_name = (el['name'] || el['id']).to_s
-        grouped = el['groupings'].is_a?(Array) && !el['groupings'].empty?
-        stmt = el.dig('source', 'kind') == 'sql' ? el.dig('source', 'statement').to_s : ''
-        sql_grouped = stmt =~ /\bGROUP\s+BY\b/i ? true : false
-        (Array(el['columns']) + Array(el['metrics'])).each do |col|
-          next unless col.is_a?(Hash)
-          out << {
-            'spec'        => spec_label,
-            'element'     => el_name,
-            'name'        => col_display(col),
-            'formula'     => col['formula'].to_s,
-            'grouped'     => grouped,
-            'sql_grouped' => sql_grouped,
-            'sql_stmt'    => stmt
-          }
-        end
+    elements =
+      if spec_label == 'wb-spec'
+        WorkbookCode.elements(spec)
+      else
+        (spec['pages'] || []).flat_map { |pg| pg['elements'] || [] }
+      end
+    elements.each do |el|
+      el_name = (el['name'] || el['id']).to_s
+      grouped = el['groupings'].is_a?(Array) && !el['groupings'].empty?
+      stmt = el.dig('source', 'kind') == 'sql' ? el.dig('source', 'statement').to_s : ''
+      sql_grouped = stmt =~ /\bGROUP\s+BY\b/i ? true : false
+      (Array(el['columns']) + Array(el['metrics'])).each do |col|
+        next unless col.is_a?(Hash)
+        out << {
+          'spec'        => spec_label,
+          'element'     => el_name,
+          'name'        => col_display(col),
+          'formula'     => col['formula'].to_s,
+          'grouped'     => grouped,
+          'sql_grouped' => sql_grouped,
+          'sql_stmt'    => stmt
+        }
       end
     end
     out
@@ -202,16 +211,21 @@ module LodAudit
   # manual_residues: parsed manual-residues.json (or nil). prior: previously
   # written ledger doc/entries — unresolved entries carry their recorded
   # resolution forward across re-derivation (same calc + formula).
-  def derive(calcs, dm_spec: nil, wb_spec: nil, manual_residues: nil, prior: nil)
+  def derive(calcs, dm_spec: nil, wb_spec: nil, manual_residues: nil, prior: nil,
+             unused_fields: nil)
     cols = emitted_columns(dm_spec, 'dm-spec') + emitted_columns(wb_spec, 'wb-spec')
     residues = residue_index(manual_residues)
     tindex = spec_table_index(dm_spec, wb_spec)
-    entries = Array(calcs).map { |c| classify(c, cols, residues, tindex) }
+    unused = Array(unused_fields).each_with_object({}) do |field, index|
+      key = norm(field)
+      index[key] ||= field.to_s unless key.empty?
+    end
+    entries = Array(calcs).map { |c| classify(c, cols, residues, tindex, unused) }
     carry_resolutions(entries, prior)
     entries
   end
 
-  def classify(calc, cols, residues, table_index = {})
+  def classify(calc, cols, residues, table_index = {}, unused_fields = {})
     name_n = norm(calc['calc'])
     ref_ns = Array(calc['reference_set']).map { |r| norm(r) }.reject(&:empty?)
     allowed = ref_ns + [name_n]
@@ -303,6 +317,13 @@ module LodAudit
       entry['class']  = 'reference-derived'
       entry['status'] = 'resolved'
       entry['evidence'] = evidence(derived.first)
+    elsif matches.empty? && unused_fields.key?(name_n)
+      entry['class']  = 'unused-source'
+      entry['status'] = 'resolved'
+      entry['evidence'] = {
+        'kind' => 'source-unused-field-census',
+        'field' => unused_fields[name_n]
+      }
     else
       entry['class']  = 'silently-dropped'
       entry['status'] = 'unresolved'

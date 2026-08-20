@@ -2,7 +2,7 @@
 
 A self-contained 3-visual PBIR dashboard (KPI + 2 bars) over `DEMO_DB.DEMO.ORDER_FACT`,
 used to exercise **and LIVE-verify** the grounded `build-workbook-from-pbir.rb`
-classifier (beads-sigma-kvza). This is the PowerBI analogue of qlik's
+classifier ([bead]). This is the PowerBI analogue of qlik's
 `fixtures/retail-orders` and looker's `fixtures/skilltest-orders`.
 
 Files:

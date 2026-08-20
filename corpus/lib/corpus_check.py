@@ -91,39 +91,59 @@ def _spec_root(doc):
 def summarize(doc):
     """Counts + names for a Sigma data-model or workbook spec (pages/elements)."""
     spec = _spec_root(doc)
+    document = spec.get("document") if isinstance(spec, dict) else None
+    workbook = document if isinstance(document, dict) else spec
     out = {"elements": 0, "columns": 0, "metrics": 0, "relationships": 0,
            "pages": 0, "element_names": [], "element_kinds": {},
            "metric_names": [], "relationship_names": [], "warnings": 0}
     if isinstance(doc, dict) and isinstance(doc.get("warnings"), list):
         out["warnings"] = len(doc["warnings"])
-    pages = spec.get("pages") or []
+    pages = workbook.get("pages") or []
     out["pages"] = len(pages)
-    for page in pages:
-        for el in page.get("elements") or []:
-            out["elements"] += 1
-            name = el.get("name")
-            if not name and isinstance(el.get("source"), dict):
-                path = el["source"].get("path")
-                if isinstance(path, list) and path:
-                    name = path[-1]
-            out["element_names"].append(name or el.get("id", "?"))
-            kind = el.get("kind", "?")
-            out["element_kinds"][kind] = out["element_kinds"].get(kind, 0) + 1
-            out["columns"] += len(el.get("columns") or [])
-            for m in el.get("metrics") or []:
-                out["metrics"] += 1
-                out["metric_names"].append(m.get("name"))
-            for r in el.get("relationships") or []:
-                out["relationships"] += 1
-                out["relationship_names"].append(r.get("name"))
+    elements = workbook.get("elements")
+    if not isinstance(elements, list):
+        # Legacy data-models and pre-release workbooks keep elements per page.
+        elements = [
+            el
+            for page in pages if isinstance(page, dict)
+            for el in (page.get("elements") or [])
+        ]
+    for el in elements:
+        out["elements"] += 1
+        name = el.get("name")
+        if not name and isinstance(el.get("source"), dict):
+            path = el["source"].get("path")
+            if isinstance(path, list) and path:
+                name = path[-1]
+        out["element_names"].append(name or el.get("id", "?"))
+        kind = el.get("kind", "?")
+        out["element_kinds"][kind] = out["element_kinds"].get(kind, 0) + 1
+        out["columns"] += len(el.get("columns") or [])
+        for m in el.get("metrics") or []:
+            out["metrics"] += 1
+            out["metric_names"].append(m.get("name"))
+        for r in el.get("relationships") or []:
+            out["relationships"] += 1
+            out["relationship_names"].append(r.get("name"))
     # top-level metrics/relationships (some spec shapes)
-    for m in spec.get("metrics") or []:
+    for m in workbook.get("metrics") or []:
         out["metrics"] += 1
         out["metric_names"].append(m.get("name"))
-    for r in spec.get("relationships") or []:
+    for r in workbook.get("relationships") or []:
         out["relationships"] += 1
         out["relationship_names"].append(r.get("name"))
     return out
+
+
+def rejected_layout_tags(doc):
+    """Return legacy workbook layout tags that the live API rejects."""
+    spec = _spec_root(doc)
+    document = spec.get("document") if isinstance(spec, dict) else None
+    workbook = document if isinstance(document, dict) else spec
+    layout = workbook.get("layout") if isinstance(workbook, dict) else None
+    if not isinstance(layout, str):
+        return []
+    return sorted(set(re.findall(r"</?(LayoutElement|GridContainer)\b", layout)))
 
 
 # -------------------------------------------------------------------- check
@@ -188,6 +208,13 @@ def _check_golden(case_dir, fname, expect):
         return False, ["golden/%s: invalid JSON (%s)" % (fname, e)]
     got = summarize(doc)
     msgs, ok = [], True
+    legacy_tags = rejected_layout_tags(doc)
+    if legacy_tags:
+        ok = False
+        msgs.append(
+            "golden/%s: rejected legacy layout tag(s): %s; emit Element/Container"
+            % (fname, ", ".join(legacy_tags))
+        )
     for key in ("pages", "elements", "columns", "metrics", "relationships", "warnings"):
         if key in expect and expect[key] != got[key]:
             ok = False

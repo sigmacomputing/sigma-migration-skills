@@ -22,7 +22,7 @@ get running; this doc tells a contributor where we are headed and why.
   ergonomics for LLM-authored/edited scripts, a ~150k-LOC rewrite of gate-hardened code, and it
   does not fix a single one of the actual failures above.
 - **Direction: converge on Node/TypeScript incrementally**, because the hard logic (the
-  converters) already lives there (`sigma-data-model-mcp` → vendored `converter/*.mjs`), and Node
+  converters) already lives there (`converter-source` → vendored `converter/*.mjs`), and Node
   is already a required runtime on every migration. Fewer runtimes + no required bash is the goal.
 - **Do the cheap thing first.** We are ~70% of the way to "works on Windows" already. Finish the
   shell-neutral hot path (self-scoped as "P1" in PR #299) before any rewrite of anything.
@@ -37,7 +37,7 @@ languages glued with bash:
 
 | Layer | Language | Role |
 |---|---|---|
-| Converters (the hard logic) | **TypeScript** (`sigma-data-model-mcp`) | Parse Tableau/PBI/Qlik/etc. → Sigma spec. Vendored to skills as esbuild-bundled `converter/*.mjs`. Single source of truth. |
+| Converters (the hard logic) | **TypeScript** (`converter-source`) | Parse Tableau/PBI/Qlik/etc. → Sigma spec. Vendored to skills as esbuild-bundled `converter/*.mjs`. Single source of truth. |
 | Orchestration / build / verify | **Ruby** (~105k LOC) + **Python** (~43k LOC) | REST calls, spec assembly, layout, gates, parity. |
 | Glue / auth / discovery | **bash** (57 `.sh`) | Token fetch, discovery lanes, env. |
 
@@ -88,7 +88,7 @@ PRs #224/#251/#284/**#299**/#303/#306/#310):
 | Shell-neutral token handoff (no `eval`) — the documented default | Done | `shared/scripts/get_token.py` → `auth.json` (0600); `sigma_rest.rb` reads env → `auth.json` → self-mint |
 | Bash-free Sigma + Tableau write path (in-process token mint) | Done | `migrate-tableau.rb` |
 | Windows footgun docs (Store stub, RubyInstaller, no-admin `fnm`, CRLF, truststore) | Done | [`environment.md`](./environment.md) |
-| Cross-platform converter engine | Done | `sigma-data-model-mcp/src/*.ts` → `converter/*.mjs` via `tools/vendor-converters.sh` |
+| Cross-platform converter engine | Done | `converter-source/src/*.ts` → `converter/*.mjs` via `tools/vendor-converters.sh` |
 
 **Important nuance on "23 PowerShell files":** that is *one* file (`doctor.ps1`) mechanically
 fanned out by `tools/sync-shared.rb`, not 23 hand-maintained scripts. The only hand-kept PS↔bash
@@ -143,7 +143,7 @@ not correctness. The right version of A is **eliminate bash, don't port it**.
 
 ### Phase 0 — Finish "works on Windows" on the current stack (highest ROI; ~70% done)
 This is the "P1" already scoped in PR #299. Tracked as beads under the portability epic
-(`beads-sigma-*`, see the epic for the file:line backlog):
+(`[bead]`, see the epic for the file:line backlog):
 - Retire bash as a *required* runtime: replace the ~40 non-doctor `.sh` helpers and the
   `subprocess(["bash", …])` / `spawnSync('bash', …)` call sites with the `.py`/`.rb`/`.mjs` twin
   that is already the pattern for `get_token`.
@@ -190,5 +190,5 @@ shell-neutral work first (near-done), then let Node absorb orchestration over ti
 - `shared/examples/node-orchestration-template/` — minimal bash-free Node orchestration reference.
 - `shared/scripts/doctor.{sh,ps1}`, `assert-doctor-ran.rb` — the preflight gate.
 - `shared/scripts/get_token.py`, `shared/lib/sigma_rest.rb` — shell-neutral auth.
-- `sigma-data-model-mcp/src/*.ts` + `tools/vendor-converters.sh` — the converter engine.
+- `converter-source/src/*.ts` + `tools/vendor-converters.sh` — the converter engine.
 - PR #299 — shell-neutral token + `doctor.json` gate + bash-free Sigma path (the P0 tier).

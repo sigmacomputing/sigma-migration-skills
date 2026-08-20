@@ -14,7 +14,7 @@ Converter paths (in priority order):
   1. --converted <file>   JSON output of the `convert_thoughtspot_to_sigma`
                           MCP tool (or a bare Sigma DM spec) — continues the
                           pipeline without any local converter build.
-  2. CONVERTER_PATH       one-shot: a local sigma-data-model-mcp
+  2. CONVERTER_PATH       one-shot: a local converter-source
                           build/thoughtspot.js, run via convert_model.mjs.
   3. neither              MCP fallback: writes <workdir>/model.tml +
                           <workdir>/convert-request.json and prints the exact
@@ -38,7 +38,9 @@ import argparse, json, os, re, ssl, subprocess, sys, time, urllib.request, urlli
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import yaml, ts_common, ts_lib, apply_layouts, scout_gate
+from warehouse_column_refs import apply as ground_warehouse_refs
 import metric_binding as _mb    # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -187,6 +189,12 @@ def find_table_elements(dm):
 def build_dm(conv, name, folder):
     """POST the converted Sigma data model. Returns (dmId, denormElemId, denormName)."""
     spec = conv["model"]; spec["name"] = name
+    grounding = ground_warehouse_refs(
+        spec, lambda method, path, body=None: json.loads(sigma(method, path, body)))
+    modes = ", ".join(f"{cid}={'friendly' if value else 'physical'}"
+                      for cid, value in grounding["connectionModes"].items())
+    print(f"  connection naming: {modes}; grounded {grounding['rewritten']} formula(s), "
+          f"re-keyed {grounding['rekeyed']} id(s), re-prefixed {grounding['reprefixed']} ref(s)")
     res = json.loads(sigma("POST", "/v2/dataModels/spec", {"folderId": folder, **spec}))
     dm = res["dataModelId"]
     # discover the denormalized "<root> View" element from the posted DM spec
@@ -197,7 +205,19 @@ def build_dm(conv, name, folder):
     return dm, denorm_id, denorm_name
 
 def post_workbook(spec, wd):
-    resp = sigma("POST", "/v2/workbooks/spec", spec)
+    # The release contract requires outer metadata plus a complete document.
+    # Layout is mandatory for non-empty elements, pages are metadata-only, and
+    # every element is flat. code_rep.wrap remains tolerant of legacy callers,
+    # but migration builders are expected to arrive here in the current shape.
+    post_body = code_rep.wrap(code_rep.document(spec), code_rep.metadata(spec))
+    doc = post_body.get("document") or {}
+    required = [k for k in ("schemaVersion", "kind", "pages", "elements", "layout")
+                if k not in doc]
+    if required:
+        raise ValueError("workbook document missing required field(s): " + ", ".join(required))
+    if any("elements" in page for page in doc.get("pages", [])):
+        raise ValueError("workbook pages must be metadata-only; use flat document.elements")
+    resp = sigma("POST", "/v2/workbooks/spec", post_body)
     m = re.search(r'workbookId["\s:]+([0-9a-f-]{36})', resp)
     if not m:
         raise RuntimeError("workbook POST: " + resp[:300])
@@ -207,7 +227,7 @@ def post_workbook(spec, wd):
     return wb
 
 def error_column_gate(wb, wd, display):
-    """RUN-EACH-TIME GAP-SCOUT GATE (bead beads-sigma-5l5e). The ThoughtSpot
+    """RUN-EACH-TIME GAP-SCOUT GATE (). The ThoughtSpot
     converter passes TML calc expressions through optimistically (no convert-time
     degrade signal — same as Looker); a TML function with no Sigma equivalent
     surfaces HERE as a type=error column at workbook readback. Each such column is
@@ -288,7 +308,8 @@ def visual_qa(wb, local_spec, wd, display):
     qlik pipeline) to a full-page PNG under <wd>/visual-qa/. Non-fatal; the
     human/agent REVIEW of the PNGs is the actual gate (refs/layout-visual-qa.md)."""
     vqa = os.path.join(wd, "visual-qa"); os.makedirs(vqa, exist_ok=True)
-    content = [p for p in local_spec.get("pages", []) if (p.get("name") or "") != "Data"]
+    content = [p for p in code_rep.document(local_spec).get("pages", [])
+               if (p.get("name") or "") != "Data"]
     pngs = []
     safe = re.sub(r"[^A-Za-z0-9]+", "-", display)[:40].strip("-") or wb[:8]
     for pg in content:
@@ -317,6 +338,76 @@ def lb_tiles(lb, viz_specs, elements):
                       "width": t.get("width", 6), "height": t.get("height", 6)})
     return tiles or None
 
+
+def liveboard_pages(lb, viz_specs, elements, controls, display):
+    """Translate ThoughtSpot Liveboard tabs to Sigma page metadata + placement.
+
+    ThoughtSpot's documented ``layout.tabs[].tiles`` is top-level dashboard
+    navigation, so each tab becomes a Sigma page (not a tabbed-container).
+    Legacy ``layout.tiles`` remains a one-page fallback. Every visualization is
+    assigned exactly once; unlisted visualizations are appended to the first
+    page with auto-grid placement.
+    """
+    layout = lb.get("layout") or {}
+    raw_tabs = layout.get("tabs") or []
+    if not raw_tabs:
+        raw_tabs = [{
+            "name": display[:40],
+            "description": lb.get("description"),
+            "tiles": layout.get("tiles") or [],
+        }]
+
+    by_viz = {
+        viz_id: {"element": el, "spec": ps}
+        for (viz_id, ps), el in zip(viz_specs, elements)
+    }
+    used = set()
+    pages = []
+    page_specs = []
+    multi = len(raw_tabs) > 1
+    nav_elements = []
+
+    for index, tab in enumerate(raw_tabs):
+        page_id = "p-main" if len(raw_tabs) == 1 else f"p-tab-{index + 1}"
+        page_name = str(tab.get("name") or f"Tab {index + 1}")[:40]
+        pages.append({"id": page_id, "name": page_name})
+        ids, tiles = [], []
+        for tile in tab.get("tiles") or []:
+            viz_id = tile.get("visualization_id")
+            entry = by_viz.get(viz_id)
+            if not entry or viz_id in used:
+                continue
+            used.add(viz_id)
+            eid = entry["element"]["id"]
+            ids.append(eid)
+            if all(k in tile for k in ("x", "y", "width", "height")):
+                tiles.append({
+                    "element_id": eid,
+                    "x": tile["x"], "y": tile["y"],
+                    "width": tile["width"], "height": tile["height"],
+                })
+        nav_id = None
+        if multi:
+            nav_id = f"{page_id}-navigation"
+            nav_elements.append({"id": nav_id, "kind": "navigation", "mode": "auto"})
+        page_specs.append({
+            "page_id": page_id,
+            "element_ids": ids,
+            "tiles": tiles if len(tiles) == len(ids) and ids else None,
+            "controls": [c["id"] for c in controls] if index == 0 else [],
+            "prefix_ids": [nav_id] if nav_id else [],
+        })
+
+    # TML can omit a tile from layout (or carry a stale visualization id). Keep
+    # the visualization by assigning it to the first page; this intentionally
+    # forces auto-grid for that page rather than pretending geometry is complete.
+    missing = [viz_id for viz_id in by_viz if viz_id not in used]
+    for viz_id in missing:
+        page_specs[0]["element_ids"].append(by_viz[viz_id]["element"]["id"])
+    if missing:
+        page_specs[0]["tiles"] = None
+    return pages, page_specs, nav_elements
+
 def migrate_liveboard(lb_doc, dm, denorm_id, denorm_name, resolver, prefix, fallback_name, folder, wd):
     lb = yaml.safe_load(lb_doc)["liveboard"]
     display = lb.get("name") or fallback_name          # never name a workbook after a UUID
@@ -333,19 +424,37 @@ def migrate_liveboard(lb_doc, dm, denorm_id, denorm_name, resolver, prefix, fall
     master = ts_common.master_element(specs, resolver, dm, denorm_id, denorm_name)
     elements = [ts_common.sigma_element(s, resolver) for s in specs]
     controls = ts_common.liveboard_controls(lb_filters, resolver, master, denorm_name=denorm_name)
-    # Hidden grouped scatter-source tables must live on the SAME page as the
-    # m-ofv master they source (visibleAsSource:False → no layout slot needed).
+    # Hidden grouped scatter-source tables live on the same hidden Data page as
+    # the master. The release contract still requires an explicit layout slot
+    # for every flat element, including visibleAsSource:false sources.
     data_elems = [master] + ts_common.drain_scatter_sources()
-    spec = {"name": f"{prefix}{display} (from ThoughtSpot)", "folderId": folder, "schemaVersion": 1,
-            "pages": [{"id": "p-data", "name": "Data", "elements": data_elems},
-                      {"id": "p-main", "name": display[:40], "elements": controls + elements}]}
+    pages, page_specs, nav_elements = liveboard_pages(
+        lb, viz_specs, elements, controls, display
+    )
+    doc = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": [{"id": "p-data", "name": "Data", "visibility": "hidden"}] + pages,
+        "elements": data_elems + controls + nav_elements + elements,
+    }
+    doc = apply_layouts.prepare_document(
+        doc,
+        page_specs=page_specs,
+        data_element_ids=[e["id"] for e in data_elems],
+    )
+    spec = {
+        "name": f"{prefix}{display} (from ThoughtSpot)",
+        "folderId": folder,
+        **({"description": lb["description"]} if lb.get("description") else {}),
+        "document": doc,
+    }
     wb = post_workbook(spec, wd)
-    error_column_gate(wb, wd, display)             # run-each-time gap-scout gate (bead beads-sigma-5l5e)
-    tiles = lb_tiles(lb, viz_specs, elements)
+    error_column_gate(wb, wd, display)             # run-each-time gap-scout gate ()
+    tiles = page_specs[0].get("tiles") if page_specs else None
     control_ids = [c["id"] for c in controls]
-    apply_layouts.apply(wb, tiles=tiles, controls=control_ids)
     visual_qa(wb, spec, wd, display)               # Phase-5b: render full-page PNGs (non-fatal)
-    return wb, display, len(specs), tiles, control_ids
+    return (wb, display, len(specs), tiles, control_ids, page_specs,
+            [e["id"] for e in data_elems])
 
 def collect_liveboards(a, model_name):
     """Liveboard candidate selection + TML export — runs as a LANE concurrent
@@ -404,12 +513,27 @@ def migrate_answer(ans_id, dm, denorm_id, denorm_name, resolver, prefix, folder,
     master = ts_common.master_element([spec_v], resolver, dm, denorm_id, denorm_name)
     main_el = ts_common.sigma_element(spec_v, resolver)
     data_elems = [master] + ts_common.drain_scatter_sources()  # park any hidden scatter source by the master
-    spec = {"name": f"{prefix}{display} (from ThoughtSpot)", "folderId": folder, "schemaVersion": 1,
-            "pages": [{"id": "p-data", "name": "Data", "elements": data_elems},
-                      {"id": "p-main", "name": display[:40], "elements": [main_el]}]}
+    doc = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": [
+            {"id": "p-data", "name": "Data", "visibility": "hidden"},
+            {"id": "p-main", "name": display[:40]},
+        ],
+        "elements": data_elems + [main_el],
+    }
+    doc = apply_layouts.prepare_document(
+        doc,
+        page_specs=[{"page_id": "p-main", "element_ids": [main_el["id"]]}],
+        data_element_ids=[e["id"] for e in data_elems],
+    )
+    spec = {
+        "name": f"{prefix}{display} (from ThoughtSpot)",
+        "folderId": folder,
+        "document": doc,
+    }
     wb = post_workbook(spec, wd)
-    error_column_gate(wb, wd, display)             # run-each-time gap-scout gate (bead beads-sigma-5l5e)
-    apply_layouts.apply(wb)
+    error_column_gate(wb, wd, display)             # run-each-time gap-scout gate ()
     visual_qa(wb, spec, wd, display)               # Phase-5b: render full-page PNG (non-fatal)
     return wb, display
 
@@ -531,12 +655,17 @@ def main():
         lb_path = os.path.join(lbdir, f"lb-{i + 1}.tml")
         open(lb_path, "w").write(lb_doc)
         try:
-            wb, display, n, tiles, control_ids = migrate_liveboard(lb_doc, dm, denorm_id, denorm_name,
-                                                      resolver, prefix, fallback, folder, wd)
+            (wb, display, n, tiles, control_ids, layout_pages,
+             data_elements) = migrate_liveboard(
+                lb_doc, dm, denorm_id, denorm_name,
+                resolver, prefix, fallback, folder, wd
+            )
             results[display] = {"workbook": wb, "viz": n, "tiles": tiles,
-                                "controls": control_ids, "lb_tml": lb_path}
+                                "controls": control_ids, "layoutPages": layout_pages,
+                                "dataElements": data_elements, "lb_tml": lb_path}
+            has_source_tiles = any(p.get("tiles") for p in layout_pages)
             print(f"  ✓ {display[:34]:34s} WB {wb} ({n} viz, {len(control_ids)} control(s), "
-                  f"layout={'TML tiles' if tiles else 'auto grid'})")
+                  f"layout={'TML tiles' if has_source_tiles else 'auto grid'})")
         except Exception as ex:
             results[fallback] = {"error": str(ex), "lb_tml": lb_path}
             print(f"  ✗ {fallback[:34]:34s} {ex}")

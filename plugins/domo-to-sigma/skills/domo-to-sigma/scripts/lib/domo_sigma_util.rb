@@ -14,9 +14,42 @@ module DomoSigma
            .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
            .gsub(/([A-Za-z])([0-9])/, '\1_\2')
            .gsub(/([0-9])([A-Za-z])/, '\1_\2')
-    s.split(%r{[_\s/]+}).reject(&:empty?).map { |w|
-      (w =~ /\A[A-Z0-9]+\z/) ? w : w.capitalize
+    s.split(%r{[_\s/.]+}).reject(&:empty?).map { |w|
+      # Upcase the FIRST character only — never String#capitalize, which also
+      # LOWERCASES the remainder. A dot is not a split boundary, so a dotted
+      # column arrives as one token that still holds an internal capital:
+      #   'Account.BillingState' -> camel-split -> ['Account.Billing', 'State']
+      #   .capitalize            -> 'Account.billing State'   <- 'B' destroyed
+      #   first-char-only        -> 'Account.Billing State'   <- matches Sigma
+      # Sigma camel-splits the same way we do ('IsWon' -> 'Is Won' resolves
+      # fine), so the dotted case was the ONLY divergence — and it 400'd the
+      # data-model POST with "dependency not found: formula reference
+      # 'pdp_example_dataset/account.billing state'" on a live cold run
+      # (bead xo56). Column pre-flight could never catch it: it compares
+      # display_name to display_name on both sides, so the two agreed with
+      # each other while both disagreed with Sigma.
+      (w =~ /\A[A-Z0-9]+\z/) ? w : w.sub(/\A./) { |c| c.upcase }
     }.join(' ')
+  end
+
+  # Kept as the single named seam for "the name used INSIDE a formula
+  # reference", now that display_name itself can never emit a dot.
+  #
+  # Why the dot matters: Sigma resolves a reference case-insensitively and
+  # treats underscore and space as equivalent ('created_on' == 'Created On',
+  # '_BATCH_ID_' == 'BATCH ID' — both probed live), but a name carrying BOTH a
+  # dot AND a space does NOT resolve:
+  #   '[T/Account.Billing State]' -> 400 dependency not found
+  #   '[T/Account Billing State]' -> resolves
+  #   '[T/Account.BillingState]'  -> resolves
+  # display_name used to produce the first form for a dotted warehouse column
+  # like 'Account.BillingState', which 400'd BOTH the data-model POST (against
+  # the warehouse column) and then the workbook POST (against the master
+  # element's column of the same name). Splitting on '.' as well removes the
+  # dot entirely and yields the second, resolving form everywhere.
+  # Bead xo56, found on the 36-card cold run.
+  def column_ref_name(raw)
+    display_name(raw)
   end
 
   B62 = (('0'..'9').to_a + ('a'..'z').to_a + ('A'..'Z').to_a).freeze
@@ -40,18 +73,17 @@ module DomoSigma
   # (the same precedence the Tableau KPI emitter uses) ONLY to pick a category
   # (currency/percent/number) — never to build a format string.
   #
-  # Field-proven shape only: {kind:"number", decimalPlaces:N} POSTs cleanly
-  # (a d3/Excel formatString can 400). Sigma's documented format schema
-  # (sigma-workbooks/reference/specification/formatting.md) has no distinct
-  # currency/percent `kind` — just `kind: number` with an optional raw
-  # formatString or structured fields (currencySymbol, prefix, …) that have
-  # NOT been field-verified in combination with decimalPlaces. So currency
-  # and percent are classified (for future use) but, absent a documented/
-  # verified currency|percent shape, both fall back to the same proven
-  # {kind:"number", decimalPlaces:prec} rather than guessing.
+  # Sigma's released format schema uses d3 `formatString`; the old
+  # `decimalPlaces` field is not in the schema and was silently stripped on
+  # readback, leaving long raw decimals in every KPI. Preserve Domo's category,
+  # precision, grouping, currency/percent multiplier, and abbreviated display.
   def sigma_format(domo_fmt, name = nil)
-    prec = (domo_fmt.is_a?(Hash) && (domo_fmt['precision'] || domo_fmt['decimals'])) || 0
-    type = domo_fmt.is_a?(Hash) ? (domo_fmt['type'] || domo_fmt['format']).to_s.upcase : ''
+    raw_format = domo_fmt.is_a?(Hash) ? domo_fmt['format'].to_s : ''
+    explicit_prec = domo_fmt.is_a?(Hash) && (domo_fmt['precision'] || domo_fmt['decimals'])
+    inferred_prec = raw_format[/\.(0+)/, 1]&.length
+    prec = (explicit_prec || inferred_prec || 0).to_i
+    type = domo_fmt.is_a?(Hash) ? domo_fmt['type'].to_s.upcase : ''
+    abbreviated = type == 'ABBREVIATED'
     category =
       case type
       when 'CURRENCY', 'MONEY'                            then :currency
@@ -59,13 +91,30 @@ module DomoSigma
       when 'COMMA', 'NUMBER', 'DECIMAL', 'LONG', 'DOUBLE'  then :number
       else
         n = name.to_s.downcase
-        if    n =~ /revenue|sales|profit|cost|amount|budget|price|\$/ then :currency
+        if    raw_format.include?('$') || n =~ /revenue|sales|profit|cost|amount|budget|price|\$/ then :currency
         elsif n =~ /rate|percent|pct|%|margin|ratio|share/            then :percent
-        elsif !type.empty? || domo_fmt.is_a?(Hash)                    then :number
+        elsif abbreviated || !type.empty? || domo_fmt.is_a?(Hash)     then :number
         end
       end
     return nil unless category
-    { 'kind' => 'number', 'decimalPlaces' => prec }
+
+    if abbreviated
+      # Domo's 0.0 abbreviation keeps roughly four significant digits
+      # (950.9K); d3's SI formatter is the released Sigma equivalent.
+      sig = [prec + 3, 2].max
+      prefix = category == :currency ? (domo_fmt['currency'] || '$').to_s : ''
+      return { 'kind' => 'number', 'formatString' => "#{prefix}.#{sig}~s" }
+    end
+
+    format_string =
+      case category
+      when :percent then ",.#{prec}%"
+      when :currency
+        symbol = domo_fmt.is_a?(Hash) ? (domo_fmt['currency'] || '$').to_s : '$'
+        "#{symbol},.#{prec}f"
+      else ",.#{prec}f"
+      end
+    { 'kind' => 'number', 'formatString' => format_string }
   end
 
   # Does this column name look like a row-key / id (the Domo table-summary COUNT trap)?
@@ -196,6 +245,39 @@ module DomoSigma
       next card unless card.is_a?(Hash)
       geom = geom_by_id[card['id'].to_s]
       geom ? card.merge(geom) : card
+    end
+  end
+
+  # Preserve the non-card content PageLayoutV4 exposes. HEADER and PAGE_BREAK
+  # are real authored page semantics, not phantom cards: the workbook builder
+  # emits released `text` / `page-break` elements from these records and the
+  # Domo layout adapter places them at this geometry. Unknown v4 template
+  # types stay out until their meaning is grounded.
+  def pagelayoutv4_content(stacks, page_id)
+    v4 = stacks.is_a?(Hash) ? stacks['pageLayoutV4'] : nil
+    return [] unless v4.is_a?(Hash)
+
+    content_by_key = Array(v4['content']).each_with_object({}) do |content, out|
+      out[content['contentKey'].to_s] = content if content.is_a?(Hash)
+    end
+    Array(v4.dig('standard', 'template')).filter_map do |template|
+      next unless template.is_a?(Hash)
+      type = template['type'].to_s.upcase
+      next unless %w[HEADER PAGE_BREAK].include?(type)
+      next if [template['x'], template['y'], template['width'], template['height']].any?(&:nil?)
+
+      key = template['contentKey'].to_s
+      source = content_by_key[key] || {}
+      slug_type = type.downcase.tr('_', '-')
+      {
+        'id' => "domo-layout-#{page_id}-#{slug_type}-#{key}".gsub(/[^a-zA-Z0-9_-]/, '-')[0, 64],
+        'type' => slug_type,
+        'text' => source['text'],
+        'x' => (template['x'].to_f * 0.4).round(2),
+        'y' => (template['y'].to_f * 0.4).round(2),
+        'w' => (template['width'].to_f * 0.4).round(2),
+        'h' => (template['height'].to_f * 0.4).round(2)
+      }.compact
     end
   end
 

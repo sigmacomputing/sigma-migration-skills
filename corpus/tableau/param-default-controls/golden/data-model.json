@@ -108,7 +108,7 @@
               {
                 "id": "id0012",
                 "formula": "Sum([Net Revenue])",
-                "name": "Net Revenue",
+                "name": "Total Net Revenue",
                 "format": {
                   "kind": "number",
                   "formatString": "$,.2f",

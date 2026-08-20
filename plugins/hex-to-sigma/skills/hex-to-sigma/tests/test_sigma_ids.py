@@ -2,7 +2,7 @@
 """Unit tests for converter/sigma_ids.py — id generation + the
 sigma_display_name() derivation rule this family ports byte-for-byte from
 sigma-ids.ts (must match Sigma's OWN internal derivation or cross-element
-formula refs compile to type "error" at POST time, beads-sigma-c31q).
+formula refs compile to type "error" at POST time, [bead]).
 
 Offline, stdlib only. Run: python3 tests/test_sigma_ids.py   (exit 0 = pass)
 """

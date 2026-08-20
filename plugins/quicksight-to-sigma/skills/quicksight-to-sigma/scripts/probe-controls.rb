@@ -90,6 +90,26 @@ rescue LoadError
 end
 HAVE_POOL = defined?(ExportPool) ? true : false
 
+# Workbook code-rep document wrapper (#608) — same vendoring rule as
+# assert-phase6-ran.rb's gate 4/6/7/7b fix. GET /v2/workbooks/{id}/spec now
+# nests pages/layout/schemaVersion/kind under a top-level `document` key
+# (verified live 2026-08-03/04); without unwrapping, ControlLint.elements /
+# controls_report see no top-level `pages` and this probe aborts with "no
+# controls found" on every live workbook. This script's manifest targets are
+# currently a SUBSET of code_rep.rb's (see shared/manifest.json), so every
+# vendored copy carries it — the rescue below fails toward the legacy flat
+# read (WARNed, not silent) rather than crashing a stale checkout.
+begin
+  require 'code_rep'
+rescue LoadError
+end
+CODE_REP_LOADED = defined?(Sigma::CodeRep) ? true : false
+unless CODE_REP_LOADED
+  warn '[WARN] scripts/lib/code_rep.rb not vendored alongside this script (re-vendor;' \
+       ' md5 discipline) — reading the RAW (possibly document-nested) spec, which may' \
+       ' report 0 controls on a live nested readback.'
+end
+
 opts = { values: {}, controls: [], timeout: 90, pool: 5 }
 OptionParser.new do |p|
   p.on('--workbook-id ID')        { |v| opts[:wb] = v }
@@ -174,7 +194,13 @@ end
 
 # --- reach + element metadata ------------------------------------------------
 
-spec  = fetch_spec(WB)
+spec_raw = fetch_spec(WB)
+# Unwrap ONCE: ControlLint.elements/controls_report expect the plain document
+# shape (top-level `pages`) — spec_raw is kept as the full (unmodified)
+# response because it still carries the metadata fields (workbookId,
+# latestDocumentVersion, …) DOC_VERSION below needs, which live OUTSIDE
+# `document` and must not be read through the unwrapped `spec`.
+spec  = CODE_REP_LOADED ? Sigma::CodeRep.document(spec_raw) : spec_raw
 elems = ControlLint.elements(spec)
 rows  = ControlLint.controls_report(spec)
 rows.select! { |r| opts[:controls].include?(r[:control_id]) } if opts[:controls].any?
@@ -198,9 +224,9 @@ end
 # binds each file's sha256 to the workbook doc version at probe time. Verdicts
 # are recomputed from these bytes on every run — never reused from a record.
 DOC_VERSION = if HAVE_POOL
-                ExportPool.resolve_doc_version(spec)
+                ExportPool.resolve_doc_version(spec_raw)
               else # same resolution, inlined for twins without export_pool.rb
-                v = spec.is_a?(Hash) ? spec['latestDocumentVersion'] || spec['latestVersion'] : nil
+                v = spec_raw.is_a?(Hash) ? spec_raw['latestDocumentVersion'] || spec_raw['latestVersion'] : nil
                 v.nil? || v.to_s.empty? ? nil : v.to_s
               end
 EVIDENCE = {}

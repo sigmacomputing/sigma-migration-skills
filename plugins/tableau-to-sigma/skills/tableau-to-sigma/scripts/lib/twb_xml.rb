@@ -113,11 +113,31 @@ module TwbXml
     end
   end
 
+  # A malformed .twb must NOT parse to an empty document. Nokogiri's default
+  # recover mode silently returns a partial tree with doc.errors populated and
+  # no exception, which made "the parse blew up" indistinguishable from "this
+  # workbook has no actions". REXML raises on its own, so raising here makes
+  # both backends fail the same way.
+  #
+  # `fatal?` (libxml2 level 3), not `error?` or the full errors list: measured
+  # against all 15 committed .twb fixtures, every one produces ZERO errors of
+  # any level, and the truncated fixture produces exactly one fatal. Widening
+  # this predicate risks rejecting real workbooks for recoverable warnings.
+  class ParseError < StandardError; end
+
   # Drop-in replacement for REXML::Document.new(string). With Nokogiri, wrap it
   # in El (the REXML-API shim); without it, return a real REXML::Document, which
   # already exposes the same API the .twb scripts call.
   def self.parse(xml_string)
     return REXML::Document.new(xml_string) unless TWB_XML_NOKOGIRI
-    El.new(Nokogiri::XML(xml_string))
+
+    doc = Nokogiri::XML(xml_string)
+    fatal = doc.errors.select(&:fatal?)
+    unless fatal.empty?
+      raise ParseError,
+            "malformed .twb XML (#{fatal.length} fatal parse error(s)): " +
+            fatal.first(3).map { |e| e.message.strip }.join('; ')
+    end
+    El.new(doc)
   end
 end

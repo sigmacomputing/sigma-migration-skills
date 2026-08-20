@@ -68,12 +68,13 @@ def build(with_metrics):
         r = subprocess.run(cmd, capture_output=True, text=True)
         assert r.returncode == 0, f"builder failed:\n{r.stderr}"
         spec = json.load(open(sp))
-        # every measure/dim column formula keyed by column name, across data pages
+        # Workbook elements are flat under document; DM fixture above remains
+        # page-nested because the data-model code representation is unchanged.
         cols = {}
-        for pg in spec["pages"]:
-            for el in pg["elements"]:
-                for c in el.get("columns", []):
-                    cols[c.get("name")] = c["formula"]
+        assert all("elements" not in page for page in spec["document"]["pages"])
+        for el in spec["document"]["elements"]:
+            for c in el.get("columns", []):
+                cols[c.get("name")] = c["formula"]
         return cols
 
 

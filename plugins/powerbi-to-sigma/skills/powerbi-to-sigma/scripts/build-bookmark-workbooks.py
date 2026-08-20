@@ -36,8 +36,12 @@ def _bake_filters(spec, filters):
     if not filters:
         return 0
     n = 0
-    masters = [el for pg in spec.get("pages", []) if pg.get("id") == "page-data"
-               for el in pg.get("elements", [])]
+    # Workbook elements are document-global. Hidden source tables identify the
+    # Data-page masters without relying on the removed pages[].elements shape.
+    doc = spec.get("document", spec)
+    masters = [el for el in doc.get("elements", [])
+               if el.get("visibleAsSource") is False and
+               (el.get("source") or {}).get("kind") == "data-model"]
     for col, vals in filters.items():
         vlist = vals if isinstance(vals, list) else [vals]
         for el in masters:

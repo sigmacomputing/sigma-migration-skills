@@ -85,7 +85,67 @@
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/sigma_rest.rb",
         "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/sigma_rest.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/sigma_rest.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/sigma_rest.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/sigma_rest.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/sigma_rest.rb"
+      ]
+    },
+    {
+      "canonical": "shared/lib/code_rep.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/vendor/lib/code_rep.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/code_rep.rb",
+        "plugins/sigma-authoring/skills/sigma-workbooks/scripts/lib/code_rep.rb",
+        "plugins/sigma-authoring/skills/custom-sql-to-data-model/scripts/lib/code_rep.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/code_rep.rb"
+      ]
+    },
+    {
+      "canonical": "shared/lib/code_rep.py",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/code_rep.py",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/code_rep.py",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/lib/code_rep.py",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/lib/code_rep.py",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/lib/code_rep.py",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/code_rep.py",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/vendor/lib/code_rep.py",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/lib/code_rep.py",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/code_rep.py",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/code_rep.py",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/code_rep.py",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/code_rep.py",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/code_rep.py",
+        "plugins/sigma-authoring/skills/sigma-workbooks/scripts/lib/code_rep.py"
+      ]
+    },
+    {
+      "canonical": "shared/lib/code_rep.mjs",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/vendor/lib/code_rep.mjs",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/code_rep.mjs",
+        "plugins/sigma-authoring/skills/sigma-workbooks/scripts/lib/code_rep.mjs"
       ]
     },
     {
@@ -101,7 +161,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/preflight_lint.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/preflight_lint.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/preflight_lint.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/preflight_lint.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/preflight_lint.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/preflight_lint.rb"
       ]
     },
     {
@@ -117,7 +178,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/layout_lint.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/layout_lint.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/layout_lint.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/layout_lint.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/layout_lint.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/layout_lint.rb"
       ]
     },
     {
@@ -141,9 +203,11 @@
         "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/lib/degradation_ledger.rb",
         "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/lib/degradation_ledger.rb",
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/degradation_ledger.rb",
-        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/degradation_ledger.rb"
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/degradation_ledger.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/degradation_ledger.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/degradation_ledger.rb"
       ],
-      "note": "domo intentionally NOT a target — STANDING EXEMPTION (W2.23 decision, 2026-07-29, sibling of the evidence_ledger.rb note above): domo's gap here is main-inherited; the deliberate fan-out to domo happens for BOTH ledger sibs together (early Wave 3), with domo suites run — never as a sync-tooling accident."
+      "note": "W2.23's STANDING EXEMPTION for domo/hex was DISCHARGED 2026-08-05: this is the deliberate early-Wave-3 fan-out it called for \u2014 BOTH ledger sibs (this file + evidence_ledger.rb) added to domo and hex together, in one atomic commit, with domo's suites run \u2014 not a sync-tooling accident. Motivation: assert-phase6-ran.rb is vendored to 8 plugins but this lib was vendored to only 6, so on domo and hex the gate fell through to its legacy uncapped path (\"all gates pass \u2014 conversion may declare GREEN\") with no PR-14 verdict derivation \u2014 a GREEN there was strictly weaker than the same string from the 6 synced converters. Found while driving domo's 48-card cold run to a defensible gold verdict."
     },
     {
       "canonical": "shared/lib/control_lint.rb",
@@ -159,7 +223,152 @@
         "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/control_lint.rb",
         "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/control_lint.rb",
         "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/control_lint.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/control_lint.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/control_lint.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/control_lint.rb"
+      ]
+    },
+    {
+      "canonical": "shared/lib/enhance_options.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/enhance_options.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/enhance_options.rb"
+      ]
+    },
+    {
+      "canonical": "shared/scripts/enhance-scan.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/enhance-scan.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/enhance-scan.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/enhance-scan.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/enhance-scan.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/enhance-scan.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/enhance-scan.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/enhance-scan.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-scan.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/enhance-scan.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/enhance-scan.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/enhance-scan.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-scan.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/enhance-scan.rb"
+      ]
+    },
+    {
+      "canonical": "shared/scripts/enhance-select.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/enhance-select.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/enhance-select.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/enhance-select.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/enhance-select.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/enhance-select.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/enhance-select.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/enhance-select.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-select.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/enhance-select.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/enhance-select.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/enhance-select.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-select.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/enhance-select.rb"
+      ]
+    },
+    {
+      "canonical": "shared/scripts/enhance-app-plan.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-app-plan.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/enhance-app-plan.rb"
+      ]
+    },
+    {
+      "canonical": "shared/scripts/enhance-apply.rb",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/enhance-apply.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/enhance-apply.rb",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/enhance-apply.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/enhance-apply.rb",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/scripts/enhance-apply.rb",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/enhance-apply.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/enhance-apply.rb",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-apply.rb",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/enhance-apply.rb",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/enhance-apply.rb",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/enhance-apply.rb",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-apply.rb",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/enhance-apply.rb"
+      ]
+    },
+    {
+      "canonical": "shared/refs/phase-e-enhance.md",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/refs/phase-e-enhance.md",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/refs/phase-e-enhance.md",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/refs/phase-e-enhance.md",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/refs/phase-e-enhance.md",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/refs/phase-e-enhance.md",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/refs/phase-e-enhance.md",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/refs/phase-e-enhance.md",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/refs/phase-e-enhance.md",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/refs/phase-e-enhance.md",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/refs/phase-e-enhance.md",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/refs/phase-e-enhance.md",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/refs/phase-e-enhance.md",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/refs/phase-e-enhance.md"
+      ]
+    },
+    {
+      "canonical": "shared/refs/app-recommendation-signals.md",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/refs/app-recommendation-signals.md",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/refs/app-recommendation-signals.md"
+      ]
+    },
+    {
+      "canonical": "shared/schemas/app-plan.schema.json",
+      "targets": [
+        "plugins/cognos-to-sigma/skills/cognos-to-sigma/schemas/app-plan.schema.json",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/schemas/app-plan.schema.json",
+        "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/schemas/app-plan.schema.json",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/schemas/app-plan.schema.json",
+        "plugins/looker-to-sigma/skills/looker-to-sigma/schemas/app-plan.schema.json",
+        "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/schemas/app-plan.schema.json",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/schemas/app-plan.schema.json",
+        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/schemas/app-plan.schema.json",
+        "plugins/qlik-to-sigma/skills/qlik-to-sigma/schemas/app-plan.schema.json",
+        "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/schemas/app-plan.schema.json",
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/schemas/app-plan.schema.json",
+        "plugins/tableau-to-sigma/skills/tableau-to-sigma/schemas/app-plan.schema.json",
+        "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/schemas/app-plan.schema.json"
       ]
     },
     {
@@ -229,7 +438,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/verify-warehouse.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/verify-warehouse.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/verify-warehouse.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/verify-warehouse.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/verify-warehouse.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/verify-warehouse.rb"
       ]
     },
     {
@@ -244,7 +454,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/escalate-gap.py",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/escalate-gap.py",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/escalate-gap.py",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/escalate-gap.py"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/escalate-gap.py",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/escalate-gap.py"
       ]
     },
     {
@@ -258,21 +469,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/probe-controls.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/probe-controls.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/probe-controls.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/probe-controls.rb"
-      ]
-    },
-    {
-      "canonical": "shared/scripts/enhance-scan.rb",
-      "targets": [
-        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-scan.rb",
-        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-scan.rb"
-      ]
-    },
-    {
-      "canonical": "shared/scripts/enhance-apply.rb",
-      "targets": [
-        "plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/enhance-apply.rb",
-        "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/enhance-apply.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/probe-controls.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/probe-controls.rb"
       ]
     },
     {
@@ -287,7 +485,8 @@
         "plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/sigma-export-png.py",
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/sigma-export-png.py",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/sigma-export-png.py",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/sigma-export-png.py"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/sigma-export-png.py",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/sigma-export-png.py"
       ]
     },
     {
@@ -303,7 +502,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/find-or-pick-dm.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/find-or-pick-dm.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/find-or-pick-dm.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/find-or-pick-dm.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/find-or-pick-dm.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/find-or-pick-dm.rb"
       ]
     },
     {
@@ -316,7 +516,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/assert-phase6-ran.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/assert-phase6-ran.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/assert-phase6-ran.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/assert-phase6-ran.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/assert-phase6-ran.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/assert-phase6-ran.rb"
       ]
     },
     {
@@ -329,7 +530,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/record-visual-check.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/record-visual-check.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/record-visual-check.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/record-visual-check.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/record-visual-check.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/record-visual-check.rb"
       ]
     },
     {
@@ -342,7 +544,8 @@
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/blind_grade.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/blind_grade.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/blind_grade.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/blind_grade.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/blind_grade.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/blind_grade.rb"
       ]
     },
     {
@@ -356,7 +559,8 @@
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/lib/cli_encoding.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/cli_encoding.rb",
         "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/cli_encoding.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/cli_encoding.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/cli_encoding.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/cli_encoding.rb"
       ]
     },
     {
@@ -375,7 +579,8 @@
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-assessment/scripts/get-token.sh",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/get-token.sh",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/get-token.sh",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/get-token.sh"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/get-token.sh",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/get-token.sh"
       ]
     },
     {
@@ -459,7 +664,8 @@
         "plugins/qlik-to-sigma/skills/qlik-assessment/scripts/dup-dashboards.py",
         "plugins/quicksight-to-sigma/skills/quicksight-assessment/scripts/dup-dashboards.py",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-assessment/scripts/dup-dashboards.py",
-        "plugins/domo-to-sigma/skills/domo-assessment/scripts/dup-dashboards.py"
+        "plugins/domo-to-sigma/skills/domo-assessment/scripts/dup-dashboards.py",
+        "plugins/mode-to-sigma/skills/mode-assessment/scripts/dup-dashboards.py"
       ]
     },
     {
@@ -774,7 +980,8 @@
         "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/verify-anchors.rb",
         "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/verify-anchors.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/verify-anchors.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/verify-anchors.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/verify-anchors.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/verify-anchors.rb"
       ]
     },
     {
@@ -805,9 +1012,11 @@
         "plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/lib/evidence_ledger.rb",
         "plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/lib/evidence_ledger.rb",
         "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/evidence_ledger.rb",
-        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/evidence_ledger.rb"
+        "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/evidence_ledger.rb",
+        "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/evidence_ledger.rb",
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/evidence_ledger.rb"
       ],
-      "note": "domo intentionally NOT a target — STANDING EXEMPTION (W2.23 decision, 2026-07-29; adjudicated R7/§3-A4): adding it materializes a new domo lib and activates real ledger writes in domo's gate script — a runtime behavior change to be taken deliberately as the scheduled early-Wave-3 two-sibling fan-out (this file + the main-inherited degradation_ledger.rb gap below, domo suites run in the same change); until then domo's assert-phase6-ran.rb uses its guarded inline ev_append fallback."
+      "note": "W2.23's STANDING EXEMPTION (adjudicated R7/\u00a73-A4) was DISCHARGED 2026-08-05 \u2014 this is the scheduled early-Wave-3 two-sibling fan-out it described: this file AND degradation_ledger.rb added to domo and hex together, one atomic commit, domo suites run. It is a deliberate runtime behavior change: domo's assert-phase6-ran.rb previously used its guarded inline ev_append fallback and now writes the real ledger."
     },
     {
       "canonical": "shared/lib/export_pool.rb",
@@ -839,7 +1048,8 @@
         "plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/lib/anchor_values.rb",
         "plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/lib/anchor_values.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/lib/anchor_values.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/anchor_values.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/lib/anchor_values.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/lib/anchor_values.rb"
       ]
     },
     {
@@ -973,7 +1183,8 @@
         "plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/cleanup-orphan-workbooks.rb",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/cleanup-orphan-workbooks.rb",
         "plugins/domo-to-sigma/skills/domo-to-sigma/scripts/cleanup-orphan-workbooks.rb",
-        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/cleanup-orphan-workbooks.rb"
+        "plugins/hex-to-sigma/skills/hex-to-sigma/scripts/cleanup-orphan-workbooks.rb",
+        "plugins/mode-to-sigma/skills/mode-to-sigma/scripts/cleanup-orphan-workbooks.rb"
       ]
     },
     {

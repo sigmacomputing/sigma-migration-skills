@@ -1,4 +1,4 @@
-# pbi_theme.rb — Power BI report theme -> Sigma workbook themeOverrides.
+# pbi_theme.rb — Power BI report theme -> Sigma settings.theme.overrides.
 #
 # The single biggest style-fidelity gap in PBI->Sigma migration was that we
 # reproduced data + layout but NOT the visual theme: no categorical palette, no
@@ -30,7 +30,7 @@ module PbiTheme
     palette(theme_name).first
   end
 
-  # The Sigma themeOverrides that reproduce a PBI report's look: card chrome,
+  # The Sigma settings.theme.overrides that reproduce a PBI report's look: card chrome,
   # subtle 1px borders, rounded corners, and the source palette (which drives
   # donut/pie + multi-series colors). Stacked on the built-in `Light` theme.
   def self.overrides(theme_name)

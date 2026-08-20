@@ -13,7 +13,6 @@
         "card",
         "multiRowCard",
         "kpi",
-        "gauge",
         "cardVisual",
         "kpiMatrix"
       ],
@@ -24,12 +23,39 @@
         "method": "LIVE demo-warehouse run (fresh DM): workbook POST clean, 0 type=error, render verified (KPI 127,513.88 = warehouse; column->vertical + bar->horizontal orientation correct)"
       },
       "on_unmapped": "n/a",
-      "notes": "PBI card / multiRowCard / kpi / gauge -> Sigma kpi-chart. gauge and kpiMatrix have no native Sigma kind (approximated -> approximate_types below); card/multiRowCard/kpi/cardVisual ARE native (approximate:false). A multiRowCard fans out to one kpi-chart per measure in the builder. `cardVisual` is the MODERN card visual type (PBI 2023+); it was absent from the old map and silently became a bar-chart on real customer files.",
+      "notes": "PBI card / multiRowCard / kpi -> Sigma kpi-chart. kpiMatrix remains an approximation; card/multiRowCard/kpi/cardVisual ARE native (approximate:false). A multiRowCard fans out to one kpi-chart per measure in the builder. `cardVisual` is the MODERN card visual type (PBI 2023+); it was absent from the old map and silently became a bar-chart on real customer files.",
       "role_class": "kpi",
       "approximate_types": [
-        "gauge",
         "kpiMatrix"
       ]
+    },
+    {
+      "source": "progress",
+      "sigma": "progress",
+      "pbi_visual_types": [
+        "gauge"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-radial-gauge-charts",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "PBI gauge -> native Sigma progress with shape:ring and mode:value. Value and optional min/max/target roles become progress formula strings. Sigma's ring is circular rather than Power BI's semicircle, so shape fidelity still requires visual review, but this is no longer a KPI fallback.",
+      "role_class": "chart"
+    },
+    {
+      "source": "waterfall",
+      "sigma": "waterfall-chart",
+      "pbi_visual_types": [
+        "waterfallChart"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-waterfall-charts",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Native mapping. Category -> xAxis, values -> yAxis, and Power BI Breakdown/Legend -> Sigma splitBy. Emits cumulative sum shape with connector lines and a hidden zero start point.",
+      "role_class": "chart"
     },
     {
       "source": "bar",
@@ -43,7 +69,6 @@
         "stackedColumnChart",
         "hundredPercentStackedColumnChart",
         "hundredPercentStackedBarChart",
-        "waterfallChart",
         "funnel",
         "treemap",
         "ribbonChart",
@@ -56,10 +81,9 @@
         "method": "LIVE demo-warehouse run (fresh DM): workbook POST clean, 0 type=error, render verified (KPI 127,513.88 = warehouse; column->vertical + bar->horizontal orientation correct)"
       },
       "on_unmapped": "n/a",
-      "notes": "*Bar* families render horizontal (orientation:horizontal), *Column* families vertical (omit orientation). Stacking none|stacked|normalized from the type name. hundredPercentStackedBarChart is now mapped explicitly (it previously fell through the Python `VISUAL_KIND.get(vt,'bar')` default). waterfall/funnel/treemap/ribbon/histogram are DATA-PRESERVING bar approximations -> approximate:true, so they are reported as approximated, not as losses.",
+      "notes": "*Bar* families render horizontal (orientation:horizontal), *Column* families vertical (omit orientation). Stacking none|stacked|normalized from the type name. hundredPercentStackedBarChart is now mapped explicitly (it previously fell through the Python `VISUAL_KIND.get(vt,'bar')` default). funnel/treemap/ribbon/histogram are DATA-PRESERVING bar approximations -> approximate:true, so they are reported as approximated, not as losses. Waterfall has its own native row.",
       "role_class": "chart",
       "approximate_types": [
-        "waterfallChart",
         "funnel",
         "treemap",
         "ribbonChart",
@@ -178,12 +202,25 @@
       "role_class": "table"
     },
     {
+      "source": "navigation",
+      "sigma": "navigation",
+      "pbi_visual_types": [
+        "pageNavigator"
+      ],
+      "doc_ref": "https://learn.microsoft.com/en-us/power-bi/create-reports/button-navigators",
+      "sigma_verified": {
+        "status": "n"
+      },
+      "on_unmapped": "n/a",
+      "notes": "Power BI page navigator -> native Sigma navigation mode:auto, which renders and maintains one tab per workbook page.",
+      "role_class": "text"
+    },
+    {
       "source": "text",
       "sigma": "text",
       "pbi_visual_types": [
         "textbox",
         "actionButton",
-        "pageNavigator",
         "bookmarkNavigator",
         "aiNarratives",
         "smartNarrative"
@@ -193,7 +230,7 @@
         "status": "n"
       },
       "on_unmapped": "n/a",
-      "notes": "Boxes >= ~60px tall render as an H2 heading; smaller boxes as plain body text.",
+      "notes": "Boxes >= ~60px tall render as an H2 heading; smaller boxes as plain body text. bookmarkNavigator remains a text/explicit gap because a Power BI bookmark restores visual/filter state and cannot be represented by page-only auto navigation without extracting its destinations and state.",
       "role_class": "text"
     },
     {

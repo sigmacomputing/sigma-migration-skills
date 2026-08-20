@@ -84,7 +84,9 @@ ruby scripts/phase6-parity-thoughtspot.rb --workdir /tmp/ts-run --workbook-id <w
 ruby scripts/phase6-parity-thoughtspot.rb --workdir /tmp/ts-run --finalize          # PASS 2: sentinel
 ruby scripts/assert-phase6-ran.rb --workdir /tmp/ts-run --workbook-id <wb>          # must exit 0
 ```
-Re-apply layout last if you edit a workbook spec (a bare PUT wipes `spec.layout`).
+Re-apply layout last if you edit a workbook spec (a bare PUT wipes `document.layout` —
+the workbook body is `document`-wrapped as of 2026-08-03; `spec.layout` above means
+`spec.document.layout` now — see `refs/liveboard-to-workbook.md`).
 Workbook RENAMES go through `PATCH /v2/files/{id}` — `PATCH /v2/workbooks/{id}`
 silently no-ops.
 

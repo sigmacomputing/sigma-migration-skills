@@ -27,11 +27,16 @@ import argparse
 import csv
 import io
 import json
+import os
+import sys
 import time
 
 import mstr
 from convert import Bundle, friendly
 from verify_parity import api, export_element
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import code_rep  # workbook code-rep document-wrapper adapter (nested GET/POST shape)
 
 
 def run_mstr_grid(s, report_id):
@@ -55,22 +60,34 @@ def clean_groups_via_sigma(b, args, report, quirk_aid, parent_aids):
     """Run the clean per-(parents, key) aggregation on the warehouse through a
     temporary Sigma workbook (sql element) and return the rows."""
     sql = b.build_clean_group_sql(args.database, report)
-    spec = {
-        "name": "zz-ae-resolver-probe",
-        "folderId": args.folder_id,
-        "schemaVersion": 1,
-        "pages": [{"id": "p1", "name": "P", "elements": [{
-            "id": "t1", "kind": "table", "name": "Probe",
-            "source": {"kind": "sql", "connectionId": args.connection_id,
-                       "statement": sql},
-            "columns": [
-                {"id": f"c{i}", "name": alias,
-                 "formula": f"[Custom SQL/{alias}]"}
-                for i, alias in enumerate(b.clean_group_aliases(report))
-            ],
-        }]}],
+    element = {
+        "id": "t1", "kind": "table", "name": "Probe",
+        "source": {"kind": "sql", "connectionId": args.connection_id,
+                   "statement": sql},
+        "columns": [
+            {"id": f"c{i}", "name": alias,
+             "formula": f"[Custom SQL/{alias}]"}
+            for i, alias in enumerate(b.clean_group_aliases(report))
+        ],
     }
-    st, out = api("POST", "/v2/workbooks/spec", spec)
+    document = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": [{"id": "p1", "name": "P"}],
+        "elements": [element],
+        "layout": ('<?xml version="1.0" encoding="utf-8"?>\n'
+                   '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+                   'gridTemplateRows="auto" id="p1">\n'
+                   '  <Element elementId="t1" gridColumn="1 / 25" '
+                   'gridRow="1 / 13"/>\n</Page>'),
+    }
+    # Workbook code-rep POSTs require the nested `document` envelope (verified
+    # live 2026-08-03/04: a flat body 400s) — wrap the throwaway probe spec.
+    post_body = code_rep.wrap(
+        document,
+        {"name": "zz-ae-resolver-probe", "folderId": args.folder_id},
+    )
+    st, out = api("POST", "/v2/workbooks/spec", post_body)
     if st >= 300:
         raise SystemExit(f"probe workbook POST failed {st}: {out[:500]}")
     wb_id = json.loads(out)["workbookId"]
@@ -78,7 +95,14 @@ def clean_groups_via_sigma(b, args, report, quirk_aid, parent_aids):
         # element id may be remapped — read back
         import yaml
         st, out = api("GET", f"/v2/workbooks/{wb_id}/spec")
-        eid = yaml.safe_load(out)["pages"][0]["elements"][0]["id"]
+        # Workbook code-rep GETs nest pages under a top-level `document` key
+        # (live since 2026-08); a bare ["pages"] index here was always a
+        # KeyError, so the probe's remapped element id was never recovered.
+        raw_readback = yaml.safe_load(out)
+        elements = code_rep.workbook_elements(raw_readback)
+        if not elements:
+            raise SystemExit("probe workbook readback contains no flat document elements")
+        eid = elements[0]["id"]
         csv_text = export_element(wb_id, eid)
     finally:
         api("DELETE", f"/v2/files/{wb_id}")

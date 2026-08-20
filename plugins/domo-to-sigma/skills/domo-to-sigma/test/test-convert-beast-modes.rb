@@ -25,10 +25,13 @@ ok(n == "CONCAT([StringColumnCity], ', ', [StringColumnState])", 'backticks → 
 n, _ = normalize_bm("SUM(`Operating Budget`)")
 ok(n == 'SUM([Operating Budget])', 'spaced identifier preserved in brackets')
 
-puts "== normalize_bm: WEEKDAY → DAYOFWEEK =="
+puts "== normalize_bm: WEEKDAY passes through unchanged, flagged for override =="
 n, w = normalize_bm('WEEKDAY(`d`)')
-ok(n == 'DAYOFWEEK([d])', 'WEEKDAY rewritten to DAYOFWEEK')
-ok(w.any? { |x| x.include?('WEEKDAY') }, 'WEEKDAY warning emitted')
+ok(n == 'WEEKDAY([d])', 'WEEKDAY left untouched (no DAYOFWEEK rewrite)')
+ok(!n.include?('DAYOFWEEK'), 'DAYOFWEEK never appears in normalized output')
+ok(w.any? { |x| x.include?('WEEKDAY') && x.include?('Weekday') }, 'WEEKDAY warning emitted, names Sigma Weekday()')
+ok(w.any? { |x| x.include?('Mod(Weekday([col])+5,7)') }, 'WEEKDAY warning names the exact override formula')
+ok(w.any? { |x| x.include?('0=Monday') && x.include?('1=Sunday') }, 'WEEKDAY warning documents both numbering conventions')
 
 puts "== normalize_bm: unsupported functions flagged =="
 _, w = normalize_bm('SQRT(`x`)')
@@ -52,6 +55,157 @@ ok(errs.any? { |e| e.include?('IsIn') }, 'raw IN(...) → error (no IsIn)')
 errs, _ = lint_formula('If([col]="A" or [col]="B", 1, 0)')
 ok(errs.empty?, 'expanded OR-chain passes clean')
 
+# ---------------------------------------------------------------------------
+# bead kn8s — narrow the raw-IN( rule to SHAPE, not the bare substring "IN(".
+# Sigma has a real, documented `In([col], "a", "b")` FUNCTION (see
+# .../sigma-workbooks/reference/specification/formulas.md) that the old
+# `/\bIN\s*\(/i` substring check wrongly flagged as an error, because it can't
+# tell that form apart from a genuine unsupported SQL infix `x IN (a, b)`. The
+# distinguishing shape: a genuine infix always has a VALUE immediately before
+# the IN token (`]`, `)`, a quoted string, or a bare identifier/number);
+# Sigma's function form instead sits in a function-NAME position (formula
+# start, or right after `(` `,` `and` `or`, or a `not` that itself traces back
+# to one of those). Cases below are the ones enumerated by the bead itself,
+# reproduced here as real assertions (not eyeballed) — each false-positive
+# case is confirmed to have been WRONGLY flagged before this fix.
+# ---------------------------------------------------------------------------
+
+puts '== lint_formula (bead kn8s): genuine infix IN(...) still flags — unchanged =='
+errs, _ = lint_formula('If([Region] IN ("East", "West"), 1, 0)')
+ok(errs.any? { |e| e.include?('infix') }, 'infix right after ] (If-wrapped) still an error')
+errs, _ = lint_formula('[Status] IN (1, 2, 3)')
+ok(errs.any? { |e| e.include?('infix') }, 'infix right after ], bare condition, still an error')
+errs, _ = lint_formula('If(Sum([x]) IN (5, 10), 1, 0)')
+ok(errs.any? { |e| e.include?('infix') }, 'infix right after a closing ) (aggregate result) still an error')
+
+puts '== lint_formula (bead kn8s): Sigma In(...) FUNCTION form must NOT be flagged (was the bug) =='
+errs, _ = lint_formula('In([Region], "East", "West")')
+ok(errs.empty?, 'In(...) at the very start of the formula is legitimate Sigma syntax, not an error')
+errs, _ = lint_formula('If(In([Region], "East", "West"), 1, 0)')
+ok(errs.empty?, 'In(...) right after ( is legitimate, not an error')
+errs, _ = lint_formula('In([Region], "East") and In([Status], "Active")')
+ok(errs.empty?, 'In(...) right after `and` is legitimate, not an error')
+errs, _ = lint_formula('Not(In([Region], "East"))')
+ok(errs.empty?, 'In(...) nested right after ( inside Not( is legitimate, not an error')
+errs, _ = lint_formula('If([x] > 0, In([Region], "East"), In([Region], "West"))')
+ok(errs.empty?, 'In(...) right after a , (function argument position) is legitimate, not an error')
+
+puts '== lint_formula (bead kn8s): extra edge cases beyond the bead minimum =='
+# Infix NOT IN must still flag (the old rule caught this too — a naive `not`
+# exemption could regress it if it treated `not` itself as a free pass;
+# instead we look through `not` to what precedes IT).
+errs, _ = lint_formula('[Status] NOT IN (1, 2, 3)')
+ok(errs.any? { |e| e.include?('infix') }, 'genuine infix NOT IN (a value before `not`) still flags')
+errs, _ = lint_formula('If([Status] not in (1,2), 1, 0)')
+ok(errs.any? { |e| e.include?('infix') }, 'lowercase infix "not in" after a value still flags')
+# Bare infix `not` directly negating a real In(...) call (no wrapping parens)
+# must NOT flag — `not` here traces back to a function-name position.
+errs, _ = lint_formula('not In([Region], "East")')
+ok(errs.empty?, 'bare `not In(...)` (infix negation of a function call) is not an error')
+errs, _ = lint_formula('If([x]>0, not In([Region],"East"), 0)')
+ok(errs.empty?, '`not In(...)` right after a , is not an error')
+# No-space and mixed-case variants of the same two shapes.
+errs, _ = lint_formula('[Status]IN(1,2,3)')
+ok(errs.any? { |e| e.include?('infix') }, 'infix with no space before IN( still flags')
+errs, _ = lint_formula('if(in([col], "a","b"), 1, 0)')
+ok(errs.empty?, 'lowercase in(...) function-call form after ( is not an error')
+# A formula that legitimately mixes a real Contains(...) call (e.g. from a
+# translated LIKE clause) with an UNRELATED genuine infix IN elsewhere must
+# still flag — this used to be masked by the old formula-wide `f !~
+# /\bContains\s*\(/i` guard, which is why that guard was removed (see
+# convert-beast-modes.rb for the full rationale).
+errs, _ = lint_formula('If([Region] IN ("A","B") or Contains([Notes], "foo"), 1, 0)')
+ok(errs.any? { |e| e.include?('infix') },
+   'a genuine infix IN elsewhere in the formula still flags even when the formula also contains an unrelated Contains(...) call')
+
+# ---------------------------------------------------------------------------
+# review finding: In(...) used as a comparison OPERAND (e.g. `[a] = In(...)`)
+# is ALSO a legitimate function-name position — `=`/`<>`/`!=`/`>`/`<`/`>=`/`<=`
+# are the full comparison-operator set the vendored SQL-formula converter
+# itself recognizes (converter/sql.mjs). Reproduced by the reviewer as
+# wrongly-flagged before this fix; confirmed here as real assertions.
+# ---------------------------------------------------------------------------
+puts '== lint_formula (bead kn8s): In(...) as a comparison operand must NOT flag (review finding) =='
+errs, _ = lint_formula('[IsEast] = In([Region], "East")')
+ok(errs.empty?, 'In(...) right after = is legitimate, not an error')
+errs, _ = lint_formula('[a] <> In([Region], "East")')
+ok(errs.empty?, 'In(...) right after <> is legitimate, not an error')
+errs, _ = lint_formula('If([a] = In([Region],"East"), 1, 0)')
+ok(errs.empty?, 'In(...) right after = inside an If condition is legitimate, not an error')
+errs, _ = lint_formula('[a] != In([Region], "East")')
+ok(errs.empty?, 'In(...) right after != is legitimate, not an error')
+errs, _ = lint_formula('[a] >= In([Region], "East")')
+ok(errs.empty?, 'In(...) right after >= is legitimate, not an error')
+errs, _ = lint_formula('[a] <= In([Region], "East")')
+ok(errs.empty?, 'In(...) right after <= is legitimate, not an error')
+errs, _ = lint_formula('[a] > In([Region], "East")')
+ok(errs.empty?, 'In(...) right after > is legitimate, not an error')
+errs, _ = lint_formula('[a] < In([Region], "East")')
+ok(errs.empty?, 'In(...) right after < is legitimate, not an error')
+# Sanity check: a genuine infix elsewhere in the same formula still flags
+# even when a comparison operator appears nearby — adding these markers
+# must not blanket-suppress real infix detection.
+errs, _ = lint_formula('If([a] = 1 and [Status] IN (1,2), 1, 0)')
+ok(errs.any? { |e| e.include?('infix') },
+   'a genuine infix IN still flags alongside an unrelated comparison operator')
+
+# ---------------------------------------------------------------------------
+# F5 (audit): lint_formula never checked for a residual infix LIKE — the
+# live "Non-US Leads" Beast Mode (`... LIKE "united states"`, converted:false)
+# shipped with an EMPTY lintErrors, so the script's exit code never flagged
+# an unevaluable formula. Fixed by checking a WHOLE-WORD `LIKE` on the
+# formula with quoted strings/[bracketed] identifiers masked out first
+# (mask_strings_and_brackets) — not a bare substring test, which would hit
+# the false-positive class this file has already been burned by twice on
+# the IN( rule (see raw_infix_in_position?'s history comment above).
+#
+# Blocker 1 (2026-08-05 batch-verify): landed as a hard lintError with no
+# override path, this aborted the very cold run it was meant to protect —
+# migrate-domo.rb's convert-beast-modes phase treats any --lint exit 1 as
+# fatal, and the real "Non-US Leads" Beast Mode trips exactly this rule. A
+# raw infix IN( stays a hard ERROR (Sigma silently BLANKS the column — the
+# dangerous, quiet failure mode the error tier exists to catch); a residual
+# LIKE fails LOUDLY instead (visible in Sigma's own UI, same shape --convert
+# already flags via converted:false) and downgraded to a WARNING —
+# reported in lintWarnings/stderr, never silenced, but non-fatal. See
+# convert-beast-modes.rb's lint_formula comment for the full rationale.
+# ---------------------------------------------------------------------------
+
+puts "== lint_formula: leftover infix LIKE is a non-fatal WARNING (F5 / blocker 1) =="
+errs, warns = lint_formula('Lower([Account.BillingCountry]) LIKE "united states"')
+ok(errs.empty?, 'raw infix LIKE (the real "Non-US Leads" shape) is NOT a lintError (non-fatal)')
+ok(warns.any? { |w| w.include?('LIKE') }, 'raw infix LIKE (the real "Non-US Leads" shape) → warning')
+errs, warns = lint_formula('If([col] LIKE "abc%", 1, 0)')
+ok(errs.empty?, 'infix LIKE inside an If condition is not a lintError')
+ok(warns.any? { |w| w.include?('LIKE') }, 'infix LIKE inside an If condition → warning')
+errs, warns = lint_formula('[col] like \'%foo%\'')
+ok(errs.empty?, 'lowercase infix like is not a lintError')
+ok(warns.any? { |w| w.include?('LIKE') }, 'lowercase infix like → warning')
+errs, warns = lint_formula('[Status] NOT LIKE \'closed%\'')
+ok(errs.empty?, 'infix NOT LIKE is not a lintError')
+ok(warns.any? { |w| w.include?('LIKE') }, 'infix NOT LIKE → warning')
+errs, warns = lint_formula('Sum(If(Lower([Account.BillingCountry]) LIKE \'united states\', 0, If(Lower([Account.BillingCountry]) LIKE \'usa\', 0, 1)))')
+ok(errs.empty?, 'LIKE nested inside a real converted CASE→If chain is not a lintError')
+ok(warns.any? { |w| w.include?('LIKE') }, 'LIKE nested inside a real converted CASE→If chain still flags as a warning')
+
+puts '== lint_formula (F5): near-miss false positives must NOT flag =='
+errs, warns = lint_formula('Contains([Notes], "I like turtles")')
+ok(errs.empty? && warns.none? { |w| w.include?('LIKE') }, 'the word "like" inside a STRING LITERAL is masked out, not flagged')
+errs, warns = lint_formula('Sum([Like Button Clicks])')
+ok(errs.empty? && warns.none? { |w| w.include?('LIKE') }, 'the word "Like" inside a [bracketed column name] is masked out, not flagged')
+errs, warns = lint_formula('If([Dislike Count] > 0, 1, 0)')
+ok(errs.empty? && warns.none? { |w| w.include?('LIKE') }, '"like" as a non-whole-word substring ("Dislike") is not flagged even without masking')
+errs, warns = lint_formula('If([Unlike Score] > 0, 1, 0)')
+ok(errs.empty? && warns.none? { |w| w.include?('LIKE') }, '"like" as a non-whole-word substring ("Unlike") is not flagged')
+errs, warns = lint_formula('Contains([col], "abc") and StartsWith([col2], "xyz")')
+ok(errs.empty? && warns.none? { |w| w.include?('LIKE') }, "Sigma's own legitimate string functions (Contains/StartsWith) pass clean — no residual LIKE")
+# Sanity: masking must not blanket-suppress a genuine infix LIKE that sits
+# alongside a string literal/bracket elsewhere in the same formula.
+errs, warns = lint_formula('Contains([Notes], "I like turtles") and [Status] LIKE \'closed%\'')
+ok(errs.empty?, 'a genuine infix LIKE elsewhere is still not a lintError')
+ok(warns.any? { |w| w.include?('LIKE') },
+   'a genuine infix LIKE elsewhere still flags (as a warning) even when the formula also contains an unrelated "like" string literal')
+
 puts "== lint_formula: And()/Or()/Not() function-call warnings =="
 _, w = lint_formula('If(And([a]>1, [b]<2), 1, 0)')
 ok(w.any? { |x| x.include?('infix') }, 'And() function-call warned (use infix)')
@@ -70,12 +224,22 @@ puts "== lint_formula: valid multi-condition If passes =="
 errs, w = lint_formula('If([Status]="Active","Active",[Status]="Pending","Pending","Other")')
 ok(errs.empty?, 'native multi-condition If is clean (no nesting needed)')
 
-puts '== normalize_bm: unsupported + WEEKDAY rewrite =='
+puts '== normalize_bm: unsupported + WEEKDAY override warning =='
 n, w = normalize_bm('WEEKDAY(order_date)')
-ok(n.include?('DAYOFWEEK'), 'WEEKDAY → DAYOFWEEK')
-ok(!w.empty?, 'WEEKDAY rewrite warns')
+ok(n.include?('WEEKDAY'), 'WEEKDAY name preserved unchanged')
+ok(!n.include?('DAYOFWEEK'), 'no DAYOFWEEK rewrite (bare identifier, no backticks)')
+ok(!w.empty?, 'WEEKDAY override warning present')
+ok(!w.any? { |x| x.include?('Unsupported function WEEKDAY') }, 'WEEKDAY not double-flagged via the generic UNSUPPORTED loop')
 _, w2 = normalize_bm('SQRT(x)')
 ok(w2.join.match?(/SQRT/i), 'SQRT flagged unsupported')
+
+puts '== normalize_bm: WEEKDAY() day-numbering arithmetic sanity check =='
+# Sanity check the exact override formula this file's warning names —
+# Mod(Weekday([col])+5,7) — reproduces MySQL's WEEKDAY() numbering (0=Monday)
+# from Sigma's Weekday() numbering (1=Sunday), for all 7 days.
+sigma_to_mysql = { 1 => 6, 2 => 0, 3 => 1, 4 => 2, 5 => 3, 6 => 4, 7 => 5 } # Sun..Sat
+all_match = sigma_to_mysql.all? { |sigma_val, mysql_val| (sigma_val + 5) % 7 == mysql_val }
+ok(all_match, 'Mod(Weekday([col])+5,7) matches MySQL WEEKDAY() for all 7 days (Sun..Sat)')
 
 puts '== lint_formula: raw IN + And()/Or() function-call =='
 errs, _ = lint_formula('If([x] IN (1,2), "a", "b")')
@@ -92,7 +256,7 @@ ok(errs2.empty?, 'clean aggregate has no lint errors')
 # / unmatched_override_keys) — the operator sidecar for whatever a Beast Mode
 # the shared converter still can't translate. Historically that was CASE WHEN
 # / COUNT(DISTINCT) / double-bracketed ALL-CAPS refs; all three are fixed now
-# (sigma-data-model-mcp PR #115 then #116 — see
+# (converter-source PR #115 then #116 — see
 # refs/live-validation-2026-07-30.md). The mechanism itself is unaffected by
 # that fix and is exercised below purely as a resolve_entry/find_override
 # mechanism test, independent of which construct currently needs it.

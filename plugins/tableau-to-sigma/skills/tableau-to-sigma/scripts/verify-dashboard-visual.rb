@@ -27,6 +27,7 @@ require 'fileutils'
 require 'open3'
 require_relative 'lib/tableau_rest'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
+require_relative 'lib/workbook_code'
 
 opts = { w: 1700, h: 1100 }
 OptionParser.new do |p|
@@ -43,7 +44,7 @@ gw = (JSON.parse(File.read(File.join(opts[:tab], 'get-workbook.json'))) rescue {
 views = gw.dig('views', 'view') || []
 views = [views] unless views.is_a?(Array)
 view_id_by_name = views.each_with_object({}) { |v, h| h[v['name']] = v['id'] if v['name'] }
-page_id_by_name = (wb_ids['pages'] || []).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
+page_id_by_name = WorkbookCode.pages(wb_ids).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
 
 outdir = File.join(opts[:tab], 'visual-qa')
 FileUtils.mkdir_p(outdir)

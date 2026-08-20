@@ -345,6 +345,13 @@ module JoinPlan
   # ('Entity Id' -> ENTITY_ID; an already-physical 'ENTITY_ID' is a no-op).
   # Role parentheticals are stripped BEFORE folding (see strip_role_paren).
   def relationship_probe_key(key, captions)
+    # Duplicate logical-table roles suffix the field id itself, e.g.
+    #   <guid> (DATE_DIM (DEMO_SCHEMA.DATE_DIM)1)
+    # That whole token is not GUID-shaped, but the datasource's column census
+    # carries an exact caption for it. Prefer exact caption evidence before
+    # falling back to the plain-GUID and display-name paths.
+    caption = captions[key.to_s.downcase]
+    return physical_name(strip_role_paren(caption)) if caption
     guid_like?(key) ? physical_probe_key(key, captions) : physical_name(strip_role_paren(key))
   end
 
@@ -366,7 +373,11 @@ module JoinPlan
   # the run's resolved db/schema. When neither resolution works we return nil
   # and the caller keeps the old FQN — the probe errors and the gate keeps
   # blocking, the safe direction.
-  VC_LABEL_RE = /\(\s*([A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+){1,2})\s*\)\s*\z/
+  # Tableau appends a numeric role suffix after the closing physical-path
+  # parenthesis when the same logical table appears more than once:
+  #   DATE_DIM (DEMO_SCHEMA.DATE_DIM)1
+  # The suffix identifies the role, not a warehouse table.
+  VC_LABEL_RE = /\(\s*([A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+){1,2})\s*\)\d*\s*\z/
 
   def vc_physical_fqn(label, db, schema)
     m = label.to_s.match(VC_LABEL_RE)
@@ -399,9 +410,19 @@ module JoinPlan
     idx = {}
     doc.elements.each('//column[@caption]') do |c|
       name = c.attributes['name'].to_s.sub(/\A\[/, '').sub(/\]\z/, '')
-      next unless guid_like?(name)
+      # A duplicate logical-table role preserves the physical GUID at the
+      # start, then appends " (role-name)N". Index both the exact role token
+      # and its base GUID, but reject unrelated strings that merely begin with
+      # 36 GUID-looking characters.
+      base = name[0, 36]
+      suffix = name[36..].to_s
+      next unless guid_like?(base)
+      next unless suffix.empty? || suffix.match?(/\A\s+\(.+\)\d*\z/)
       cap = c.attributes['caption'].to_s
-      idx[name.downcase] ||= cap unless cap.empty?
+      unless cap.empty?
+        idx[name.downcase] ||= cap
+        idx[base.downcase] ||= cap
+      end
     end
     idx
   rescue StandardError

@@ -19,11 +19,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "scripts", "extract-report-classic.py")
 
 
-def _cfg(name, visual_type, projections=None, title=None, text=None):
+def _cfg(name, visual_type, projections=None, title=None, text=None, active=None):
     sv = {"visualType": visual_type}
     if projections:
         sv["projections"] = {role: [{"queryRef": q} for q in qs]
                              for role, qs in projections.items()}
+    if active:
+        sv["activeProjections"] = {role: [{"queryRef": q} for q in qs]
+                                   for role, qs in active.items()}
     objects = {}
     if title:
         objects["title"] = [{"properties": {"text": {"expr": {"Literal": {"Value": f"'{title}'"}}}}}]
@@ -46,7 +49,9 @@ LAYOUT = {
                                 {"Values": ["SALES_FACT.Total Sales"]}, title="Total Sales")},
                 {"x": 0, "y": 120, "width": 600, "height": 300, "z": 1,
                  "config": _cfg("v_bar", "clusteredColumnChart",
-                                {"Category": ["DATE_DIM.Month"], "Y": ["SALES_FACT.Total Sales"]})},
+                                {"Category": ["DATE_DIM.Year", "DATE_DIM.Month"],
+                                 "Y": ["SALES_FACT.Total Sales"]},
+                                active={"Category": ["DATE_DIM.Month"]})},
                 {"x": 620, "y": 120, "width": 300, "height": 100, "z": 2,
                  "config": _cfg("v_txt", "textbox", text="Regional sales summary")},
             ],
@@ -84,6 +89,11 @@ def _assert_signals(sig, mode):
     bar = kinds["clusteredColumnChart"]
     assert bar["sigma_kind"] == "bar", f"[{mode}] bar->{bar['sigma_kind']}"
     assert bar["bindings"] == {"Category": ["DATE_DIM.Month"], "Y": ["SALES_FACT.Total Sales"]}, f"[{mode}] {bar['bindings']}"
+    assert bar["drill"] == {
+        "role": "Category",
+        "levels": ["DATE_DIM.Year", "DATE_DIM.Month"],
+        "active": "DATE_DIM.Month",
+    }, f"[{mode}] drill={bar.get('drill')}"
     assert bar["stacking"] == "none", f"[{mode}] stacking={bar['stacking']}"
     assert kinds["textbox"]["sigma_kind"] == "text", f"[{mode}] textbox->{kinds['textbox']['sigma_kind']}"
     line = p2["visuals"][0]

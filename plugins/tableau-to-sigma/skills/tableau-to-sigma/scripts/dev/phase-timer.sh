@@ -28,7 +28,7 @@
 #   across separate Bash tool-call blocks in an agent session). This is the
 #   correct usage when phases span multiple shell invocations.
 # - Caller doesn't export → fresh mktemp + truncate (single-shell usage).
-# beads-sigma-hf4: previous version always truncated on source, losing
+# [bead]: previous version always truncated on source, losing
 # accumulated rows across blocks. Now we only truncate when we created
 # the file in this source.
 if [ -z "${PHASE_TIMINGS_TMP:-}" ]; then

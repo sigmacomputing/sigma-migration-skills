@@ -483,7 +483,7 @@ with `joinStrategy: 'relationships'`, and writes `res.model` (the return propert
 A dev's own checkout wins automatically when present: `migrate-looker.py` first checks
 `CONVERTER_SRC` (a `src/lookml.ts` + `tsx`, for fixed output against a patched source tree —
 see the build gotcha below) or `CONVERTER_PATH` (a built `build/lookml.js`), resolved from
-`~/sigma-data-model-mcp` or `~/Desktop/sigma-data-model-mcp` (`CONVERTER_HOMES`) if set. The
+`~/converter-source` or `~/converter-source` (`CONVERTER_HOMES`) if set. The
 vendored `converter/lookml.mjs` bundle is the guaranteed floor underneath both — it is what runs
 out of the box with nothing configured.
 
@@ -664,9 +664,18 @@ ids before POSTing.)
 `view.field` as a measure — agg + base col — or a dimension, and derive the Sigma formula) and
 emits a `/v2/workbooks/spec` body:
 - a **hidden "Data" page** with a master table sourced from the DM element,
-- a **dashboard page** with one element per Looker tile,
+- one metadata-only page per Looker dashboard tab (or one dashboard page),
+- a flat **`document.elements`** collection with one element per Looker tile,
 - **controls** from the dashboard filters,
-- a **newspaper → 24-col grid layout** XML string.
+- a required, authoritative **newspaper → 24-col grid layout** XML string that
+  places every flat element exactly once.
+
+> **The body above is `document`-wrapped, not flat** (verified live 2026-08-03, including
+> on `POST /v2/workbooks/spec/verify` 2026-08-04): `schemaVersion`, `pages`, `kind`, and
+> `layout`, and flat `elements` all nest under a top-level `document` key; workbook
+> metadata (`name`, `folderId`) stays outside it. Pages contain metadata only;
+> page membership comes from the required layout.
+> The Phase-2 DM POST (`/v2/dataModels/spec`) is a different surface and remains flat.
 
 Tile-type, filter-type, and layout maps are in `refs/dashboard-contract.md` and
 `refs/looker-dashboard-layout.md` — **do not duplicate them; defer there.** Summary:
@@ -681,9 +690,18 @@ Tile-type, filter-type, and layout maps are in `refs/dashboard-contract.md` and
 | `looker_pie` | `pie-chart` |
 | `looker_donut_multiples` | `donut-chart` (single ring) + warn |
 | `looker_scatter` | `scatter-chart` |
+| `looker_waterfall` | native `waterfall-chart` for dimension + measure; measure-only warns + skips |
 | `looker_grid` / `table` | `table` |
 | `text` | `text` (markdown body) |
-| `looker_map` / geo / funnel / waterfall / boxplot / sankey / custom viz | none — approximate or drop + warn |
+| `looker_boxplot` | none until released `box-chart` is published — drop + loud gate |
+| `looker_map` / geo / funnel / timeline / wordcloud / sankey / custom viz | none — approximate or drop + warn |
+
+Released workbook feature mappings and deliberate gaps (legend, progress,
+navigation/tabs, drill, page-break, panels, repeaters, styling, and box-chart)
+are cataloged in `refs/catalogs/workbook-feature.json` and summarized in
+`refs/workbook-code-release-gaps.md`. Emit only when the source carries the
+documented intent; a released Sigma capability is not by itself permission to
+invent source behavior.
 
 **Table column order, labels & hidden columns.** A table's Sigma column order follows the Looker
 **visualization** order (`vis_config.column_order`, captured as contract `columnOrder`), NOT
@@ -717,7 +735,7 @@ Newspaper layout math (a single arithmetic transform, no spatial heuristic):
 ### 3b. Workbook-spec gotchas (learned the hard way)
 
 - **`/v2/workbooks/spec` returns YAML** — don't `json.load` the response.
-- **control elements** live in `page.elements[]` with `kind: control` but REQUIRE an `id`
+- **control elements** live in flat `document.elements[]` with `kind: control` but REQUIRE an `id`
   (separate from `controlId`); a missing `id` → `Invalid kind: "control"`.
 - **KPI `value` uses `value.columnId`** on the live API (the `sigma-workbooks`
   `example-full.yaml` shows `value.id` — the API wants `columnId`). **BUT donut/pie `value`
@@ -885,7 +903,7 @@ migrated pages with `sigma-export-png.py` (side-by-side vs `looker-render-dashbo
 1. **Read each migrated PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking,
    no dead zones, controls placed in-band, no clipped KPI titles, even heights, right chart kind/format).
 2. Fix any failure in the spec — for multi-page workbooks use
-   `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-read**.
+   the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
 3. Loop until the render passes inspection.
 
 **Record the RLS outcome here.** If Phase 1d found RLS, the migration summary MUST list, per

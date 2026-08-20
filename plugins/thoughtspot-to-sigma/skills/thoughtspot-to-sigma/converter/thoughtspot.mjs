@@ -1,4 +1,4 @@
-// ../mcp-fresh/node_modules/js-yaml/dist/js-yaml.mjs
+// ../../../tmp/converter-source/node_modules/js-yaml/dist/js-yaml.mjs
 function isNothing(subject) {
   return typeof subject === "undefined" || subject === null;
 }
@@ -2622,7 +2622,7 @@ var jsYaml = {
   safeDump
 };
 
-// ../mcp-fresh/build/sigma-ids.js
+// ../../../tmp/converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var _idCounter = 0;
@@ -2914,7 +2914,7 @@ function buildDerivedElements(elements) {
   return derived;
 }
 
-// ../mcp-fresh/build/thoughtspot.js
+// ../../../tmp/converter-source/build/thoughtspot.js
 function convertThoughtSpotToSigma(yamlText, options = {}) {
   resetIds();
   const { connectionId, database: dbOverride, schema: schOverride } = options;

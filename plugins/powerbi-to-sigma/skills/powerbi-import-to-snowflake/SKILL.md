@@ -28,6 +28,14 @@ names **byte-match** what `powerbi-to-sigma`'s converter emits (see
 > Skip this skill for **DirectQuery** models — they already query a warehouse.
 > Only Import-mode (or mixed, for the Import tables) needs data landing.
 
+> **Also the designated remediation for non-warehouse sources.** When
+> `powerbi-to-sigma`'s converter flags a table sourced from a **Fabric Dataflow /
+> Lakehouse / OneLake / Dataverse / file** (`stats.nonWarehouseSourcedTables` +
+> `⛔` warnings), this skill is the fix: it enumerates tables via TMSL and
+> extracts rows via `executeQueries`, so it lands the **already-materialized**
+> data regardless of the upstream connector (a dataflow-fed Import model works
+> unchanged). Then repoint with `convert-model.rb --table-map manifest.json`.
+
 ## What it does
 
 `scripts/pbi_import_to_snowflake.py` (generic — no hardcoded schemas):

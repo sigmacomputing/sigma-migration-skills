@@ -415,7 +415,7 @@ if (securityDetected.length) {
   });
 }
 // ---------------------------------------------------------------------------
-// RUN-EACH-TIME GAP-SCOUT GATE (bead beads-sigma-5l5e). A flagged expression's
+// RUN-EACH-TIME GAP-SCOUT GATE (). A flagged expression's
 // default answer is "proceed ... close via gap-scout later" — but --yes would
 // otherwise let the agent skip the scout entirely and ship the placeholder. So
 // every expression_flagged gap must be SCOUTED first: the gap-scout attempts a
@@ -577,6 +577,7 @@ run('node', [join(HERE, 'post-and-readback.mjs'), '--type', 'workbook', '--spec'
 const wbMap = JSON.parse(readFileSync(wbMapPath, 'utf8'));
 state.workbookId = wbMap.workbookId;
 state.wbElements = wbMap.elements || [];
+if (wbMap.layoutOnReadback !== true) die('workbook POST readback did not prove the authoritative layout survived');
 line(`workbookId = ${state.workbookId} (${state.wbElements.length} element(s), 0 error columns)`);
 writeFileSync(statePath, JSON.stringify(state, null, 2));
 

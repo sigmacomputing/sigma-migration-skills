@@ -23,6 +23,7 @@
 require 'json'
 require_relative '../lib/sigma_rest'
 require_relative '../lib/export_pool'
+require_relative '../lib/code_rep'
 
 conn = ENV.fetch('SIGMA_TEST_CONNECTION_ID')
 src_id, agg_id, kpi_id = 'tbl-mr-src', 'tbl-mr-agg', 'kpi-mr-proof'
@@ -40,17 +41,14 @@ uid = who['userId'] || who['memberId'] || who['id']
 folder_id = Sigma.request(:get, "/v2/members/#{uid}")['homeFolderId']
 ref_wbs = Sigma.request(:get, '/v2/workbooks?limit=1')
 ref_id = ref_wbs['entries']&.first && ref_wbs['entries'].first['workbookId']
-schema_version = ref_id && Sigma.request(:get, "/v2/workbooks/#{ref_id}/spec", accept: 'application/json')['schemaVersion']
+schema_version = if ref_id
+                   Sigma::CodeRep.document(
+                     Sigma.request(:get, "/v2/workbooks/#{ref_id}/spec", accept: 'application/json')
+                   )['schemaVersion']
+                 end
 schema_version ||= 1
 
-spec = {
-  'name' => 'KPI comparison MULTI-ROW E2E proof',
-  'folderId' => folder_id,
-  'schemaVersion' => schema_version,
-  'pages' => [{
-    'id' => 'p1',
-    'name' => 'P1',
-    'elements' => [
+elements = [
       # Raw multi-row source (Custom SQL → [Custom SQL/ALIAS] formula prefix).
       { 'id' => src_id, 'kind' => 'table', 'name' => src_name,
         'source' => { 'kind' => 'sql', 'connectionId' => conn, 'statement' => sql },
@@ -85,10 +83,19 @@ spec = {
         'value' => { 'columnId' => val_col_id },
         'comparisonColumn' => { 'columnId' => cmp_col_id },
         'comparison' => { 'display' => 'delta', 'colorGood' => '#1a7f37', 'colorBad' => '#cf222e' } }
-    ],
-    'layout' => "<GridLayout><GridContainer><Row><Cell layoutId=\"#{src_id}\"/><Cell layoutId=\"#{agg_id}\"/><Cell layoutId=\"#{kpi_id}\"/></Row></GridContainer></GridLayout>"
-  }]
+]
+doc = {
+  'schemaVersion' => schema_version,
+  'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+  'elements' => elements,
+  'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1">' \
+              "<Element elementId=\"#{src_id}\" gridColumn=\"1 / 9\" gridRow=\"1 / 13\"/>" \
+              "<Element elementId=\"#{agg_id}\" gridColumn=\"9 / 17\" gridRow=\"1 / 13\"/>" \
+              "<Element elementId=\"#{kpi_id}\" gridColumn=\"17 / 25\" gridRow=\"1 / 13\"/>" \
+              '</Page>'
 }
+spec = Sigma::CodeRep.wrap(doc, extra: { 'name' => 'KPI comparison MULTI-ROW E2E proof',
+                                         'folderId' => folder_id })
 
 resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec), accept: 'application/yaml')
 raw = resp.is_a?(String) ? resp : resp.to_s
@@ -128,8 +135,8 @@ raw_ok = raw_cur == 140.0 && raw_pri == 60.0
 back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
 back = JSON.parse(back) if back.is_a?(String)
 abort "NO-GO: readback spec was not a Hash (got #{back.class})" unless back.is_a?(Hash)
-kpi_el = (back['pages'] || []).flat_map { |p| (p.is_a?(Hash) && p['elements'].is_a?(Array)) ? p['elements'] : [] }
-                              .find { |e| e.is_a?(Hash) && e['id'] == kpi_id }
+back_doc = Sigma::CodeRep.document(back)
+kpi_el = Sigma::CodeRep.workbook_elements(back_doc).find { |e| e['id'] == kpi_id }
 abort "NO-GO: kpi-chart '#{kpi_id}' not found on readback (dropped):\n#{JSON.generate(back)}" unless kpi_el
 cc = kpi_el['comparisonColumn']
 abort "NO-GO: comparisonColumn stripped/nulled on readback. kpi element:\n#{JSON.generate(kpi_el)}" if cc.nil? || (cc.is_a?(Hash) && cc.empty?)

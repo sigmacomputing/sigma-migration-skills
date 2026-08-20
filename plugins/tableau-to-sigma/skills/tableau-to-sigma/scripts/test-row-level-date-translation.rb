@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # Cross-path consistency + fail-closed guard for the Ruby formula translator
-# (bead beads-sigma-tt3z.4). The TS path (formulas.ts::tableauFormulaToSigma) and
+# (.4). The TS path (formulas.ts::tableauFormulaToSigma) and
 # this Ruby path (build-charts-from-signals.rb) had drifted:
 #   - TS: fail-OPEN until B1 — unmapped fns passed through verbatim (silent break).
 #         Fixed by the B1 catch-all (warns).

@@ -1,6 +1,6 @@
 # DAX → Sigma Formula Coverage Spike
 
-> Tracking issue: `beads-sigma-bjb`
+> Tracking issue: `[bead]`
 
 ## Question
 
@@ -121,15 +121,15 @@ Cover these patterns mechanically and return `{ ok: true, sigma: "..." }`:
 | `COUNTROWS(T)` | `Count([T/<pk>])` — requires PK; if unknown, error |
 | `SUMX(T, expr)`, `AVERAGEX(T, expr)`, `MAXX(T, expr)` | `Sum/Avg/Max(expr)` with column refs rewritten |
 | `CALCULATE(agg, T[c] = v)` (single predicate) | `SumIf([T/c], pred)` / `AvgIf(...)` / `MinIf` / `MaxIf` / `CountDistinctIf([T/c], pred)` |
-| `CALCULATE(COUNTROWS(T), pred)` / `CALCULATE(COUNT(T[c]), pred)` | `CountIf(pred)` — **single logical arg only**. The 2-arg `CountIf([col], pred)` form errors at query time: *Argument 1 invalid for function CountIf. Expected logical; received text.* (beads-sigma-862) |
+| `CALCULATE(COUNTROWS(T), pred)` / `CALCULATE(COUNT(T[c]), pred)` | `CountIf(pred)` — **single logical arg only**. The 2-arg `CountIf([col], pred)` form errors at query time: *Argument 1 invalid for function CountIf. Expected logical; received text.* ([bead]) |
 | `CALCULATE(agg, p1, p2, ...)` (AND'd predicates) | `SumIf(col, p1 And p2 And ...)` |
 | `DIVIDE(a, CALCULATE(a, ALL(T)))` | `PercentOfTotal(a, "grand_total")` |
 | `DIVIDE(a, CALCULATE(a, ALLEXCEPT(T, T[d])))` | `PercentOfTotal(a, "parent_grouping", 1)` |
-| `DIVIDE(<agg on T1>, <agg on T2>)` cross-table ratio | **refuse (b)**: a same-element `[A]/[B]` metric resolves the foreign aggregate as NULL. Reproduce via a constant-key (All Key=1) Lookup join to the related element so the denominator spans the FULL related set (e.g. global headcount), then divide (beads-sigma-m1a). |
+| `DIVIDE(<agg on T1>, <agg on T2>)` cross-table ratio | **refuse (b)**: a same-element `[A]/[B]` metric resolves the foreign aggregate as NULL. Reproduce via a constant-key (All Key=1) Lookup join to the related element so the denominator spans the FULL related set (e.g. global headcount), then divide ([bead]). |
 | `CALCULATE(agg, SAMEPERIODLASTYEAR('Date'[Date]))` | `DateLookback(agg, [Date], 1, "year")` |
 | `CALCULATE(agg, DATEADD('Date'[Date], -n, <unit>))` | `DateLookback(agg, [Date], n, <unit>)` |
 | `RELATED(Other[c])`, `LOOKUPVALUE(Other[c], Other[k], T[k])` | `Lookup([Other/c], [k], [Other/k])` |
-| `DATEDIFF(start, end, UNIT)` | `DateDiff("unit", start, end)` — lowercased **quoted-string unit FIRST**, then start, then end. DAX puts the unit LAST + bare; emitting `DateDiff(start, end, [UNIT])` produces a `type=error` column (beads-sigma-f0p). |
+| `DATEDIFF(start, end, UNIT)` | `DateDiff("unit", start, end)` — lowercased **quoted-string unit FIRST**, then start, then end. DAX puts the unit LAST + bare; emitting `DateDiff(start, end, [UNIT])` produces a `type=error` column ([bead]). |
 | `IF(cond, a, b)`, `SWITCH(...)`, basic arithmetic | `If(cond, a, b)` (chain `If` for `SWITCH`) |
 
 For everything else, return a structured error:

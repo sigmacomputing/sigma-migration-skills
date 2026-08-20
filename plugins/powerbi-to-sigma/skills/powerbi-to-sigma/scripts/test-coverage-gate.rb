@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # test-coverage-gate.rb — unit test for CoverageGate (the migration-coverage
 # surfacing added for customer feedback 2026-06-25). Converter-agnostic, pure,
-# no network. Canonical in shared/scripts.
+# no network. Canonical in shared/scripts ().
 # Run: ruby scripts/test-coverage-gate.rb
 require 'json'
 require_relative 'lib/coverage_gate'

@@ -28,6 +28,8 @@ $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_functions'
 require 'formula_normalize'
 require 'metric_binding' # F4: column/metric collision shape — census admissibility
+require 'workbook_code'
+require 'tableau_dynamic_title' # raw Tableau title tokens must never reach POST
 
 opts = { type: nil, dm_context: nil }
 op = OptionParser.new do |p|
@@ -40,7 +42,16 @@ op.parse!
 abort('--type required (datamodel|workbook)') unless opts[:type]
 abort('usage: validate-spec.rb --type T [--dm-context P] <spec.json>') if ARGV.empty?
 
-spec = JSON.parse(File.read(ARGV[0]))
+raw_spec = JSON.parse(File.read(ARGV[0]))
+workbook_shape_errors = []
+if opts[:type] == 'workbook'
+  workbook_shape_errors = WorkbookCode.validate(raw_spec)
+  # The validation logic below predates flat workbook elements. Feed it a
+  # transient page view derived from layout; this is never written back.
+  spec = WorkbookCode.legacy_view(raw_spec)
+else
+  spec = raw_spec
+end
 
 # Known prefixes the validator considers valid for cross-element refs
 external_names = []  # element names that are sources OUTSIDE this spec (e.g., DM elements when validating a workbook)
@@ -193,6 +204,7 @@ if metrics_file
 end
 
 errors = []
+errors.concat(workbook_shape_errors)
 warnings = []
 warnings.concat(census_warnings) # F4 census exclusions, surfaced with the report
 all_element_names = []
@@ -240,12 +252,41 @@ end
 
 errors << 'spec contains rgb(...) color strings (Cloudflare WAF blocks)' if JSON.generate(spec).include?('rgb(')
 
+# Raw Tableau title tokens ("<[Parameters].[Parameter 1 3]>", "<Sheet Name>")
+# that survived translation. Sigma has no such syntax and renders the token
+# LITERALLY in the tile header, so the dashboard ships with it visible
+# (field-caught on a live migration). Translate to Sigma dynamic text
+# {{[<controlId>]}} against a control the WORKBOOK carries — workbook dynamic
+# text cannot reference a data-model control — or substitute the parameter's
+# current value. build-charts-from-signals.rb does both automatically; a hit
+# here means a hand-authored or stale spec.
+spec.fetch('pages', []).each do |page|
+  page.fetch('elements', []).each do |el|
+    %w[name body].each do |field|
+      next unless el[field].is_a?(String)
+
+      tokens = TableauDynamicTitle.residual_tokens(el[field]).uniq
+      next if tokens.empty?
+
+      errors << "element \"#{el['name'] || el['id']}\": #{field} carries raw Tableau title token(s) " \
+                "#{tokens.join(', ')} — Sigma renders them literally in the tile header. Use Sigma " \
+                'dynamic text {{[<controlId>]}} bound to a control this WORKBOOK carries (workbook ' \
+                "dynamic text cannot reach a data-model control), or substitute the parameter's value."
+    end
+  end
+end
+
 # ENVELOPE checks (field-caught round 2): a hand-authored spec missing these
 # passed "0 errors" locally and then burned one live 400 per defect, one
 # network round-trip at a time.
-errors << 'missing top-level "schemaVersion" (POST 400s with schemaVersion: Invalid)' unless spec.key?('schemaVersion')
-errors << 'missing top-level "name" (the workbook/DM display name)' if spec['name'].to_s.strip.empty?
-warnings << 'no top-level "folderId" — the POST lands in My Documents (pass the assigned folder)' unless spec.key?('folderId')
+if opts[:type] == 'workbook'
+  errors << 'missing outer "name" (the workbook display name)' if raw_spec['name'].to_s.strip.empty?
+  warnings << 'no outer "folderId" — the POST lands in My Documents (pass the assigned folder)' unless raw_spec.key?('folderId')
+else
+  errors << 'missing top-level "schemaVersion" (POST 400s with schemaVersion: Invalid)' unless spec.key?('schemaVersion')
+  errors << 'missing top-level "name" (the data-model display name)' if spec['name'].to_s.strip.empty?
+  warnings << 'no top-level "folderId" — the POST lands in My Documents (pass the assigned folder)' unless spec.key?('folderId')
+end
 spec.fetch('pages', []).each_with_index do |page, pi|
   errors << "pages[#{pi}] has no \"id\" — PUT/layout targeting needs stable page ids" unless page['id']
   page.fetch('elements', []).each do |el|
@@ -331,12 +372,16 @@ spec.fetch('pages', []).each do |page|
           # W2.8: governed-metric refs resolve against the METRICS CENSUS, not
           # element prefixes. A census HIT is valid — and is NOT an element
           # ref, so the cross-element render-500 guard below must not judge
-          # it. A census MISS is a hard ERROR (error-when-checkable), unless
-          # an element literally named "Metrics" makes the prefix known — then
-          # the pre-census checks judge the ref exactly as before.
-          if prefix == 'Metrics' && metrics_census
+          # it. Metrics is a reserved namespace: an element or column literally
+          # named "Metrics" can never satisfy [Metrics/<name>].
+          if prefix == 'Metrics'
             mname = ref.split('/', 2)[1].to_s
-            prefix_is_element = own_prefixes.include?(prefix) || all_known_set.include?(prefix)
+            if metrics_census.nil?
+              errors << "#{name}.#{col['name']}: ref [#{ref}] — no DM metrics census is available. " \
+                        'Pass --metrics <workdir>/metrics.json (or keep metrics.json beside --dm-context); ' \
+                        'column names and elements named "Metrics" are not valid metric evidence.'
+              next
+            end
             # F4 PRECEDENCE (review-caught): judge the structural exclusion
             # BEFORE census membership. Every pre-fix workdir carries a stale
             # machine-written metrics.json sidecar that still lists the
@@ -346,7 +391,7 @@ spec.fetch('pages', []).each do |page|
             # 1 without). Dual-carrier names were already cleared at the
             # census build, so anything still excluded rides ONLY a
             # collision-shaped element and cannot survive readback.
-            if metrics_excluded.key?(mname) && !prefix_is_element
+            if metrics_excluded.key?(mname)
               # F4: the metric IS defined — on a collision-shaped element, so
               # the live readback drops it and the ref cannot survive the
               # post-POST gate. Same admissibility rule as the binder.
@@ -358,19 +403,16 @@ spec.fetch('pages', []).each do |page|
               next
             end
             next if metrics_census.include?(mname)
-            unless prefix_is_element
-              listed = metrics_census.to_a.sort
-              errors << "#{name}.#{col['name']}: ref [#{ref}] — metric #{mname.empty? ? '(empty name)' : "\"#{mname}\""} is not in the DM metrics census " \
-                        "(#{listed.empty? ? 'the census is EMPTY' : "known metrics: #{listed.join(', ')}"}). " \
-                        'The governed-metric binder emits census names only — if the census is stale, re-run with the run\'s ' \
-                        'metrics.json (--metrics PATH, or the sidecar beside --dm-context).'
-              next
-            end
+            listed = metrics_census.to_a.sort
+            errors << "#{name}.#{col['name']}: ref [#{ref}] — metric #{mname.empty? ? '(empty name)' : "\"#{mname}\""} is not in the DM metrics census " \
+                      "(#{listed.empty? ? 'the census is EMPTY' : "known metrics: #{listed.join(', ')}"}). " \
+                      'The governed-metric binder emits census names only — if the census is stale, re-run with the run\'s ' \
+                      'metrics.json (--metrics PATH, or the sidecar beside --dm-context).'
+            next
           end
           unless own_prefixes.include?(prefix) || all_known_set.include?(prefix)
-            hint = prefix == 'Metrics' && !metrics_census ? ' — governed-metric refs need the DM metrics census: pass --metrics <workdir>/metrics.json (or keep metrics.json beside --dm-context)' : ''
             errors << "#{name}.#{col['name']}: ref [#{ref}] — prefix \"#{prefix}\" unknown " \
-                      "(known: #{(own_prefixes + all_known_set).to_a.sort.join(', ')})#{hint}"
+                      "(known: #{(own_prefixes + all_known_set).to_a.sort.join(', ')})"
           end
           # v5.3 RENDER-500 guard: a formula referencing a workbook element
           # that is NOT this element's source opaquely 500s EVERY png

@@ -117,33 +117,34 @@ if !opts[:finalize]
   abort('--workbook-id required for pass 1') unless opts[:wb]
   $LOAD_PATH.unshift File.expand_path('lib', __dir__)
   require 'sigma_rest'
+  require 'code_rep'
 
   warn "Parity PASS 1: reading workbook spec #{opts[:wb]}"
   # binary:true returns the raw body — the spec endpoint answers in YAML even
   # when asked for JSON, so parse both.
   raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
-  spec = parse_spec(raw)
+  # Keep the on-disk readback as the unwrapped document. Workbook elements are
+  # flat; page membership is layout-authoritative.
+  spec = Sigma::CodeRep.document(parse_spec(raw))
   File.write(File.join(opts[:dir], 'wb-readback.json'), JSON.pretty_generate(spec))
 
   charts = []
-  Array(spec['pages']).each do |page|
-    Array(page['elements']).each do |el|
-      if el['kind'].to_s.end_with?('-chart')
-        pairs = chart_columns(el)
-        next unless pairs
-        charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
-                    'kind' => el['kind'],
-                    'sigma_columns' => pairs.compact.map { |id_name| id_name[1] },
-                    'sigma_column_ids' => pairs.compact.map { |id_name| id_name[0] },
-                    'workbook_id' => opts[:wb] }
-      elsif %w[table pivot-table].include?(el['kind'].to_s)
-        tt = table_total_column(el)
-        next unless tt
-        charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
-                    'kind' => 'table-total', 'source_kind' => el['kind'],
-                    'sigma_columns' => [tt[1]], 'sigma_column_ids' => [tt[0]],
-                    'workbook_id' => opts[:wb] }
-      end
+  Sigma::CodeRep.workbook_elements(spec).each do |el|
+    if el['kind'].to_s.end_with?('-chart')
+      pairs = chart_columns(el)
+      next unless pairs
+      charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
+                  'kind' => el['kind'],
+                  'sigma_columns' => pairs.compact.map { |id_name| id_name[1] },
+                  'sigma_column_ids' => pairs.compact.map { |id_name| id_name[0] },
+                  'workbook_id' => opts[:wb] }
+    elsif %w[table pivot-table].include?(el['kind'].to_s)
+      tt = table_total_column(el)
+      next unless tt
+      charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
+                  'kind' => 'table-total', 'source_kind' => el['kind'],
+                  'sigma_columns' => [tt[1]], 'sigma_column_ids' => [tt[0]],
+                  'workbook_id' => opts[:wb] }
     end
   end
   abort('no plannable chart elements found in the workbook spec') if charts.empty?
@@ -218,7 +219,7 @@ warn err unless err.empty?
 File.write(File.join(opts[:dir], 'parity-final.txt'), out)
 
 # Hard-gate sentinel consumed by assert-phase6-ran.rb (same contract as the
-# tableau-to-sigma Phase 6 sentinel — see beads-sigma-4pm for why it exists).
+# tableau-to-sigma Phase 6 sentinel — see [bead] for why it exists).
 total  = plan['charts'].size
 passed = out.scan(/^PASS\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)
 failed = out.scan(/^DIVERGE\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)

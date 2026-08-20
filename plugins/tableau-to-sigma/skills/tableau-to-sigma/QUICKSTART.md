@@ -56,7 +56,7 @@ Sigma SEs, technical CSMs, and migration partners running 1:1 Tableau-to-Sigma c
     <ul>
       <li><strong>VENDORED local build (default — zero config, no data leaves your machine).</strong> A prebuilt converter ships inside the skill at <code>converter/tableau.mjs</code> and is auto-discovered as the guaranteed fallback. No clone, no <code>npm install</code>, no network. This is what runs unless you point at a fresher build below. Refresh it after the converter changes with <code>scripts/dev/vendor-converter.sh</code> (see <code>converter/PROVENANCE.json</code> for the pinned source commit). Requires only <code>node</code> on PATH.</li>
       <li><strong>Your own local build (override — fresher, still no egress).</strong> If you develop the converter, set <code>TABLEAU_MCP_BUILD</code> to its <code>build/tableau.js</code> (or <code>SIGMA_DATA_MODEL_MCP</code> to a checkout, or run <code>scripts/dev/fetch-converter.sh</code>). Any of these wins over the vendored copy, so you always test the latest.</li>
-      <li><strong>HOSTED (opt-in only — uploads the <code>.twb</code>).</strong> An optional, user-provided hosted MCP endpoint (set <code>SIGMA_CONVERTER_MCP_URL</code> to <code>&lt;hosted-converter-mcp-url&gt;</code>; there is no default) sends the workbook's XML (schema, SQL, calc formulas) to a third-party server. The orchestrator uses it <strong>only</strong> when you explicitly pass <code>--converter hosted</code> (or set <code>SIGMA_CONVERTER_ALLOW_HOSTED=1</code>) — and explicit <code>--converter hosted</code> overrides local auto-discovery. Do <strong>not</strong> use it for customer data that must stay in-tenant; you no longer need it for convenience, since the vendored local build covers that.</li>
+      <li><strong>HOSTED (opt-in only — uploads the <code>.twb</code>).</strong> The hosted MCP at <code>https://the hosted-converter endpoint (SIGMA_MCP_CONVERTER_URL)/mcp</code> sends the workbook's XML (schema, SQL, calc formulas) to a third-party server. The orchestrator uses it <strong>only</strong> when you explicitly pass <code>--converter hosted</code> (or set <code>SIGMA_CONVERTER_ALLOW_HOSTED=1</code>) — and explicit <code>--converter hosted</code> overrides local auto-discovery. Do <strong>not</strong> use it for customer data that must stay in-tenant; you no longer need it for convenience, since the vendored local build covers that.</li>
     </ul>
   </li>
   <li>A target Tableau workbook you're authorized to convert. Sample dashboards live at <a href="https://public.tableau.com/app/profile/tableau.docs.team">Tableau Public's docs profile</a> if you don't have one handy.</li>
@@ -381,7 +381,7 @@ The conversion is gated by `scripts/assert-phase6-ran.rb`, which checks **four**
   <li><strong>Phase 6 ran</strong> — <code>parity-final.json</code> exists with <code>status=PASS</code> at the required pass-rate</li>
   <li><strong>No orphan workbooks</strong> — <code>posted-workbooks.jsonl</code> has ≤ 1 entry, or <code>cleanup-marker.json</code> shows a successful non-dry-run cleanup</li>
   <li><strong>No <code>type=error</code> columns</strong> on the live workbook — catches circular references and runtime errors introduced after the initial POST</li>
-  <li><strong>Real layout applied</strong> — the workbook spec's top-level <code>layout</code> field is non-empty and isn't Sigma's auto-stack signature</li>
+  <li><strong>Real layout applied</strong> — the workbook spec's <code>layout</code> field (nested under the top-level <code>document</code> key as of 2026-08-03 — <code>document.layout</code>, not a bare top-level field) is non-empty and isn't Sigma's auto-stack signature</li>
 </ol>
 
 ```console
@@ -395,12 +395,13 @@ Exit 0 means the gates passed — the verdict on the final line is what you repo
 **Phase E (opt-in) — Enhance.** Once everything is GREEN you can opt into the
 enhancement pass: add `--enhance` to the `migrate-tableau.rb --finalize` command to
 scan for trial-validated upgrades (period-comparison KPIs, selection controls, grain
-and drill switchers, null-label/title/freshness polish). The scan stops with exit
-`14` and a proposal list; nothing is applied until you re-run with
-`--enhance-accept all-low-risk` (or an explicit id list). Accepted items land on a
-**clone** named "<name> — Enhanced" — the parity-verified workbook is never touched —
-and every applied item is gated by an untouched-element spot-check that auto-reverts
-on any shift. See the skill's `refs/phase-e-enhance.md` (Phase E row in the SKILL.md phase table).
+and drill switchers, null-label/title/freshness polish) **plus** `app_options[]` for
+the design interview. The scan stops with exit `14` and proposals; run the interview
+(`enhance-select.rb` / `enhance-app-plan.rb` — see `refs/phase-e-enhance.md`), then
+re-run with `--enhance-accept` using the accepted candidate ids (or
+`all-low-risk`). Accepted items land on a **clone** named "<name> — Enhanced" — the
+parity-verified workbook is never touched — and every applied item is gated by an
+untouched-element spot-check that auto-reverts on any shift.
 
 ![Footer](assets/sigma_footer.png)
 <!-- END OF SECTION -->

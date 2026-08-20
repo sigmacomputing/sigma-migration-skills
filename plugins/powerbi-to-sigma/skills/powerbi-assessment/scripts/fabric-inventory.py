@@ -219,18 +219,22 @@ def analyze_tmsl(tmsl):
         "import_tables": 0,
         "directquery_tables": 0,
         "warehouse_sources": [],
+        "nonwarehouse_sources": [],   # [{table, kind}] — Fabric Dataflow/Lakehouse/Dataverse/file: must be landed first
+
         "dax_buckets": {"a": 0, "b": 0, "c": 0},
         "measures": [],          # [{name, bucket, len, funcs}]
         "measure_total_chars": 0,
         "max_measure_chars": 0,
     }
     wh = set()
+    nonwh = []
     for t in tables:
         out["table_count"] += 1
         partitions = t.get("partitions", [])
         is_calc_table = any(p.get("source", {}).get("type") == "calculated" for p in partitions)
         if is_calc_table:
             out["calc_table_count"] += 1
+        nw_for_table = None   # first non-warehouse source kind seen on this table
         for p in partitions:
             src = p.get("source", {})
             mode = p.get("mode", "")
@@ -244,6 +248,22 @@ def analyze_tmsl(tmsl):
                 expr = "\n".join(expr)
             for m in re.finditer(r'(Snowflake|Sql|AmazonRedshift|GoogleBigQuery|Databricks|PostgreSQL|Oracle)\.[A-Za-z]+\(\s*"?([^",)]+)', expr or ""):
                 wh.add(f"{m.group(1)}:{m.group(2)}")
+            # non-warehouse sources (Fabric Dataflow / Lakehouse / OneLake /
+            # Dataverse / file): data isn't in a warehouse Sigma can query and
+            # must be landed first (powerbi-import-to-snowflake). Mirrors the
+            # converter's pbiDetectNonWarehouseSource.
+            if nw_for_table is None:
+                e = expr or ""
+                if re.search(r'\b(?:PowerPlatform|PowerBI)\.Dataflows\s*\(', e, re.I):
+                    nw_for_table = "dataflow"
+                elif re.search(r'\bLakehouse\.Contents\s*\(|\bOneLake\b', e, re.I):
+                    nw_for_table = "lakehouse"
+                elif re.search(r'\bCommonDataService\.Database\s*\(|\bCds\.Contents\s*\(', e, re.I):
+                    nw_for_table = "dataverse"
+                elif re.search(r'\bExcel\.Workbook\s*\(|\bCsv\.Document\s*\(|\bSharePoint\.[A-Za-z]+\s*\(|\bWeb\.Contents\s*\(|\bAzureStorage\.DataLake\s*\(', e, re.I):
+                    nw_for_table = "file"
+        if nw_for_table:
+            nonwh.append({"table": t.get("name"), "kind": nw_for_table})
         for m in t.get("measures", []):
             expr = m.get("expression", "")
             if isinstance(expr, list):
@@ -267,6 +287,7 @@ def analyze_tmsl(tmsl):
                 bucket, _ = classify_measure(expr)
                 out["dax_buckets"][bucket] += 1
     out["warehouse_sources"] = sorted(wh)
+    out["nonwarehouse_sources"] = nonwh
     return out
 
 

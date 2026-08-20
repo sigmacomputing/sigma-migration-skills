@@ -65,7 +65,7 @@ and — if escalated — the `escalation.dry_run_cmd` so the main agent can offe
 user a tracking issue.
 ```
 
-## Run-each-time gate (bead beads-sigma-5l5e) — why `--gap-id` + `--workdir` matter
+## Run-each-time gate () — why `--gap-id` + `--workdir` matter
 
 A flagged expression surfaces in `migrate-cognos.mjs`'s OPEN QUESTIONS as an
 `expression_flagged` decision whose default is "proceed … close via gap-scout

@@ -19,9 +19,9 @@ Everything is derived programmatically from the bundle:
     vizzes (chapter filters reach every viz in their chapter). The intended
     scope is emitted as control-scope.json (contract:
     scripts/lib/control_lint.rb header + refs/control-parity.md).
-  - Layout: container-banded pages (header band titled from the chapter /
-    dossier name, controls band, full-width tables) -> layout.xml, applied
-    after the workbook POST via scripts/put-layout.rb.
+  - Layout: container-banded pages (header/navigation/controls bands,
+    full-width content) embedded as required authoritative document.layout;
+    layout.xml is an inspectable copy and put-layout.rb is repair-only.
 
 Usage:
   python3 convert.py --connection-id <uuid> --database DEMO_DB --folder-id <uuid> \
@@ -29,11 +29,14 @@ Usage:
       [--dm-name "..."] [--wb-name "..."] \
       [--data-model-id <uuid>] [--orders-element-id <id>]
 
-Outputs sigma_dm_spec.json and sigma_workbook_spec.json. The workbook spec uses
-placeholders {{DATA_MODEL_ID}} / {{ORDERS_ELEMENT_ID}} unless the corresponding
-args are given.
+Outputs sigma_dm_spec.json and sigma_workbook_spec.json. The workbook uses outer
+metadata plus document:{schemaVersion,kind,pages,elements,layout}; pages are
+metadata-only and elements are flat. The data-model spec keeps pages[].elements.
+Workbook data-model references use placeholders {{DATA_MODEL_ID}} /
+{{ORDERS_ELEMENT_ID}} unless the corresponding args are given.
 """
 import argparse
+import copy
 import json
 import os
 import re
@@ -46,32 +49,47 @@ import sys
 # catalogs (grep-enforced by tests/test_grounding.py). The human-readable
 # coverage matrix in refs/microstrategy-coverage.md is GENERATED from these files.
 # Loader: shared/lib/coverage_catalog.py (synced to scripts/lib/). Design mirrors
-# the beads-sigma-kvza / -93ps contract: catalog = data, code = thin resolver.
+# the [bead] / -93ps contract: catalog = data, code = thin resolver.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import coverage_catalog as _cc  # noqa: E402
+import code_rep as _cr          # noqa: E402  workbook-only document envelope/flat elements
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 AGG_CAT = _cc.load(_CAT_DIR, "aggregation")     # MSTR group function -> Sigma/SQL aggregate
 FMT_CAT = _cc.load(_CAT_DIR, "number-format")   # MSTR format category -> Sigma number format
 CTRL_CAT = _cc.load(_CAT_DIR, "control")        # bound-column type    -> Sigma control kind
 VIZ_CAT = _cc.load(_CAT_DIR, "viz-kind")        # dossier visualizationType -> Sigma element kind
-# viz-kind is now WIRED (beads-sigma-kvza): each dossier chapter's primary
-# visualizationType is resolved through VIZ_CAT — bar/line/area chart types emit
-# the matching Sigma chart element (a dim on the xAxis + the metrics on the
-# yAxis); `grid`/compound/heat_map and any UNMAPPED type fall to a Sigma table
-# with a LOUD warning (data preserved, never a silent wrong chart).
-CHART_KINDS = {"bar-chart", "line-chart", "area-chart"}  # axis-bindable in build_workbook_spec
+FEATURE_CAT = _cc.load(_CAT_DIR, "workbook-feature")  # released workbook structural surfaces
+# viz-kind is WIRED ([bead]): each dossier visualizationType resolves
+# through VIZ_CAT. Live-validated bar/line plus released waterfall emit when a
+# dimension and measure ground their axes. Area uses the same mechanical shape
+# but remains unverified. `grid`/compound/heat_map and every unresolved type fall
+# to a Sigma table with a LOUD warning (data preserved, never silently wrong).
+CHART_KINDS = {"bar-chart", "line-chart", "area-chart", "waterfall-chart"}
+
+def _walk_visualizations(node):
+    """Yield visualizations from a page and all nested panel stacks.
+
+    Real dossier definitions keep their visualizations under
+    panelStacks[].panels[]; top-level page.visualizations is commonly empty.
+    """
+    for viz in node.get("visualizations") or []:
+        yield viz
+    for stack in node.get("panelStacks") or []:
+        for panel in stack.get("panels") or []:
+            yield from _walk_visualizations(panel)
+
+
+def primary_visualization(chapter):
+    """Return the first real visualization, including nested panel stacks."""
+    for page in chapter.get("pages") or []:
+        for viz in _walk_visualizations(page):
+            return viz
+    return {"visualizationType": "grid"}
+
 
 def primary_viz_type(chapter):
-    """The chapter's primary (first) dossier visualizationType, e.g. 'grid' or
-    'bar_chart'. convert.py builds one Sigma element per chapter, so the first
-    visualization's type drives that element's kind."""
-    for pg in chapter.get("pages") or []:
-        for v in pg.get("visualizations") or []:
-            vt = v.get("visualizationType")
-            if vt:
-                return vt
-    return "grid"
+    return primary_visualization(chapter).get("visualizationType") or "grid"
 
 # FN: MSTR metric group function -> warehouse SQL aggregate, DERIVED from the
 # aggregation catalog (formerly an inline dict literal mapping Sum/Count/Avg/
@@ -419,7 +437,7 @@ class Bundle:
             + f'\nFROM F f\nJOIN F w ON w."{qkey_f}" = f."{qkey_f}"\n  AND ('
             + "\n    OR ".join(conds) + ")")
 
-    # ---- display format for a metric — DOCUMENTATION-GROUNDED (beads-sigma-kvza)
+    # ---- display format for a metric — DOCUMENTATION-GROUNDED ([bead])
     @staticmethod
     def _mstr_format_category(m):
         """Return the metric's EXPLICIT MicroStrategy number-format category
@@ -448,7 +466,7 @@ class Bundle:
         note — we do NOT guess a currency/percent/integer format from the metric
         or fact-column NAME. (The old name/column-substring guessing —
         pct|percent|margin -> %, REVENUE|PROFIT|COST -> $ — with a silent None
-        fallback was the beads-sigma-kvza disease and is GONE.)"""
+        fallback was the [bead] disease and is GONE.)"""
         m = self.metrics[mid]
         cat = self._mstr_format_category(m)
         if not cat:
@@ -590,15 +608,181 @@ def join_column_names(b: "Bundle"):
     return names
 
 
+# Generic workbook elements have a released literal background style. Container
+# spacing/border keys are not valid on arbitrary charts/tables, so they must not
+# be copied just because MicroStrategy uses the same property spelling.
+STYLE_KEYS = {"backgroundColor"}
+LEGEND_VISIBILITY = {"show": "shown", "shown": "shown", "hide": "hidden",
+                     "hidden": "hidden", True: "shown", False: "hidden"}
+LEGEND_POSITIONS = {"top", "bottom", "left", "right"}
+
+
+def _source_style(viz, warnings, context):
+    """Translate only style keys that share current Sigma semantics.
+
+    MicroStrategy's formatting payload is open-ended. Passing it through would
+    create plausible-looking but invalid workbook JSON, so unknown keys become
+    loud gaps.
+    """
+    raw = viz.get("style") or viz.get("formatting") or {}
+    if not isinstance(raw, dict):
+        return None
+    style = {k: raw[k] for k in STYLE_KEYS if k in raw}
+    color = style.get("backgroundColor")
+    if color is not None and (
+            not isinstance(color, str)
+            or not color.strip()
+            or re.search(r"\{\{|\{%|\$\{", color)):
+        warnings.append(
+            "feature visual-style (%s): dynamic/invalid backgroundColor %r "
+            "omitted; Sigma needs a resolved literal" % (context, color))
+        style.pop("backgroundColor", None)
+    elif isinstance(color, str):
+        style["backgroundColor"] = color.strip()
+    unknown = sorted(set(raw) - STYLE_KEYS - {"legend", "theme"})
+    if unknown:
+        warnings.append(
+            "feature visual-style (%s): unsupported MicroStrategy style "
+            "properties %s omitted loudly" % (context, unknown))
+    return style or None
+
+
+def _source_legend(viz, warnings, context):
+    raw = viz.get("legend")
+    if raw is None and isinstance(viz.get("formatting"), dict):
+        raw = viz["formatting"].get("legend")
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return {"visibility": LEGEND_VISIBILITY[raw]}
+    if not isinstance(raw, dict):
+        warnings.append("feature legend (%s): non-object legend metadata %r "
+                        "cannot be translated" % (context, raw))
+        return None
+    out = {}
+    visible = raw.get("visibility", raw.get("visible", raw.get("show")))
+    if visible is not None:
+        mapped = LEGEND_VISIBILITY.get(
+            visible if isinstance(visible, bool) else str(visible).lower())
+        if mapped:
+            out["visibility"] = mapped
+        else:
+            warnings.append("feature legend (%s): unknown visibility %r omitted"
+                            % (context, visible))
+    position = raw.get("position")
+    if position is not None:
+        position = str(position).lower()
+        if position in LEGEND_POSITIONS:
+            out["position"] = position
+        else:
+            warnings.append("feature legend (%s): unknown position %r omitted"
+                            % (context, position))
+    unknown = sorted(set(raw) - {"visibility", "visible", "show", "position"})
+    if unknown:
+        warnings.append("feature legend (%s): unsupported properties %s omitted"
+                        % (context, unknown))
+    return out or None
+
+
+def _panel_stacks(chapter):
+    return [stack for page in chapter.get("pages") or []
+            for stack in (page.get("panelStacks") or [])]
+
+
+def _progress_payload(viz, warnings=None, context="gauge"):
+    """Return a grounded native-progress payload, or None.
+
+    A shallow `visualizationType:gauge` has no displayed value or range, so it
+    must not be guessed. Tests/exports that carry explicit progress metadata can
+    use either `progress:{...}` or direct value/min/max fields.
+    """
+    raw = viz.get("progress")
+    if not isinstance(raw, dict):
+        raw = {k: viz[k] for k in ("value", "min", "max", "mode", "shape")
+               if k in viz}
+    missing = [key for key in ("value", "min", "max") if key not in raw]
+    if missing:
+        if warnings is not None:
+            warnings.append(
+                "feature gauge-progress (%s): missing explicit %s; progress "
+                "requires a grounded value and range" %
+                (context, ", ".join(missing)))
+        return None
+    out = {key: str(raw[key]) for key in ("value", "min", "max")}
+    if raw.get("mode") is not None:
+        if raw["mode"] not in ("percent", "value"):
+            if warnings is not None:
+                warnings.append(
+                    "feature gauge-progress (%s): unsupported mode %r; "
+                    "progress not emitted" % (context, raw["mode"]))
+            return None
+        out["mode"] = raw["mode"]
+    if raw.get("shape") is not None:
+        if raw["shape"] not in ("bar", "ring"):
+            if warnings is not None:
+                warnings.append(
+                    "feature gauge-progress (%s): unsupported shape %r; "
+                    "progress not emitted" % (context, raw["shape"]))
+            return None
+        out["shape"] = raw["shape"]
+    return out
+
+
+def _repeater_field(viz):
+    raw = viz.get("repeater")
+    if isinstance(raw, dict):
+        return raw.get("field") or raw.get("column") or raw.get("repeatBy")
+    return viz.get("repeaterField") or viz.get("repeatBy")
+
+
+def _declared_feature_names(node):
+    """Read only an explicit source `features` declaration.
+
+    This is intentionally not a recursive key-name heuristic. If an extractor
+    supplies a feature census, every unknown member is surfaced; ordinary
+    payload keys are not misclassified as workbook features.
+    """
+    raw = node.get("features") if isinstance(node, dict) else None
+    if isinstance(raw, dict):
+        return [str(key) for key, enabled in raw.items() if enabled]
+    if isinstance(raw, list):
+        return [str(item.get("type") or item.get("name"))
+                if isinstance(item, dict) else str(item)
+                for item in raw]
+    return []
+
+
+def _explicit_page_breaks(chapter):
+    """Return source pages carrying an explicit print break-after marker.
+
+    Multiple dossier pages are navigation structure, not print-pagination
+    intent. Likewise a report ``pageBy`` axis is a paging/filter dimension.
+    Only a literal extractor marker is strong enough to author Sigma's
+    print/PDF ``page-break`` element.
+    """
+    out = []
+    for page in chapter.get("pages") or []:
+        marker = page.get("pageBreakAfter")
+        if marker is None:
+            marker = page.get("printPageBreakAfter")
+        if marker is True or str(marker).lower() in ("after", "enabled", "true"):
+            out.append(page)
+    return out
+
+
 # ---- dossier selectors / chapter filters -> Sigma controls ------------------
-def emit_controls(b: "Bundle", pages, page_ctx, warnings):
+def emit_controls(b: "Bundle", pages, page_ctx, warnings, feature_cb=None):
     """Wire every dossier filter signal to Sigma controls (verified shapes:
     refs/control-parity.md). MSTR selectors carry DECLARED viz targets, so
     filter targets go to exactly the table elements built from those vizzes;
     chapter filters cover every element on their chapter's page. Controls are
     appended AFTER their target tables in spec order (POST requirement).
     Returns (n_signals, scope_entries, unbound) for control-scope.json."""
-    viz_ch = b.viz_chapter()
+    viz_ctx = {
+        key: ctx
+        for chapter_ctx in page_ctx.values()
+        for key, ctx in chapter_ctx.get("viz", {}).items()
+    }
     scope_entries, unbound, used_ctl_ids = [], [], set()
     n_signals = 0
 
@@ -657,6 +841,31 @@ def emit_controls(b: "Bundle", pages, page_ctx, warnings):
             continue
         n_signals += 1
         st = sig.get("selectorType", "")
+        # Released legend/drill controls are not ordinary filter controls.
+        # Legend requires a categorical chart color binding plus explicit
+        # source/target columns; drill requires an ordered hierarchy and target
+        # column list. A MicroStrategy selectorType string and one source
+        # attribute do not supply either contract. Emitting the generic
+        # source+filters shape here creates dead UI, so keep these loud until
+        # extraction captures the complete binding.
+        if "legend" in st.lower() or "drill" in st.lower():
+            source = ("legend-selector" if "legend" in st.lower()
+                      else "drill-selector")
+            FEATURE_CAT.resolve_or_warn(source, warnings, context=src)
+            reason = (
+                "selector lacks the complete categorical source/target binding "
+                "required by Sigma controlType:legend"
+                if source == "legend-selector" else
+                "selector lacks an ordered hierarchy plus source/target columns "
+                "required by Sigma controlType:drill"
+            )
+            warnings.append("feature %s (%s): %s; no dead control emitted"
+                            % (source, src, reason))
+            if feature_cb:
+                feature_cb(source, src, status="gap", detail=reason)
+            unbound.append({"sourceName": src, "status": "unbound",
+                            "reason": reason})
+            continue
         aid = b.resolve_attribute(sig.get("source_id"), sig.get("name"))
         if aid is None:
             reason = ("metric qualification selector — Sigma has no direct "
@@ -672,17 +881,18 @@ def emit_controls(b: "Bundle", pages, page_ctx, warnings):
 
         # targets: declared viz keys -> chapter tables; none -> own chapter
         if sig["targets"]:
-            tgt_chapters, dropped = [], []
+            ctxs, dropped = [], []
             for k in sig["targets"]:
-                (tgt_chapters if k in viz_ch else dropped).append(
-                    viz_ch.get(k, k))
+                if k in viz_ctx:
+                    ctxs.append(viz_ctx[k])
+                else:
+                    dropped.append(k)
             if dropped:
                 warnings.append(f"control {src}: declared target viz key(s) "
                                 f"{dropped} not found in the dossier — skipped")
-            tgt_chapters = list(dict.fromkeys(tgt_chapters))
+            ctxs = list({ctx["element"]["id"]: ctx for ctx in ctxs}.values())
         else:
-            tgt_chapters = [sig["chapter"]]
-        ctxs = [page_ctx[c] for c in tgt_chapters if c in page_ctx]
+            ctxs = list(page_ctx.get(sig["chapter"], {}).get("contexts", []))
         if not ctxs:
             warnings.append(f"control {src}: no target elements resolvable — "
                             "not emitted")
@@ -744,7 +954,7 @@ def emit_controls(b: "Bundle", pages, page_ctx, warnings):
         # cover every queryable element on the control's page = scope "page";
         # a narrower declared set = the scope allowlist (selector-scoped-by-
         # design). mustReach always asserts the DECLARED targets.
-        target_ids = [c["element"]["id"] for c in ctxs]
+        target_ids = list(dict.fromkeys(c["element"]["id"] for c in ctxs))
         page_tables = [e["id"] for e in home["elements"]
                        if e.get("kind") == "table"]
         full_page = set(page_tables) <= set(target_ids)
@@ -765,15 +975,15 @@ GENERIC_TITLE = re.compile(r"^(?:page|sheet|dashboard)\s*\d+$", re.I)
 
 
 def _le(eid, c0, c1, r0, r1):
-    return (f'  <LayoutElement elementId="{eid}" gridColumn="{c0} / {c1}" '
+    return (f'  <Element elementId="{eid}" gridColumn="{c0} / {c1}" '
             f'gridRow="{r0} / {r1}"/>')
 
 
 def _gc(cid, c0, c1, r0, r1, inner):
-    return (f'<GridContainer elementId="{cid}" type="grid" '
+    return (f'<Container elementId="{cid}" type="grid" '
             f'gridColumn="{c0} / {c1}" gridRow="{r0} / {r1}" '
             f'gridTemplateColumns="repeat(24, 1fr)" '
-            f'gridTemplateRows="auto">\n{inner}\n</GridContainer>')
+            f'gridTemplateRows="auto">\n{inner}\n</Container>')
 
 
 def _cluster_bands(items):
@@ -788,7 +998,7 @@ def _cluster_bands(items):
 
 
 def banded_page(page_id, items, title, id_prefix=None):
-    """Header band + one full-width GridContainer per row band, children
+    """Header band + one full-width Container per row band, children
     container-relative. Returns (page_xml, extra_spec_elements)."""
     pfx = id_prefix or f"band-{page_id}"
     extra, children = [], []
@@ -805,6 +1015,36 @@ def banded_page(page_id, items, title, id_prefix=None):
     if items:
         offset += 1 - min(i[3] for i in items)
     for n, band in enumerate(_cluster_bands(items), 1):
+        special = band[0][5] if len(band) == 1 and len(band[0]) > 5 else None
+        if special == "page-break":
+            item = band[0]
+            children.append(
+                _le(item[0], 1, 25, item[3] + offset, item[4] + offset))
+            continue
+        if special == "tabbed":
+            item = band[0]
+            tabs = item[6]
+            tab_xml = []
+            for child_ids in tabs:
+                inner = "\n".join(
+                    _le(eid, 1, 25, 1, 13) for eid in child_ids)
+                tab_xml.append(
+                    '  <Tab gridTemplateColumns="repeat(24, 1fr)" '
+                    'gridTemplateRows="auto">\n%s\n  </Tab>' % inner)
+            children.append(
+                '<TabbedContainer elementId="%s" type="tabbed-container" '
+                'gridColumn="1 / 25" gridRow="%d / %d">\n%s\n'
+                '</TabbedContainer>' %
+                (item[0], item[3] + offset, item[4] + offset,
+                 "\n".join(tab_xml)))
+            continue
+        if special == "repeated":
+            item = band[0]
+            inner = "\n".join(
+                _le(eid, 1, 13, 1, 4) for eid in item[6])
+            children.append(_gc(
+                item[0], 1, 25, item[3] + offset, item[4] + offset, inner))
+            continue
         cid = f"{pfx}-{n}"
         extra.append({"id": cid, "kind": "container"})
         r0 = min(i[3] for i in band)
@@ -825,9 +1065,20 @@ def build_layout(pages, dossier_name):
     layout XML for scripts/put-layout.rb."""
     xml_pages = []
     for pg in pages:
+        navs = [e for e in pg["elements"] if e.get("kind") == "navigation"]
         ctls = [e for e in pg["elements"] if e.get("kind") == "control"]
-        tables = [e for e in pg["elements"] if e.get("kind") != "control"]
+        special_children = {
+            eid for e in pg["elements"]
+            for group in (e.get("_tabElementIds") or [e.get("_repeatChildren") or []])
+            for eid in group
+        }
+        tables = [e for e in pg["elements"]
+                  if e.get("kind") not in ("control", "navigation")
+                  and e.get("id") not in special_children]
         items, row = [], 1
+        for e in navs:
+            items.append([e["id"], 1, 25, row, row + 2])
+            row += 2
         if ctls:
             w = 24 // len(ctls)
             for i, e in enumerate(ctls):
@@ -836,15 +1087,42 @@ def build_layout(pages, dossier_name):
                 items.append([e["id"], c0, c1, row, row + 3])
             row += 3
         for e in tables:
-            items.append([e["id"], 1, 25, row, row + 12])
-            row += 12
+            if e.get("kind") == "page-break":
+                items.append([e["id"], 1, 25, row, row + 1, "page-break"])
+                row += 1
+            elif e.get("kind") == "tabbed-container":
+                items.append([e["id"], 1, 25, row, row + 12, "tabbed",
+                              e.get("_tabElementIds") or []])
+                row += 12
+            elif e.get("kind") == "repeated-container":
+                items.append([e["id"], 1, 25, row, row + 12, "repeated",
+                              e.get("_repeatChildren") or []])
+                row += 12
+            else:
+                items.append([e["id"], 1, 25, row, row + 12])
+                row += 12
         title = pg["name"]
         if not title or GENERIC_TITLE.match(title.strip()):
             title = dossier_name
         xml, extra = banded_page(pg["id"], items, title)
         pg["elements"] = pg["elements"] + extra
+        for element in pg["elements"]:
+            element.pop("_tabElementIds", None)
+            element.pop("_repeatChildren", None)
         xml_pages.append(xml)
-    return ('<?xml version="1.0" encoding="utf-8"?>\n' + "\n".join(xml_pages))
+    layout = '<?xml version="1.0" encoding="utf-8"?>\n' + "\n".join(xml_pages)
+    declared = [element["id"] for page in pages
+                for element in page["elements"]]
+    placed = re.findall(r'\belementId="([^"]+)"', layout)
+    if sorted(declared) != sorted(placed) or len(placed) != len(set(placed)):
+        missing = sorted(set(declared) - set(placed))
+        duplicate = sorted({eid for eid in placed if placed.count(eid) > 1})
+        unknown = sorted(set(placed) - set(declared))
+        raise ValueError(
+            "authoritative layout must place every flat element exactly once "
+            "(missing=%s duplicate=%s unknown=%s)" %
+            (missing, duplicate, unknown))
+    return layout
 
 
 def build_dm_spec(b: Bundle, args, inode_map, ae_winners=None):
@@ -1064,6 +1342,21 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
         return f"[{join_name}/{col_friendly}]"
 
     pages = []
+    feature_events = []
+
+    def feature(source, context, status="emitted", detail=None):
+        row = FEATURE_CAT.resolve_or_warn(source, b.warnings, context=context)
+        event = {
+            "source": source,
+            "target": (row or {}).get("sigma"),
+            "context": context,
+            "status": status,
+        }
+        if detail:
+            event["detail"] = detail
+        feature_events.append(event)
+        return row
+
     report_keys = {}  # report name -> ordered display column names of its keys
     page_ctx = {}     # chapter name -> {page, element, ref, available}
     avail_join = join_column_names(b)
@@ -1074,11 +1367,23 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
     # sources its value list from a TABLE element, not a chart — so a charted
     # chapter that has such a control would POST-fail ("Dependency not found").
     # Ship-safe: keep those chapters as tables (data preserved) + warn, until
-    # chart+control composition (a hidden control-source table) lands. beads-sigma-kvza.
+    # chart+control composition (a hidden control-source table) lands. [bead].
     _controlled_chapters = {s.get("chapter") for s in b.filter_signals()
                             if s.get("kind") in ("chapter-filter", "selector")}
     for ch in b.dossier["chapters"]:
         ch_name = ch["name"]
+        for declared in (_declared_feature_names(ch)
+                         + [name for page in ch.get("pages") or []
+                            for name in _declared_feature_names(page)]):
+            if FEATURE_CAT.resolve(declared) is None:
+                FEATURE_CAT.resolve_or_warn(
+                    declared, b.warnings,
+                    context="explicit feature declaration in chapter %r" % ch_name)
+                feature_events.append({
+                    "source": declared, "target": None,
+                    "context": "chapter %r" % ch_name, "status": "gap",
+                    "detail": "no documented workbook-feature mapping",
+                })
         rid, report = report_by_name[ch_name]
         rname = report["information"]["name"]
         units = report["dataSource"]["dataTemplate"]["units"]
@@ -1095,10 +1400,20 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
                         | {friendly(cfg["quirkKeyCol"]),
                            friendly(cfg["quirkDescCol"])}
                         | {el["name"] for el in metric_units})
-            page_ctx[ch_name] = {
+            ae_ctx = {
                 "page": page, "element": page["elements"][0],
                 "ref": (lambda n, _e=ae_name: f"[{_e}/{n}]"),
                 "available": ae_avail,
+            }
+            page_ctx[ch_name] = {
+                **ae_ctx,
+                "contexts": [ae_ctx],
+                "viz": {
+                    viz.get("key"): ae_ctx
+                    for source_page in ch.get("pages") or []
+                    for viz in _walk_visualizations(source_page)
+                    if viz.get("key")
+                },
             }
             continue
 
@@ -1162,13 +1477,13 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
                     metric_ids.append(cid)
 
         report_keys[report["information"]["name"]] = key_names
-        # viz-kind (beads-sigma-kvza): resolve the chapter's primary dossier
-        # visualizationType through the catalog. bar/line/area with a dim + a
-        # measure emit the matching Sigma CHART (dim -> xAxis, metrics -> yAxis);
-        # grid/compound/heat_map -> table; an unmapped type or a chart type with
-        # no wired emission -> table + a LOUD warning (data preserved, never a
-        # silent wrong chart).
-        _viz = primary_viz_type(ch)
+        # viz-kind ([bead]): resolve the chapter's primary dossier
+        # visualizationType through the catalog. Bar/line/waterfall (and the
+        # mechanically wired but not yet live-verified area shape) need a
+        # dimension + measure. Grid/compound/heat_map -> table; every missing
+        # prerequisite falls back loudly with the data preserved.
+        _viz_obj = primary_visualization(ch)
+        _viz = _viz_obj.get("visualizationType") or "grid"
         _vrow = VIZ_CAT.resolve(_viz)
         _kind = _vrow["sigma"] if _vrow else None
         _base = {
@@ -1183,6 +1498,15 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
             "columns": columns,
         }
         _chartable = _kind in CHART_KINDS and group_ids and metric_ids
+        if _viz == "box_plot":
+            if getattr(args, "enable_box_plot", False) and group_ids and metric_ids:
+                _chartable = True
+            else:
+                _chartable = False
+                b.warnings.append(
+                    "chapter %r: box_plot is capability-gated; emitted a table. "
+                    "Use --enable-box-plot only after verifying the workspace "
+                    "supports the target box-plot kind." % ch_name)
         if _chartable and ch_name in _controlled_chapters:
             # a chart can't be a list control's value source — keep the table + say so
             b.warnings.append("chapter %r: %s chart has a control/selector filtering it — a "
@@ -1197,6 +1521,10 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
             element["kind"] = _kind
             element["xAxis"] = {"columnId": group_ids[0]}   # primary attribute -> x
             element["yAxis"] = {"columnIds": metric_ids}     # metrics only (not DESC-label calcs)
+            legend = _source_legend(_viz_obj, b.warnings, "chapter %r" % ch_name)
+            if legend:
+                feature("legend", "chapter %r" % ch_name)
+                element["legend"] = legend
         else:
             if _vrow is None:
                 VIZ_CAT.resolve_or_warn(_viz, b.warnings, context="chapter %r" % ch_name)
@@ -1215,31 +1543,302 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
             }]
         if filters:
             element["filters"] = filters
+        style = _source_style(_viz_obj, b.warnings, "chapter %r" % ch_name)
+        # bar-chart backgroundColor is a known blank-PNG trap; the safe style
+        # subset still applies to tables and other element kinds.
+        if style:
+            feature("visual-style", "chapter %r" % ch_name)
+            if element.get("kind") == "bar-chart":
+                if style.pop("backgroundColor", None) is not None:
+                    b.warnings.append(
+                        "feature visual-style (chapter %r): bar-chart "
+                        "backgroundColor omitted because it is a known blank-"
+                        "render trap" % ch_name)
+            if style:
+                element["style"] = style
+
+        def panel_element(viz_obj, stack_n, panel_n, viz_n):
+            """Build a concrete alternate view for one panel visualization."""
+            context = "chapter %r panel %d visualization %d" % (
+                ch_name, panel_n, viz_n)
+            panel_el = copy.deepcopy(_base)
+            panel_el["id"] = "panel-%s-%d-%d-%d" % (
+                slug(ch_name), stack_n, panel_n, viz_n)
+            panel_el["name"] = viz_obj.get("name") or (
+                "%s · Panel %d" % (rname, panel_n))
+            viz_type = viz_obj.get("visualizationType") or "grid"
+            row = VIZ_CAT.resolve(viz_type)
+            kind = row.get("sigma") if row else None
+            chartable = (kind in CHART_KINDS and bool(group_ids)
+                         and bool(metric_ids)
+                         and ch_name not in _controlled_chapters)
+            if viz_type == "box_plot":
+                chartable = bool(
+                    getattr(args, "enable_box_plot", False)
+                    and group_ids and metric_ids
+                    and ch_name not in _controlled_chapters)
+                if not chartable:
+                    b.warnings.append(
+                        "%s: box_plot is capability-gated; emitted a table"
+                        % context)
+            if chartable:
+                panel_el["kind"] = kind
+                panel_el["xAxis"] = {"columnId": group_ids[0]}
+                panel_el["yAxis"] = {"columnIds": metric_ids}
+                legend = _source_legend(viz_obj, b.warnings, context)
+                if legend:
+                    feature("legend", context)
+                    panel_el["legend"] = legend
+            else:
+                panel_el["groupings"] = [{
+                    "id": "g-panel-%s-%d-%d-%d" % (
+                        slug(ch_name), stack_n, panel_n, viz_n),
+                    "groupBy": group_ids,
+                    "calculations": calc_ids,
+                }]
+                if row is None:
+                    VIZ_CAT.resolve_or_warn(viz_type, b.warnings,
+                                            context=context)
+                elif kind not in ("table", None):
+                    b.warnings.append(
+                        "%s: MSTR visualizationType %r (-> %s) lacks a "
+                        "fully grounded panel emission; emitted a table" %
+                        (context, viz_type, kind))
+            if filters:
+                panel_el["filters"] = copy.deepcopy(filters)
+            panel_style = _source_style(viz_obj, b.warnings, context)
+            if panel_style:
+                feature("visual-style", context)
+                if panel_el.get("kind") == "bar-chart":
+                    if panel_style.pop("backgroundColor", None) is not None:
+                        b.warnings.append(
+                            "feature visual-style (%s): bar-chart "
+                            "backgroundColor omitted because it is a known "
+                            "blank-render trap" % context)
+                if panel_style:
+                    panel_el["style"] = panel_style
+            return panel_el
+
         page = {
             "id": f"pg-{slug(ch_name)}",
             "name": ch_name,
             "elements": [element],
         }
-        pages.append(page)
-        page_ctx[ch_name] = {"page": page, "element": element,
-                             "ref": wb_ref, "available": avail_join}
+        # Dossier pages and report pageBy axes are navigation/filter constructs,
+        # not print intent. Author a page-break only from an explicit extractor
+        # print marker; otherwise do not invent PDF pagination.
+        for n, source_page in enumerate(_explicit_page_breaks(ch), 1):
+            feature("print-page-break",
+                    "chapter %r source page %r" %
+                    (ch_name, source_page.get("name") or source_page.get("key")))
+            page["elements"].append({
+                "id": f"page-break-{slug(ch_name)}-{n}",
+                "kind": "page-break",
+            })
+        page_by_units = (((report.get("grid") or {}).get("viewTemplate") or {})
+                         .get("pageBy") or {}).get("units") or []
+        if page_by_units:
+            detail = "report pageBy is paging/filter semantics, not print pagination"
+            feature("report-page-by", "chapter %r" % ch_name,
+                    status="gap", detail=detail)
+            b.warnings.append(
+                "feature report-page-by (chapter %r): %s; no Sigma page-break "
+                "was invented" % (ch_name, detail))
 
-    # dossier selectors / chapter filters -> Sigma controls (+ sidecar data),
-    # then the banded layout (mutates pages: containers + header text)
+        # A panel stack is source-grounded alternate-view tab semantics. Emit a
+        # tabbed container only when every source panel has concrete
+        # visualizations. Empty/unresolved panels stay a loud gap rather than
+        # becoming clickable empty tabs.
+        stacks = _panel_stacks(ch)
+        element_contexts = []
+        main_ctx = {"page": page, "element": element,
+                    "ref": wb_ref, "available": avail_join}
+        element_contexts.append(main_ctx)
+        viz_contexts = {}
+        if _viz_obj.get("key"):
+            viz_contexts[_viz_obj["key"]] = main_ctx
+        reused_primary = False
+        for stack_n, stack in enumerate(stacks, 1):
+            panels = stack.get("panels") or []
+            panel_vizzes = [list(_walk_visualizations(panel))
+                            for panel in panels]
+            stack_context = "chapter %r panel stack %r" % (
+                ch_name, stack.get("name") or stack.get("key") or stack_n)
+            if not panels or any(not vizzes for vizzes in panel_vizzes):
+                detail = "one or more source panels have no buildable visualization"
+                feature("panel-stack", stack_context,
+                        status="gap", detail=detail)
+                b.warnings.append(
+                    "feature panel-stack (%s): %s; tabbed-container not "
+                    "emitted" % (stack_context, detail))
+                continue
+            tabs = []
+            panel_elements = []
+            for panel_n, (panel, vizzes) in enumerate(
+                    zip(panels, panel_vizzes), 1):
+                child_ids = []
+                for viz_n, viz_obj in enumerate(vizzes, 1):
+                    if viz_obj is _viz_obj and not reused_primary:
+                        child = element
+                        reused_primary = True
+                    else:
+                        child = panel_element(
+                            viz_obj, stack_n, panel_n, viz_n)
+                        panel_elements.append(child)
+                    child_ids.append(child["id"])
+                    ctx = {"page": page, "element": child,
+                           "ref": wb_ref, "available": avail_join}
+                    if ctx not in element_contexts:
+                        element_contexts.append(ctx)
+                    if viz_obj.get("key"):
+                        viz_contexts[viz_obj["key"]] = ctx
+                tabs.append(child_ids)
+            page["elements"].extend(panel_elements)
+            feature("panel-stack", stack_context,
+                    detail="%d fully populated source panel(s)" % len(panels))
+            page["elements"].append({
+                "id": "tabs-%s-%d" % (slug(ch_name), stack_n),
+                "kind": "tabbed-container",
+                "tabs": [
+                    {"name": panel.get("name") or "Panel %d" % (i + 1)}
+                    for i, panel in enumerate(panels)
+                ],
+                "tabBar": {"alignment": "start"},
+                "_tabElementIds": tabs,
+            })
+
+        # Native progress is emitted only when the source carries the actual
+        # value/range semantics; a type-only gauge stays the loud table above.
+        if _viz == "gauge":
+            progress = _progress_payload(
+                _viz_obj, b.warnings, "chapter %r" % ch_name)
+            if progress:
+                feature("gauge-progress", "chapter %r" % ch_name)
+                progress.update({
+                    "id": f"progress-{slug(ch_name)}",
+                    "kind": "progress",
+                })
+                page["elements"].append(progress)
+            else:
+                feature("gauge-progress", "chapter %r" % ch_name,
+                        status="gap", detail="missing explicit value/range semantics")
+                b.warnings.append(
+                    "feature gauge-progress (chapter %r): source carries no "
+                    "explicit value/range semantics; emitted the data table "
+                    "instead of guessing a progress gauge." % ch_name)
+
+        repeat_field = _repeater_field(_viz_obj)
+        if repeat_field:
+            match = next((c for c in columns
+                          if c.get("name") == repeat_field or c.get("id") == repeat_field),
+                         None)
+            if match:
+                feature("repeater", "chapter %r" % ch_name)
+                repeat_source = element
+                if element.get("kind") != "table":
+                    # repeated-container.source must reference a table element,
+                    # not the visible chart. Preserve a concrete grouped table
+                    # rather than lying about the chart's kind in the source.
+                    repeat_source = copy.deepcopy(_base)
+                    repeat_source.update({
+                        "id": "repeat-source-%s" % slug(ch_name),
+                        "name": "%s Repeat Source" % element["name"],
+                        "groupings": [{
+                            "id": "g-repeat-source-%s" % slug(ch_name),
+                            "groupBy": group_ids,
+                            "calculations": calc_ids,
+                        }],
+                    })
+                    if filters:
+                        repeat_source["filters"] = copy.deepcopy(filters)
+                    page["elements"].append(repeat_source)
+                child_id = f"repeat-text-{slug(ch_name)}"
+                repeated = {
+                    "id": f"repeat-{slug(ch_name)}",
+                    "kind": "repeated-container",
+                    "source": {"kind": "table",
+                               "elementId": repeat_source["id"]},
+                    "arrangement": "list",
+                    "cardSize": "small",
+                    "_repeatChildren": [child_id],
+                }
+                child = {
+                    "id": child_id,
+                    "kind": "text",
+                    "body": "{{[%s repeated container/%s]}}" %
+                            (repeat_source["name"], match["name"]),
+                }
+                page["elements"].extend([repeated, child])
+            else:
+                feature("repeater", "chapter %r" % ch_name, status="gap",
+                        detail="repeat field is not a built column")
+                b.warnings.append(
+                    "feature repeater (chapter %r): repeat field %r is not a "
+                    "built column; emitted the data table and recorded this gap."
+                    % (ch_name, repeat_field))
+        pages.append(page)
+        page_ctx[ch_name] = {
+            **main_ctx,
+            "contexts": element_contexts,
+            "viz": viz_contexts,
+        }
+
+    # dossier selectors / chapter filters -> Sigma controls (+ sidecar data)
     warnings = []
     n_signals, scope_entries, unbound = emit_controls(b, pages, page_ctx,
-                                                      warnings)
+                                                      warnings, feature)
+    # Chapters are the source dossier's primary tabs. Preserve that semantics
+    # with the released auto-navigation element on every page.
+    if len(pages) > 1:
+        feature("chapter-tabs", "dossier %r" % b.dossier.get("name", "MicroStrategy"))
+        labels = {page["id"]: page["name"] for page in pages}
+        for page in pages:
+            page["elements"].append({
+                "id": f"nav-{slug(page['name'])}",
+                "kind": "navigation",
+                "mode": "auto",
+                "pageLabels": labels,
+            })
+
+    # Layout is authored before create and carried inside document. It is the
+    # authoritative page-membership map, not a repair applied after POST.
     layout_xml = build_layout(pages, b.dossier.get("name", "MicroStrategy"))
+    feature_warnings = [w for w in dict.fromkeys(list(b.warnings) + warnings)
+                        if any(token in w.lower() for token in (
+                            "feature ", "workbook-feature", "visualizationtype", "box_plot",
+                            "chart needs", "chart has a control"))]
     control_scope = {"version": 1, "source": "microstrategy",
                      "sourceFilterSignals": n_signals,
-                     "controls": scope_entries, "unbound": unbound}
+                     "controls": scope_entries, "unbound": unbound,
+                     "features": feature_events,
+                     "featureGaps": feature_warnings}
 
-    return {
-        "name": args.wb_name,
-        "folderId": args.folder_id,
+    # Workbook code-rep is distinct from the data-model surface above:
+    # metadata stays outside `document`; pages are metadata-only; elements are
+    # one flat document collection; and layout is required/authoritative for
+    # page membership. CodeRep.wrap is the sole write boundary so this cannot
+    # regress to the legacy page-nested body. Data-model nesting is deliberately
+    # unchanged in build_dm_spec.
+    document = {
         "schemaVersion": 1,
+        "kind": "workbook",
         "pages": pages,
-    }, report_keys, layout_xml, control_scope, warnings
+        "overlays": [],
+        # MicroStrategy panel stacks are in-canvas tabbed containers, not
+        # Sigma workbook chrome. Keep the document collection explicit and
+        # empty rather than fabricating a panel object.
+        "panels": [],
+        "layout": layout_xml,
+    }
+    if len(pages) > 1:
+        document["settings"] = {
+            "navigation": {"pageTabsInViewMode": "shown"}
+        }
+    workbook = _cr.wrap(
+        document,
+        {"name": args.wb_name, "folderId": args.folder_id},
+    )
+    return workbook, report_keys, layout_xml, control_scope, warnings
 
 
 def main():
@@ -1258,6 +1857,10 @@ def main():
     ap.add_argument("--join-element-name", default="Orders")
     ap.add_argument("--data-model-id", default=None)
     ap.add_argument("--orders-element-id", default=None)
+    ap.add_argument(
+        "--enable-box-plot", action="store_true",
+        help="capability gate: emit kind=box-plot only after verifying that "
+             "the target workspace supports it; default is a loud table fallback")
     ap.add_argument("--dm-element-ids", default=None,
                     help="JSON file: DM element name -> server element id")
     ap.add_argument("--ae-winners", default=None,
@@ -1269,6 +1872,8 @@ def main():
     ap.add_argument("--control-scope-out", default="control-scope.json",
                     help="intended-scope contract for the control lint "
                          "(scripts/lib/control_lint.rb CONTRACT)")
+    ap.add_argument("--feature-gaps-out", default="feature-gaps.json",
+                    help="released feature emission ledger + loud manual gaps")
     args = ap.parse_args()
 
     b = Bundle(json.load(open(args.bundle)))
@@ -1291,6 +1896,12 @@ def main():
     json.dump(report_keys, open("parity_keys.json", "w"), indent=1)
     open(args.out_layout, "w").write(layout_xml)
     json.dump(control_scope, open(args.control_scope_out, "w"), indent=1)
+    json.dump({
+        "version": 1,
+        "source": "microstrategy",
+        "features": control_scope.get("features", []),
+        "gaps": control_scope.get("featureGaps", []),
+    }, open(args.feature_gaps_out, "w"), indent=1)
 
     # gate 7b (runtime control-flip proof) DEFAULT-ON: stamp control_flip_required
     # into <workdir>/migrate-state.json (next to the workbook spec) so the agent's
@@ -1334,7 +1945,7 @@ def main():
     print(f"signals: {control_scope['sourceFilterSignals']} filter signal(s), "
           f"{len(control_scope['controls'])} control(s) emitted")
     print(f"wrote {args.out_dm}, {args.out_wb}, {args.out_layout}, "
-          f"{args.control_scope_out}")
+          f"{args.control_scope_out}, {args.feature_gaps_out}")
 
 
 if __name__ == "__main__":

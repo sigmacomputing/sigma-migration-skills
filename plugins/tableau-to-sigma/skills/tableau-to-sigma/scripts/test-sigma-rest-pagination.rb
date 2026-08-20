@@ -15,7 +15,7 @@
 #   - list_entries: query-string composition + defensive termination.
 #   - migrate-tableau.rb wiring pins: sigma_token! reuses a fresh-stamped
 #     token instead of minting per child; both Sigma spawn wrappers forward
-#     the mint stamp; tableau_env reuses its signin within a TTL; all four
+#     the mint stamp; tableau_env reuses its signin within a TTL; all five
 #     orchestrator list reads paginate via Sigma.list_entries.
 #
 # Usage: ruby scripts/test-sigma-rest-pagination.rb
@@ -145,9 +145,9 @@ check(src.scan("'SIGMA_TOKEN_MINTED_AT' => ENV['SIGMA_TOKEN_MINTED_AT']").size =
       'both Sigma child-spawn wrappers pass the mint stamp so children age the token correctly', fails)
 check(src.include?('TABLEAU_ENV_TTL_SECONDS') && src.include?('$tableau_env_cache'),
       'tableau_env reuses the signin within a TTL window instead of re-signing per child', fails)
-check(src.scan('Sigma.list_entries(').size == 4 &&
+check(src.scan('Sigma.list_entries(').size == 5 &&
         !src.match?(%r{Sigma\.request\(:get, "/v2/(?:workbooks|dataModels)/[^"]*/columns"\)}),
-      'all four orchestrator list reads (members/files, files, DM /columns, WB /columns) paginate via Sigma.list_entries', fails)
+      'all five orchestrator list reads (catalog /columns, members/files, files, DM /columns, WB /columns) paginate via Sigma.list_entries', fails)
 
 puts
 if fails.empty?

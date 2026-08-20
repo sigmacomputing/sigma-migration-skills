@@ -97,7 +97,7 @@ module DaxRestructure
   #    groups, summed and surfaced via GrandTotal(Sum(kept)) in the viz.
   #    `agg` is the per-group aggregate of the DAX measure, e.g. "SUM(ANNUAL_SALARY)".
   #    Validated shape for "Top 5 Role Salary": same 5 ROLEs / same rank order as PBI.
-  #    (beads-sigma-ntl)
+  #    ([bead])
   def topn_sumx(name:, conn:, db:, schema:, table:, group_col:, agg:, n:, agg_alias: 'GRP_TOTAL', direction: 'DESC')
     dir = direction.to_s.upcase == 'ASC' ? 'ASC' : 'DESC'
     stmt = "SELECT #{group_col}, #{agg} AS #{agg_alias} " \

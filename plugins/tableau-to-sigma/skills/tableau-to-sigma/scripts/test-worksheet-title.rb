@@ -8,7 +8,8 @@
 # minimal .twb and asserts: (a) a CUSTOM worksheet <title> is extracted to
 # display_title on both the worksheet meta and the dashboard zone; (b) a DEFAULT
 # title (the "<Sheet Name>" field token) is skipped (nil) so the builder falls
-# back to the nickname; (c) build-charts' tile_title consumes display_title.
+# back to the nickname; (c) Tableau's Æ line-break sentinel is stripped; and
+# (d) build-charts' tile_title consumes display_title.
 #
 # Usage: ruby scripts/test-worksheet-title.rb
 
@@ -32,6 +33,10 @@ TWB = <<~XML
         <layout-options><title><formatted-text><run>&lt;Sheet Name&gt;</run></formatted-text></title></layout-options>
         <table><view><datasources/></view></table>
       </worksheet>
+      <worksheet name='Sentinel Sheet'>
+        <layout-options><title><formatted-text><run>CQ DAYS NOT TOUCHED</run><run>Æ&#10;</run><run>Percentage of Total</run></formatted-text></title></layout-options>
+        <table><view><datasources/></view></table>
+      </worksheet>
     </worksheets>
     <dashboards>
       <dashboard name='D'>
@@ -53,6 +58,9 @@ Dir.mktmpdir do |d|
         "custom worksheet <title> extracted (got #{ws.dig('OV KPI Revenue', 'display_title').inspect})", fails)
   check(ws.dig('Plain Sheet', 'display_title').nil?,
         "default '<Sheet Name>' token skipped -> nil (got #{ws.dig('Plain Sheet', 'display_title').inspect})", fails)
+  sentinel_title = ws.dig('Sentinel Sheet', 'display_title')
+  check(sentinel_title == "CQ DAYS NOT TOUCHED\nPercentage of Total" && !sentinel_title.include?('Æ'),
+        "Tableau Æ title sentinel stripped while preserving newline (got #{sentinel_title.inspect})", fails)
 
   doc = JSON.parse(File.read(out))
   dashes = doc.is_a?(Array) ? doc : (doc['dashboards'] || [doc])

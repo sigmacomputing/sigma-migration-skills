@@ -54,6 +54,7 @@ require 'optparse'
 require_relative 'lib/layout'
 require_relative 'lib/zone_census'
 require_relative 'lib/arrangement_lint'
+require_relative 'lib/workbook_code'
 include SigmaLayout
 
 # ---- Source-derived header chrome -----------------------------------------
@@ -105,7 +106,7 @@ def header_from_source(dashboard)
 end
 
 opts = { page_cols: 24, page_rows: 32, row_scale: 1.5, chart_y0: 29.7,
-         chart_y1: 100.0, chart_row0: 6, renames: {} }
+         chart_y1: 100.0, chart_row0: 6, renames: {}, pruned_elements: [] }
 OptionParser.new do |p|
   p.on('--layout PATH')        { |v| opts[:layout] = v }
   p.on('--wb-ids PATH')        { |v| opts[:wb_ids] = v }
@@ -185,7 +186,8 @@ end
 # page_rows * row_scale mapping byte-identically (bead tkkv).
 
 dash_layout = JSON.parse(File.read(opts[:layout]))
-wb_ids      = JSON.parse(File.read(opts[:wb_ids]))
+wb_ids_raw  = JSON.parse(File.read(opts[:wb_ids]))
+wb_ids      = WorkbookCode.legacy_view(wb_ids_raw)
 
 # ---- Chart provenance (orphan-fix, class 2 prevention) ----------------------
 # chart-provenance.json (written by build-charts-from-signals beside
@@ -296,7 +298,7 @@ def chart_pos(z, opts)
 end
 
 # ---- Faithful container-tree layout (preferred when a control rail exists) --
-# Mirror Tableau's nested zone tree as nested Sigma GridContainers so each
+# Mirror Tableau's nested zone tree as nested Sigma Containers so each
 # filter / parameter / chart lands INSIDE the container it lives in — preserving
 # the left-rail / sidebar idiom and arbitrary nesting — instead of re-banding by
 # raw geometry (which lumps every control into one top strip). Activates only
@@ -321,7 +323,8 @@ end
 # path is what preserves them (and falls back safely if the tree can't build).
 def tree_has_styled_containers?(tree)
   (tree || []).any? do |n|
-    (n['kind'] == 'container' && (n['fill_color'] || n['border_color'])) ||
+    (n['kind'] == 'container' &&
+      (n['fill_color'] || n['border_color'] || n['corner_radius'] || n['rounding'])) ||
       tree_has_styled_containers?(n['children'])
   end
 end
@@ -396,7 +399,7 @@ def resolve_leaf(node, ctx)
 end
 
 # Recursively emit a zone node as Sigma layout XML at grid cell (c0,c1,r0,r1)
-# RELATIVE to its parent container. Container nodes become GridContainers whose
+# RELATIVE to its parent container. Container nodes become Containers whose
 # children are placed in the container's own 24-col internal grid; empty
 # containers (no resolvable children) are dropped. Appends new container spec
 # placeholders to ctx[:extra]; records placed element ids in ctx[:placed].
@@ -499,7 +502,7 @@ def plan_node(node, c0, c1, r0, r1, ctx)
     kids = node['children'] || []
     # Wrapper-chain collapse: Tableau nests single-child pass-through
     # containers several levels deep (authoring artifacts). Each one used to
-    # become a real GridContainer — 12 no-op containers on the benchmark,
+    # become a real Container — 12 no-op containers on the benchmark,
     # each adding padding + a rounding pass that drifts the geometry. A
     # single-child container that carries NO visual identity of its own
     # (no fill/border/corner style) is pure structure: plan the child
@@ -540,12 +543,21 @@ def plan_node(node, c0, c1, r0, r1, ctx)
     # border_color from the zone's <zone-style>. 8-digit-alpha hex renders over the
     # canvas verbatim (Sigma accepts it), so the region columns keep their color
     # without a separate pastel-flattening step. Unstyled zones → plain container.
-    cstyle = nil
-    if node['fill_color']
-      cstyle = { 'backgroundColor' => node['fill_color'], 'borderRadius' => 'round' }
-      cstyle['borderColor'] = node['border_color'] if node['border_color']
+    cstyle = {}
+    cstyle['backgroundColor'] = node['fill_color'] if node['fill_color']
+    if node['border_color']
+      cstyle['borderColor'] = node['border_color']
+      width = node['border_width'].to_i
+      cstyle['borderWidth'] = [[width, 1].max, 3].min
     end
-    ctx[:extra] << container_el(cid, cstyle)
+    radius = node['corner_radius'].to_i
+    if radius.positive? || node['rounding']
+      height_px = ctx.dig(:canvas_px, 'h').to_f * node['h_pct'].to_f / 100.0
+      cstyle['borderRadius'] = height_px.positive? && radius / height_px > 0.3 ? 'pill' : 'round'
+    elsif node['fill_color']
+      cstyle['borderRadius'] = 'round'
+    end
+    ctx[:extra] << container_el(cid, cstyle.empty? ? nil : cstyle)
     emit = proc do |fc0, fc1, fr0, fr1|
       inner = plans.each_with_index.map { |(_, _, ep), i| ep.call(*packed[i]) }.join("\n")
       gc(cid, fc0, fc1, fr0, fr1, inner)
@@ -836,11 +848,21 @@ def build_page_from_tree(dashboard, page, opts)
     fs = float_src[i]
     if fs && fs[:node]['kind'] == 'image' && (packed[i][2] - fs[:r0]) > page_rows * 0.25
       # Hard invariant (v5.1): a decorative float stranded far below its source
-      # y is worse than absent — drop it, keep it recoverable.
+      # y is worse than absent — drop it, keep it recoverable, and explicitly
+      # remove its declared element during put-layout. The prune record is the
+      # only exception to the every-declared-element-is-placed contract.
+      eid = resolve_leaf(fs[:node], ctx)
       warn "WARN: floating image zone #{fs[:node]['id']} would be packed " \
            "#{packed[i][2] - fs[:r0]} rows below its source position — dropped from " \
            'the grid (placement: manual-composite in image-assets.json)'
       record_manual_composite(opts[:layout], dashboard['dashboard'], fs[:node]['id'])
+      opts[:pruned_elements] << {
+        'element_id' => eid,
+        'page_id' => page['id'],
+        'reason' => 'manual-composite',
+        'dashboard' => dashboard['dashboard'],
+        'zone_id' => fs[:node]['id'].to_s
+      }
       next
     end
     children << ep.call(*packed[i])
@@ -878,12 +900,12 @@ end
 #   header band (rows 1..3) — title text full-width; colored only when the
 #                             source has a band-like fill (header_from_source);
 #                             detected source header text zones join the band
-#   sidebar rail            — one vertical GridContainer (repeat(1,1fr)) of
+#   sidebar rail            — one vertical Container (repeat(1,1fr)) of
 #                             stacked controls at the page edge; the content
 #                             grid gets the remaining columns
 #   control band            — non-rail controls side-by-side under the header
-#   KPI rows                — ONE GridContainer per detected row, inner
-#                             LayoutElements at equal spans, inner gridRow
+#   KPI rows                — ONE Container per detected row, inner
+#                             Elements at equal spans, inner gridRow
 #                             matching the container span (the KPI-sliver
 #                             rule: gridTemplateRows="auto" does NOT stretch
 #                             short children — see refs/workbook-layout.md)
@@ -1417,7 +1439,7 @@ end
 # means the group is now a SINGLE element, so we prune the absorbed SIBLING
 # member zones (keeping only the base) and EXPAND the base zone to the group's
 # bounding box — the one trellis element then lands full-size via the ordinary
-# banded/synth path (no per-card GridContainers). Mutates `dashboard` in place;
+# banded/synth path (no per-card Containers). Mutates `dashboard` in place;
 # only touches a dashboard that carries `trellis`, so non-trellis output is
 # byte-identical to the flat build.
 def prune_trellis_zones!(dashboard)
@@ -1476,7 +1498,7 @@ def build_page_for_dashboard(dashboard, page, opts)
     end
   end
 
-  used_el_ids = {} # one zone per element — a duplicate LayoutElement id makes
+  used_el_ids = {} # one zone per element — a duplicate Element id makes
   #   Sigma reject the whole layout PUT (same guard as the tree/synth paths)
   chart_layouts = chart_zones.map do |z|
     lookup_name = zone_el_name(z, o[:renames])
@@ -1617,21 +1639,17 @@ def build_page_for_dashboard(dashboard, page, opts)
    census, min_exp]
 end
 
-# PR-17: place EVERY hidden master instance on the Data page. Pre-PR-17 there is
-# exactly one master (id 'master'); with --per-page-masters the Data page carries
-# one clone per content page ('master-<page-slug>'). Each is stacked in its own
-# 21-row band so none auto-flows. Single-master output is byte-identical (the
-# lone master keeps rows 1..21). Helpers (submaster-/opt-src-/…) keep auto-flowing
-# on this hidden utility page exactly as before.
-master_page_els = data_page['elements'].select do |e|
-  e.is_a?(Hash) && e['kind'] == 'table' &&
-    (e['id'] == 'master' || e['id'].to_s.start_with?('master-') || e['name'] == 'Master')
+# Place EVERY hidden Data-page element. Layout is the authoritative page
+# membership map in workbook code-rep; leaving helpers unreferenced is no
+# longer an auto-flow convenience, it is an invalid document.
+data_row = 1
+master_les = data_page['elements'].map do |element|
+  height = [WorkbookCode.row_span(element), 10].max
+  xml = le(element['id'], 1, opts[:page_cols] + 1, data_row, data_row + height)
+  data_row += height
+  xml
 end
-master_page_els = [master_el] if master_page_els.empty?
-master_les = master_page_els.each_with_index.map do |m, i|
-  le(m['id'], 1, opts[:page_cols] + 1, 1 + (i * 21), 21 + (i * 21))
-end
-data_page_xml = page_xml('page-data', *master_les)
+data_page_xml = page_xml(data_page['id'], *master_les)
 
 # ---- Layout-arrangement parity record (PLAN-v3 PR-11; WARN-level release) ---
 # Compares the SOURCE zone arrangement (normalized bboxes) against the BUILT
@@ -1761,12 +1779,16 @@ dash_layout.each do |d|
     # per-path bookkeeping. Gate 8c (assert-phase6-ran.rb) fails on a
     # non-empty list.
     refd = pxml.scan(/elementId="([^"]+)"/).flatten
+    explicitly_pruned = opts[:pruned_elements]
+                        .select { |record| record['page_id'] == page['id'] }
+                        .map { |record| record['element_id'] }
     unplaced = page['elements'].select do |e|
       k = e['kind'].to_s
       (k.end_with?('-chart') || %w[table pivot-table control text image button].include?(k)) &&
-        e['id'] && !refd.include?(e['id'])
+        e['id'] && !refd.include?(e['id']) && !explicitly_pruned.include?(e['id'])
     end.map { |e| e['id'] }
     census['unplaced_elements'] = unplaced
+    census['pruned_elements'] = explicitly_pruned.sort
     if unplaced.any?
       warn "WARN: #{unplaced.length} element(s) on page #{page['name'].inspect} are absent from the " \
            "built layout — Sigma will auto-flow them as stray cards: #{unplaced.join(', ')}"
@@ -1800,8 +1822,34 @@ layout_out = assemble(*page_xmls) + "\n"
 # Documented output-shape guard: an empty elementId is always a builder bug
 # and makes Sigma reject the whole layout PUT.
 abort 'FATAL: empty elementId in generated layout XML — builder bug' if layout_out.include?('elementId=""')
+declared_ids = WorkbookCode.elements(wb_ids_raw).filter_map { |element| element['id'] } +
+               sidecar.values.flatten.filter_map { |element| element['id'] }
+layout_ids = layout_out.scan(/elementId="([^"]+)"/).flatten
+duplicate_ids = layout_ids.tally.select { |_, count| count > 1 }.keys
+prune_records = opts[:pruned_elements].sort_by do |record|
+  [record['page_id'].to_s, record['element_id'].to_s, record['zone_id'].to_s]
+end
+prune_ids = prune_records.map { |record| record['element_id'] }
+invalid_pruned = prune_records.reject do |record|
+  record['reason'] == 'manual-composite' && !record['element_id'].to_s.empty? &&
+    declared_ids.count(record['element_id']) == 1 && !layout_ids.include?(record['element_id'])
+end
+duplicate_pruned = prune_ids.tally.select { |_, count| count > 1 }.keys
+missing_ids = declared_ids - layout_ids - prune_ids
+unknown_ids = layout_ids - declared_ids
+unless duplicate_ids.empty? && missing_ids.empty? && unknown_ids.empty? &&
+       invalid_pruned.empty? && duplicate_pruned.empty?
+  abort "FATAL: generated layout must place every element exactly once " \
+        "(duplicates=#{duplicate_ids.inspect}, missing=#{missing_ids.inspect}, unknown=#{unknown_ids.inspect}, " \
+        "invalid_explicit_prunes=#{invalid_pruned.inspect}, duplicate_explicit_prunes=#{duplicate_pruned.inspect})"
+end
 File.write(opts[:out], layout_out)
 File.write("#{opts[:out]}.elements.json", JSON.pretty_generate(sidecar))
+prune_path = "#{opts[:out]}.prune-elements.json"
+File.write(prune_path, JSON.pretty_generate({
+  'version' => 1,
+  'elements' => prune_records
+}) + "\n")
 
 # ---- layout-census.json (gate 8c producer, #259) --------------------------
 # One record per dashboard page (zones / placed / dropped / grid_fill_pct) —
@@ -1809,6 +1857,9 @@ File.write("#{opts[:out]}.elements.json", JSON.pretty_generate(sidecar))
 #   unplaced_elements  ids in the built page but ABSENT from the layout XML
 #                      (gate 8c fails on non-empty — Sigma auto-flows these
 #                      as stray cards)
+#   pruned_elements     ids deliberately omitted under the explicit
+#                      manual-composite contract; put-layout removes them
+#                      from flat document.elements before validating/PUT
 #   synthetic_header   true when the header band carries the synthetic
 #                      "title-*" element with no source header zone (the
 #                      title is then counted in zones/placed)
@@ -1845,6 +1896,7 @@ end.join(', ')
 puts "wrote #{opts[:out]} (#{page_for_dash.size} dashboard page(s): #{totals[:charts]} charts in #{totals[:bands]} band container(s), " \
      "#{totals[:controls]} controls, header bands, gap-closing applied, rows: #{rows_report})"
 puts "wrote #{opts[:out]}.elements.json (#{sidecar.values.sum(&:length)} container/header spec element(s) — put-layout.rb injects these)"
+puts "wrote #{prune_path} (#{prune_records.length} explicit manual-composite element prune(s) — put-layout.rb removes these before PUT)"
 puts "wrote #{census_out} (#{census_pages.size} page census record(s): " \
      "#{census_pages.map { |c| "#{c['page']} #{c['placed']}/#{c['zones']} tiles, fill #{(c['grid_fill_pct'] * 100).round}%" }.join('; ')})"
 puts "wrote #{arr_out} (#{arrangement_pages.size} page arrangement record(s), " \

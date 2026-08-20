@@ -2108,10 +2108,10 @@ var require_fxp = __commonJS({
   }
 });
 
-// ../sigma-data-model-mcp/build/tableau.js
+// converter-source/build/tableau.js
 var import_fast_xml_parser = __toESM(require_fxp(), 1);
 
-// ../sigma-data-model-mcp/build/sigma-ids.js
+// converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var _idCounter = 0;
@@ -2165,6 +2165,27 @@ function clampId(id, max = 64) {
     return id;
   const suffix = "~" + encodeBase62(fnv1a32(id) % 62 ** 6, 6);
   return id.slice(0, max - suffix.length) + suffix;
+}
+// LOCAL PATCH (illegal controlId characters, 2026-08 bisect): the canonical
+// Sigma OpenAPI declares `controlId` as a bare string with NO documented
+// charset/pattern constraint, so this is not "the" charset — it is a
+// conservative SAFE SUBSET ([a-zA-Z0-9_-], <=64 chars) chosen because
+// restricting to a narrower set than the API actually accepts can never
+// cause a rejection, while a raw Tableau parameter caption CAN contain
+// characters a live DM POST rejects (observed: a caption using Tableau's own
+// pipe-delimited multi-value convention, e.g. "MultiParam | Category", was
+// rejected once the unstripped "|" reached a controlId). Collapses every run
+// of whitespace or other non-safe characters to a single "-", trims leading/
+// trailing "-", then reuses clampId's existing hash-suffixed truncation so a
+// long id cannot silently collide with another long id it was truncated
+// against. NOTE: shrinking the charset makes DISTINCT captions more likely
+// to normalize to the SAME id (e.g. "A | B" and "A @ B" both collapse to
+// "A-B") — callers must still run their controlId through a dedupe pass
+// (see the "controlId dedupe" block below) before treating the result as
+// collision-free.
+function sanitizeControlId(raw) {
+  const cleaned = String(raw || "").replace(/\s+/g, "-").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
+  return clampId(cleaned || "control");
 }
 function sigmaShortId(len = 10) {
   let id;
@@ -2382,7 +2403,7 @@ function buildDerivedElements(elements, warnings) {
   return derived;
 }
 
-// ../sigma-data-model-mcp/build/formulas.js
+// converter-source/build/formulas.js
 function decodeXmlEntities(s) {
   if (!s || s.indexOf("&") === -1)
     return s;
@@ -3200,7 +3221,7 @@ function tableauFormulaIsRls(formula) {
   return /\b(USERNAME|FULLNAME|USERDOMAIN|ISMEMBEROF|ISUSERNAME|USERATTRIBUTE)\s*\(/i.test(formula || "");
 }
 
-// ../sigma-data-model-mcp/build/tableau.js
+// converter-source/build/tableau.js
 function paramControlId(rawName) {
   return clampId("ctl-" + rawName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase());
 }
@@ -3333,11 +3354,50 @@ function nsAttr(node, key) {
     return "";
   return node[keys.find((k) => k.includes(".true...")) || keys[0]] || "";
 }
+// LOCAL PATCH (FIXED-LOD raw-SQL dialect gap, 2026-08 bisect): the general
+// calc translator (tableauFormulaToSigma) maps Tableau function names to
+// Sigma's OWN DM-formula language (e.g. DATETRUNC -> DateTrunc(...) —
+// verified in refs/functions.json), but that translation target is Sigma
+// formula syntax, not SQL, so it cannot be reused verbatim here. FIXED-LOD
+// (and window-helper) lowering instead builds a raw Custom-SQL statement via
+// _tableauExprToSql, which previously did ONLY structural rewriting
+// (quote-style, IF/END -> CASE WHEN/END) and copied every function CALL name
+// through unchanged — emitting invalid Snowflake SQL like
+// DATETRUNC('month', ...) (Snowflake's function is DATE_TRUNC). This map is
+// the general fix: every Tableau function name that has a Snowflake SQL
+// equivalent with an IDENTICAL argument count/order (a safe 1:1 name swap,
+// never a restructure) is renamed at the point a function CALL is recognized
+// (name immediately followed by "(" — never a bare column token, which
+// by this point in the pipeline is already an unbracketed identifier and
+// could otherwise collide with a short map key like LEN/MID).
+//
+// Deliberately NOT included (name swap alone would be WRONG, not just
+// untranslated, because the calling convention differs): DATENAME (returns a
+// string; Snowflake has no same-signature equivalent, needs
+// TO_CHAR/MONTHNAME restructuring), FIND (Tableau FIND(string, substring) vs
+// Snowflake POSITION(substring, string) — argument ORDER is reversed),
+// ISNULL (Tableau function-call form vs SQL's "x IS NULL" operator form).
+// DATEADD and DATEDIFF are NOT in the map because their Tableau and
+// Snowflake forms already share the same name AND argument order — no
+// rewrite needed. Any Tableau function not covered here still passes through
+// unchanged (same behavior as before this patch), so remaining gaps fail
+// loudly as invalid SQL rather than silently miscompiling.
+var TABLEAU_TO_SQL_FUNC_MAP = {
+  DATETRUNC: "DATE_TRUNC",
+  DATEPART: "DATE_PART",
+  IIF: "IFF",
+  LEN: "LENGTH",
+  MID: "SUBSTR"
+};
 function _tableauExprToSql(s) {
   s = s.replace(/"([^"]*)"/g, (_m, inner) => `'${inner.replace(/'/g, "''")}'`);
   if (/\bIF\b/i.test(s) && /\bEND\b/i.test(s)) {
     s = s.replace(/\bELSE\s+IF\b/gi, "WHEN").replace(/\bELSEIF\b/gi, "WHEN").replace(/\bIF\b/gi, "CASE WHEN");
   }
+  s = s.replace(/\b([A-Za-z_][A-Za-z0-9_]*)(\s*\()/g, (m, fn, paren) => {
+    const sqlFn = TABLEAU_TO_SQL_FUNC_MAP[fn.toUpperCase()];
+    return sqlFn ? sqlFn + paren : m;
+  });
   return s;
 }
 function _tableauInnerToSql(expr) {
@@ -3779,6 +3839,30 @@ function normalizeColumnName(name) {
   return name.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").toUpperCase();
 }
 var _qid = (name) => `"${String(name).replace(/"/g, '""')}"`;
+// LOCAL PATCH (#693): FIXED-LOD/window-helper raw-SQL emits GROUP-BY dimension
+// aliases straight from _resolveDimDisplayName2's `physicalUpper` — which by
+// design only collapses WHITESPACE (never sanitises other characters), so it
+// stays byte-for-byte aligned with the real warehouse column and keeps
+// resolving through quotePhysToken()/sqlExactByUpper() below. When the
+// physical name itself carries a character bare SQL can't take (a hyphen —
+// "Sub-Category", "Year-over-Year", "Ship-Mode" are all real Tableau
+// captions; same for embedded spaces or other punctuation), that un-mangled
+// name was reused BARE as the emitted `AS` alias, producing e.g.
+// `SUB_CATEGORY AS SUB-CATEGORY` — Snowflake reads the bare hyphen as a
+// minus operator (issue #693). Quote — never sanitise — so the emitted alias
+// and the [Custom SQL/<name>] formula reference built from the SAME string
+// elsewhere in this file keep agreeing byte-for-byte: quoting changes the
+// alias's legal-SQL REPRESENTATION, not its VALUE, and every name reaching
+// this helper is already upper-cased by _resolveDimDisplayName2, so a quoted
+// alias and Snowflake's own unquoted-identifier case-folding land on the
+// SAME output column name whenever quoting wasn't actually required.
+// Conditional (not _qid's unconditional quoting) to leave the common,
+// already-safe-bare-identifier case byte-identical to today
+// (test-lod-sql-quoting.rb Part B pins `AS CUSTOMER_REF_ID` bare — quoting it
+// unconditionally would needlessly change already-correct output). Charset
+// matches scripts/lib/sql_ident_check.rb's BARE_IDENT_RE (the Ruby-side
+// pre-POST gate's legality oracle) so both layers agree on "safe bare".
+var _qidIfNeeded = (name) => /^[A-Za-z_][A-Za-z0-9_$]*$/.test(String(name)) ? name : _qid(name);
 var _isNumericType = (t) => t === "integer" || t === "real";
 function qualifyTwoPartFqns(sql, db) {
   if (!sql || !db)
@@ -5046,6 +5130,16 @@ function convertTableauToSigma(xmlContent, options = {}) {
         // shared between two tables correctly yields 2 candidates and no guess), IS the
         // target entity name exactly, or is the target entity name plus a key suffix.
         const isKeyShapedName = (name, entityName) => /_(ID|KEY|SK|CODE)$/.test(name) || !!entityName && (name === entityName || new RegExp(`^${escapeRe(entityName)}_(ID|KEY|SK|CODE)$`).test(name));
+        // Deny-list (unique-on-right NON-keys): EXTERNAL_ID / ROW_ID / GUID /
+        // HASH_KEY families are key-shaped by suffix and frequently unique on
+        // the right side, but they are lineage/tech columns, not the
+        // relationship key - and gate 16's warehouse probe proves UNIQUENESS,
+        // not CORRECTNESS, so a wired one silently returns wrong rows. Denied
+        // from INFERENCE candidacy only: a key Tableau explicitly serialized
+        // is still honored, and a denied-only match is recorded unwired with
+        // a named reason. Side effect by design: a denied name no longer
+        // manufactures false ambiguity beside a genuine key.
+        const INFERENCE_KEY_DENYLIST_RE = /(^|_)(EXTERNAL_ID|ROW_ID|GUID|HASH_KEY)$/;
         const inferRelationshipKeyByName = (firstEntry, secondEntry) => {
           const leftNames = candidateNames(firstEntry);
           const rightSet = new Set(candidateNames(secondEntry));
@@ -5059,12 +5153,14 @@ function convertTableauToSigma(xmlContent, options = {}) {
               candidates.push(n);
           }
           const entityName = entityNameOf(secondEntry.cleanName);
-          const keyShaped = candidates.filter((n) => isKeyShapedName(n, entityName));
+          const keyShapedAll = candidates.filter((n) => isKeyShapedName(n, entityName));
+          const denied = keyShapedAll.filter((n) => INFERENCE_KEY_DENYLIST_RE.test(n));
+          const keyShaped = keyShapedAll.filter((n) => !INFERENCE_KEY_DENYLIST_RE.test(n));
           if (keyShaped.length === 1)
-            return { ok: true, name: keyShaped[0], candidates, keyShaped };
-          return { ok: false, candidates, keyShaped };
+            return { ok: true, name: keyShaped[0], candidates, keyShaped, denied };
+          return { ok: false, candidates, keyShaped, denied };
         };
-        const unwiredReason = (inferred) => inferred.candidates.length === 0 ? "no existing column name matches on both sides" : inferred.keyShaped.length === 0 ? "candidate name(s) matched but none look key-shaped (a _ID/_KEY/_SK/_CODE suffix, the exact target entity name, or the entity name plus that suffix)" : `ambiguous: ${inferred.keyShaped.length} key-shaped candidates \u2014 refusing to guess a composite key`;
+        const unwiredReason = (inferred) => inferred.candidates.length === 0 ? "no existing column name matches on both sides" : inferred.keyShaped.length === 0 ? (inferred.denied || []).length ? `only deny-listed non-key name(s) matched (${inferred.denied.join(", ")}) - EXTERNAL_ID/ROW_ID/GUID/HASH_KEY-family columns are lineage/tech columns a probe can prove unique but never correct; author the relationship manually if one truly is the key` : "candidate name(s) matched but none look key-shaped (a _ID/_KEY/_SK/_CODE suffix, the exact target entity name, or the entity name plus that suffix)" : `ambiguous: ${inferred.keyShaped.length} key-shaped candidates \u2014 refusing to guess a composite key`;
         const collectEqs = (expr, acc) => {
           const op = nsAttr(expr, "op");
           const kids = asArray(expr.expression || []);
@@ -5878,7 +5974,7 @@ ${stmt}
       const dimSel = [];
       for (const d of dimsResolved) {
         if (!d.el || d.el === fe) {
-          dimSel.push(`__f.${qFact(d.dimUpper)} AS ${d.dimUpper}`);
+          dimSel.push(`__f.${qFact(d.dimUpper)} AS ${_qidIfNeeded(d.dimUpper)}`);
           continue;
         }
         const dimEl = d.el;
@@ -5900,7 +5996,7 @@ ${stmt}
           joins.push({ alias, path: dimEl.source.path.join("."), on });
           joinByEl.set(dimEl.id, alias);
         }
-        dimSel.push(`${alias}.${d.dimUpper} AS ${d.dimUpper}`);
+        dimSel.push(`${alias}.${d.dimUpper} AS ${_qidIfNeeded(d.dimUpper)}`);
       }
       if (joins.length === 0)
         return null;
@@ -5918,9 +6014,9 @@ ${joinSql}
       const useBase = fromClause === "__lod_base";
       for (const sigKey of Object.keys(lodHelpers)) {
         const rec = lodHelpers[sigKey];
-        const dimList = useBase ? rec.groupDimDisplayNames.map((dn) => physToQuotedAlias[dn.replace(/\s+/g, "_").toUpperCase()] || `"${dn}"`).join(", ") : rec.groupDimNames.map((dn) => {
+        const dimList = useBase ? rec.groupDimDisplayNames.map((dn) => physToQuotedAlias[dn.replace(/\s+/g, "_").toUpperCase()] || _qid(dn)).join(", ") : rec.groupDimNames.map((dn) => {
           const q = sqlExactByUpper[dn.toUpperCase()] || quotePhysToken(dn);
-          return q === dn ? dn : `${q} AS ${dn}`;
+          return q === dn ? dn : `${q} AS ${_qidIfNeeded(dn)}`;
         }).join(", ");
         const aggParts = [];
         for (const k of Object.keys(rec.aggsByExpr)) {
@@ -5971,7 +6067,7 @@ ${joinSql}
       } else if (top.countControl) {
         const param = parameters.find((p) => p.name.toUpperCase() === top.countControl.toUpperCase() || p.rawName?.toUpperCase() === top.countControl.toUpperCase() || sigmaDisplayName(p.name).toUpperCase() === sigmaDisplayName(top.countControl).toUpperCase());
         const ctlSourceName = param?.name || top.countControl;
-        const cidBase = clampId(sigmaDisplayName(ctlSourceName).replace(/\s+/g, "-"));
+        const cidBase = sanitizeControlId(sigmaDisplayName(ctlSourceName));
         controlId = cidBase;
         const defaultVal = parseInt(param?.defaultVal || "10", 10) || 10;
         if (param)
@@ -6184,9 +6280,9 @@ ${joinSql}
       return alias;
     }, _emitWindowOverClause2 = function(rec, win, windowAlias, innerAlias) {
       const _winUseBase = _baseFromExpr2().fromClause === "__lod_base";
-      const _emitPartDim = (d) => _winUseBase ? physToQuotedAlias[d] || d : d;
+      const _emitPartDim = (d) => _winUseBase ? physToQuotedAlias[d] || _qidIfNeeded(d) : _qidIfNeeded(d);
       const partBy = rec.partitionDimNames.length > 0 ? `PARTITION BY ${rec.partitionDimNames.map(_emitPartDim).join(", ")}` : "";
-      const orderBy = rec.orderDimAlias ? `ORDER BY ${rec.orderDimAlias}` : "";
+      const orderBy = rec.orderDimAlias ? `ORDER BY ${_qidIfNeeded(rec.orderDimAlias)}` : "";
       const windowSpec = (parts) => parts.filter(Boolean).join(" ");
       let overSql = "";
       switch (win.windowType) {
@@ -6272,9 +6368,9 @@ ${joinSql}
         const selectParts = [];
         const emitPartSource = (d) => {
           if (winUseBase)
-            return physToQuotedAlias[d] || d;
+            return physToQuotedAlias[d] || _qidIfNeeded(d);
           const q = quotePhysToken(d);
-          return q === d ? d : `${q} AS ${d}`;
+          return q === d ? d : `${q} AS ${_qidIfNeeded(d)}`;
         };
         for (const d of rec.partitionDimNames) {
           selectParts.push(emitPartSource(d));
@@ -6282,9 +6378,9 @@ ${joinSql}
         if (rec.orderDimRaw && rec.orderDimAlias) {
           const rawRef = winUseBase ? rewriteBaseExpr(rec.orderDimRaw) : rewritePhysExpr(rec.orderDimRaw);
           if (rec.orderDimDateTrunc) {
-            selectParts.push(`DATE_TRUNC('${rec.orderDimDateTrunc}', ${rawRef}) AS ${rec.orderDimAlias}`);
+            selectParts.push(`DATE_TRUNC('${rec.orderDimDateTrunc}', ${rawRef}) AS ${_qidIfNeeded(rec.orderDimAlias)}`);
           } else {
-            selectParts.push(`${rawRef} AS ${rec.orderDimAlias}`);
+            selectParts.push(`${rawRef} AS ${_qidIfNeeded(rec.orderDimAlias)}`);
           }
         }
         for (const k of Object.keys(rec.innerAggs)) {
@@ -6302,8 +6398,8 @@ ${joinSql}
         const groupByIdx = Array.from({ length: groupByCount }, (_, i) => i + 1).join(", ");
         const baseSelect = `SELECT ${selectParts.join(", ")} FROM ${winFrom} GROUP BY ${groupByIdx}`;
         const innerProjection = [
-          ...rec.partitionDimNames,
-          ...rec.orderDimAlias ? [rec.orderDimAlias] : [],
+          ...rec.partitionDimNames.map((d) => _qidIfNeeded(d)),
+          ...rec.orderDimAlias ? [_qidIfNeeded(rec.orderDimAlias)] : [],
           ...Object.values(rec.innerAggs).map((v) => v.alias)
         ];
         const outerProjection = innerProjection.concat(rec.windowOverParts);
@@ -6520,6 +6616,22 @@ ${joinSql}
     const rewriteSqlExactExpr = (expr) => !hasSqlExact ? expr : expr.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (m, tok) => sqlExactByUpper[tok.toUpperCase()] || m);
     const lodChildElements = [];
     const wsIndex = _buildWorksheetIndex(parsed);
+    // Sigma accepts a metric whose name equals a sibling column, but live
+    // readback then drops the element's entire metric collection (F4). Raw
+    // numeric measures already exist as columns, so their convenience Sum()
+    // metrics must use a distinct, deterministic display name.
+    const _autoMetricName = (displayName) => {
+      const occupied = new Set([
+        ...(factEl.columns || []).map((c) => String(c.name || "").toLowerCase()),
+        ...(factEl.metrics || []).map((m) => String(m.name || "").toLowerCase())
+      ]);
+      const base = `Total ${displayName}`;
+      let candidate = base;
+      let suffix = 2;
+      while (occupied.has(candidate.toLowerCase()))
+        candidate = `${base} (${suffix++})`;
+      return candidate;
+    };
     const lodHelpers = {};
     const usedAliases = /* @__PURE__ */ new Set();
     const topNHelpers = [];
@@ -6833,9 +6945,10 @@ ${joinSql}
               factEl.metrics = [];
             const _mets = factEl.metrics;
             if (_tracked.el === factEl) {
-              if (!_mets.some((m) => (m.name || "").toUpperCase() === displayName.toUpperCase())) {
+              const _sumFormula = `Sum([${displayName}])`;
+              if (!_mets.some((m) => String(m.formula || "").toLowerCase() === _sumFormula.toLowerCase())) {
                 const _fmt = inferSigmaFormat(`Sum([${displayName}])`, displayName);
-                const _met = { id: sigmaShortId(), formula: `Sum([${displayName}])`, name: displayName };
+                const _met = { id: sigmaShortId(), formula: _sumFormula, name: _autoMetricName(displayName) };
                 if (_fmt)
                   _met.format = _fmt;
                 _mets.push(_met);
@@ -6862,7 +6975,7 @@ ${joinSql}
             if (!factEl.metrics)
               factEl.metrics = [];
             const _autoFmt = inferSigmaFormat(`Sum([${displayName}])`, displayName);
-            const _autoMetric = { id: sigmaShortId(), formula: `Sum([${displayName}])`, name: displayName };
+            const _autoMetric = { id: sigmaShortId(), formula: `Sum([${displayName}])`, name: _autoMetricName(displayName) };
             if (_autoFmt)
               _autoMetric.format = _autoFmt;
             factEl.metrics.push(_autoMetric);
@@ -6902,7 +7015,7 @@ ${joinSql}
             if (suggestion) {
               warnings.push(`\u26A0 LOD "${caption}" (${lod.lodType}) groups by a dimension-table column (cross-table grain) \u2014 not auto-wired yet. Create a Custom SQL element in Sigma with:
 ${suggestion}
-  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: beads-sigma-hnx0.)`);
+  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: [bead].)`);
             } else {
               warnings.push(`\u26A0 LOD "${caption}" (${lod.lodType}) groups by a dimension-table column (cross-table grain); not mechanizable as a single-table helper \u2014 needs manual Sigma authoring. Skipped.`);
             }
@@ -7525,7 +7638,7 @@ ${suggestion}
   }
   const controls = [];
   for (const p of parameters) {
-    const controlId = sigmaDisplayName(p.name).replace(/\s+/g, "-");
+    const controlId = sanitizeControlId(sigmaDisplayName(p.name));
     if (topNParamControls[p.name]) {
       const def = topNParamControls[p.name];
       const defVal = parseInt(p.defaultVal || String(def.defaultVal), 10) || def.defaultVal;

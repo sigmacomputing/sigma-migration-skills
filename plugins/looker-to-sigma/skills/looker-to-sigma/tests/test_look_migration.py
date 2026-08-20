@@ -30,6 +30,8 @@ SCRIPTS = os.path.join(SKILL, "scripts")
 FIX = os.path.join(SKILL, "fixtures", "skilltest-looks")
 VIEWS = os.path.join(FIX, "views")
 LINT = os.path.join(SCRIPTS, "lib", "preflight_lint.rb")
+sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
+import code_rep  # noqa: E402
 
 
 def build(name):
@@ -52,11 +54,10 @@ def build(name):
 def tiles(spec):
     """Real content elements (skip the hidden Data master + layout containers)."""
     out = []
-    for pg in spec.get("pages", []):
-        for e in pg.get("elements", []):
-            if e.get("kind") in ("container", "text") or e.get("name") == "Data":
-                continue
-            out.append(e)
+    for e in code_rep.workbook_elements(spec):
+        if e.get("kind") in ("container", "text") or e.get("name") == "Data":
+            continue
+        out.append(e)
     return out
 
 

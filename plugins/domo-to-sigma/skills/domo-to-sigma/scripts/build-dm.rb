@@ -257,7 +257,7 @@ def build_element(ds, map_entry, projection_bms)
       col = { 'id' => id, 'name' => display_name(raw), 'formula' => ov['formula'].to_s }
       derived << raw
     else
-      col = { 'id' => id, 'formula' => "[#{table}/#{display_name(raw)}]" }
+      col = { 'id' => id, 'formula' => "[#{table}/#{column_ref_name(raw)}]" }
     end
     fmt = ov.is_a?(Hash) && ov['format'] ? ov['format'] : type_format(c['type'])
     col['format'] = fmt if fmt

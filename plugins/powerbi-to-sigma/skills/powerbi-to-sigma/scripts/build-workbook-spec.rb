@@ -34,6 +34,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 require 'base64'
+require_relative 'lib/layout'
 
 opts = { mode: 'page-per-worksheet' }
 OptionParser.new do |p|
@@ -133,11 +134,42 @@ else
   abort('chart-specs.json must be either { pages: [...] } or [ ... ]')
 end
 
+legacy_pages = [data_page] + visible_pages
+elements = legacy_pages.flat_map { |page| page['elements'] || [] }
+pages = legacy_pages.map do |page|
+  page.reject { |key, _| key == 'elements' }.tap do |metadata|
+    metadata['visibility'] = 'hidden' if metadata['id'] == 'page-data'
+  end
+end
+layout = SigmaLayout.assemble(*legacy_pages.map do |page|
+  children = Array(page['elements']).each_with_index.map do |element, index|
+    if page['id'] == 'page-data'
+      SigmaLayout.le(element['id'], 1, 25, index * 10 + 1, index * 10 + 11)
+    else
+      column = index % 2
+      row = index / 2
+      SigmaLayout.le(element['id'], column * 12 + 1, (column + 1) * 12 + 1,
+                     row * 10 + 1, row * 10 + 11)
+    end
+  end
+  SigmaLayout.page_xml(page['id'], children.join("\n"))
+end)
+
+ids = elements.filter_map { |element| element['id'] }
+placed = layout.scan(/\belementId="([^"]+)"/).flatten
+abort("workbook layout mismatch: elements=#{ids.inspect}, placed=#{placed.inspect}") \
+  unless ids.sort == placed.sort && placed.uniq.length == placed.length
+
 wb = {
-  'name'          => opts[:name],
-  'schemaVersion' => 1,
-  'folderId'      => opts[:folder_id],
-  'pages'         => [data_page] + visible_pages
+  'name' => opts[:name],
+  'folderId' => opts[:folder_id],
+  'document' => {
+    'schemaVersion' => 1,
+    'kind' => 'workbook',
+    'pages' => pages,
+    'elements' => elements,
+    'layout' => layout
+  }
 }
 wb['description'] = opts[:description] if opts[:description]
 

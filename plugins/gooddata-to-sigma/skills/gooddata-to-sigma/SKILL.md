@@ -49,7 +49,7 @@ and all data-model authoring to **sigma-data-models**.
 ## Converter architecture (read if you know the other migration skills)
 
 Unlike the **Group-A** converters (tableau, powerbi, qlik, quicksight, looker,
-thoughtspot, cognos) — which share the vendored `sigma-data-model-mcp` engine
+thoughtspot, cognos) — which share the vendored `converter-source` engine
 (`converter/*.mjs`, with the hosted `convert_*` MCP tool as a fallback) — this
 skill uses a **self-contained Python converter that ships in `scripts/`**
 (`convert.py` + `maql.py`). It runs locally via `python3`; there is **no vendored
@@ -105,11 +105,20 @@ python3 scripts/convert.py --workspace gd_workspace.json \
 ```
 
 **Phase 3 — Workbook.** `scripts/build_workbook.py` maps insights →
-kpi-chart/bar-chart (each sourcing the migrated DM fact element; charts
+native Sigma elements (including released waterfall and grounded GoodData
+repeater → repeated-container; each sourcing the migrated DM fact element; charts
 auto-aggregate by axis), recursively inlines metric MAQL into measure formulas,
 and resolves a related-dataset `view` attribute to a cross-element reference
 `[FACT/REL_NAME/Dim]` (exercises the migrated relationship). POST to
-`/v2/workbooks/spec`. Defers chart/layout/theming idioms to **sigma-workbooks**.
+`/v2/workbooks/spec` — **the body is `document`-wrapped, not flat** (verified live
+2026-08-03, including on `/verify` 2026-08-04): metadata (`name`, `folderId`)
+stays outside; `schemaVersion`/`kind`/metadata-only `pages`/flat `elements`/
+required `layout` nest under `document`. Layout is authoritative for page and
+repeated-container membership and uses the live-verified `<Element>` /
+`<Container>` tags. `<LayoutElement>` / `<GridContainer>` are legacy read
+aliases only and must never be emitted. The DM POST above is a different surface
+and stays flat with `pages[].elements`. Defers chart/layout/theming idioms to
+**sigma-workbooks**.
 ```
 python3 scripts/build_workbook.py --workspace gd_workspace.json \
   --data-model-id <dm-uuid> --fact-element <elId> --fact-name <TABLE> \
@@ -127,8 +136,10 @@ metric-of-metric ratios (workbook expands them; the DM keeps `[MetricName]` refs
 and any non-match fall back to inline. `--fact-element` must be the DM element id
 `convert.py` assigned (CREATE preserves ids), so it keys into the spec's elements.
 No `--dm-spec` → inline, byte-identical. Verified: `tests/test_metric_reference.py`.
-Apply the dashboard grid **layout as the LAST write** (after all elements exist;
-a bare spec PUT wipes layout) — match GoodData's section/widget arrangement.
+Author the dashboard grid **layout LAST in the in-memory document assembly**
+(after all elements exist), validate that it places every flat element exactly
+once, then POST the complete wrapped spec. Do not follow creation with a bare
+spec PUT: required layout is authoritative and a layout-less write is rejected.
 
 **Phase 4 — Parity.** Query the migrated DM/workbook elements vs the **same
 warehouse** truth. NOTE: sigma-mcp-v2 `metric('<id>', t)` returns "Missing
@@ -146,7 +157,9 @@ Surface — never silently mis-convert — these (log to gap-scout / learned-rul
 opt-in escalate):
 - MAQL with no clean warehouse equivalent (FlexQuery / compute-only).
 - `BY` / `BY ALL` / `WITHIN` context that can't be reconstructed from insight grain.
-- Exotic visualizations (funnel / sankey / waterfall / treemap …) → flagged table.
+- Unsupported visualizations (funnel / sankey / treemap …) → loud gap; box is
+  capability-gated. Waterfall is native with grounded axes; repeater is native
+  only with a Rows attribute plus resolvable Columns.
 - `sql`-backed datasets and anything the MAQL parser tags `UNHANDLED`.
 
 ## Scope

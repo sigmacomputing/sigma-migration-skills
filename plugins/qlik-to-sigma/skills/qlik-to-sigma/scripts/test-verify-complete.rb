@@ -52,8 +52,9 @@ end
 
 # 5) the orchestrator wires the empty-workbook guard + success stamp.
 mt = File.read(File.join(DIR, 'migrate-qlik.rb'))
-check(mt.include?('built_ok = parity_ok && layout_ok && control_ok && flip_ok && n_elements.positive?'),
-      'orchestrator requires real elements for a green (no empty pass)', fails)
+check(mt.include?('built_ok = parity_ok && layout_ok && control_ok && flip_ok && n_queryable.positive?') &&
+      mt.include?("wb_res['unbuiltSourceVisuals'].to_a.empty?"),
+      'orchestrator requires queryable elements and complete source coverage for a green', fails)
 check(mt.include?("require 'flip_gate'") && mt.include?('FlipGate.decide'),
       'orchestrator runs gate 7b (runtime control-flip proof) before a green', fails)
 check(mt.include?('phase6-success.json'), 'orchestrator stamps the success sentinel', fails)

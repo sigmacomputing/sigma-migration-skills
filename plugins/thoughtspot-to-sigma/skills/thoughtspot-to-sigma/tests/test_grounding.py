@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Grounding regression for ts_common.py (beads-sigma-kvza).
+"""Grounding regression for ts_common.py ([bead]).
 
 Proves the ThoughtSpot->Sigma dashboard classifier is documentation-grounded and
 loud-on-unmapped:
-  1. CATALOGS      — all four refs/catalogs/*.json load, are cited (real doc URLs),
-     have unique sources, and every row carries a Sigma target.
+  1. CATALOGS      — all five refs/catalogs/*.json load, are cited (real doc URLs),
+     have unique sources, and every row carries a Sigma target or explicit gap.
   2. NO INLINE MAP — the viz/number-format/aggregation/control maps are DERIVED
      from the catalogs; no residual inline literal bypasses the single source of
      truth, and the three named silent-default strings are gone.
@@ -32,7 +32,7 @@ COVERAGE = os.path.join(SKILL, "refs", "thoughtspot-coverage.md")
 sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
 
-DIMS = {"viz-kind", "number-format", "aggregation", "control"}
+DIMS = {"viz-kind", "number-format", "aggregation", "control", "workbook-feature"}
 
 
 def test_catalogs_valid():
@@ -49,8 +49,9 @@ def test_catalogs_valid():
             assert key not in seen, "duplicate source in %s: %s" % (name, key)
             seen.add(key)
             assert r.get("doc_ref", "").startswith("http"), (name, r["source"], "doc_ref not a URL")
-            assert r.get("sigma") is not None, (name, r["source"], "no Sigma target")
-    print("[ok] catalogs: 4 dimensions load, cited (real URLs), unique sources, targeted")
+            assert r.get("sigma") is not None or r.get("no_sigma_equiv") is True, \
+                (name, r["source"], "no Sigma target and not an explicit gap")
+    print("[ok] catalogs: 5 dimensions load, cited, unique sources, targeted or explicit-gap")
 
 
 def test_no_inline_maps():
@@ -98,6 +99,52 @@ def test_loud_unknown_viz():
     print("[ok] loud viz: unknown chart 'ZZZ_BOGUS_CHART' warns + degrades to flagged table")
 
 
+def test_release_chart_mappings_and_box_gap():
+    """Published native waterfall maps directly; box plots stay explicit fallback."""
+    t = _fresh()
+    base = {"name": "Movement", "dims": ["Month"], "measures": ["Revenue"], "mtypes": {}}
+    waterfall = t.sigma_element({**base, "chart": "WATERFALL"}, {})
+    assert waterfall["kind"] == "waterfall-chart", waterfall
+    assert waterfall["xAxis"]["columnId"] and waterfall["yAxis"]["columnIds"], waterfall
+
+    box = t.sigma_element({**base, "name": "Distribution", "chart": "WHISKER_SCATTER"}, {})
+    assert box["kind"] == "table", box
+    assert "WHISKER_SCATTER" in box["name"] and "no Sigma chart equivalent" in box["name"], box
+    assert not t.drain_warnings(), "known explicit box gap must not look like unknown input"
+    print("[ok] release charts: WATERFALL -> native waterfall; WHISKER_SCATTER -> explicit table gap")
+
+
+def test_legend_styling_and_loud_drill_gap():
+    t = _fresh()
+    answer = {
+        "name": "Revenue hierarchy",
+        "answer_columns": [
+            {"name": "Region"}, {"name": "State"}, {"name": "Total Revenue"},
+        ],
+        "search_query": "[Region] [State] [Revenue]",
+        "chart": {
+            "type": "STACKED_BAR",
+            "axis_configs": [{"x": ["Region", "State"], "y": ["Total Revenue"]}],
+            "client_state": '{"legend":{"visible":true,"position":"BOTTOM","showTitle":false}}',
+        },
+    }
+    parsed = t.parse_ts_viz({"answer": answer}, {})
+    master = {
+        "id": "m-ofv", "kind": "table", "name": "OFV",
+        "columns": [
+            {"id": "ofv-r", "name": "Region", "formula": "[View/Region]"},
+            {"id": "ofv-s", "name": "State", "formula": "[View/State]"},
+        ],
+    }
+    element = t.sigma_element(parsed, {})
+    assert element["orientation"] == "horizontal" and element["stacking"] == "stacked", element
+    assert element["legend"] == {"position": "bottom", "header": "hidden"}, element
+    assert "FLAGGED: multi-level axis drill not converted" in element["name"], element
+    assert not hasattr(t, "drill_controls"), \
+        "do not invent source/categories/targets fields absent from released drill schema"
+    print("[ok] release features: legend/styling retained; ungrounded drill wiring is a loud gap")
+
+
 def test_loud_unknown_agg():
     """An unmapped aggregation token -> loud warn + EXPLICIT Sum, NOT a silent Sum."""
     t = _fresh()
@@ -138,7 +185,7 @@ def test_loud_unknown_control_op():
 def test_coverage_matrix_fresh():
     """refs/thoughtspot-coverage.md must be regenerated from the catalogs (no drift)."""
     r = subprocess.run(
-        [sys.executable, os.path.join(SCRIPTS, "gen-coverage-matrix.py"),
+        [sys.executable, os.path.join(SCRIPTS, "gen-thoughtspot-coverage.py"),
          "--catalogs", CATDIR, "--skill", "thoughtspot", "--out", COVERAGE, "--check"],
         capture_output=True, text=True)
     assert r.returncode == 0, "coverage matrix is stale — regenerate:\n" + r.stderr
@@ -150,6 +197,8 @@ if __name__ == "__main__":
     test_no_inline_maps()
     test_coverage_matrix_fresh()
     test_loud_unknown_viz()
+    test_release_chart_mappings_and_box_gap()
+    test_legend_styling_and_loud_drill_gap()
     test_loud_unknown_agg()
     test_loud_unknown_control_op()
     print("ALL PASS")

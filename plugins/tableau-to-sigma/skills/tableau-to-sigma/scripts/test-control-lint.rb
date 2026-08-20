@@ -23,11 +23,14 @@ def check(cond, msg, fails)
   puts "  #{cond ? 'PASS' : 'FAIL'}  #{msg}"
 end
 
-# Minimal non-degenerate spec: one page, one non-control element, NO controls —
+# Minimal non-degenerate spec: one metadata-only page, one flat document
+# element, required layout membership, and NO controls —
 # so any "missing control" comes purely from the scope↔spec reconciliation.
-SPEC = { 'pages' => [{ 'name' => 'P1', 'elements' => [
-  { 'id' => 'tbl-1', 'kind' => 'table', 'name' => 'T' }
-] }] }.freeze
+SPEC = {
+  'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+  'elements' => [{ 'id' => 'tbl-1', 'kind' => 'table', 'name' => 'T' }],
+  'layout' => '<Page id="p1"><Element elementId="tbl-1"/></Page>'
+}.freeze
 
 def scope_with(status)
   ctl = { 'controlId' => 'ctl-orphan', 'name' => 'Orphan', 'sourceName' => "param 'Orphan'" }
@@ -69,14 +72,18 @@ check(no_built.call(ControlLint.lint(SPEC, scope: sig_silent)),
 # --- wholesale controlId DRIFT (from-scratch rewrite) → ONE hint, not N misses -
 # Spec has controls, but NONE of their ids match the sidecar's (kebab auto-build
 # ids vs hand-authored ids) — the exact 14-violation field episode.
-SPEC_CTLS = { 'pages' => [{ 'name' => 'P1', 'elements' => [
-  { 'id' => 'tbl-1', 'kind' => 'table', 'name' => 'T',
-    'columns' => [{ 'id' => 'c-dim', 'name' => 'Region', 'formula' => '[Region]' }] },
-  { 'id' => 'el-c1', 'kind' => 'control', 'controlId' => 'RankFunction', 'name' => 'Rank',
-    'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'tbl-1' }, 'columnId' => 'c-dim' }] },
-  { 'id' => 'el-c2', 'kind' => 'control', 'controlId' => 'UnifiedPersonkey', 'name' => 'User',
-    'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'tbl-1' }, 'columnId' => 'c-dim' }] }
-] }] }.freeze
+SPEC_CTLS = {
+  'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+  'elements' => [
+    { 'id' => 'tbl-1', 'kind' => 'table', 'name' => 'T',
+      'columns' => [{ 'id' => 'c-dim', 'name' => 'Region', 'formula' => '[Region]' }] },
+    { 'id' => 'el-c1', 'kind' => 'control', 'controlId' => 'RankFunction', 'name' => 'Rank',
+      'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'tbl-1' }, 'columnId' => 'c-dim' }] },
+    { 'id' => 'el-c2', 'kind' => 'control', 'controlId' => 'UnifiedPersonkey', 'name' => 'User',
+      'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'tbl-1' }, 'columnId' => 'c-dim' }] }
+  ],
+  'layout' => '<Page id="p1"><Element elementId="tbl-1"/><Element elementId="el-c1"/><Element elementId="el-c2"/></Page>'
+}.freeze
 drift_msg = ->(vs) { vs.any? { |v| v.include?('control-scope drift') } }
 drift_scope = { 'sourceFilterSignals' => 2, 'controls' => [
   { 'controlId' => 'ctl-param-rank-function-dashboard-1', 'name' => 'Rank', 'status' => 'emitted' },

@@ -20,8 +20,11 @@ Note the workbook references `<DM_ID>` — remap with the skill's
 
 ## Features exercised
 
-- report XML → workbook: 8 KPI charts, 2 bar, 1 line, 1 pie, 1 combo,
-  1 tiledmap → region-map, 3 tables (17 elements on 1 page)
+- report XML → current workbook code: outer `document` wrapper, flat
+  `document.elements`, metadata-only pages, and required authoritative layout
+  using the live `<Element>` / `<Container>` vocabulary
+- 8 KPI charts, 2 bar, 1 line, 1 pie, 1 combo, 1 tiledmap → region-map,
+  3 tables, plus auto navigation on both source pages (19 elements on 2 pages)
 - col-formula prefix `[TABLE_TAIL/Col]`, chart slot → axis mapping
 - non-simple ?param? filters flagged (42 warnings: re-create as Sigma
   element/page filters)
@@ -33,15 +36,18 @@ Note the workbook references `<DM_ID>` — remap with the skill's
   "artifacts": [
     {"path": "../../../plugins/cognos-to-sigma/skills/cognos-to-sigma/fixtures/sales-overview-charts.report.xml", "format": "xml"},
     {"path": "../../../plugins/cognos-to-sigma/skills/cognos-to-sigma/fixtures/go-sales-performance.report.xml", "format": "xml"},
-    {"path": "../../../plugins/cognos-to-sigma/skills/cognos-to-sigma/fixtures/banking-risk-crosstab.report.xml", "format": "xml"}
+    {"path": "../../../plugins/cognos-to-sigma/skills/cognos-to-sigma/fixtures/banking-risk-crosstab.report.xml", "format": "xml"},
+    {"path": "checks.sh", "format": "shell"}
   ],
   "goldens": {
     "workbook.json": {
-      "pages": 1,
-      "elements": 17,
-      "columns": 28,
       "warnings": 42
     }
   }
 }
 ```
+
+`checks.sh` validates the current wrapped/flat workbook contract and the
+2-page / 19-element / 28-column expectations. The generic corpus summarizer
+still understands only legacy `pages[].elements`, so those shape-aware counts
+live in the Cognos case check instead of being weakened to a legacy golden.

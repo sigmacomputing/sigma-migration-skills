@@ -12,7 +12,7 @@
 #   kind = viz.target(src)                 # cited Sigma target, or nil on a miss
 #   row  = viz.resolve_or_warn(src, warns, context: title)  # nil + loud warn on miss
 #
-# Mirrors the contract: catalog = language-neutral data, this =
+# Mirrors the [bead] contract: catalog = language-neutral data, this =
 # the thin resolver. Stdlib only (json); Ruby 2.6-compatible.
 
 require 'json'

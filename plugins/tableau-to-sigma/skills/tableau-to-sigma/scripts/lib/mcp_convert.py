@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Call a sigma-data-model MCP converter tool over streamable HTTP.
+"""Call a converter-source MCP tool over streamable HTTP.
 
 Usage: mcp_convert.py <tool_name> <args_json_file> [out_file]
 The args json file holds the tool arguments; values like {"@file": "path"}
 are replaced with that file's content.
+
+The hosted endpoint is never baked in — it is opt-in only, and only reachable
+when SIGMA_MCP_CONVERTER_URL is explicitly set (no default, so no source data
+can ever leave the machine without an explicit operator choice).
 """
 import json
 import os
@@ -19,17 +23,14 @@ except ImportError:
     # No truststore: fall back to a VERIFIED context, never unverified.
     _CTX = ssl.create_default_context()
 
-# Optional hosted-converter MCP endpoint. No default — the hosted path is only
-# available when the user opts in by setting SIGMA_CONVERTER_MCP_URL to a
-# reachable sigma-data-model MCP endpoint. Unset means "use the local converter".
-URL = os.environ.get("SIGMA_CONVERTER_MCP_URL", "")
+URL = os.environ.get("SIGMA_MCP_CONVERTER_URL", "")
 
 
 def post(payload, session=None):
     if not URL:
-        raise RuntimeError(
-            "no hosted converter configured — set SIGMA_CONVERTER_MCP_URL to a "
-            "sigma-data-model MCP endpoint, or use the local converter")
+        print("FATAL: SIGMA_MCP_CONVERTER_URL is not set — no hosted converter "
+              "endpoint configured (this path is opt-in only)", file=sys.stderr)
+        sys.exit(1)
     req = urllib.request.Request(URL, data=json.dumps(payload).encode(),
                                  method="POST")
     req.add_header("Content-Type", "application/json")

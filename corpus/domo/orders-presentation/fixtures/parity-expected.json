@@ -1,0 +1,46 @@
+{
+  "source": "domo-card-data",
+  "cards": {
+    "kpi_rev": {
+      "card_id": "kpi_rev",
+      "title": "Net Revenue",
+      "rows": [["Net Revenue", 146737.9]],
+      "summary_value": 146737.9
+    },
+    "kpi_ret": {
+      "card_id": "kpi_ret",
+      "title": "Return Rate",
+      "rows": [["Return Rate", 0.019]],
+      "summary_value": 0.019
+    },
+    "bar_channel": {
+      "card_id": "bar_channel",
+      "title": "Revenue by Channel",
+      "rows": [
+        ["In-Store", 38391.61],
+        ["Online", 91562.49],
+        ["App", 16783.81]
+      ],
+      "summary_value": 146737.91
+    },
+    "line_month": {
+      "card_id": "line_month",
+      "title": "Revenue by Month",
+      "rows": [
+        ["2024-01", 2947.38],
+        ["2024-02", 2018.07],
+        ["2024-03", 3045.93]
+      ],
+      "summary_value": 146737.91
+    },
+    "table_detail": {
+      "card_id": "table_detail",
+      "title": "Order Detail",
+      "rows": [
+        ["ORD-00001", 200.0],
+        ["ORD-00002", 240.0]
+      ],
+      "summary_value": 146737.91
+    }
+  }
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
-# Regression test for B2 (gap beads-sigma-ubr5.6): container background tints.
+# Regression test for B2 (gap [bead].6): container background tints.
 # A Tableau dashboard zone with a <zone-style> fill (a region-card tint) must
-# become a Sigma GridContainer with style.backgroundColor + borderRadius. Before
+# become a Sigma Container with style.backgroundColor + borderRadius. Before
 # this the layout builder emitted every container plain (no fill).
 #
 # End-to-end through the ACTUAL parse-twb-layout.rb + build-dashboard-layout.rb

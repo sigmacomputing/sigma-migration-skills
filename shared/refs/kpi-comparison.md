@@ -6,6 +6,12 @@ a Δ badge, and both survive `POST /v2/workbooks/spec` → `GET .../spec` unmodi
 supersedes any earlier "comparison is UI-only / stripped on readback" guidance for this
 exact shape — build comparative, don't retrofit later.
 
+> The `POST /v2/workbooks/spec` request body itself is `document`-wrapped, not flat
+> (verified live 2026-08-03, including on `/verify` 2026-08-04): the fragment below is
+> one entry in the flat `document.elements[]` collection. `document.pages[]` contains
+> metadata only, and the required `document.layout` assigns the element to a page.
+> Data-model specs keep their separate nested `pages[].elements` contract.
+
 ## The shape
 
 ```yaml

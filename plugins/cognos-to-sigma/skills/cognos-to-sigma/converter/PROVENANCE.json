@@ -1,15 +1,15 @@
 {
-  "source": "in-skill converter/cli.ts (cli.ts + cognos-report.ts + cognos.ts + metric-binding.ts + sigma-ids.ts)",
+  "source": "in-skill converter/cli.ts (cli.ts + cognos-report.ts + cognos.ts + metric-binding.ts + sigma-ids.ts + workbook-features.ts)",
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "cli.mjs",
-  "runtime_deps": "fast-xml-parser@5.10.1 (MIT) inlined into cli.mjs, with its MIT transitive deps strnum, @nodable/entities, is-unsafe, path-expression-matcher, xml-naming, anynum. See NOTICE. Bumped from 4.5.6 to clear GHSA-gh4j-gqv2-49f6 (XMLBuilder <5.7.0; unused here — only XMLParser).",
-  "source_sha256": "26cb0f41485300760aa8ba2b52a167280bfa988955a47663898f8ffaa191b434",
+  "source_sha256": "3748f86edc650e31f4f4ccc26e2ea377eca6a9021ba9384faebf1d9a77d95d9f",
   "sources": [
     "cli.ts",
     "cognos-report.ts",
     "cognos.ts",
     "metric-binding.ts",
-    "sigma-ids.ts"
+    "sigma-ids.ts",
+    "workbook-features.ts"
   ],
-  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source checkout> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
+  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
 }

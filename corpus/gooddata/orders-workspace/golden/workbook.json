@@ -1,0 +1,31 @@
+{
+  "name": "GoodData Migration",
+  "folderId": "inode-FOLDER00",
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      {
+        "id": "data",
+        "name": "Data"
+      }
+    ],
+    "elements": [
+      {
+        "id": "master_detail",
+        "kind": "table",
+        "name": "Data",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "inode-DM000000",
+          "elementId": "inode-ELEMENT00"
+        },
+        "columns": [],
+        "visibleAsSource": false
+      }
+    ],
+    "overlays": [],
+    "panels": [],
+    "layout": "<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"data\">\n  <Element elementId=\"master_detail\" gridColumn=\"1 / 25\" gridRow=\"1 / 14\"/>\n</Page>"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "masters": {
+    "SALES": {
+      "id": "master-sales",
+      "element_id": "dm-sales",
+      "data_model": "dm-release",
+      "columns": [
+        {
+          "id": "sales-region",
+          "name": "Region",
+          "formula": "[Sales/Region]"
+        },
+        {
+          "id": "sales-state",
+          "name": "State",
+          "formula": "[Sales/State]"
+        },
+        {
+          "id": "sales-amount",
+          "name": "Amount",
+          "formula": "[Sales/Amount]"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "SALES.Region": {
+      "master": "SALES",
+      "ref": "[master-sales/Region]",
+      "agg": null
+    },
+    "SALES.State": {
+      "master": "SALES",
+      "ref": "[master-sales/State]",
+      "agg": null
+    },
+    "SALES.Amount": {
+      "master": "SALES",
+      "ref": "[master-sales/Amount]",
+      "agg": "Sum"
+    }
+  }
+}

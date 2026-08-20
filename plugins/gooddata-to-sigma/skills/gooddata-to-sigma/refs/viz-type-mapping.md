@@ -29,12 +29,15 @@ Bucket → Sigma channel is the same idea as Cognos `vizControl` slot → axis:
 | `combo` / `combo2` | `combo-chart` | measures split across `yAxis` / `yAxis2` |
 | `pie` | `pie-chart` | |
 | `donut` | `donut-chart` | distinct hole-value column (avoid the collision bug) |
+| `waterfall` | `waterfall-chart` | native when View + measure ground x/y; cumulative sum, hidden zero start, connectors |
+| `repeater` | `repeated-container` | native when one Rows attribute + resolvable Columns ground the repeating cards |
 | `scatter` | `scatter` | x/y measures |
 | `bubble` | `scatter` w/ size | |
 | `heatmap` | heatmap / pivot w/ conditional format | |
 | `treemap` | flag → table | no clean Sigma equivalent yet |
 | `geo` / `pushpin` | region-map / point-map | maps reference |
-| `funnel` / `pyramid` / `sankey` / `dependencywheel` / `waterfall` / `repeater` | **flag → table** | surfaced as UNHANDLED, not faked |
+| `funnel` / `pyramid` / `sankey` / `dependencywheel` | **flag → table** | surfaced as UNHANDLED, not faked |
+| `boxplot` | **capability-gated** | never emit until the workbook kind and target workspace entitlement are verified |
 
 Chart authoring defers entirely to the **sigma-workbooks** skill (channels,
 formula qualification, layout, the `name: ' '` KPI-title rule, theming). Reuse
@@ -61,6 +64,13 @@ visual-QA gate.
 - `filterContext` → Sigma **controls**, scoped to the pages that reference them
   (avoid the over-broad-control trap).
 - `ignoreDashboardFilters` on a widget → that element opts out of the control.
+- Dashboard `tabs` → metadata-only Sigma pages plus `navigation:auto`; required
+  layout is the sole page-membership map. GoodData tabs are not regional
+  `tabbed-container` elements.
+
+Released workbook feature decisions and non-equivalent source semantics are
+enumerated in `refs/catalogs/workbook-feature.json` and summarized in
+`refs/workbook-code-release-gaps.md`.
 
 ## Parity
 

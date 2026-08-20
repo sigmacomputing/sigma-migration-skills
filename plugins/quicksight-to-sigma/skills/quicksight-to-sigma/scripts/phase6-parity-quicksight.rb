@@ -93,12 +93,17 @@ if !opts[:finalize]
   abort('--workbook-id required for pass 1') unless opts[:wb]
   $LOAD_PATH.unshift File.expand_path('lib', __dir__)
   require 'sigma_rest'
+  require 'code_rep'
 
   warn "Phase 7 PASS 1: reading workbook spec #{opts[:wb]}"
   # binary:true returns the raw body — the spec endpoint answers in YAML even
   # when asked for JSON, so parse both.
   raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
-  spec = parse_spec(raw)
+  # Live GET now nests non-metadata fields under `document` (verified 2026-08-03/04);
+  # unwrap so both this pass's flat `spec['pages']` read below and the on-disk
+  # wb-readback.json stay the flat shape this script (and any downstream reader)
+  # expects.
+  spec = Sigma::CodeRep.document(parse_spec(raw))
   File.write(File.join(opts[:dir], 'wb-readback.json'), JSON.pretty_generate(spec))
 
   charts = []
@@ -181,7 +186,7 @@ warn err unless err.empty?
 File.write(File.join(opts[:dir], 'parity-final.txt'), out)
 
 # Hard-gate sentinel consumed by assert-phase6-ran.rb (same contract as the
-# tableau-to-sigma Phase 6 sentinel — see beads-sigma-4pm for why it exists).
+# tableau-to-sigma Phase 6 sentinel — see [bead] for why it exists).
 total  = plan['charts'].size
 passed = out.scan(/^PASS\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)
 failed = out.scan(/^DIVERGE\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)

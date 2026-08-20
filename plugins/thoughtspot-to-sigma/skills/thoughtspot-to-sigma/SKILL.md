@@ -203,7 +203,8 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
    exports the **`model:`** format
    (joins inline on `model_tables[].joins[]`, `[TABLE::COL]` formula refs,
    `col.properties.column_type`) — the converter handles it. POST to
-   `/v2/dataModels/spec`; then read the posted DM spec to find the denormalized
+   `/v2/dataModels/spec`; then **read back** the posted DM spec to resolve real
+   element/column ids and find the denormalized
    **"<root> View"** element (surfaces joined-dim columns via `[base/REL/Field]`).
 3. **Resolve columns** — `ts_common.build_resolver(model_root)` derives the
    ThoughtSpot-column → Sigma-denorm-column map **from the model TML itself**
@@ -211,14 +212,26 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
    suffix, fact columns don't). No hardcoded registry → works for any model.
 4. **Build workbooks** — per Liveboard, map each visualization
    (`answer.search_query` + `chart.type`) to a Sigma element off the master table.
+   Workbook writes use outer metadata plus
+   `document:{schemaVersion,kind,pages,elements,layout}`: pages are metadata-only,
+   elements are flat, and authoritative layout places every element exactly once
+   with the live `<Element>` / `<Container>` tag vocabulary (data-model specs
+   keep their existing page-nested shape).
    Chart map: KPI→kpi-chart, COLUMN/BAR/STACKED→bar-chart, LINE→line-chart, PIE/DONUT→
    **donut-chart** (ThoughtSpot renders pies as donuts), PIVOT_TABLE→pivot-table,
    TABLE→grouped table, AREA→area-chart, SCATTER/BUBBLE→scatter-chart (x/y measures
    + optional category color), LINE_COLUMN→combo-chart (first measure bars, rest
    line), GEO_AREA/GEO_BUBBLE→**region-map** (regionType inferred from the geo field
-   name; Sigma auto-colors from the measure). No native Sigma kind for funnel /
-   waterfall / treemap / heat-map / sankey → those fall back to bar-chart (flagged
-   in the assessment). All chart kinds verified live (POST→readback) 2026-06-07.
+   name; Sigma auto-colors from the measure), WATERFALL→native **waterfall-chart**.
+   Funnel / treemap / heat-map / sankey / gauge and WHISKER_SCATTER box plots
+   preserve data as explicitly flagged tables; box plots remain a published API
+   gap (no Sigma box-chart kind).
+   Recognized per-chart legend settings in TML `client_state` map to the
+   chart's published `legend` fields. Do not emit standalone legend controls:
+   Answer TML has no such artifact. Likewise, multiple `axis_configs.x` columns
+   are axis assignments, not a persisted drill hierarchy; retain the first
+   x-axis level and flag the interaction gap instead of inventing undocumented
+   `drill` control source/target fields.
    Search-query filters (`[Col]='v'`) → element list-filters. TML **sorts**
    (`sort by [Col]` tokens + `client_state` sortInfo) carry into the specs, and
    table column ORDER follows the answer's `ordered_column_ids` (never the
@@ -239,11 +252,15 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
    timeshift/growth/window measures, dim-grain KPIs, ratios, and any non-match fall
    back to inline; the DM-reuse path (no conv) stays inline, byte-identical. Verified:
    `tests/test_metric_reference.py`.
-5. **Layout** — `apply_layouts.py` maps the Liveboard's OWN `layout.tiles`
-   geometry (x/y/w/h on ThoughtSpot's 12-col grid) onto Sigma's 24-col grid
-   (cols ×2, rows ×ROW_SCALE min 2 so axis/KPI labels render), as the **LAST**
-   write (a bare spec PUT wipes layout). Falls back to a clean auto grid when
-   the TML has no tiles.
+5. **Layout** — `apply_layouts.py` maps the Liveboard's OWN
+   `layout.tabs[].tiles` (or legacy `layout.tiles`) geometry onto Sigma's 24-col
+   grid (cols ×2, rows ×ROW_SCALE min 2 so axis/KPI labels render). Source tabs
+   become metadata-only pages with native auto navigation. Layout is assembled
+   before POST and is authoritative; every flat element is placed exactly once.
+   The manifest persists every page's source tiles and element membership so a
+   later `apply_layouts.py --workdir` pass preserves multi-tab geometry.
+   Existing-workbook edits preserve the full document and PUT only
+   `{document:...}`. Falls back loudly to a clean auto grid when TML has no tiles.
 6. **Parity (HARD GATE)** — `phase6-parity-thoughtspot.rb` two-pass: PASS 1
    reads the workbook spec and emits per-chart fetch instructions (Sigma ACTUAL
    via `mcp__sigma-mcp-v2__query`; EXPECTED via `ts_lib.searchdata` ground
@@ -280,7 +297,7 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
       overlaps/stacking, no dead zones, controls placed in-band, no clipped
       titles, even heights, right chart kind/format).
    2. Fix any failure in the spec — for multi-page workbooks use
-      `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) —
+      the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) —
       then **re-render and re-read**.
    3. Loop until the render passes inspection.
 
@@ -380,7 +397,7 @@ region, quarter all match to the cent). Per-run ids land in `<workdir>/migrate_o
 ## Notes
 - The vendored bundle (`converter/thoughtspot.mjs`) is the local, default path for
   conversion. It's built from the same `convert_thoughtspot_to_sigma` logic as the
-  hosted MCP (the `sigma-data-model-mcp` build) and the browser
+  hosted MCP (github.com/converter-source) and the browser
   sigma-data-model-manager — keep all three in lockstep; the MCP tool itself is only
   a manual fallback when the local bundle is unavailable.
 - **Rename gotcha**: `PATCH /v2/workbooks/{id}` silently no-ops for renames

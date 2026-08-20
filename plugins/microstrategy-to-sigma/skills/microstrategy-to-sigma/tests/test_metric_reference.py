@@ -39,7 +39,7 @@ def _convert():
 
 
 def _cols(wb):
-    return [c for pg in wb["pages"] for el in pg["elements"] for c in el.get("columns", [])]
+    return [c for el in wb["document"]["elements"] for c in el.get("columns", [])]
 
 
 def _dm_metric_names(dm):

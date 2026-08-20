@@ -137,7 +137,7 @@ Duration: 3
 
 - **Enterprise-only definition APIs** — Standard editions can't be extracted.
 - **Identity region** — usually `us-east-1`; pass `--region` accordingly.
-- **CustomSql / DIRECT_QUERY fixup** (`beads-sigma-vy4k`) — those DM elements come back
+- **CustomSql / DIRECT_QUERY fixup** (`[bead]`) — those DM elements come back
   nameless with raw sql refs; the `--fixup` step names them and rewrites refs to
   `[Custom SQL/<ALIAS>]`. Don't post the raw converter output.
 - **Workbook element refs** are `[<source element name>/<col>]`.

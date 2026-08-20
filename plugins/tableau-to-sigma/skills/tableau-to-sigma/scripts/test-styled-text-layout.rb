@@ -144,9 +144,9 @@ title = flat && flat.find { |e| e['id'] == 'title-text' }
 check(title && title['kind'] == 'text', 'the dashboard title-text element is still emitted separately', fails)
 
 # ---- 2. layout PLACED the text element at its zone geometry ----------------
-gcs = xml_doc ? xml_doc.elements.to_a('//GridContainer') : []
+gcs = xml_doc ? xml_doc.elements.to_a('//Container') : []
 def descendant_el_ids(gc)
-  gc.elements.to_a('.//LayoutElement').map { |le| le.attributes['elementId'] }
+  gc.elements.to_a('.//Element').map { |le| le.attributes['elementId'] }
 end
 all_placed = gcs.flat_map { |g| descendant_el_ids(g) }.uniq
 check(all_placed.include?('text-6'), "layout placed the styled-text element 'text-6' (placed: #{all_placed.inspect})", fails)
@@ -156,7 +156,7 @@ check(build_log.include?('container-tree layout'), 'layout took the container-tr
 # container), not loose at page root.
 rail_gc = gcs.find do |g|
   ids = descendant_el_ids(g)
-  ids.include?('text-6') && g.elements.to_a('.//GridContainer').empty?
+  ids.include?('text-6') && g.elements.to_a('.//Container').empty?
 end
 check(!rail_gc.nil?, "styled text 'text-6' placed inside its Tableau container (the rail)", fails)
 

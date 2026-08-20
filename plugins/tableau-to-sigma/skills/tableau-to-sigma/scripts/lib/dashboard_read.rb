@@ -79,15 +79,17 @@ module DashboardRead
   # non-chart surfaces the read must still enumerate (text/control/image). Kept
   # in sync with the "Sigma spec supports:" list in SKILL.md Phase 1d.
   VALID_KINDS = %w[
-    bar-chart line-chart area-chart combo-chart scatter-chart kpi-chart
+    bar-chart line-chart area-chart combo-chart waterfall-chart scatter-chart kpi-chart
     pie-chart donut-chart region-map point-map table pivot-table
-    control text image container
+    control text image container divider button navigation progress page-break
+    repeated-container tabbed-container
   ].freeze
 
   # parse-twb-layout chart_kind → a Sigma element kind, for the DRAFT seed only.
   DRAFT_KIND = {
     'bar' => 'bar-chart', 'line' => 'line-chart', 'area' => 'area-chart',
-    'pie' => 'pie-chart', 'scatter' => 'scatter-chart', 'kpi' => 'kpi-chart',
+    'pie' => 'pie-chart', 'scatter' => 'scatter-chart', 'waterfall' => 'waterfall-chart',
+    'kpi' => 'kpi-chart',
     'pivot-table' => 'pivot-table', 'table' => 'table',
     'map-region' => 'region-map', 'map-point' => 'point-map',
     'automatic' => 'bar-chart', 'other' => 'bar-chart'

@@ -20,7 +20,8 @@ Usage:
      --data-model-id <uuid> --fact-element <elId> --fact-name ORDER_FACT \
      --rel-name EL_CUSTOMER --fact-dataset order --folder-id <uuid> --out wb_spec.json
 """
-import argparse, json, re, sys, os, subprocess
+import argparse, copy, json, re, sys, os, subprocess
+from xml.sax.saxutils import quoteattr
 
 # ── documentation-grounded mapping catalogs (SINGLE SOURCE OF TRUTH) ─────────
 # Every enumerable classifier map below is loaded from refs/catalogs/<dimension>.json
@@ -33,12 +34,14 @@ import argparse, json, re, sys, os, subprocess
 # BY ALL/WITHIN/FOR hard-MAQL flagging — STAYS as cited code (see each site).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import coverage_catalog as _cc  # noqa: E402
+import code_rep as _cr          # noqa: E402  workbook document/envelope adapter
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 VIZ_CAT  = _cc.load(_CAT_DIR, "viz-kind")        # GoodData visualizationUrl -> Sigma element kind
 AGG_CAT  = _cc.load(_CAT_DIR, "aggregation")     # MAQL scalar aggregate fn  -> Sigma aggregate fn
 FMT_CAT  = _cc.load(_CAT_DIR, "number-format")   # GoodData format mask      -> Sigma format (documents gd_fmt)
 CTRL_CAT = _cc.load(_CAT_DIR, "control")         # dashboard filter          -> Sigma control (documents detect_filter)
+FEATURE_CAT = _cc.load(_CAT_DIR, "workbook-feature")  # released workbook structural surfaces
 
 # MAQL scalar aggregate fn -> Sigma aggregate, DERIVED from the aggregation catalog
 # (same rows maql.py loads, so the two copies can't drift). Keys upper-cased to match
@@ -51,7 +54,10 @@ AGG = {r["source"].upper(): r["sigma"] for r in AGG_CAT.rows if r.get("sigma")}
 # (no faithful Sigma equivalent -> flag, never guess). local:headline / local:table
 # carry their Sigma kind in the catalog for coverage but are matched by NAME in the
 # classifier (structural KPI / table-or-pivot build), not through CHART.
-_CHART_KINDS = {"bar-chart", "line-chart", "area-chart", "donut-chart", "pie-chart"}
+_CHART_KINDS = {
+    "bar-chart", "line-chart", "area-chart", "donut-chart", "pie-chart",
+    "waterfall-chart",
+}
 CHART = {r["source"]: r["sigma"] for r in VIZ_CAT.rows if r.get("sigma") in _CHART_KINDS}
 FLAGGED = {r["source"] for r in VIZ_CAT.rows if r.get("sigma") is None}
 
@@ -69,6 +75,8 @@ def main():
     ap.add_argument("--fact-dataset", required=True)
     ap.add_argument("--folder-id", required=True)
     ap.add_argument("--dashboard", default=None, help="migrate only this dashboard id (+ its filterContext)")
+    ap.add_argument("--feature-gaps-out", default=None,
+                    help="optional JSON ledger for released workbook features and loud gaps")
     ap.add_argument("--dm-spec", default=None,
                     help="DM spec JSON (convert.py --out). When present, a measure whose inline "
                          "aggregate matches a metric on the fact element binds to a governed "
@@ -128,14 +136,85 @@ def main():
     mk = re.search(r"(\w*DATE_KEY)\b", json.dumps(fds or {}), re.I)
     dkey = f"[{P}/{mk.group(1).replace('_', ' ').title()}]" if mk else None
 
+    flags = []
+    feature_events = []
+
+    def feature(source, context, status="emitted", detail=None):
+        """Resolve and record one released workbook feature decision."""
+        row = FEATURE_CAT.resolve(source)
+        if row is None:
+            warnings = []
+            FEATURE_CAT.resolve_or_warn(source, warnings, context=context)
+            flags.extend({"feature": source, "context": context, "reason": warning}
+                         for warning in warnings)
+        event = {
+            "source": source,
+            "target": (row or {}).get("sigma"),
+            "context": context,
+            "status": status,
+        }
+        if detail:
+            event["detail"] = detail
+        feature_events.append(event)
+        return row
+
+    def widget_iid(it):
+        """Insight id from declarative-model or Analytics-as-Code widgets."""
+        widget = it.get("widget") or it
+        insight = widget.get("insight") or widget.get("visualization")
+        if isinstance(insight, str):
+            return insight
+        if isinstance(insight, dict):
+            ident = insight.get("identifier") or insight
+            if isinstance(ident, dict):
+                return ident.get("id")
+        return None
+
+    def dashboard_views(dash):
+        """Normalize a dashboard into source tabs.
+
+        Legacy declarative dashboards own one ``layout.sections`` collection.
+        Newer GoodData Analytics-as-Code dashboards expose ``tabs`` where each
+        tab owns its own sections. Those are top-level pages, not regional
+        tabbed containers.
+        """
+        content = dash.get("content") or {}
+        tabs = content.get("tabs") or dash.get("tabs") or []
+        if tabs:
+            out = []
+            for n, tab in enumerate(tabs, 1):
+                tab_layout = tab.get("layout") or {}
+                out.append({
+                    "id": (tab.get("localIdentifier") or tab.get("id")
+                           or f"tab-{n}"),
+                    "name": tab.get("title") or tab.get("name") or f"Tab {n}",
+                    "sections": tab.get("sections") or tab_layout.get("sections") or [],
+                    "filters": tab.get("filters") or [],
+                })
+            return out
+        layout_ = content.get("layout") or {}
+        return [{
+            "id": dash.get("id") or "dashboard",
+            "name": dash.get("title") or dash.get("id") or "Dashboard",
+            "sections": layout_.get("sections") or content.get("sections") or [],
+            "filters": [],
+        }]
+
+    def section_items(section):
+        return section.get("items") or section.get("widgets") or []
+
     # --dashboard scoping
-    _wid = lambda it: (((it.get("widget") or {}).get("insight") or {}).get("identifier") or {}).get("id")
     target_iids = None
     if a.dashboard:
         dash = next((d for d in an.get("analyticalDashboards", []) if d["id"] == a.dashboard), None)
         if dash:
-            target_iids = {_wid(it) for sec in dash["content"].get("layout", {}).get("sections", [])
-                           for it in sec.get("items", []) if _wid(it)}
+            target_iids = {
+                widget_iid(it)
+                for view in dashboard_views(dash)
+                for sec in view["sections"]
+                for it in section_items(sec)
+                if widget_iid(it)
+            }
 
     # a dashboard's relative date filter -> a Sigma date-range control spec.
     # "this month" == {relative, granularity month, from 0, to 0} -> mode current.
@@ -199,33 +278,128 @@ def main():
     # CHART / FLAGGED are derived at module scope from refs/catalogs/viz-kind.json.
     SRC_DM = {"kind": "data-model", "dataModelId": a.data_model_id, "elementId": a.fact_element}
     SRC_M = {"kind": "table", "elementId": MASTER_ID}
-    page_elements = []; flags = []
+    page_elements = []
+    support_elements = []
+    repeat_children = {}
     cid = lambda n: re.sub(r'[^a-z0-9]', '_', n.lower())
 
-    def measures_of(ins):
+    def bucket_items(ins, kinds):
+        return [
+            it
+            for bucket in (ins.get("content") or {}).get("buckets", [])
+            if bucket.get("localIdentifier") in kinds
+            for it in bucket.get("items", [])
+        ]
+
+    def measure_item(it):
+        measure = it.get("measure") or {}
+        definition = measure.get("definition") or {}
+        md = definition.get("measureDefinition") or {}
+        ident = (md.get("item") or {}).get("identifier") or {}
+        mid = ident.get("id")
+        if not mid or mid not in metric_maql:
+            return None
+        return mid, measure.get("title", mid), resolve(metric_maql[mid])
+
+    def attribute_id(it):
+        attribute = it.get("attribute") or it.get("visualizationAttribute") or {}
+        display_form = attribute.get("displayForm") or {}
+        ident = display_form.get("identifier") or display_form
+        raw = ident.get("id") if isinstance(ident, dict) else None
+        return raw.rsplit(".", 1)[0] if raw else None
+
+    def measures_of(ins, kinds=("measures",)):
         out = []
-        for b in ins["content"]["buckets"]:
-            if b["localIdentifier"] == "measures":
-                for it in b["items"]:
-                    mid = it["measure"]["definition"]["measureDefinition"]["item"]["identifier"]["id"]
-                    out.append((mid, it["measure"].get("title", mid), resolve(metric_maql[mid])))
+        for it in bucket_items(ins, set(kinds)):
+            parsed = measure_item(it)
+            if parsed:
+                out.append(parsed)
         return out
 
     def dims_of(ins, kinds):
-        out = []
-        for b in ins["content"]["buckets"]:
-            if b["localIdentifier"] in kinds:
-                for it in b["items"]:
-                    aid = it["attribute"]["displayForm"]["identifier"]["id"].rsplit(".", 1)[0]
-                    out.append(aid)
-        return out
+        return [
+            aid for aid in
+            (attribute_id(it) for it in bucket_items(ins, kinds))
+            if aid in attr
+        ]
+
+    def source_legend(ins, context):
+        controls = ((ins.get("content") or {}).get("properties") or {}).get("controls") or {}
+        raw = controls.get("legend")
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            flags.append({"feature": "legend", "context": context,
+                          "reason": f"legend metadata must be an object, got {raw!r}"})
+            feature("legend", context, status="gap", detail="non-object legend metadata")
+            return None
+        out = {}
+        enabled = raw.get("enabled")
+        if isinstance(enabled, bool):
+            out["visibility"] = "shown" if enabled else "hidden"
+        elif enabled is not None:
+            flags.append({"feature": "legend", "context": context,
+                          "reason": f"unknown legend enabled value {enabled!r}"})
+        position = raw.get("position")
+        if position is not None:
+            position = str(position).lower()
+            if position in {"top", "bottom", "left", "right"}:
+                out["position"] = position
+            else:
+                flags.append({"feature": "legend", "context": context,
+                              "reason": f"unknown legend position {position!r}"})
+        unknown = sorted(set(raw) - {"enabled", "position", "responsive"})
+        if unknown:
+            flags.append({"feature": "legend", "context": context,
+                          "reason": f"unsupported legend properties {unknown}"})
+        if out:
+            feature("legend", context)
+        return out or None
+
+    def source_style(ins, context):
+        content = ins.get("content") or {}
+        props = content.get("properties") or {}
+        controls = props.get("controls") or {}
+        candidates = [
+            content.get("style"),
+            props.get("style"),
+            controls.get("style"),
+        ]
+        raw = next((candidate for candidate in candidates
+                    if isinstance(candidate, dict)), None)
+        if raw is None:
+            return None
+        color = raw.get("backgroundColor")
+        if color is None:
+            unknown = sorted(set(raw) - {"backgroundColor"})
+            if unknown:
+                flags.append({"feature": "visual-style", "context": context,
+                              "reason": f"unsupported style properties {unknown}"})
+            return None
+        if (not isinstance(color, str) or not color.strip()
+                or re.search(r"\{\{|\{%|\$\{", color)):
+            flags.append({"feature": "visual-style", "context": context,
+                          "reason": f"dynamic/invalid backgroundColor {color!r} omitted"})
+            feature("visual-style", context, status="gap",
+                    detail="background color was not a resolved literal")
+            return None
+        feature("visual-style", context)
+        return {"backgroundColor": color.strip()}
 
     for iid, ins in insights.items():
         if target_iids is not None and iid not in target_iids: continue  # --dashboard scope
         url = ins["content"]["visualizationUrl"]; title = ins["title"]
         if url in FLAGGED:
-            flags.append({"insight": iid, "url": url, "reason": f"{url} has no Sigma equivalent → migrate as table or skip"}); continue
-        meas = measures_of(ins)
+            row = VIZ_CAT.resolve(url) or {}
+            gate = row.get("release_gate")
+            reason = (f"{url} is capability-gated ({gate}); no native element emitted"
+                      if gate else f"{url} has no Sigma equivalent → migrate as table or skip")
+            flags.append({"insight": iid, "url": url, "reason": reason})
+            if gate:
+                feature("box-chart", f"insight {iid}", status="gap", detail=reason)
+            continue
+        meas = measures_of(ins, ("measures", "columns") if url == "local:repeater"
+                           else ("measures",))
         if any(f is None for _, _, f in meas):
             flags.append({"insight": iid, "reason": "measure uses workbook-level MAQL (BY ALL / FOR)"}); continue
         mcols = []
@@ -237,35 +411,139 @@ def main():
             if fmt: c["format"] = fmt
             mcols.append(c)
 
+        emitted = []
         if url == "local:headline":          # KPI
-            page_elements.append({"id": iid, "kind": "kpi-chart", "name": title, "source": SRC_M,
-                "columns": mcols[:1], "value": {"columnId": mcols[0]["id"]}})
+            if not mcols:
+                flags.append({"insight": iid, "url": url,
+                              "reason": "headline has no resolvable measure"})
+                continue
+            emitted.append({"id": iid, "kind": "kpi-chart", "name": title, "source": SRC_M,
+                            "columns": mcols[:1], "value": {"columnId": mcols[0]["id"]}})
         elif url == "local:table":            # table (flat) or pivot-table (has columns shelf)
             rows = dims_of(ins, {"attribute", "view"}); colshelf = dims_of(ins, {"columns"})
             dcols = [{"id": cid(attr[a_]["title"]), "formula": dim_ref(a_), "name": attr[a_]["title"]} for a_ in rows + colshelf]
             if colshelf:                      # pivot
-                page_elements.append({"id": iid, "kind": "pivot-table", "name": title, "source": SRC_M,
+                emitted.append({"id": iid, "kind": "pivot-table", "name": title, "source": SRC_M,
                     "columns": dcols + mcols, "values": [c["id"] for c in mcols],
                     "rowsBy": [{"id": cid(attr[a_]["title"])} for a_ in rows],
                     "columnsBy": [{"id": cid(attr[a_]["title"])} for a_ in colshelf]})
             else:                             # flat aggregated table
-                page_elements.append({"id": iid, "kind": "table", "name": title, "source": SRC_M,
+                emitted.append({"id": iid, "kind": "table", "name": title, "source": SRC_M,
                     "columns": dcols + mcols,
                     "groupings": [{"id": "g", "groupBy": [c["id"] for c in dcols], "calculations": [c["id"] for c in mcols]}]})
+        elif url == "local:repeater":
+            # GoodData's primary Rows attribute is genuinely data-bound repeat
+            # semantics. Build a grouped table source, a native repeated
+            # container, and one text child per configured Columns field. A
+            # View-by sparkline is a separate mini-chart semantic and remains a
+            # loud gap; the row/card repetition is still faithful.
+            rows = dims_of(ins, {"rows", "attribute"})
+            column_items = bucket_items(ins, {"columns"})
+            column_attrs = [
+                aid for aid in (attribute_id(it) for it in column_items)
+                if aid in attr
+            ]
+            view_by = dims_of(ins, {"view", "viewBy"})
+            if len(rows) != 1 or not column_items:
+                reason = ("repeater requires exactly one resolvable Rows attribute "
+                          "and at least one Columns item")
+                flags.append({"insight": iid, "url": url, "reason": reason})
+                feature("repeater", f"insight {iid}", status="gap", detail=reason)
+                continue
+            dcols = [
+                {"id": cid(attr[aid]["title"]), "formula": dim_ref(aid),
+                 "name": attr[aid]["title"]}
+                for aid in rows + column_attrs
+            ]
+            source_id = f"{iid}_repeat_source"
+            source_name = f"{title} Repeat Source"
+            repeat_source = {
+                "id": source_id, "kind": "table", "name": source_name,
+                "source": SRC_M, "columns": dcols + mcols,
+                "groupings": [{
+                    "id": f"{cid(iid)}_repeat_group",
+                    "groupBy": [c["id"] for c in dcols],
+                    "calculations": [c["id"] for c in mcols],
+                }],
+                "visibleAsSource": False,
+            }
+            support_elements.append(repeat_source)
+            child_columns = dcols[len(rows):] + mcols
+            if not child_columns:
+                reason = "repeater Columns bucket has no resolvable attribute or measure"
+                flags.append({"insight": iid, "url": url, "reason": reason})
+                feature("repeater", f"insight {iid}", status="gap", detail=reason)
+                support_elements.pop()
+                continue
+            children = []
+            for n, column in enumerate(child_columns, 1):
+                child_id = f"{iid}_repeat_cell_{n}"
+                children.append(child_id)
+                page_elements.append({
+                    "id": child_id,
+                    "kind": "text",
+                    "body": "{{[%s repeated container/%s]}}" %
+                            (source_name, column["name"]),
+                })
+            repeated = {
+                "id": iid, "kind": "repeated-container", "name": title,
+                "source": {"kind": "table", "elementId": source_id},
+                "arrangement": "list", "cardSize": "small", "noDataText": "No rows",
+            }
+            repeat_children[iid] = children
+            emitted.append(repeated)
+            feature("repeater", f"insight {iid}")
+            if view_by:
+                reason = ("GoodData repeater View by inline charts have no equivalent "
+                          "inside a Sigma repeated-container card; numeric/text columns preserved")
+                flags.append({"insight": iid, "feature": "repeater-inline-chart",
+                              "reason": reason})
+                feature("repeater-inline-chart", f"insight {iid}",
+                        status="gap", detail=reason)
         elif url in CHART:                    # bar/column/line/area/donut/pie
             kind = CHART[url]; dims = dims_of(ins, {"view", "trend", "segment", "stack"})  # line/area use "trend"
             dcols = [{"id": cid(attr[a_]["title"]), "formula": dim_ref(a_), "name": attr[a_]["title"]} for a_ in dims]
             el = {"id": iid, "kind": kind, "name": title, "source": SRC_M, "columns": dcols + mcols}
             if kind in ("donut-chart", "pie-chart"):
+                if not mcols:
+                    flags.append({"insight": iid, "url": url,
+                                  "reason": f"{url} has no resolvable measure"})
+                    continue
                 el["value"] = {"id": mcols[0]["id"]}
                 if dcols: el["color"] = {"id": dcols[0]["id"]}
             else:
-                if dcols: el["xAxis"] = {"columnId": dcols[0]["id"]}
+                if not dcols or not mcols:
+                    flags.append({"insight": iid, "url": url,
+                                  "reason": f"{url} needs a dimension and measure to bind axes"})
+                    continue
+                el["xAxis"] = {"columnId": dcols[0]["id"]}
                 el["yAxis"] = {"columnIds": [c["id"] for c in mcols]}
                 if url == "local:bar": el["orientation"] = "horizontal"
-            page_elements.append(el)
+                if kind == "waterfall-chart":
+                    el["waterfallShape"] = {
+                        "calculation": "sum", "connectorLine": "shown"}
+                    el["startPoint"] = {
+                        "value": {"type": "constant", "value": 0},
+                        "visibility": "hidden",
+                    }
+                    el["grouping"] = "stacked"
+                    feature("waterfall", f"insight {iid}")
+            emitted.append(el)
         else:
             flags.append({"insight": iid, "url": url, "reason": f"unmapped visualizationUrl {url}"})
+            continue
+
+        for element in emitted:
+            legend = source_legend(ins, f"insight {iid}")
+            if legend and element.get("kind", "").endswith("-chart"):
+                element["legend"] = legend
+            elif legend:
+                flags.append({"insight": iid, "feature": "legend",
+                              "reason": "legend metadata present on a non-chart element; omitted"})
+            style = source_style(ins, f"insight {iid}")
+            if style:
+                element["style"] = style
+            page_elements.append(element)
 
     # ---- MASTER detail table: row-grain source for every element above ----
     # Build ONLY the columns the elements actually reference ([Data/<name>]), so a
@@ -278,7 +556,8 @@ def main():
     for aid in needed_xdims:
         a_ = attr[aid]; candidates[a_["title"]] = f"[{P}/{ds_table[a_['ds']]}/{a_['title']}]"
     used = set(re.findall(rf"\[{re.escape(MASTER_NAME)}/([^\]]+)\]",
-                          json.dumps([e.get("columns", []) for e in page_elements])))
+                          json.dumps([e.get("columns", [])
+                                      for e in page_elements + support_elements])))
     mseen = {}; mcolumns = []
     def mcol(name, formula):
         c = cid(name)
@@ -348,78 +627,283 @@ def main():
                  "formula": f'DateLookback({base_formula}, [{gran.capitalize()}], {off}, "{gran}")'}],
             "groupings": [{"id": "ti_g", "groupBy": ["ti_period"], "calculations": ["ti_base", "ti_prior"]}]})
 
-    # ---- LAYOUT: one Sigma page per GoodData dashboard, control on top ----
-    # GoodData dashboards use a 12-col grid (widget size.xl.gridWidth); Sigma uses
-    # 24 cols. Map section→row band, gridWidth→column span (×2). The control sits in
-    # its own band above the widgets. Applied as the LAST write (a bare spec without
-    # it stacks every element full-width). The master detail table + any FOR PREVIOUS
-    # trend live on a separate "Data" page.
+    # ---- RELEASED STRUCTURE + AUTHORITATIVE LAYOUT --------------------------
+    # GoodData dashboards use a 12-col grid (widget size.xl.gridWidth); Sigma
+    # uses 24 cols. Dashboard tabs are pages, not tabbed-container regions.
+    # Pages carry metadata only, every element lives in document.elements, and
+    # the required layout is the sole page/container membership authority.
     elem_by_id = {e["id"]: e for e in page_elements}
-    KPI_H, BODY_H, CTL_H, GAP = 6, 13, 3, 1
+    KPI_H, BODY_H, CTL_H, NAV_H, GAP = 6, 13, 3, 2, 1
 
-    def widget_iid(it):
-        return (((it.get("widget") or {}).get("insight") or {}).get("identifier") or {}).get("id")
+    # GoodData attribute hierarchies ground drill *intent*, but the released
+    # workbook spec does not publish the source/category/target binding needed
+    # for a working drill control. Keep the gap loud; never add inert chrome.
+    for hierarchy in an.get("attributeHierarchies", []):
+        hid = hierarchy.get("id") or hierarchy.get("title") or "unnamed"
+        reason = ("attribute hierarchy grounds drill-down intent, but no "
+                  "authorable Sigma drill binding is published")
+        flags.append({"feature": "drill", "hierarchy": hid, "reason": reason})
+        feature("attribute-hierarchy-drill", f"hierarchy {hid}",
+                status="gap", detail=reason)
 
-    dash_of = {}
+    page_defs = []
     for d in an.get("analyticalDashboards", []):
-        for sec in d["content"].get("layout", {}).get("sections", []):
-            for it in sec.get("items", []):
-                iid = widget_iid(it)
-                if iid and iid in elem_by_id and iid not in dash_of:
-                    dash_of[iid] = d["id"]
+        if a.dashboard and d["id"] != a.dashboard:
+            continue
+        views = dashboard_views(d)
+        content = d.get("content") or {}
+        if content.get("filterPanel") or content.get("filterBar"):
+            reason = ("GoodData filter chrome is not equivalent to a Sigma "
+                      "document header/sidebar panel")
+            flags.append({"dashboard": d["id"], "feature": "panels",
+                          "reason": reason})
+            feature("panels", f"dashboard {d['id']}",
+                    status="gap", detail=reason)
+        for view in views:
+            for section in view["sections"]:
+                if section.get("pageBreakAfter") or section.get("printPageBreakAfter"):
+                    reason = ("GoodData has no documented print-page-break field; "
+                              "unrecognized section marker was not promoted")
+                    flags.append({"dashboard": d["id"], "feature": "page-break",
+                                  "reason": reason})
+                    feature("page-break", f"dashboard {d['id']}",
+                            status="gap", detail=reason)
+                for item in section_items(section):
+                    widget = item.get("widget") or item
+                    interactions = widget.get("interactions") or []
+                    for interaction in interactions:
+                        reason = ("dashboard interaction target is unresolved; "
+                                  "no cross-document navigation was invented")
+                        flags.append({
+                            "dashboard": d["id"],
+                            "feature": "navigation-interaction",
+                            "interaction": interaction,
+                            "reason": reason,
+                        })
+                        feature(
+                            "navigation-interaction",
+                            f"dashboard {d['id']} widget {widget_iid(item)}",
+                            status="gap", detail=reason)
+            present = list(dict.fromkeys([
+                widget_iid(it)
+                for sec in view["sections"]
+                for it in section_items(sec)
+                if widget_iid(it) in elem_by_id
+            ]))
+            if not present:
+                continue
+            pid = cid("%s_%s" % (d.get("title") or d["id"], view["id"]))
+            page_defs.append({
+                "id": pid,
+                "name": (view["name"] if len(views) > 1
+                         else d.get("title") or view["name"]),
+                "dashboard": d,
+                "view": view,
+                "sourceIds": present,
+                "hasTabs": len(views) > 1,
+            })
+            if view["filters"]:
+                reason = ("tab-local Analytics-as-Code filters are present but "
+                          "not represented in declarative filterContexts")
+                flags.append({"dashboard": d["id"], "tab": view["id"],
+                              "feature": "tab-filter", "reason": reason})
+                feature("tab-filter", f"dashboard {d['id']} tab {view['id']}",
+                        status="gap", detail=reason)
+
+    if any(page["hasTabs"] for page in page_defs):
+        feature("dashboard-tabs", "GoodData dashboard tabs")
+
+    assigned_source_ids = set()
+    assigned_element_ids = set()
+    flat_content = []
+    xml_pages = []
+
+    def layout_element(element_id, col, cspan, row, rspan, indent="  "):
+        return (
+            f"{indent}<Element elementId={quoteattr(str(element_id))} "
+            f'gridColumn="{col} / {col+cspan}" gridRow="{row} / {row+rspan}"/>'
+        )
 
     def page_xml(pid, placed):
-        rows = "\n".join(f'  <LayoutElement elementId="{e}" gridColumn="{c} / {c+cs}" gridRow="{r} / {r+rs}"/>'
-                         for e, c, cs, r, rs in placed)
-        return f'<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="{pid}">\n{rows}\n</Page>'
+        rows = []
+        for element_id, col, cspan, row, rspan, children in placed:
+            if children:
+                inner = "\n".join(
+                    layout_element(child, 1, 12, 1 + n * 3, 3, "    ")
+                    for n, child in enumerate(children)
+                )
+                rows.append(
+                    f"  <Container elementId={quoteattr(str(element_id))} "
+                    f'type="grid" gridColumn="{col} / {col+cspan}" '
+                    f'gridRow="{row} / {row+rspan}" '
+                    'gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">\n'
+                    f"{inner}\n  </Container>"
+                )
+            else:
+                rows.append(layout_element(element_id, col, cspan, row, rspan))
+        return (
+            f'<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+            f'gridTemplateRows="auto" id={quoteattr(str(pid))}>\n'
+            + "\n".join(rows) + "\n</Page>"
+        )
 
-    def layout_for(d, present, start_row):
+    def layout_for(view, id_map, start_row):
         placed = []; row = start_row
-        for sec in d["content"].get("layout", {}).get("sections", []):
-            items = [it for it in sec.get("items", []) if widget_iid(it) in present]
+        for sec in view["sections"]:
+            items = [it for it in section_items(sec) if widget_iid(it) in id_map]
             if not items: continue
             col = 1; maxh = 0
             for it in items:
-                iid = widget_iid(it)
+                iid = id_map[widget_iid(it)]
                 gw = (((it.get("size") or {}).get("xl") or {}).get("gridWidth")) or 6
                 cspan = max(2, min(24, int(gw) * 2))
                 if col + cspan > 25:
                     col = 1; row += maxh + GAP; maxh = 0
                 h = KPI_H if elem_by_id[iid]["kind"] == "kpi-chart" else BODY_H
-                placed.append((iid, col, cspan, row, h)); col += cspan; maxh = max(maxh, h)
+                children = repeat_children.get(iid, [])
+                placed.append((iid, col, cspan, row, h, children))
+                col += cspan; maxh = max(maxh, h)
             row += maxh + GAP
         return placed
 
-    pages, xml_pages = [], []
-    for d in an.get("analyticalDashboards", []):
-        present = [iid for iid in elem_by_id if dash_of.get(iid) == d["id"]]
-        if not present: continue
-        pid = cid(d.get("title") or d["id"])
-        ctl = dash_control.get(d["id"])
-        els = ([ctl] if ctl else []) + [elem_by_id[iid] for iid in present]
-        placed = []; start = 1
+    pages = [{"id": page["id"], "name": page["name"]} for page in page_defs]
+    page_labels = {page["id"]: page["name"] for page in page_defs}
+    seen_source = {}
+    for page in page_defs:
+        id_map = {}
+        for source_id in page["sourceIds"]:
+            element = elem_by_id[source_id]
+            if source_id in seen_source:
+                # Flat elements may occur in layout exactly once. If GoodData
+                # reuses one insight widget on multiple tabs, duplicate the
+                # element rather than reusing an id in two Page blocks.
+                new_id = f"{source_id}_{page['id']}"
+                element = copy.deepcopy(element)
+                element["id"] = new_id
+                elem_by_id[new_id] = element
+                if source_id in repeat_children:
+                    new_children = []
+                    for child_id in repeat_children[source_id]:
+                        child = copy.deepcopy(elem_by_id[child_id])
+                        child["id"] = f"{child_id}_{page['id']}"
+                        elem_by_id[child["id"]] = child
+                        flat_content.append(child)
+                        assigned_element_ids.add(child["id"])
+                        new_children.append(child["id"])
+                    repeat_children[new_id] = new_children
+            else:
+                seen_source[source_id] = page["id"]
+            id_map[source_id] = element["id"]
+            flat_content.append(element)
+            assigned_source_ids.add(source_id)
+            assigned_element_ids.add(element["id"])
+            for child_id in repeat_children.get(element["id"], []):
+                if child_id not in assigned_element_ids:
+                    flat_content.append(elem_by_id[child_id])
+                    assigned_element_ids.add(child_id)
+
+        placed = []
+        start = 1
+        if page["hasTabs"]:
+            nav = {
+                "id": f"nav_{page['id']}", "kind": "navigation",
+                "mode": "auto", "pageLabels": page_labels,
+            }
+            flat_content.append(nav)
+            assigned_element_ids.add(nav["id"])
+            placed.append((nav["id"], 1, 24, start, NAV_H, []))
+            start += NAV_H + GAP
+        ctl = dash_control.get(page["dashboard"]["id"])
         if ctl:
-            placed.append((ctl["id"], 1, 8, 1, CTL_H)); start = 1 + CTL_H + GAP
-        placed += layout_for(d, set(present), start)
-        pages.append({"id": pid, "name": d.get("title") or d["id"], "elements": els})
-        xml_pages.append(page_xml(pid, placed))
+            control = copy.deepcopy(ctl)
+            control["id"] = f"{ctl['id']}_{page['id']}"
+            control["controlId"] = f"{ctl['controlId']}_{page['id']}"
+            flat_content.append(control)
+            assigned_element_ids.add(control["id"])
+            placed.append((control["id"], 1, 8, start, CTL_H, []))
+            start += CTL_H + GAP
+        placed += layout_for(page["view"], id_map, start)
+        xml_pages.append(page_xml(page["id"], placed))
 
     # "Data" page: the master detail table + any orphan (FOR PREVIOUS) elements
-    orphans = [e for e in page_elements if e["id"] not in dash_of]
-    data_els = [master_el] + orphans
+    orphans = [
+        e for e in page_elements
+        if e["id"] not in assigned_element_ids
+        and e["id"] not in {
+            child for children in repeat_children.values() for child in children
+        }
+    ]
+    orphan_child_ids = [
+        child
+        for parent in orphans
+        for child in repeat_children.get(parent["id"], [])
+    ]
+    orphan_children = [elem_by_id[child] for child in orphan_child_ids]
+    data_els = [master_el] + support_elements + orphans + orphan_children
+    flat_content = data_els + flat_content
     placed, row = [], 1
-    placed.append((MASTER_ID, 1, 24, row, BODY_H)); row += BODY_H + GAP
-    for e in orphans:
+    for e in data_els:
+        if e["id"] in orphan_child_ids:
+            continue
         h = KPI_H if e["kind"] == "kpi-chart" else BODY_H
-        placed.append((e["id"], 1, 24, row, h)); row += h + GAP
-    pages.append({"id": "data", "name": "Data", "elements": data_els})
-    xml_pages.append(page_xml("data", placed))
+        placed.append((e["id"], 1, 24, row, h,
+                       repeat_children.get(e["id"], [])))
+        row += h + GAP
+    pages.insert(0, {"id": "data", "name": "Data"})
+    xml_pages.insert(0, page_xml("data", placed))
 
-    spec = {"name": layout.get("name") or "GoodData Migration", "schemaVersion": 1, "folderId": a.folder_id,
-            "pages": pages, "layout": "\n".join(xml_pages)}
-    json.dump(spec, open(a.out, "w"), indent=2)
+    document = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": pages,
+        "elements": flat_content,
+        "overlays": [],
+        # GoodData dashboard sections are in-canvas layout, not Sigma header /
+        # sidebar chrome. Keep the released collection explicit and do not
+        # fabricate panel semantics.
+        "panels": [],
+        "layout": "\n".join(xml_pages),
+    }
+    if any(page["hasTabs"] for page in page_defs):
+        document["settings"] = {
+            "navigation": {"pageTabsInViewMode": "shown"}
+        }
+    spec = _cr.wrap(
+        document,
+        {"name": layout.get("name") or "GoodData Migration",
+         "folderId": a.folder_id},
+    )
+
+    # Hard local invariant: every flat element appears exactly once in required
+    # layout and no page carries a legacy nested elements collection.
+    flat_ids = [e["id"] for e in _cr.workbook_elements(spec)]
+    placed_ids = [
+        eid
+        for ids in _cr.workbook_page_element_ids(spec).values()
+        for eid in ids
+    ]
+    if (len(flat_ids) != len(set(flat_ids))
+            or sorted(flat_ids) != sorted(placed_ids)
+            or len(placed_ids) != len(set(placed_ids))):
+        raise ValueError(
+            "authoritative layout must place every flat workbook element exactly once")
+    if any("elements" in page for page in _cr.document(spec)["pages"]):
+        raise ValueError("workbook pages must contain metadata only")
+
+    # Pin LF output so corpus goldens are byte-identical on Windows as well as
+    # Unix. Python's default text mode translates "\n" to CRLF on Windows.
+    with open(a.out, "w", newline="\n") as output:
+        json.dump(spec, output, indent=2)
+    if a.feature_gaps_out:
+        with open(a.feature_gaps_out, "w", newline="\n") as output:
+            json.dump({
+                "version": 1,
+                "source": "gooddata",
+                "features": feature_events,
+                "gaps": flags,
+            }, output, indent=2)
     n_ctl = len(dash_control)
-    print(f"workbook -> {a.out}: {len(pages)} page(s), {len(page_elements)} elements, "
+    print(f"workbook -> {a.out}: {len(pages)} page(s), {len(flat_content)} elements, "
           f"{len(mcolumns)} master cols, {n_ctl} date control(s), {len(flags)} flagged")
 
     # gate 7 (control-wiring lint): FAIL the build if a control does not filter
@@ -445,7 +929,9 @@ def main():
         sys.stderr.write(
             "[WARN] gate 7: scripts/lib/control_lint.rb not vendored — control wiring UNLINTED "
             "(re-vendor; SHA-1 discipline)\n")
-    for p in pages: print(f"   page '{p['name']}': {len(p['elements'])} elements")
+    page_members = _cr.workbook_page_element_ids(spec)
+    for p in pages:
+        print(f"   page '{p['name']}': {len(page_members.get(p['id'], []))} elements")
     for fl in flags: print("   FLAG", fl)
 
 

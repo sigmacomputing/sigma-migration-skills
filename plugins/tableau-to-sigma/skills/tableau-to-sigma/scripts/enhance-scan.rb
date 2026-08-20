@@ -36,10 +36,8 @@
 #      month/date axis canonicalization (MakeDate), stale-source freshness
 #      note (time-boxed wording), title corrections from source captions.
 #   DESCOPED (trial-proven spec-unsupported; emitted as propose-in-UI NOTES,
-#   never spec changes): DM-metric promotion (metric refs don't resolve
-#   through a workbook table layer), chart-as-filter (useAsFilter silently
-#   dropped on readback), pie percent labels (valueFormat:'percent' silently
-#   dropped).
+#   never spec changes): chart-as-filter (useAsFilter silently dropped on
+#   readback), pie percent labels (valueFormat:'percent' silently dropped).
 #
 # Usage:
 #   ruby scripts/enhance-scan.rb --workbook-id <parityWorkbookId> \
@@ -58,6 +56,8 @@ require 'optparse'
 HERE = __dir__
 $LOAD_PATH.unshift File.expand_path('lib', HERE)
 require 'sigma_rest'
+require 'enhance_options'
+require 'code_rep'
 
 opts = { max_exports: 12 }
 OptionParser.new do |o|
@@ -92,18 +92,33 @@ source ||= 'unknown'
 # ---------------------------------------------------------------------------
 # Load the live spec + export element data (read-only).
 # ---------------------------------------------------------------------------
-spec = Sigma.request(:get, "/v2/workbooks/#{WB}/spec")
-abort "FATAL: could not read spec for workbook #{WB}" unless spec.is_a?(Hash) && spec['pages']
+# Workbook code-rep nests pages/elements/layout/schemaVersion/kind under a top-level
+# `document` key (live since 2026-08-03/04); flatten metadata (name, etc.)
+# and document content back onto one hash so every existing spec['...'] read
+# below (mixing both) keeps working unchanged. Read-only file — no PUT here,
+# so there is no wrap-back to worry about.
+raw_spec = Sigma.request(:get, "/v2/workbooks/#{WB}/spec")
+spec = Sigma::CodeRep.metadata(raw_spec).merge(Sigma::CodeRep.document(raw_spec))
+abort "FATAL: could not read spec for workbook #{WB}" unless raw_spec.is_a?(Hash) &&
+                                                           spec['pages'].is_a?(Array) &&
+                                                           spec['elements'].is_a?(Array) &&
+                                                           !spec['layout'].to_s.empty?
 wb_name = spec['name'].to_s
 
 VIZ_KINDS = %w[bar-chart line-chart area-chart pie-chart combo-chart scatter-chart].freeze
 pages = spec['pages'] || []
 data_page = pages.find { |p| p['id'] == 'page-data' } || pages.find { |p| p['name'].to_s =~ /\bdata\b/i }
 dash_pages = pages - [data_page].compact
-viz = dash_pages.flat_map { |p| (p['elements'] || []).map { |e| [p, e] } }
-                .select { |(_p, e)| VIZ_KINDS.include?(e['kind']) }
-controls = dash_pages.flat_map { |p| p['elements'] || [] }.select { |e| e['kind'] == 'control' }
-masters = data_page ? (data_page['elements'] || []) : []
+elements_with_pages = Sigma::CodeRep.workbook_elements_with_pages(spec)
+page_by_element = Sigma::CodeRep.workbook_page_by_element(spec)
+dash_page_ids = dash_pages.map { |p| p['id'] }
+viz = elements_with_pages.select do |e, page|
+  page && dash_page_ids.include?(page['id']) && VIZ_KINDS.include?(e['kind'])
+end.map { |e, page| [page, e] }
+controls = elements_with_pages.select do |e, page|
+  page && dash_page_ids.include?(page['id']) && e['kind'] == 'control'
+end.map(&:first)
+masters = data_page ? elements_with_pages.select { |_e, page| page && page['id'] == data_page['id'] }.map(&:first) : []
 master_by_id = masters.to_h { |e| [e['id'], e] }
 
 # Export an element's data rows via the REST export API (JSON). Best-effort.
@@ -234,8 +249,7 @@ if comparison_target
   el = t[:el]
   cur = "Sum(If(#{t[:d]} = Max(#{t[:d]}), #{t[:inner_v]}, Null))"
   prev = "Sum(If(#{t[:d]} = DateAdd(\"#{t[:unit]}\", -1, Max(#{t[:d]})), #{t[:inner_v]}, Null))"
-  page_id = dash_pages.find { |p| (p['elements'] || []).any? { |e| e['id'] == el['id'] } }&.dig('id') ||
-            dash_pages.first&.dig('id')
+  page_id = page_by_element[el['id']]&.dig('id') || dash_pages.first&.dig('id')
   kpi_cur = {
     'id' => 'el-phasee-kpi-current', 'kind' => 'kpi-chart',
     'name' => "Latest #{t[:unit].capitalize} #{t[:measure]}",
@@ -465,7 +479,7 @@ if signals
       'verdict_hint' => 'confirm — needs centroid synthesis; present to the user with the geo column list',
       'patch' => (approx && geo_cols.any? ? {
         'op' => 'replace_with_point_map', 'needs' => 'centroids',
-        'element_id' => approx['id'], 'page_id' => (dash_pages.find { |p| (p['elements'] || []).any? { |e| e['id'] == approx['id'] } } || {})['id'],
+        'element_id' => approx['id'], 'page_id' => page_by_element[approx['id']]&.dig('id'),
         'geo_column' => geo_cols.first, 'source' => approx['source'],
         'geo_ref' => "[#{src_el['name']}/#{geo_cols.first}]",
         'value_formula' => (y_col(approx) || {})['formula'],
@@ -655,19 +669,6 @@ if viz.any? { |(_p, e)| e['kind'] == 'pie-chart' }
     'evidence' => "#{viz.count { |(_p, e)| e['kind'] == 'pie-chart' }} pie-chart element(s) present."
   }
 end
-dm_sourced = masters.any? { |m| m.dig('source', 'kind') == 'data-model' } ||
-             viz.any? { |(_p, e)| e.dig('source', 'kind') == 'data-model' }
-inline_aggs = viz.count { |(_p, e)| (y_col(e) || {})['formula'].to_s =~ /\A(Sum|Avg|Count|CountDistinct|Min|Max)\(/ }
-if dm_sourced && inline_aggs.positive?
-  descoped << {
-    'id' => 'descoped-dm-metric-promotion',
-    'note' => 'DM metric promotion: charts re-implement aggregate formulas inline, but DM metrics are ' \
-              'NOT referenceable from a chart through an intermediate workbook table ([Master/Metric] -> ' \
-              '"Dependency not found"; bare [Metric] compiles to a silent error column — trial-proven). ' \
-              'Promote in the DM and rebind in the Sigma UI if governance requires it.',
-    'evidence' => "#{inline_aggs} chart(s) carry inline aggregate formulas over a data-model source."
-  }
-end
 shared_masters = viz.group_by { |(_p, e)| e.dig('source', 'elementId') }.select { |_k, v| v.size >= 2 }
 if shared_masters.any?
   descoped << {
@@ -680,9 +681,64 @@ if shared_masters.any?
 end
 
 # ---------------------------------------------------------------------------
+# App-shape signals + option rollup.
+#
+# The detector catalog above answers "which micro-patches are safe here". It
+# does NOT answer the question a human actually has: "what should this app
+# BE?". These two blocks roll the same evidence up into a handful of
+# user-meaningful options so the agent can run a design interview instead of
+# reading out fifteen individual patches. Purely additive — `candidates` and
+# every existing key keep their shape, so older consumers are unaffected.
+# ---------------------------------------------------------------------------
+calc_blob = if WORKDIR
+              [jread(File.join(WORKDIR, 'calc-fields.json')),
+               jread(File.join(WORKDIR, 'dashboard-layout.json'))].compact
+                                                                  .map(&:to_s)
+                                                                  .join(' ')
+            else
+              ''
+            end
+# Profile both spec metadata and sampled exported values. Archetype detection
+# needs structural evidence (field names, formulas, real dimension members),
+# not just vocabulary in calc-fields.json.
+all_elements = spec['elements'] || []
+profile_fields = all_elements.flat_map do |el|
+  (el['columns'] || []).flat_map { |c| [c['name'], c['formula']] }
+end.compact.map(&:to_s)
+profile_members = Hash.new { |h, k| h[k] = [] }
+rows_by_el.each_value do |rows|
+  Array(rows).first(250).each do |row|
+    next unless row.is_a?(Hash)
+    row.each do |field, value|
+      profile_fields << field.to_s
+      next if value.nil? || value.is_a?(Hash) || value.is_a?(Array)
+      values = profile_members[field.to_s]
+      values << value.to_s unless values.include?(value.to_s) || values.size >= 100
+    end
+  end
+end
+data_profile = {
+  'field_names' => profile_fields.uniq,
+  'member_values' => profile_members,
+  'formula_text' => all_elements.flat_map do |el|
+    (el['columns'] || []).map { |c| c['formula'] }
+  end.compact.join(' ')
+}
+option_rollup = EnhanceOptions.build(
+  candidates: candidates,
+  shared_master_chart_count: shared_masters.values.sum(&:size),
+  calc_blob: calc_blob,
+  write_connection_available: !ENV['SIGMA_WRITE_CONNECTION_ID'].to_s.empty?,
+  data_profile: data_profile
+)
+app_signals = option_rollup['signals']
+app_options = option_rollup['app_options']
+
+# ---------------------------------------------------------------------------
 # Emit.
 # ---------------------------------------------------------------------------
 out = {
+  'schemaVersion' => 1,
   'workbook_id' => WB,
   'workbook_name' => wb_name,
   'source' => source,
@@ -690,11 +746,26 @@ out = {
   'elements_scanned' => viz.size,
   'elements_exported' => rows_by_el.count { |_k, v| v },
   'candidates' => candidates,
-  'descoped_notes' => descoped
+  'descoped_notes' => descoped,
+  'signals' => app_signals,
+  'app_options' => app_options
 }
 File.write(OUT, JSON.pretty_generate(out))
 
-puts "enhance-scan: #{candidates.size} candidate(s), #{descoped.size} descoped note(s) -> #{OUT}"
+puts "enhance-scan: #{candidates.size} candidate(s), #{descoped.size} descoped note(s), " \
+     "#{app_options.size} app option(s) -> #{OUT}"
+puts '  app options (present these to the human before applying anything):'
+app_options.each do |o|
+  if o['archetype']
+    puts format('  %-1s [%-6s/%2s] %-34s %s',
+                o['recommended'] ? '*' : ' ', o['confidence'],
+                o['score'], o['id'], o['label'].to_s)
+  else
+    puts format('  %-1s [%-6s] %-34s %s',
+                o['recommended'] ? '*' : ' ', o['risk'], o['id'],
+                o['label'].to_s)
+  end
+end
 candidates.each do |c|
   puts format('  [%-6s] %-38s %s', c['risk'], c['id'], c['proposed'].to_s.gsub(/\s+/, ' ')[0, 100])
 end

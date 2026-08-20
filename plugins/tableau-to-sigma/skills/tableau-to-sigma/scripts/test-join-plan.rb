@@ -142,6 +142,56 @@ check(e['right_table'] == 'ANALYTICS.PUBLIC.STATE_REF',
 check(e['status'] == 'unprobed' && e['grain_assumption'] == 'right unique on keys',
       'relationship joins carry the same grain assumption (Tableau culls per-viz; Sigma fans out)', fails)
 
+puts "\n== object-graph duplicate-table role resolves its suffixed GUID + physical VC table =="
+role_guid = '737611ae-3a14-349a-8fa8-d92dd0bb0432'
+role_name = 'DATE_DIM (DEMO_SCHEMA.DATE_DIM)1'
+role_xml = <<~XML
+  <workbook>
+    <datasource>
+      <column caption='Date Key' datatype='integer'
+              name='[#{role_guid} (#{role_name})]' />
+      <object-graph>
+        <objects>
+          <object id='fact'>
+            <properties>
+              <relation name='EVENT_FACT (DEMO_SCHEMA.EVENT_FACT)'
+                        table='[fact-inode].[EVENT_FACT (DEMO_SCHEMA.EVENT_FACT)]'
+                        type='table' />
+            </properties>
+          </object>
+          <object id='date-role'>
+            <properties>
+              <relation name='#{role_name}'
+                        table='[date-inode].[DATE_DIM (DEMO_SCHEMA.DATE_DIM)]'
+                        type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='>
+              <expression op='[fact-date-key]' />
+              <expression op='[#{role_guid} (#{role_name})]' />
+            </expression>
+            <first-end-point object-id='fact' />
+            <second-end-point object-id='date-role' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </workbook>
+XML
+entries = JoinPlan.derive(nil, role_xml, db: 'DEMO_DB', schema: 'DEMO_SCHEMA')
+check(entries.size == 1, "duplicate-table role yields one relationship entry (got #{entries.size})", fails)
+e = entries.first || {}
+check(e['right'] == role_name, 'ledger preserves the Tableau role name for provenance', fails)
+check(e['keys'] == ["#{role_guid} (#{role_name})"],
+      'ledger preserves the role-suffixed GUID key for provenance', fails)
+check(e['probe_keys'] == ['DATE_KEY'],
+      "role-suffixed GUID resolves through its exact caption (got #{e['probe_keys'].inspect})", fails)
+check(e['right_table'] == 'DEMO_DB.DEMO_SCHEMA.DATE_DIM',
+      "numeric Tableau role suffix does not corrupt the physical VC FQN (got #{e['right_table'].inspect})", fails)
+
 puts "\n== function-wrapped (computed-key) join side still records the join =="
 fn_xml = File.read(FIX1).sub("op='[REV_PRIMARY].[ENTITY_ID]'", "op='DATE([REV_PRIMARY].[ENTITY_ID])'")
 entries = JoinPlan.derive(nil, fn_xml)

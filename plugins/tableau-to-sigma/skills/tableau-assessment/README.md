@@ -117,6 +117,6 @@ See `SKILL.md` "Troubleshooting" section. Common things:
 
 ## Where it lives
 
-This skill ships in the `sigma-migration-skills` marketplace, alongside the converters it feeds into.
+This skill is part of [`sigmacomputing/sigma-skills-staging`](https://github.com/sigmacomputing/sigma-skills-staging) — Sigma's staging repo for not-yet-graduated skills. Once it's been validated against a few real customer sites, it'll move to the public [`sigmacomputing/sigma-agent-skills`](https://github.com/sigmacomputing/sigma-agent-skills) repo.
 
 Sibling skill: [`tableau-to-sigma`](../tableau-to-sigma/) — the conversion skill the migration shortlist feeds into.

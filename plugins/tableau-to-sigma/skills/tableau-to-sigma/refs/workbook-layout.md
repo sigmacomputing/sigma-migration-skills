@@ -9,7 +9,7 @@ you are on:
 | Old section (this file) | Now lives in | Read at |
 |---|---|---|
 | Reading the .twb dashboard layout; zone `kind` values; `chart_kind` values; Percent → Sigma 24-col grid; Tableau dashboard object → Sigma element | `refs/twb-zone-mapping.md` | Phase 1/1d |
-| Grid system; Layout XML structure; Page/LayoutElement/GridContainer; Ruby helpers (`gc()`/`le()`/`page_xml()`); Typical + canonical page layouts; Row sizing guide; Full spec assembly with layout; Common mistakes; Minimum tile heights | `refs/layout-grid.md` | Phase 5d |
+| Grid system; Layout XML structure; Page/Element/Container; Ruby helpers (`gc()`/`le()`/`page_xml()`); Typical + canonical page layouts; Row sizing guide; Full spec assembly with layout; Common mistakes; Minimum tile heights | `refs/layout-grid.md` | Phase 5d |
 | Multi-series chart patterns (small multiples/trellis, area, combo, scatter, refMarks, trendlines, axis format, dual-axis, tooltips, data labels); Map elements (region-map, point-map, geographic role → `regionType`, bar-chart fallback) | `refs/chart-patterns.md` | Phase 5 |
 | Visual formatting properties NOT available via spec API; Element kinds supported; Element-type field requirements (KPI, column format, pivot table, table extras, pie/donut, text, image, divider, button, container, histogram); Control elements (filter targets + all control types, element-level top-n) | `refs/element-kinds.md` | Phase 5 |
 

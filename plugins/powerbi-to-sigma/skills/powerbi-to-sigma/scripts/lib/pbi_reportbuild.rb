@@ -91,6 +91,15 @@ module PbiReportBuild
     best && best[0]
   end
 
+  # A page-wide base may source a visual only when it can resolve EVERY bound
+  # field. Falling back after a partial match lets the visual choose a specialized
+  # grouped master (for example Year + Revenue + Prior Year) instead of silently
+  # dropping the field that exists only on that master.
+  def all_fields_resolve_on?(query_refs, master, masters_for)
+    refs = Array(query_refs).compact
+    !refs.empty? && refs.all? { |qr| Array(masters_for.call(qr)).include?(master) }
+  end
+
   # Name-shape heuristic for a boolean/indicator slicer when no TMSL dataType is
   # available (the extract carried no --model). Conservative: only true/has
   # prefixes and the ind/indicator/flag suffix — the well-known PBI indicator

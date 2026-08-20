@@ -38,7 +38,7 @@
 #     --ref-dm <referenceDataModelId> \
 #     [--name "Superstore Overview (from Power BI)"] [--folder <id>] \
 #     [--out DIR] [--answers '<json>'] [--yes] \
-#     [--mcp-dir <sigma-data-model-mcp clone> | --converter-out <mcp-tool result.json>] \
+#     [--mcp-dir <converter-source clone> | --converter-out <mcp-tool result.json>] \
 #     [--python <interpreter>]
 #
 # FULLY-LOCAL alternative (no Fabric/tenant) — a single .pbix on disk. Phase 0
@@ -48,18 +48,20 @@
 #   ruby scripts/migrate-powerbi.rb --pbix /path/Sales.pbix \
 #     --connection <SIGMA_CONN_UUID> --database <DB> --schema <SCHEMA> --ref-dm <id>
 #
-# Converter route (bead 7o01): with a local sigma-data-model-mcp build (--mcp-dir /
+# Converter route (bead 7o01): with a local converter-source build (--mcp-dir /
 # PBI_MCP_DIR / ~/Desktop or ~/ clone) the conversion runs in-process via a node
 # shim. WITHOUT one, Phase 2 stops with a gate: run the convert_powerbi_to_sigma
 # MCP tool yourself and resume with --converter-out <its result JSON> — the
 # default route on machines without a local build.
 #
 # Phase E (OPT-IN) — Enhance: pass --enhance to run the shared enhancement
-# engine AFTER parity passes: enhance-scan.rb emits candidates; nothing applies
-# without --enhance-accept <ids|all-low-risk> (without it the run stops at exit
-# 14 with the proposals); enhance-apply.rb then clones the parity workbook
-# ("<name> — Enhanced") and applies accepted items one at a time under a
-# parity-unchanged gate. Default = OFF everywhere.
+# engine AFTER parity passes: enhance-scan.rb emits candidates + app_options;
+# design interview via enhance-select.rb / enhance-app-plan.rb; nothing
+# applies without --enhance-accept <ids|all-low-risk> (without it the run
+# stops at exit 14 with the proposals); enhance-apply.rb then clones the
+# parity workbook ("<name> — Enhanced") and applies accepted items one at a
+# time under a parity-unchanged gate. Default = OFF everywhere.
+# See refs/phase-e-enhance.md.
 #
 # Exit codes: 0 = done (parity pass); 10 = decisions needed (OPEN QUESTIONS); 3 = parity fail;
 # 14 = parity PASS + Phase E proposals pending acceptance (re-run with --enhance-accept); other = error.
@@ -69,23 +71,28 @@ require 'fileutils'
 require 'open3'
 require 'digest'
 require 'set'
+require 'time'
 require_relative 'lib/py_resolve'
 require_relative 'lib/pbi_field_alts'
 require_relative 'lib/pbi_master_key'
+require_relative 'lib/code_rep'
 require_relative 'lib/pbi_offramp_reason' # name the FAILING STAGE, never assert a cause we did not establish # role-playing dim copies must key on PBI table identity # derived field_map entries must wrap their ALTS too (pie/date-grain render bug) # real-Python resolver (Windows Store-stub safe)
 begin; require_relative 'lib/modeling_advisory'; rescue LoadError; end # shared, vendor-neutral CDW join-cost advisory (optional; synced from shared/)
 
 HERE = __dir__
 $LOAD_PATH.unshift File.expand_path('lib', HERE)
-require 'scout_gate'    # run-each-time gap-scout gate (bead beads-sigma-5l5e)
+require 'scout_gate'    # run-each-time gap-scout gate ()
 require 'dax_gate'      # DAX warning → decision-question classifier (regression-tested)
 require 'coverage_gate' # workbook-build coverage.json → consolidated report + assistance prompt
 require 'pbi_element_match' # converter→readback element pairing (POST reorders; regression-tested)
 require 'pbi_timeintel_route' # time-intel fallback-router fact-provenance guard (regression-tested)
+require 'pbi_native_query' # preserve Value.NativeQuery/Query= SQL around the pinned converter
+require 'pbi_composite' # remote-model detection; NativeQuery is warehouse SQL
+require 'materialization_schedules' # opt-in DM element schedule lifecycle
 
 # Converter resolution (issue #227). The pinned VENDORED bundle is the DEFAULT so a
 # developer machine and a customer machine produce identical output for the same
-# input. A local sigma-data-model-mcp build is used ONLY when EXPLICITLY opted in
+# input. A local converter-source build is used ONLY when EXPLICITLY opted in
 # via --mcp-dir / PBI_MCP_DIR — there is NO silent auto-discovery of ~/… checkouts
 # (that was the "works in my demo, differs for the customer" footgun). Returns
 # [conv_module, mcp_build_dir_or_nil, loud_provenance_line].
@@ -127,7 +134,7 @@ OptionParser.new do |o|
   o.on('--connection ID')   { |v| opts[:conn]   = v }
   o.on('--database DB')     { |v| opts[:db]     = v }
   o.on('--schema S')        { |v| opts[:schema] = v }
-  # Target warehouse dialect for physical-identifier casing (beads-sigma-lanq.7).
+  # Target warehouse dialect for physical-identifier casing ([bead].7).
   # Databricks/Spark store identifiers lower-case and bind only against a lower-cased
   # warehouse path; Snowflake/BigQuery (the default) fold to UPPER. Default is read
   # from the resolved connection's `type` in connection.json; this flag overrides it.
@@ -143,7 +150,7 @@ OptionParser.new do |o|
   o.on('--answers JSON')    { |v| opts[:answers]= v }
   o.on('--yes')             {     opts[:yes]    = true }
   # bead 7o01 portability: no hardcoded developer paths. --mcp-dir / PBI_MCP_DIR
-  # selects a local sigma-data-model-mcp build; --converter-out feeds a converter
+  # selects a local converter-source build; --converter-out feeds a converter
   # result produced by the convert_powerbi_to_sigma MCP TOOL (the default route
   # when no local build exists); --python / PBI_PY picks the Python interpreter.
   o.on('--mcp-dir DIR')        { |v| opts[:mcp_dir] = File.expand_path(v) }
@@ -187,7 +194,21 @@ OptionParser.new do |o|
   # model lives in the local .pbix (prefer --pbix). Pass this to proceed anyway
   # on the (known-incomplete) Fabric model.
   o.on('--allow-incomplete-model') { opts[:allow_incomplete_model] = true }
+  # Native SQL followed by Table.RenameColumns/Table.SelectRows/etc. cannot be
+  # represented by preserving the SQL alone. Gate by default; this override is
+  # only for a user who has manually folded those transforms into the SQL.
+  o.on('--allow-native-m-transforms') { opts[:allow_native_m_transforms] = true }
+  # Opt-in materialization schedule for converted Custom SQL elements. Cron is
+  # required; timezone is IANA. Without --materialization-elements every SQL
+  # source element is targeted. A comma-list selects exact element names.
+  o.on('--materialization-cron CRON') { |v| opts[:materialization_cron] = v }
+  o.on('--materialization-timezone TZ') { |v| opts[:materialization_timezone] = v }
+  o.on('--materialization-elements LIST') { |v| opts[:materialization_elements] = v }
 end.parse!
+
+if opts[:materialization_timezone] && !opts[:materialization_cron]
+  abort 'FATAL: --materialization-timezone requires --materialization-cron'
+end
 
 # #347: publish the target tenant into the env so EVERY Power BI child process
 # (fabric-extract.py, pbi-freshness.py, phase6 harness, …) inherits it and
@@ -240,7 +261,7 @@ end
 if opts[:out] && File.exist?(File.join(opts[:out], 'connection.json'))
   _cj = (JSON.parse(File.read(File.join(opts[:out], 'connection.json'))) rescue {})
   opts[:conn]    ||= _cj['connection_id']
-  opts[:wh_type] ||= _cj['type']   # warehouse dialect → physical-identifier casing (beads-sigma-lanq.7)
+  opts[:wh_type] ||= _cj['type']   # warehouse dialect → physical-identifier casing ([bead].7)
 end
 # bead hjke(a): abort early on a truncated/partial connection id — it survives
 # all the way to the DM POST and fails there opaquely ("Source not found").
@@ -264,6 +285,24 @@ name_slug = File.basename(opts[:tmsl] || opts[:pbix], '.*').gsub(/[^A-Za-z0-9_-]
 WORK = opts[:out] || File.expand_path("~/powerbi-migration/#{name_slug}")
 FileUtils.mkdir_p(WORK)
 WB_NAME = opts[:name] || "#{name_slug.gsub(/[_]+/, ' ').strip} (from Power BI)"
+
+# Persist exact executable provenance for every incident report. A plugin file
+# copy may have no git metadata; the plugin version + converter pin + real path
+# still identify what actually ran.
+plugin_manifest = File.expand_path('../../../.claude-plugin/plugin.json', HERE)
+plugin_json = JSON.parse(File.read(plugin_manifest)) rescue {}
+converter_prov_path = File.join(File.dirname(VENDORED_PBI), 'PROVENANCE.json')
+converter_prov = JSON.parse(File.read(converter_prov_path)) rescue {}
+repo_sha, repo_status = Open3.capture2('git', '-C', HERE, 'rev-parse', '--short', 'HEAD')
+run_provenance = {
+  'pluginVersion' => plugin_json['version'],
+  'repoSha' => repo_status.success? ? repo_sha.strip : nil,
+  'skillPath' => File.realpath(File.expand_path('..', HERE)),
+  'converter' => CONVERTER_DESC,
+  'converterProvenance' => converter_prov,
+  'recordedAt' => Time.now.utc.iso8601
+}
+File.write(File.join(WORK, 'run-provenance.json'), JSON.pretty_generate(run_provenance))
 
 # ---- phase timings (always written to <WORK>/timings.json) ------------------
 # Fast-discovery evidence trail: every terminal exit (success, decisions gate,
@@ -385,28 +424,6 @@ end
 # Returns a list of human-readable reason strings ([] when the model is a
 # complete import model). The offline analog is the .pbix Connections
 # RemoteArtifacts tell (extract-model-pbix.py is_composite_connections).
-def detect_incomplete_composite(model)
-  reasons = []
-  (model['tables'] || []).each do |t|
-    name = t['name']
-    next if name.to_s.start_with?('LocalDateTable_', 'DateTableTemplate_')
-    Array(t['partitions']).each do |p|
-      mode = p['mode'].to_s.downcase
-      reasons << "table '#{name}' has a DirectQuery partition" if mode == 'directquery'
-      src = p['source'] || {}
-      reasons << "table '#{name}' is an 'entity' partition bound to a remote model" \
-        if src['type'].to_s.downcase == 'entity'
-      expr = src['expression']
-      expr = expr.join("\n") if expr.is_a?(Array)
-      if expr.is_a?(String) &&
-         expr =~ /AnalysisServices\.Database|PowerBIServiceLive|DirectQueryToAS|pbiazure|PowerBI\.Datasets|Value\.NativeQuery/i
-        reasons << "table '#{name}' M expression references a remote Power BI dataset"
-      end
-    end
-  end
-  reasons.uniq
-end
-
 TOTAL = 6
 
 # Python interpreter resolution (shared by Phase 0 local extract + Phase 1).
@@ -499,13 +516,36 @@ signals = JSON.parse(File.read(signals_path))
 tmsl = JSON.parse(File.read(opts[:tmsl]))
 model = tmsl['model'] || tmsl
 
+# NativeQuery is ordinary warehouse SQL, not evidence of a remote/composite
+# semantic model. Preserve it through the pinned converter. Downstream M steps
+# are a separate fidelity question: they must be folded into the SQL or
+# explicitly accepted, never silently discarded.
+native_queries = PbiNativeQuery.native_queries(model)
+native_transform_gaps = native_queries.select(&:post_transform)
+if native_transform_gaps.any? && !opts[:allow_native_m_transforms]
+  puts
+  puts '╭─ OPEN QUESTION — NativeQuery has downstream Power Query transforms ─'
+  native_transform_gaps.each do |native|
+    puts "│  • #{native.table}: #{native.source} is followed by M transform steps"
+  end
+  puts '│'
+  puts '│  The SQL itself can be preserved, but Table.RenameColumns/Table.SelectRows/etc.'
+  puts '│  after it are not part of that SQL. Fold those steps into the SQL and rerun.'
+  puts '│  If they are already represented manually, rerun with --allow-native-m-transforms.'
+  puts '╰──────────────────────────────────────────────────────────────────────────────'
+  exit 10
+end
+
+normalized_tmsl_path = File.join(WORK, 'model-normalized.bim')
+File.write(normalized_tmsl_path, JSON.pretty_generate(PbiNativeQuery.normalize_tmsl(tmsl)))
+
 # COMPOSITE GATE (Fabric --tmsl path only; --pbix already IS the complete local
 # model). getDefinition returns an INCOMPLETE model for composite / live-
 # connected reports — the full model lives in the local .pbix. Detect it and
 # PROMPT for the .pbix instead of silently building a broken DM. --allow-
 # incomplete-model overrides. This is what MOTIVATES the local front door.
 unless opts[:pbix] || opts[:allow_incomplete_model]
-  composite_reasons = detect_incomplete_composite(model)
+  composite_reasons = PbiComposite.incomplete_reasons(model)
   unless composite_reasons.empty?
     puts
     puts '╭─ OPEN QUESTION — composite / live-connected report (incomplete Fabric model) ─'
@@ -532,7 +572,7 @@ all_measures = tables.flat_map { |t| (t['measures'] || []).map { |m| [t['name'],
 # measure name -> its ORIGINAL TMSL table = the entity a PBIR visual binds it under.
 # PBI measure names are model-unique (the same assumption ti_orig_table relies on).
 # Used by the master-map loop to alias a re-homed measure back to its source entity
-# so "_Measures.TotalSales" resolves (beads-sigma-<2a>).
+# so "_Measures.TotalSales" resolves ([bead]).
 measure_orig_table = {}
 all_measures.each { |tbl, mname, _| measure_orig_table[mname] = tbl }
 
@@ -540,7 +580,7 @@ all_measures.each { |tbl, mname, _| measure_orig_table[mname] = tbl }
 # visuals reference columns under the FRIENDLY entity ("Sales") but the converter
 # names the DM element after the PHYSICAL table ("vw_sales"), so an entity-qualified
 # queryRef misses the master-map and the column silently drops — the customer's missing
-# dim NAME columns (beads-sigma-<1b>). Capture the map so the master-map can alias every
+# dim NAME columns ([bead]). Capture the map so the master-map can alias every
 # key under the friendly entity too.
 _normt = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
 # 1:N, not 1:1. A model can import the SAME warehouse table under several names (six
@@ -598,7 +638,7 @@ if opts[:cvt_out]
                                     'stats' => raw['stats'] || {} }))
   puts "   converter output ingested from #{opts[:cvt_out]}"
 elsif CONV_MODULE.nil?
-  puts '   vendored converter (converter/powerbi.mjs) missing and no local sigma-data-model-mcp build (--mcp-dir / PBI_MCP_DIR).'
+  puts '   vendored converter (converter/powerbi.mjs) missing and no local converter-source build (--mcp-dir / PBI_MCP_DIR).'
   puts
   puts '   >>> GATE: run the convert_powerbi_to_sigma MCP tool on the TMSL model'
   puts "       (#{opts[:tmsl]}) with connectionId=#{opts[:conn]} database=#{opts[:db]} schema=#{opts[:schema]} warehouseType=#{opts[:wh_type].to_s.empty? ? '(default UPPER)' : opts[:wh_type]},"
@@ -608,7 +648,7 @@ elsif CONV_MODULE.nil?
 end
 unless opts[:cvt_out]
 puts "   converter: #{CONV_MODULE == VENDORED_PBI ? 'vendored bundle (converter/powerbi.mjs)' : CONV_MODULE} (no data leaves this machine)"
-puts "   warehouse dialect: #{opts[:wh_type].to_s.empty? ? 'default (UPPER — Snowflake/BigQuery)' : "#{opts[:wh_type]} → lower-case physical ids"} (beads-sigma-lanq.7)"
+puts "   warehouse dialect: #{opts[:wh_type].to_s.empty? ? 'default (UPPER — Snowflake/BigQuery)' : "#{opts[:wh_type]} → lower-case physical ids"} ([bead].7)"
 shim = File.join(WORK, '_convert.mjs')
 # Node ESM on Windows rejects a bare drive-letter specifier
 # (`import ... from "C:/path/powerbi.mjs"` → ERR_UNSUPPORTED_ESM_URL_SCHEME,
@@ -624,7 +664,7 @@ import_specifier =
 File.write(shim, <<~JS)
   import { readFileSync, writeFileSync } from 'node:fs';
   import { convertPowerBIToSigma } from #{import_specifier.to_json};
-  const model = JSON.parse(readFileSync(#{opts[:tmsl].to_json}, 'utf8'));
+  const model = JSON.parse(readFileSync(#{normalized_tmsl_path.to_json}, 'utf8'));
   const out = convertPowerBIToSigma(model, {
     connectionId: #{(opts[:conn] || '').to_json},
     database: #{opts[:db].to_json},
@@ -647,6 +687,22 @@ conv = JSON.parse(File.read(File.join(WORK, 'conv-meta.json')))
 dm_model = conv['model']
 conv_warnings = conv['warnings'] || []
 conv_stats = conv['stats'] || {}
+native_result = PbiNativeQuery.apply!(dm_model, model)
+native_blockers = native_result['blockers'].reject do |blocker|
+  opts[:allow_native_m_transforms] &&
+    blocker['reason'].to_s.include?('followed by Power Query M transforms')
+end
+unless native_blockers.empty?
+  abort "FATAL: NativeQuery restoration failed:\n" +
+        native_blockers.map { |b| "  - #{b['table']}: #{b['reason']}" }.join("\n")
+end
+if native_result['converted'].any?
+  File.write(File.join(WORK, 'native-query-conversion.json'), JSON.pretty_generate(native_result))
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  puts "   restored #{native_result['converted'].size} NativeQuery source(s) as Custom SQL"
+end
 puts "   #{conv_stats['elements'] || (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }.size} element(s), " \
      "#{conv_stats['columns']} column(s), #{conv_stats['metrics']} metric(s); #{conv_warnings.size} converter warning(s)"
 # Vendor-neutral CDW join-cost advisory (informational only; never gates). See refs/modeling-strategy.md.
@@ -699,6 +755,35 @@ if modes.include?('import')
                  'default' => "land live on connection #{opts[:conn]} (#{opts[:db]}.#{opts[:schema]})" }
 end
 
+# (c-bis) NON-WAREHOUSE SOURCES — Fabric Dataflow / Lakehouse / OneLake / Dataverse
+# / file. The converter can't derive a queryable warehouse path (the data lives
+# OUTSIDE the semantic model, and any transform logic in the dataflow/query can't
+# be translated) so it emitted placeholder paths that will NOT resolve until the
+# data is landed. Offer the land-then-repoint handoff: run the
+# powerbi-import-to-snowflake skill to land the data, then re-run Build (Phase 3)
+# with convert-model.rb --table-map <manifest.json> (which reads the landing
+# manifest directly — see convert-model.rb). Count comes from the converter's
+# stats.nonWarehouseSourcedTables; per-table detail is in the ⛔ warnings.
+nwt = conv_stats['nonWarehouseSourcedTables'].to_i
+if nwt.positive?
+  affected = conv_warnings.select { |w| w.include?('is sourced from a') }
+                          .map { |w| w[/Table "(.+?)"/, 1] }.compact
+  puts "   ⛔ #{nwt} table(s) sourced from a Fabric Dataflow / Lakehouse / Dataverse / file " \
+       "— NOT warehouse-queryable; data must be landed before these resolve:"
+  affected.each { |t| puts "      - #{t}" }
+  land_opt = 'run the powerbi-import-to-snowflake skill to land the data, then re-run Build with ' \
+             'convert-model.rb --table-map <manifest.json>'
+  questions << {
+    'id' => 'non_warehouse_source', 'severity' => 'required',
+    'detail' => "#{nwt} table(s) (#{affected.join(', ')}) are sourced from a Fabric Dataflow / " \
+                "Lakehouse / OneLake / Dataverse / file — NOT a warehouse Sigma can query, and their " \
+                "transformation logic is not in the semantic model. The converter emitted placeholder " \
+                "warehouse paths that will NOT resolve until the data is landed and the elements repointed.",
+    'options' => [land_opt, 'proceed with placeholder paths (these elements will not resolve until repointed)'],
+    'default' => land_opt
+  }
+end
+
 # (required) connection.
 unless opts[:conn]
   questions << { 'id' => 'connection', 'severity' => 'required',
@@ -706,7 +791,7 @@ unless opts[:conn]
                  'options' => ['supply --connection <id>'], 'default' => nil }
 end
 
-# RUN-EACH-TIME GAP-SCOUT GATE (bead beads-sigma-5l5e). Flagged DAX measures
+# RUN-EACH-TIME GAP-SCOUT GATE (). Flagged DAX measures
 # (⛔ no-equivalent → degrade to Null; ⚠ restructure-needed) are scout-eligible —
 # the gap-scout must ATTEMPT a Sigma translation for each before we accept the
 # degradation. --yes does NOT skip this; it only accepts gaps the scout already
@@ -972,6 +1057,68 @@ dm_id = dm_rb['dataModelId']
 puts "   dataModelId = #{dm_id}"
 end # unless reuse_dm_id (build-new path)
 
+# Optional data-model materialization schedules (Beta). Run after readback so
+# schedule calls use authoritative server element IDs. This is performance-only:
+# failures are recorded and surfaced but do not invalidate the migrated model.
+if opts[:materialization_cron]
+  spec_elements = (dm_model['pages'] || []).flat_map { |page| page['elements'] || [] }
+  readback_elements = (dm_rb['pages'] || []).flat_map { |page| page['elements'] || [] }
+  paired = PbiElementMatch.pair(spec_elements, readback_elements)
+  sql_with_readback = spec_elements.each_with_index.filter_map do |element, index|
+    next unless element.dig('source', 'kind') == 'sql'
+    server = paired[index]
+    next unless server
+    [element, { 'id' => server['id'], 'name' => server['name'] || element['name'] || element['id'] }]
+  end
+
+  selectors = opts[:materialization_elements].to_s.split(',').map(&:strip).reject(&:empty?)
+  selected =
+    if selectors.empty? || selectors == ['all-sql']
+      sql_with_readback
+    else
+      sql_with_readback.select do |spec_element, server|
+        selectors.include?(spec_element['name'].to_s) || selectors.include?(server['name'].to_s)
+      end
+    end
+
+  missing = selectors.reject do |selector|
+    selector == 'all-sql' || sql_with_readback.any? do |spec_element, server|
+      selector == spec_element['name'].to_s || selector == server['name'].to_s
+    end
+  end
+  actions = missing.map do |selector|
+    {
+      'elementName' => selector,
+      'status' => 'error',
+      'error' => 'requested materialization element was not found among Custom SQL elements',
+      'remediation' => 'use an exact Custom SQL element name or all-sql'
+    }
+  end
+
+  if selected.empty?
+    puts '   materialization: no matching Custom SQL elements'
+  else
+    puts "   materialization: reconciling #{selected.size} Custom SQL schedule(s)"
+    actions.concat(
+      MaterializationSchedules.reconcile(
+        data_model_id: dm_id,
+        elements: selected.map(&:last),
+        cron: opts[:materialization_cron],
+        timezone: opts[:materialization_timezone]
+      )
+    )
+  end
+  File.write(File.join(WORK, 'materialization-actions.json'), JSON.pretty_generate(actions))
+  actions.each do |action|
+    if action['status'] == 'error'
+      warn "   [warn] materialization #{action['elementName']}: #{action['error'].to_s.lines.first.to_s.strip[0, 140]}"
+      warn "          remediation: #{action['remediation']}"
+    else
+      puts "   materialization #{action['status']}: #{action['elementName']}"
+    end
+  end
+end
+
 # ---------------------------------------------------------------------------
 # Phase 4 — Build workbook (auto master-map from converter + signals, then build+POST)
 # ---------------------------------------------------------------------------
@@ -1149,7 +1296,7 @@ conv_elements.each_with_index do |cel, cel_idx|
     ref = { 'master' => mkey, 'ref' => rewritten, 'agg' => nil,
             'format' => (m.dig('format', 'formatString')) }
     field_map["#{cname}.#{m['name']}"] = ref
-    # 2a (beads-sigma-<2a>): a measure re-homed from a measure-only table onto the
+    # 2a ([bead]): a measure re-homed from a measure-only table onto the
     # fact element (powerbi.ts moveMeasures) is keyed here under the FACT element,
     # but the PBIR visual still binds it under its ORIGINAL measures-table entity
     # ("_Measures.TotalSales"). Alias it so the binding resolves — mirrors
@@ -1318,6 +1465,7 @@ conv_elements.each do |cel|
   hf = headline.call(pick['name'])
   ref['formula'] = hf if hf
   orig = ti_orig_table[mname]
+  route_table = PbiTimeIntelRoute.routing_table(orig, ti_fact)
   # route both the original-table queryRef and a self-named queryRef so whichever
   # form the PBIR binding used resolves to this element.
   field_map["#{orig}.#{mname}"] = ref if orig
@@ -1349,10 +1497,10 @@ conv_elements.each do |cel|
     valleaf  = base_val['name']
     valnorm  = valleaf.gsub(/\s+/, '').downcase
     all_measures.each do |t2, m2, e2|
-      next unless t2 == orig
+      next unless t2 == route_table
       enorm = e2.to_s.gsub(/\s+/, '').downcase
       agg_of_val = enorm =~ /(sum|average|avg|min|max|count|distinctcount)\([^)]*#{Regexp.escape(valnorm)}/
-      reg_alt.call("#{orig}.#{m2}", valleaf) if agg_of_val || m2 == valleaf
+      reg_alt.call("#{route_table}.#{m2}", valleaf) if agg_of_val || m2 == valleaf
     end
   end
   # The grouped element carries period dimension column(s) (Year and/or Month).
@@ -1361,7 +1509,7 @@ conv_elements.each do |cel|
   # date-dim queryRef forms (the calc-table date dim is the usual binding source).
   period_cols.each do |pc|
     %w[DATE_DIM DimDate DimMonth Date].each { |dt| reg_alt.call("#{dt}.#{pc['name']}", pc['name']) }
-    reg_alt.call("#{orig}.#{pc['name']}", pc['name'])
+    reg_alt.call("#{route_table}.#{pc['name']}", pc['name'])
   end
 end
 
@@ -1372,18 +1520,11 @@ end
 # the chart binds, but no field_map entry -> source:{} -> POST fails. Route every
 # remaining time-intel-shaped measure to the best-matching time-intel column.
 if ti_elements.any?
-  ti_re = /\b(SAMEPERIODLASTYEAR|TOTALYTD|TOTALQTD|TOTALMTD|DATESYTD|DATEADD|PARALLELPERIOD|PREVIOUSYEAR|PREVIOUSMONTH|PREVIOUSQUARTER)\b/i
   all_measures.each do |tbl, mname, expr|
     next if field_map.key?("#{tbl}.#{mname}")
-    e = expr.to_s
     # time-intel-shaped: a DAX time-intel function, OR a YoY/growth name, OR a
     # hand-rolled MAX(...)/ALL(...) prior-year ratio.
-    shape =
-      if e =~ ti_re then :generic
-      elsif mname =~ /YoY|Y\/Y|growth/i || e =~ /ALL\s*\([^)]*\[Year\]/i then :yoy
-      elsif mname =~ /\bYTD\b/i then :ytd
-      elsif mname =~ /\b(PY|Prior Year|Last Year|LY)\b/i then :prior
-      end
+    shape = PbiTimeIntelRoute.measure_shape(mname, expr)
     next unless shape
     # choose a target column across the emitted time-intel elements — but ONLY
     # those built from THIS measure's own fact. Cross-fact borrowing produced
@@ -1442,7 +1583,7 @@ all_visuals.flat_map { |v| (v['bindings'] || {}).values.flatten }.uniq.each do |
   end
 end
 
-# PBI-friendly-entity aliases (beads-sigma-<1b>): a key "VW_SALES.Amount" is
+# PBI-friendly-entity aliases ([bead]): a key "VW_SALES.Amount" is
 # ALSO reachable as "Sales.Amount" — the form PBIR visuals actually use. This
 # is why granted dim NAME columns dropped: the DM element is named after the physical
 # view ("vw_sales") but the visual binds under the friendly entity, and field_spec's
@@ -1562,7 +1703,7 @@ rescue StandardError
 end
 
 # ---------------------------------------------------------------------------
-# MIGRATION COVERAGE REPORT — what carried over, and what didn't (bead beads-sigma-cov).
+# MIGRATION COVERAGE REPORT — what carried over, and what didn't ().
 # The build warns loudly at each drop site, but on a complex report those warnings
 # scatter through the log; this aggregates coverage.json into ONE readout and, for
 # RECOVERABLE gaps, an explicit assistance prompt so nothing is "silently dropped".
@@ -1676,7 +1817,8 @@ begin
   vqa = File.join(WORK, 'visual-qa')
   FileUtils.mkdir_p(vqa)
   local_spec = (JSON.parse(File.read(wb_spec)) rescue {})
-  content_pages_qa = (local_spec['pages'] || []).reject { |p| p['id'].to_s.downcase.include?('data') }
+  local_doc = Sigma::CodeRep.document(local_spec)
+  content_pages_qa = (local_doc['pages'] || []).reject { |p| p['id'].to_s.downcase.include?('data') }
   tok = (Sigma.auth_token rescue ENV['SIGMA_API_TOKEN'])
   pngs = []
   content_pages_qa.each do |pg|
@@ -1739,8 +1881,10 @@ end
 cols = (Sigma.request(:get, "/v2/workbooks/#{wb_id}/columns") rescue { 'entries' => [] })
 err_cols = (cols['entries'] || []).select { |c| c.dig('type', 'type') == 'error' }
 total_cols = (cols['entries'] || []).size
-chart_pages = wb_rb['pages'].reject { |p| p['id'] == 'page-data' }
-chart_els = chart_pages.flat_map { |p| (p['elements'] || []) }
+wb_pairs = Sigma::CodeRep.workbook_elements_with_pages(wb_rb)
+chart_pairs = wb_pairs.select { |_el, page| page && page['id'] != 'page-data' }
+chart_els = chart_pairs.map(&:first)
+chart_pages = chart_pairs.filter_map { |_el, page| page['id'] }.uniq
 
 # (2) warehouse-vs-snapshot compare (bead fmte). For every table the preflight
 # snapshotted, export the matching Data-page master element (Sigma = LIVE
@@ -1771,9 +1915,9 @@ export_rows = lambda do |element_id|
 end
 
 fresh_classes = []
-data_page = wb_rb['pages'].find { |p| p['id'] == 'page-data' } ||
-            wb_rb['pages'].find { |p| p['name'].to_s =~ /data/i }
-data_els = data_page ? (data_page['elements'] || []) : []
+data_els = wb_pairs.select do |_el, page|
+  page && (page['id'] == 'page-data' || page['name'].to_s =~ /data/i)
+end.map(&:first)
 (freshness['snapshot'] || {}).each do |table, snap|
   pbi_rows = snap['rows']
   next if pbi_rows.nil?
@@ -1871,6 +2015,7 @@ begin
   require_relative 'lib/pbi_flip'
   require_relative 'lib/control_lint'
   require_relative 'lib/flip_gate'
+  require_relative 'lib/code_rep'
 rescue LoadError => e
   _flip_libs = false
   warn "   [WARN] Phase 6b: #{e.message} — re-vendor scripts/lib (SHA-1 discipline); control flip UNVERIFIED"
@@ -1894,7 +2039,16 @@ else
         _spec = (YAML.safe_load(_spec, permitted_classes: [Date, Time]) rescue nil)
       end
     end
-    n_controls = ControlLint.controls_report(_spec).length if _spec.is_a?(Hash)
+    if _spec.is_a?(Hash)
+      # Workbook code-rep GETs nest pages/schemaVersion under a top-level
+      # `document` key (live since 2026-08); ControlLint.controls_report
+      # expects a flat spec['pages'] (same "unwrap at the caller, not in the
+      # lib" contract as the other ControlLint callers) — a bare _spec here
+      # would always report 0 controls, silently skipping the runtime
+      # control-flip proof instead of running it.
+      _spec = Sigma::CodeRep.metadata(_spec).merge(Sigma::CodeRep.document(_spec))
+      n_controls = ControlLint.controls_report(_spec).length
+    end
   rescue StandardError => e
     warn "   [WARN] Phase 6b: could not fetch/parse the live spec to count controls (#{e.message})"
   end
@@ -1976,13 +2130,41 @@ elsif opts[:enhance]
   if !e_st.success?
     enhance_line = 'scan FAILED (migration itself passed parity; see output above)'
   elsif opts[:enhance_accept].nil?
-    cands = (JSON.parse(File.read(enh_path))['candidates'] rescue [])
+    enh_doc = (JSON.parse(File.read(enh_path)) rescue {})
+    cands = enh_doc['candidates'] || []
+    app_options = enh_doc['app_options'] || []
     puts
     puts '==================== PHASE E PROPOSALS (acceptance required) ===================='
-    puts "#{cands.size} enhancement candidate(s) in #{enh_path}. NOTHING has been applied —"
-    puts 'present each candidate to the human (interactive: one AskUserQuestion checklist),'
-    puts 'then re-run this exact command adding:'
-    puts "  --enhance --enhance-accept <id,id,...>   # or: --enhance-accept all-low-risk"
+    puts "#{cands.size} enhancement candidate(s) in #{enh_path}. NOTHING has been applied."
+    if app_options.empty?
+      puts 'present each candidate to the human (interactive: one AskUserQuestion checklist),'
+      puts 'then re-run this exact command adding:'
+      puts '  --enhance --enhance-accept <id,id,...>   # or: --enhance-accept all-low-risk'
+    else
+      puts
+      puts 'RUN THE DESIGN INTERVIEW FIRST — ask what the app should BE, not which'
+      puts 'patches to apply. Options below are derived from this source\'s own data'
+      puts '(see refs/phase-e-enhance.md -> "The design interview"):'
+      app_options.each do |o|
+        detail = o['archetype'] ?
+          "#{o['archetype']} score=#{o['score']} confidence=#{o['confidence']}" :
+          o['risk'].to_s
+        puts format('  %-1s %-34s %s [%s]',
+                    o['recommended'] ? '*' : ' ', o['id'], o['label'], detail)
+        puts format('      why: %s', o['evidence'].to_s.gsub(/\s+/, ' ')[0, 96])
+      end
+      puts
+      puts 'Present these with ONE AskUserQuestion (include the parity-only choice),'
+      puts 'confirm any medium-risk item by name, then record the answer:'
+      puts "  ruby scripts/enhance-select.rb --enhancements #{enh_path} \\"
+      puts '    --option <option-id> [--confirm-medium <ids>]'
+      puts 'For an app archetype, ask editable/approval/scenario/agent choices'
+      puts 'and write app-plan.json before authoring:'
+      puts "  ruby scripts/enhance-app-plan.rb --enhancements #{enh_path} \\"
+      puts '    --option <option-id> --out <workdir>/app-plan.json'
+      puts 'then re-run this exact command adding:'
+      puts '  --enhance --enhance-accept <accepted_candidate_ids from enhance-selection.json>'
+    end
     puts '================================================================================='
     exit 14
   else

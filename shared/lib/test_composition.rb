@@ -12,6 +12,10 @@ els = [
   { id: 'hero', role: :hero }, { id: 'tbl', role: :table }
 ]
 check('exec layout matches golden') { Composition.compose(els, pattern: :exec).strip == golden }
+check('composition emits only canonical Element leaves') do
+  out = Composition.compose(els, pattern: :exec)
+  out.include?('<Element ') && !out.match?(/LayoutElement|GridContainer/)
+end
 check('kpi band widths sum to 24 (4 KPIs -> 6 each)') do
   Composition.compose(els, pattern: :exec).include?('gridColumn="1 / 7"') &&
     Composition.compose(els, pattern: :exec).include?('gridColumn="19 / 25"')
@@ -117,7 +121,7 @@ check('overview: full-stack compose(pattern: :overview) matches golden') do
 end
 check('overview: unused bands are skipped, not emitted empty') do
   out = Composition.compose([{ id: 'tr', role: :trend }], pattern: :overview)
-  out.strip == '<LayoutElement elementId="tr" gridColumn="1 / 25" gridRow="1 / 13"/>'
+  out.strip == '<Element elementId="tr" gridColumn="1 / 25" gridRow="1 / 13"/>'
 end
 check(':master passed to :overview raises (role not consumed by pattern)') do
   begin
@@ -143,8 +147,8 @@ check('regression: :master_detail golden still matches after adding :overview') 
 end
 
 # tabbed_container — labels-only element; <Tab> children map to tabs[] by
-# position; bare <LayoutElement> children only inside a <Tab> (a nested
-# GridContainer scrambles tab render order).
+# position; bare <Element> children only inside a <Tab> (a nested
+# Container scrambles tab render order).
 tabbed_golden = JSON.parse(File.read(File.join(__dir__, 'testdata', 'composition_tabbed_golden.json')))
 tabbed_tabs = [
   { name: 'Overview', inner: Composition.le('a1', 1, 25, 1, 7) },

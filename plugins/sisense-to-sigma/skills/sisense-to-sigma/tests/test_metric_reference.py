@@ -40,7 +40,8 @@ def fact_of(spec):
 def measure_formulas(dm_metrics):
     dm_info = {"dataModelId": "dm-x", "factElementId": FACT_ID, "factName": "Commerce"}
     wb, _ = C.convert_dashboard(LIVE, MODEL, dm_info, dm_metrics=dm_metrics)
-    cols = [c for pg in wb["pages"] for el in pg["elements"] for c in el.get("columns", [])]
+    cols = [c for el in C.code_rep.workbook_elements(wb)
+            for c in el.get("columns", [])]
     return [str(c["formula"]) for c in cols]
 
 

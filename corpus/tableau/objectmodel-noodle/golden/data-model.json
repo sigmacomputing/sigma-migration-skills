@@ -277,7 +277,7 @@
               {
                 "id": "id0033",
                 "formula": "Sum([Visit Revenue])",
-                "name": "VISIT_REVENUE"
+                "name": "Total VISIT_REVENUE"
               }
             ]
           },
@@ -402,8 +402,8 @@
     "ℹ Relationship FACT_VISITS → ENTITLEMENTS wired on 1 physical key(s).",
     "⚠ Tableau performance-option hints (unique-key) mark the SOURCE side unique on 4 oriented edge(s): FACT_VISITS→DIM_DATES, FACT_VISITS→DIM_SITES, FACT_VISITS→DIM_PROVIDERS, FACT_VISITS→ENTITLEMENTS. As oriented these would be one-to-many, which a Sigma relationship cannot express (many-to-one left join into a unique target) — the hints are often db-derived or stale, so VERIFY each edge's direction and target uniqueness; model a genuinely one-to-many edge as a join element instead.",
     "🔐 Entitlement-table RLS pattern DETECTED: \"ENTITLEMENTS\" (identity column [User Email]; an identity-shaped column plus a datasource filter on this table) (table name also reads entitlement-like — low-confidence hint only) — reported in result.security as kind \"rls-entitlement-table\"; NOT applied. Until the RLS checkpoint decision the ENTITLEMENTS relationship is an UNCONSTRAINED live join (restriction dropped + fan-out risk).",
-    "⚠ LOD \"Monthly Revenue\" (FIXED) groups by a dimension-table column (cross-table grain) — not auto-wired yet. Create a Custom SQL element in Sigma with:\n    SELECT __d0.DATE_MONTH AS DATE_MONTH, SUM(__f.VISIT_REVENUE) AS MONTHLY_REVENUE\n    FROM ANALYTICS.PUBLIC.FACT_VISITS __f\n    LEFT JOIN ANALYTICS.PUBLIC.DIM_DATES __d0 ON __f.DATE_KEY = __d0.DATE_KEY\n    GROUP BY 1\n  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: beads-sigma-hnx0.)",
-    "⚠ LOD \"Site Revenue\" (FIXED) groups by a dimension-table column (cross-table grain) — not auto-wired yet. Create a Custom SQL element in Sigma with:\n    SELECT __d0.SITE_NAME AS SITE_NAME, SUM(__f.VISIT_REVENUE) AS SITE_REVENUE\n    FROM ANALYTICS.PUBLIC.FACT_VISITS __f\n    LEFT JOIN ANALYTICS.PUBLIC.DIM_SITES __d0 ON __f.SITE_KEY = __d0.SITE_KEY\n    GROUP BY 1\n  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: beads-sigma-hnx0.)",
+    "⚠ LOD \"Monthly Revenue\" (FIXED) groups by a dimension-table column (cross-table grain) — not auto-wired yet. Create a Custom SQL element in Sigma with:\n    SELECT __d0.DATE_MONTH AS DATE_MONTH, SUM(__f.VISIT_REVENUE) AS MONTHLY_REVENUE\n    FROM ANALYTICS.PUBLIC.FACT_VISITS __f\n    LEFT JOIN ANALYTICS.PUBLIC.DIM_DATES __d0 ON __f.DATE_KEY = __d0.DATE_KEY\n    GROUP BY 1\n  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: [bead].)",
+    "⚠ LOD \"Site Revenue\" (FIXED) groups by a dimension-table column (cross-table grain) — not auto-wired yet. Create a Custom SQL element in Sigma with:\n    SELECT __d0.SITE_NAME AS SITE_NAME, SUM(__f.VISIT_REVENUE) AS SITE_REVENUE\n    FROM ANALYTICS.PUBLIC.FACT_VISITS __f\n    LEFT JOIN ANALYTICS.PUBLIC.DIM_SITES __d0 ON __f.SITE_KEY = __d0.SITE_KEY\n    GROUP BY 1\n  then relate it back to the base on the grouping column(s). (Auto-wiring tracked: [bead].)",
     "⚠ Set \"Top Sites\": ranking key [SITE NAME] lives on related element \"DIM_SITES\", not the fact — a single-table Top-N helper would SELECT it FROM the wrong table. Skipped: author the Top-N as a grouped Custom SQL element joining fact→dim on the relationship key, then relate it back to the fact.",
     "ℹ Reconciled 1 calc-formula field reference(s) to their SQL-alias column names (caption↔alias) on \"FACT_VISITS\".",
     "ℹ Parameter \"Top N Sites\" → number-range control (workbook current value 5 — range domain, no single-value default applied)",

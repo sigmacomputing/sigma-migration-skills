@@ -78,7 +78,7 @@ Dir.mktmpdir do |d|
 
   ok('NO dot-bracket literal ref anywhere in the spec', raw !~ %r{\[[^\]/"]*\.[^\]"]*\]})
 
-  content_els = spec['pages'].flat_map { |p| p['elements'] }.reject { |e| e['visibleAsSource'] == false }
+  content_els = spec.dig('document', 'elements').reject { |e| e['visibleAsSource'] == false }
   bad_dangle = content_els.flat_map { |e| dangling_ids(e).map { |id| "#{e['id']}:#{id}" } }
   ok('NO dangling column-id reference in any element', bad_dangle.empty? || (puts("    dangling: #{bad_dangle.inspect}") && false))
 

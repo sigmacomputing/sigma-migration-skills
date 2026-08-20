@@ -107,35 +107,38 @@ if !opts[:finalize]
   abort('--workbook-id required for pass 1') unless opts[:wb]
   $LOAD_PATH.unshift File.expand_path('lib', __dir__)
   require 'sigma_rest'
+  require 'code_rep'
 
   warn "Parity PASS 1: reading workbook spec #{opts[:wb]}"
   # binary:true returns the raw body — the spec endpoint answers in YAML even
   # when asked for JSON, so parse both.
   raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
-  spec = parse_spec(raw)
+  # Live GET now nests non-metadata fields under `document` (verified 2026-08-03/04);
+  # unwrap so both this pass's flat `spec['pages']` read below and the on-disk
+  # wb-readback.json stay the flat shape this script (and any downstream reader)
+  # expects.
+  spec = Sigma::CodeRep.document(parse_spec(raw))
   File.write(File.join(opts[:dir], 'wb-readback.json'), JSON.pretty_generate(spec))
 
   charts = []
   flagged = []
-  Array(spec['pages']).each do |page|
-    Array(page['elements']).each do |el|
-      plannable = el['kind'].to_s.end_with?('-chart') ||
-                  (%w[table pivot-table].include?(el['kind'].to_s) && el['id'].to_s != 'm-ofv')
-      next unless plannable
-      if el['name'].to_s.include?('[FLAGGED')
-        # flag-not-drop tile (window formula, bead 5d9k): present in the workbook,
-        # excluded from value parity, surfaced in the summary as flagged.
-        flagged << { 'chart' => el['name'], 'sigma_element_id' => el['id'], 'kind' => el['kind'] }
-        next
-      end
-      pairs = chart_columns(el)
-      next unless pairs
-      charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
-                  'kind' => el['kind'],
-                  'sigma_columns' => pairs.compact.map { |id_name| id_name[1] },
-                  'sigma_column_ids' => pairs.compact.map { |id_name| id_name[0] },
-                  'workbook_id' => opts[:wb] }
+  Sigma::CodeRep.workbook_elements(spec).each do |el|
+    plannable = el['kind'].to_s.end_with?('-chart') ||
+                (%w[table pivot-table].include?(el['kind'].to_s) && el['id'].to_s != 'm-ofv')
+    next unless plannable
+    if el['name'].to_s.include?('[FLAGGED')
+      # flag-not-drop tile (window formula, bead 5d9k): present in the workbook,
+      # excluded from value parity, surfaced in the summary as flagged.
+      flagged << { 'chart' => el['name'], 'sigma_element_id' => el['id'], 'kind' => el['kind'] }
+      next
     end
+    pairs = chart_columns(el)
+    next unless pairs
+    charts << { 'chart' => el['name'], 'sigma_element_id' => el['id'],
+                'kind' => el['kind'],
+                'sigma_columns' => pairs.compact.map { |id_name| id_name[1] },
+                'sigma_column_ids' => pairs.compact.map { |id_name| id_name[0] },
+                'workbook_id' => opts[:wb] }
   end
   abort('no plannable chart elements found in the workbook spec') if charts.empty?
 
@@ -205,7 +208,7 @@ warn err unless err.empty?
 File.write(File.join(opts[:dir], 'parity-final.txt'), out)
 
 # Hard-gate sentinel consumed by assert-phase6-ran.rb (same contract as the
-# tableau-to-sigma Phase 6 sentinel — see beads-sigma-4pm for why it exists).
+# tableau-to-sigma Phase 6 sentinel — see [bead] for why it exists).
 total  = plan['charts'].size
 passed = out.scan(/^PASS\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)
 failed = out.scan(/^DIVERGE\s+\[[^\]]+\]\s+(.+)$/).flatten.map(&:strip)

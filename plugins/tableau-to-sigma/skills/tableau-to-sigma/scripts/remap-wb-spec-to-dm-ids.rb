@@ -26,6 +26,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workbook_code'
 
 opts = { renames: {} }
 OptionParser.new do |p|
@@ -71,19 +72,17 @@ spec = JSON.parse(File.read(opts[:spec]))
 #    references that POST 4xx with "data model not found".
 n_src = 0
 n_dm  = 0
-(spec['pages'] || []).each do |pg|
-  (pg['elements'] || []).each do |el|
-    src = el['source']
-    next unless src.is_a?(Hash)
-    if (eid = src['elementId']) && id_remap.key?(eid)
-      src['elementId'] = id_remap[eid]
-      n_src += 1
-    end
-    if (dm = src['dataModelId']) && (dm == old_dm_id || id_remap.values.include?(src['elementId']))
-      if src['dataModelId'] != new_dm_id
-        src['dataModelId'] = new_dm_id
-        n_dm += 1
-      end
+WorkbookCode.elements(spec).each do |element|
+  src = element['source']
+  next unless src.is_a?(Hash)
+  if (eid = src['elementId']) && id_remap.key?(eid)
+    src['elementId'] = id_remap[eid]
+    n_src += 1
+  end
+  if (dm = src['dataModelId']) && (dm == old_dm_id || id_remap.values.include?(src['elementId']))
+    if src['dataModelId'] != new_dm_id
+      src['dataModelId'] = new_dm_id
+      n_dm += 1
     end
   end
 end

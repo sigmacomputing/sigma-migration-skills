@@ -79,14 +79,21 @@ def export_posts(log)
 end
 
 def write_spec(path, version)
+  elements = [
+    { 'id' => 'el-anchor', 'name' => 'Top Accounts', 'kind' => 'table',
+      'columns' => [{ 'id' => 'c-a', 'name' => 'Account' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
+    { 'id' => 'el-ok', 'name' => 'Region Chart', 'kind' => 'bar-chart',
+      'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v2', 'name' => 'Revenue' }] }
+  ]
   File.write(path, JSON.pretty_generate(
                'workbookId' => 'wb', 'latestDocumentVersion' => version,
-               'pages' => [{ 'id' => 'pg1', 'elements' => [
-                 { 'id' => 'el-anchor', 'name' => 'Top Accounts', 'kind' => 'table',
-                   'columns' => [{ 'id' => 'c-a', 'name' => 'Account' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
-                 { 'id' => 'el-ok', 'name' => 'Region Chart', 'kind' => 'bar-chart',
-                   'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v2', 'name' => 'Revenue' }] }
-               ] }]))
+               'document' => {
+                 'schemaVersion' => 4,
+                 'kind' => 'workbook',
+                 'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],
+                 'elements' => elements,
+                 'layout' => "<Page id=\"pg1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+               }))
 end
 
 def write_anchors(dir, anchors)
@@ -117,10 +124,14 @@ Dir.mktmpdir do |dir|
   log = File.join(dir, 'stub-log.jsonl')
   env = { 'STUB_SPEC' => spec_path, 'STUB_LOG' => log }
   va = File.join(SCRIPTS, 'verify-anchors.rb')
+  # This section tests cache semantics, not worker scheduling. Keep exports
+  # serial so each strict cache key is asserted deterministically; pool
+  # concurrency has dedicated coverage in test-bounded-exports.rb.
+  va_args = ['--workdir', dir, '--workbook-id', 'wb', '--timeout', '60', '--pool', '1']
 
   # Run 1 — cold cache: a1 matches, a2 misses → exit 1; both elements exported.
   write_anchors(dir, [A1, A2])
-  _o1, e1, s1 = run_stubbed(stub_dir, env, va, '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60')
+  _o1, e1, s1 = run_stubbed(stub_dir, env, va, *va_args)
   check(s1.exitstatus == 1, "run 1 (cold): a2 missing → exit 1 (got #{s1.exitstatus})", fails)
   check(export_posts(log) == 2, "run 1 exported both elements (got #{export_posts(log)})", fails)
   check(e1.include?('raw export cache active'), 'cache states itself active with the doc version', fails)
@@ -128,14 +139,14 @@ Dir.mktmpdir do |dir|
   check(cache_files.any? { |f| f =~ /\.csv(\.r\d+)?\z/ } && cache_files.any? { |f| f.end_with?('.meta.json') },
         'payload + meta sidecar written under <workdir>/export-cache/', fails)
   raw = File.read(Dir[File.join(dir, 'export-cache', 'el-anchor.csv*')].reject { |f| f.end_with?('.meta.json') }.first)
-  check(raw.start_with?('Account,Revenue'), 'cache holds the RAW wire CSV bytes', fails)
+  check(raw.start_with?('Account,Revenue'), "cache holds the RAW wire CSV bytes (got #{raw.inspect})", fails)
   check(!raw.include?('verdict') && !Dir[File.join(dir, 'export-cache', '*.meta.json')]
         .any? { |f| JSON.parse(File.read(f)).key?('pass') || JSON.parse(File.read(f)).key?('verdict') },
         'nothing verdict-shaped is stored anywhere in the cache', fails)
 
   # Run 2 — warm cache, same workbook version: ZERO exports, same verdict.
   File.write(log, '')
-  _o2, e2, s2 = run_stubbed(stub_dir, env, va, '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60')
+  _o2, e2, s2 = run_stubbed(stub_dir, env, va, *va_args)
   check(s2.exitstatus == 1, "run 2 (warm): verdict recomputed → still exit 1 (got #{s2.exitstatus})", fails)
   check(export_posts(log).zero?, "run 2 made ZERO export POSTs (got #{export_posts(log)})", fails)
   check(e2.include?('CACHED') && e2.include?('verdicts recomputed'),
@@ -149,7 +160,7 @@ Dir.mktmpdir do |dir|
   # recorded RAW bytes with still ZERO wire exports.
   write_anchors(dir, [A1, A2, A3])
   File.write(log, '')
-  _o3, _e3, s3 = run_stubbed(stub_dir, env, va, '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60')
+  _o3, _e3, s3 = run_stubbed(stub_dir, env, va, *va_args)
   vd3 = JSON.parse(File.read(File.join(dir, 'anchors-verdict.json')))
   check(s3.exitstatus == 1 && vd3['checked'] == 3 && vd3['matched'] == 2,
         "run 3: verdict RECOMPUTED over cached raw (3 checked, 2 matched; got #{vd3['checked']}/#{vd3['matched']})", fails)
@@ -159,7 +170,7 @@ Dir.mktmpdir do |dir|
   # cache must refuse the stale payloads and re-export everything.
   write_spec(spec_path, 6)
   File.write(log, '')
-  _o4, e4, s4 = run_stubbed(stub_dir, env, va, '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60')
+  _o4, e4, s4 = run_stubbed(stub_dir, env, va, *va_args)
   check(s4.exitstatus == 1, "run 4 (bumped version) still verdicts honestly (got #{s4.exitstatus})", fails)
   check(export_posts(log) == 2, "run 4 re-exported both elements after the version bump (got #{export_posts(log)})", fails)
   check(e4.include?('doc v6'), 'cache re-keys to the new document version', fails)
@@ -240,7 +251,7 @@ Dir.mktmpdir do |dir|
   # Script 1: verify-anchors exports BOTH elements at the shared default limit.
   write_anchors(dir, [A1, A3]) # both match → exit 0
   _o1, _e1, s1 = run_stubbed(stub_dir, env, File.join(SCRIPTS, 'verify-anchors.rb'),
-                             '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60')
+                             '--workdir', dir, '--workbook-id', 'wb', '--timeout', '60', '--pool', '1')
   check(s1.exitstatus.zero?, "verify-anchors run exits 0 (got #{s1.exitstatus})", fails)
   check(export_posts(log) == 2, "verify-anchors exported both elements (got #{export_posts(log)})", fails)
   check(Dir[File.join(dir, 'export-cache', 'el-ok.csv.r100000*')].any?,
@@ -262,8 +273,9 @@ Dir.mktmpdir do |dir|
   check(s2.exitstatus.zero?, "collect-parity-actuals exits 0 (got #{s2.exitstatus})", fails)
   check(export_posts(log).zero?,
         "collect-parity-actuals re-used verify-anchors' export — ZERO export POSTs (got #{export_posts(log)})", fails)
-  check(JSON.parse(File.read(out_path))['Region Chart'] == [['East', 100.0], ['West', 200.0]],
-        'actuals recomputed from the cross-script cached raw bytes', fails)
+  cached_actuals = JSON.parse(File.read(out_path))['Region Chart']
+  check(cached_actuals == [['East', 100.0], ['West', 200.0]],
+        "actuals recomputed from the cross-script cached raw bytes (got #{cached_actuals.inspect})", fails)
 end
 
 # ============================================================================
@@ -499,8 +511,14 @@ GT_POOL_STUB = <<~'RUBY'
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['GTP_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
       if method == :post && path == '/v2/workbooks/spec'
-        spec = JSON.parse(body)
-        n_els = spec['pages'][0]['elements'].length
+        posted = JSON.parse(body)
+        # Task 3.2: pooled_sql_probe now nests the workbook document under a
+        # top-level `document` key (the live surface 400s on the old flat
+        # body), with current writes flattening elements into
+        # document.elements. run-ground-truth.rb's own SERIAL per-entry probe
+        # POST can still use the legacy nested-page shape, so tolerate both.
+        doc = posted['document'] || posted
+        n_els = (doc['elements'] || (doc['pages'] || []).flat_map { |page| page['elements'] || [] }).length
         raise Error, 'stub: HTTP 502 pooled spec POST refused' if n_els > 1 && ENV['GTP_POOL_SPEC_FAIL'] == '1'
         n = File.exist?(ENV['GTP_SEQ']) ? File.read(ENV['GTP_SEQ']).to_i + 1 : 1
         File.write(ENV['GTP_SEQ'], n.to_s)
@@ -799,7 +817,13 @@ def pc_spec(path, with_unlabeled: false)
   end
   File.write(path, JSON.pretty_generate(
                'workbookId' => 'wb', 'latestDocumentVersion' => 5,
-               'pages' => [{ 'id' => 'p1', 'name' => 'p1', 'elements' => elements }]))
+               'document' => {
+                 'schemaVersion' => 4,
+                 'kind' => 'workbook',
+                 'pages' => [{ 'id' => 'p1', 'name' => 'p1' }],
+                 'elements' => elements,
+                 'layout' => "<Page id=\"p1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+               }))
 end
 
 def pc_export_posts(log)
@@ -936,6 +960,7 @@ Dir.mktmpdir do |dir|
   Dir.mkdir(File.join(fb_dir, 'lib'))
   FileUtils.cp(PC_SCRIPT, File.join(fb_dir, 'probe-controls.rb'))
   FileUtils.cp(File.join(SCRIPTS, 'lib', 'control_lint.rb'), File.join(fb_dir, 'lib', 'control_lint.rb'))
+  FileUtils.cp(File.join(SCRIPTS, 'lib', 'code_rep.rb'), File.join(fb_dir, 'lib', 'code_rep.rb'))
   # deliberately NO lib/export_pool.rb — the domo manifest shape
   spec_path = File.join(dir, 'pc-spec.json')
   pc_spec(spec_path)

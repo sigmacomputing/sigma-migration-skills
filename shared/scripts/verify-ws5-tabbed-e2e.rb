@@ -19,8 +19,8 @@
 # ENV['SIGMA_TEST_CONNECTION_ID'] via a small deterministic custom-SQL demo
 # dataset (same shape discipline as verify-ws4-e2e.rb's DEMO_SQL — no
 # customer/personal/company names). Each tab's `inner` layout is built with
-# Composition.band/Composition.le (bare LayoutElements — no nested
-# GridContainer inside a <Tab>, per the verified gotcha).
+# Composition.band/Composition.le (bare Elements — no nested
+# Container inside a <Tab>, per the verified gotcha).
 #
 # Usage:  ruby shared/scripts/verify-ws5-tabbed-e2e.rb
 # Env (ALL from ENV; this script NEVER hardcodes a connection/org/workbook id
@@ -45,6 +45,7 @@ require 'tmpdir'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sigma_rest'
 require 'composition'
+require 'code_rep'
 
 def log(msg)
   $stderr.puts("[verify-ws5-tabbed-e2e] #{msg}")
@@ -127,7 +128,8 @@ def reference_schema_version
     wid = w['workbookId'] || w['id']
     next unless wid
     spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
-    return spec['schemaVersion'] if spec.is_a?(Hash) && spec['schemaVersion']
+    doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
+    return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
@@ -188,7 +190,7 @@ def build_spec(home, schema_version)
                 'stacking' => 'none' }
 
   # ==== SURFACE under test: Composition.tabbed_container ===================
-  # Composition.band returns an Array of <LayoutElement> lines — join into
+  # Composition.band returns an Array of <Element> lines — join into
   # the single XML string `inner` expects (a tab holding more than one band
   # would join multiple band() calls the same way).
   tabbed = Composition.tabbed_container(
@@ -204,25 +206,27 @@ def build_spec(home, schema_version)
     <?xml version="1.0" encoding="utf-8"?>
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PG_MAIN}">
     #{tabbed[:layout]}
+      <Element elementId="#{SRC_ID}" gridColumn="1 / 25" gridRow="24 / 34"/>
     </Page>
   XML
 
-  {
-    'name' => "WS5 tabbed-container probe — E2E proof (#{RUN_TAG})",
-    'folderId' => home,
+  doc = {
     'schemaVersion' => schema_version,
-    'description' => 'Live GO/NO-GO proof of WS5 Composition.tabbed_container: a 2-tab ' \
-                      'tabbed-container (table tab, bar-chart tab) sourced from one base table. ' \
-                      'Throwaway test artifact.',
-    'pages' => [
-      { 'id' => PG_MAIN, 'name' => 'Overview',
-        'elements' => [src, tab_table, tab_chart, tabbed[:element]] }
-    ],
-    # layout is a single WORKBOOK-TOP-LEVEL field (sibling of `pages`) — see
+    'kind' => 'workbook', # PATCHED for live probe: current contract requires document.kind
+    'pages' => [{ 'id' => PG_MAIN, 'name' => 'Overview' }],
+    'elements' => [src, tab_table, tab_chart, tabbed[:element]],
+    # layout is a single document field (sibling of `pages` and `elements`) — see
     # verify-ws4-e2e.rb's comment on this same discovery; a per-page `layout`
     # key is silently ignored and replaced by Sigma's own auto-arrange.
     'layout' => pg_main_layout
   }
+  Sigma::CodeRep.wrap(doc, extra: {
+    'name' => "WS5 tabbed-container probe — E2E proof (#{RUN_TAG})",
+    'folderId' => home,
+    'description' => 'Live GO/NO-GO proof of WS5 Composition.tabbed_container: a 2-tab ' \
+                     'tabbed-container (table tab, bar-chart tab) sourced from one base table. ' \
+                     'Throwaway test artifact.'
+  })
 end
 
 # ---------------------------------------------------------------------------
@@ -247,7 +251,8 @@ begin
 
   # --- structural (GET) readback ------------------------------------------
   spec_back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
-  els = spec_back['pages'].flat_map { |p| p['elements'] || [] }
+  spec_back = Sigma::CodeRep.document(spec_back)
+  els = Sigma::CodeRep.workbook_elements(spec_back)
   find_el = ->(id) { els.find { |e| e['id'] == id } }
 
   tc_back    = find_el.call(TC_ID)

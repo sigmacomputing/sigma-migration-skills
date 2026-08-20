@@ -39,6 +39,7 @@
 
 require 'json'
 require 'open3'
+require 'set'
 require 'tmpdir'
 
 VENDORED = File.expand_path('../converter/tableau.mjs', __dir__)
@@ -220,7 +221,7 @@ DIM_FIRST_RELS = [
 FACT_FIRST_RELS = DIM_FIRST_RELS.map { |f, s, k| [s, f, k.map(&:reverse)] }.freeze
 
 # ---------------------------------------------------------------------------
-# Role-played date-dimension fixtures (wave-3 R3-1 parity killer): one
+# Role-played date-dimension fixtures (a later wave R3-1 parity killer): one
 # physical DIM_DATES role-played as Admit/Discharge/Followup Date. Tableau
 # serializes N <relation> entries sharing one physical table attr; the
 # <object-graph> object CAPTION is the role name and the metadata object-ids
@@ -463,6 +464,7 @@ DRIVER = <<~JS
         kind: e.source && e.source.kind,
         colIds: (e.columns || []).map((c) => c.id),
         colDefs: (e.columns || []).map((c) => ({ id: c.id, name: c.name || null, formula: c.formula || null })),
+        metricDefs: (e.metrics || []).map((m) => ({ id: m.id, name: m.name || null, formula: m.formula || null })),
         columns: (e.columns || []).length,
         statement: e.source && e.source.kind === 'sql' ? e.source.statement : null,
         relationships: (e.relationships || []).map((r) => ({
@@ -535,7 +537,7 @@ check(e['warnings'].any? { |w| w =~ /lives on related element|dimension-table co
       'off-fact LOD/Top-N groupings are refused with an actionable warning', fails)
 
 puts 'Part 3 — named gaps for un-wire-able relationships; fully-wired stays quiet'
-# COMPOSED BEHAVIOR (wave/2-integration merge of #569's derivation ladder):
+# COMPOSED BEHAVIOR (an internal integration branch merge of #569's derivation ladder):
 # a keyless pair whose tables share exactly ONE key-shaped column name is no
 # longer a refuse — the ladder's name-inference rung recovers it (that IS the
 # flattened-star fix), the wire is announced with a VERIFY warning, and gate
@@ -631,7 +633,16 @@ check(names.any? { |n| n.include?('FACT_VISITS') } && names.any? { |n| n.include
 check(md['warnings'].any? { |w| w =~ /multi-element data model|Multi-datasource workbook/i },
       'multi-element build announced (nothing silently dropped)', fails)
 
-puts 'Part 8 — role-played date dimension: one element instance per role (R3-1)'
+puts 'Part 8 — auto Sum metrics never collide with sibling column names (F4)'
+auto_fact = fact_of.call(results['b-happy'])
+auto_columns = (auto_fact['colDefs'] || []).map { |column| column['name'].to_s.downcase }.to_set
+auto_metrics = auto_fact['metricDefs'] || []
+collisions = auto_metrics.select { |metric| auto_columns.include?(metric['name'].to_s.downcase) }
+check(collisions.empty?, "no fact column/metric name collisions (got #{collisions.map { |m| m['name'] }.inspect})", fails)
+check(src.scan(/name:\s*_autoMetricName\(displayName\)/).length == 2,
+      'both raw-measure auto-metric emitters use the collision-safe naming helper', fails)
+
+puts 'Part 9 — role-played date dimension: one element instance per role (R3-1)'
 rp = results['roleplay']
 insts = rp['elements'].select { |e| e['name'].to_s =~ /\ADIM_DATES \((Admit|Discharge|Followup) Date\)\z/ }
 check(insts.size == 3,

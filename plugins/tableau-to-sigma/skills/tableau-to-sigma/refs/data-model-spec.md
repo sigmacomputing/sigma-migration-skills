@@ -57,7 +57,12 @@ The prefix in a column formula is the **last segment of the `path` array**, exac
 
 ## Element shape (Custom SQL)
 
-Use a Custom SQL element whenever the source data is a SQL query — including any Tableau workbook that uses Custom SQL **and** any DM that needs window aggregates (`SUM() OVER`, `RANK()`, `RUNNING_SUM`, etc.) which Sigma's calc-column functions cannot express.
+Use a Custom SQL element when preserving the source semantics requires a SQL
+query—for example, a vendor-specific operation or a manual window residue that
+Sigma's model cannot express. A Tableau Custom SQL block is not by itself a
+reason to embed the SQL in the target model: prefer physical
+`warehouse-table` elements plus relationships/calc columns when they can
+represent the query exactly and an equivalence probe confirms the rewrite.
 
 ```json
 {
@@ -93,14 +98,27 @@ Use a Custom SQL element whenever the source data is a SQL query — including a
 ### When to use a Custom SQL element vs a warehouse-table element
 
 Use a Custom SQL element when:
-- The Tableau source workbook uses Custom SQL (detected by `extract-custom-sql.rb` in Phase 1f).
-- The DM needs **window aggregates** (`SUM() OVER`, `RANK()`, `ROW_NUMBER()`, `LAG/LEAD`, etc.). Sigma's calc-column window functions (`SumOver`, `RankOver`, `CumulativeSum`, etc.) silently produce `error` type columns and the chart that references them renders blank. The validator hard-fails on these — see `scripts/validate-spec.rb`.
+- Tableau Custom SQL contains semantics that cannot be represented faithfully
+  with warehouse tables, relationships, filters, and Sigma calc columns.
+- The migration has a **manual window residue** that the chart-formula
+  translator cannot express and therefore needs warehouse SQL (`SUM() OVER`,
+  `RANK()`, `ROW_NUMBER()`, `LAG/LEAD`, etc.). Do not put window functions in
+  DM calc columns; see `refs/window-functions.md` for the mainstream family
+  emitted directly on charts.
 - The DM needs **LOD-equivalent pre-aggregation**. Tableau `{FIXED [Dim] : SUM([X])}` becomes `SUM(X) OVER (PARTITION BY Dim)` in the Custom SQL or a pre-aggregated subquery joined back.
 - The customer's data model is already SQL-shaped in Tableau (CTEs, joins, derived columns) and breaking it apart into raw warehouse tables would lose semantics.
 
-Use a `warehouse-table` element when the source is a single physical table and all derived columns can be expressed as Sigma calc columns (scalar `If`/`Case`/`Lookup`/etc. — no window aggregates).
+Use `warehouse-table` elements when the source tables are discoverable and the
+SQL's joins, predicates, projections, and scalar derivations can be reproduced
+without changing row grain or values. This is the maintainable default, not a
+license to drop SQL behavior. Rewriting Custom SQL into tables is a structural
+semantic edit: record both forms and pass `scripts/probe-equivalence.rb` before
+shipping. A failed or unavailable proof means preserve the SQL for parity.
 
-You can mix both kinds of elements in the same DM. A common pattern: warehouse-table elements for the dimension tables (Customer Dim, Product Dim, Date Dim), Custom SQL element for the fact table when it needs window aggregates.
+You can mix both kinds of elements in the same DM. A common pattern is
+warehouse-table elements for dimensions and the ordinary fact, plus a narrowly
+scoped Custom SQL helper only for a manual residue that cannot run as a native
+chart formula.
 
 ### Tableau Custom SQL → Sigma SQL — common rewrites
 

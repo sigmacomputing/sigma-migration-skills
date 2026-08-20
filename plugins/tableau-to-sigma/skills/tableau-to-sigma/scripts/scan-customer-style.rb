@@ -30,6 +30,7 @@ require 'net/http'
 require 'uri'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/workbook_code'
 
 opts = { sample: 20, sort: 'updatedAt:desc', keep_raw: false }
 OptionParser.new do |p|
@@ -137,6 +138,10 @@ wb_ids.each_with_index do |wb_id, i|
   rescue JSON::ParserError
     YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   end
+  # Workbook code-rep GETs nest schemaVersion/pages under `document` (live
+  # since 2026-08) — bare spec['schemaVersion']/spec['pages'] reads here were
+  # always nil/empty, so every workbook silently scanned as 0 pages/elements.
+  spec = Sigma::CodeRep.metadata(spec).merge(WorkbookCode.document(spec))
   File.write(File.join(opts[:out_dir], 'raw-specs', "#{wb_id}.yaml"), spec.to_yaml) if opts[:keep_raw]
 
   profile['sample_size'] += 1
@@ -146,7 +151,7 @@ wb_ids.each_with_index do |wb_id, i|
 
   wb_charts = 0
   pages.each do |page|
-    els = page['elements'] || []
+    els = WorkbookCode.elements_for_page(spec, page)
     chart_els = els.select { |e| e['kind'] && e['kind'] != 'text' && e['kind'] != 'container' }
     profile['elements_per_page'] << chart_els.size
     controls_count = els.count { |e| e['kind'] == 'control' || e['kind'].to_s.start_with?('control-') }

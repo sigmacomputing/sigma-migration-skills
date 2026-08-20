@@ -40,6 +40,8 @@
 # Usage:
 #   ruby assert-wb-refs-resolve.rb --wb-spec <spec.json> \
 #     ( --dm-ids <dm-ids.json> | --dm-id <dataModelId> ) \
+#     [--metrics <metrics.json>]  # optional explicit DM metrics census;
+#                                 # auto-loads beside --dm-ids when present
 #     [--workdir DIR]             # workdir for the off-ramp trail (the
 #                                 # orchestrator passes it; a waived run
 #                                 # records itself to offramps.jsonl)
@@ -60,6 +62,7 @@ OptionParser.new do |p|
   p.on('--wb-spec PATH')  { |v| opts[:spec] = v }
   p.on('--dm-ids PATH')   { |v| opts[:dm_ids] = v }
   p.on('--dm-id ID')      { |v| opts[:dm_id] = v }
+  p.on('--metrics PATH', 'DM metrics census for [Metrics/<name>] references') { |v| opts[:metrics] = v }
   p.on('--workdir DIR', 'workdir for the off-ramp trail (a waiver is recorded there)') { |v| opts[:workdir] = v }
   p.on('--skip-ref-check REASON',
        'waive the ref-resolution gate — REQUIRED reason; name it in your report') { |v| opts[:skip] = v }
@@ -95,6 +98,15 @@ end
 available  = Set.new
 error_cols = Set.new # normalized labels whose type compiled to "error" (live mode)
 dm_el_ids  = Set.new # DM element ids (offline mode; for source.elementId checks)
+metrics_census = nil # nil means no census was available; an empty Set is a valid empty census
+add_metrics = lambda do |records|
+  next unless records.is_a?(Array)
+  metrics_census ||= Set.new
+  records.each do |metric|
+    name = metric.is_a?(Hash) ? metric['name'] : metric
+    metrics_census << name.to_s.strip unless name.to_s.strip.empty?
+  end
+end
 if opts[:dm_ids]
   idmap = JSON.parse(File.read(opts[:dm_ids], encoding: 'bom|utf-8'))
   dm_elements = if idmap['pages'].is_a?(Array)
@@ -105,7 +117,9 @@ if opts[:dm_ids]
   dm_elements.each do |el|
     dm_el_ids << el['id'] if el['id']
     (el['columnLabels'] || []).each { |l| available << norm(l) }
+    add_metrics.call(el['metrics']) if el.key?('metrics')
   end
+  add_metrics.call(idmap['metrics']) if idmap.key?('metrics')
 else
   # Live fetch via the shared REST lib (self-mints a token). Paginated — big
   # DMs (the collapse case declared 599 columns) overflow a single page.
@@ -130,6 +144,36 @@ else
   # A column that resolves cleanly in ANY element is usable even if a same-
   # named column errored elsewhere — only fail labels that ONLY error.
   error_cols.subtract(clean)
+
+  # Metrics do not appear in /columns. Read the full data-model spec and build
+  # a separate census from element metrics[]; never infer metrics from labels.
+  dm_spec = (Sigma.request(:get, "/v2/dataModels/#{opts[:dm_id]}/spec") rescue nil)
+  dm_doc = dm_spec.is_a?(Hash) && dm_spec['document'].is_a?(Hash) ? dm_spec['document'] : dm_spec
+  if dm_doc.is_a?(Hash)
+    add_metrics.call(dm_doc['metrics']) if dm_doc.key?('metrics')
+    Array(dm_doc['pages']).each do |page_record|
+      next unless page_record.is_a?(Hash)
+      Array(page_record['elements']).each do |element|
+        add_metrics.call(element['metrics']) if element.is_a?(Hash) && element.key?('metrics')
+      end
+    end
+  end
+end
+
+metrics_file = opts[:metrics]
+if metrics_file.nil? && opts[:dm_ids]
+  sidecar = File.join(File.dirname(File.expand_path(opts[:dm_ids])), 'metrics.json')
+  metrics_file = sidecar if File.exist?(sidecar)
+end
+if metrics_file
+  begin
+    metrics_doc = JSON.parse(File.read(metrics_file, encoding: 'bom|utf-8'))
+    metrics_records = metrics_doc.is_a?(Hash) ? metrics_doc['metrics'] : metrics_doc
+    abort "metrics census #{metrics_file} carries no metrics array" unless metrics_records.is_a?(Array)
+    add_metrics.call(metrics_records)
+  rescue JSON::ParserError, Errno::ENOENT => e
+    abort "metrics census #{metrics_file} unreadable: #{e.message}"
+  end
 end
 
 if available.empty?
@@ -140,10 +184,10 @@ if available.empty?
 end
 
 wb = JSON.parse(File.read(opts[:spec], encoding: 'bom|utf-8'))
+require_relative 'lib/workbook_code'
 
 # --- workbook-internal element index (name → own columns, id → doc order) ---
-wb_elements = []
-(wb['pages'] || []).each { |pg| (pg['elements'] || []).each { |el| wb_elements << el } }
+wb_elements = WorkbookCode.elements(wb)
 wb_order_by_id = {}
 wb_internal = {} # element name -> { names: Set(normalized own column names), order: min doc index }
 wb_elements.each_with_index do |el, i|
@@ -159,6 +203,8 @@ end
 # --- extract every [Element/Column] ref, element by element (doc order) -----
 REF = /\[([^\]\/]+)\/([^\]]+)\]/.freeze
 refs = {}       # normalized column -> {display, elements:Set}  (unresolved-vs-DM report)
+metric_refs = Set.new
+metric_fails = {}
 extra_fails = [] # forward-order / dangling-source / type=error findings
 walk = lambda do |obj, &blk|
   case obj
@@ -186,6 +232,22 @@ wb_elements.each_with_index do |el, i|
   end
 
   walk.call(el) do |prefix, col_raw|
+    if prefix.strip == 'Metrics'
+      metric_name = col_raw.to_s.strip
+      metric_refs << metric_name
+      if metrics_census.nil?
+        metric_fails[metric_name] =
+          "no DM metrics census is available for [Metrics/#{metric_name}] — pass --metrics <workdir>/metrics.json, " \
+          'keep metrics.json beside --dm-ids, or use a full DM spec/readback carrying metrics[]'
+      elsif !metrics_census.include?(metric_name)
+        known = metrics_census.to_a.sort
+        metric_fails[metric_name] =
+          "metric #{metric_name.inspect} is not in the DM metrics census " \
+          "(#{known.empty? ? 'the census is EMPTY' : "known metrics: #{known.join(', ')}"})"
+      end
+      next
+    end
+
     # A 3-part relationship ref [Element/RelName/Field] resolves THROUGH the DM
     # relationship — the actual column to check is the FINAL segment (Field); the
     # middle segment is a relationship name (existence validated DM-side by the
@@ -240,18 +302,36 @@ wb_elements.each_with_index do |el, i|
   end
 end
 
-if unresolved.empty? && extra_fails.empty?
-  puts "[PASS] workbook ref-resolution gate: all #{refs.size} referenced column(s) resolve " \
-       "against the live DM (#{available.size} columns) or the spec's own elements."
+if unresolved.empty? && metric_fails.empty? && extra_fails.empty?
+  puts "[PASS] workbook ref-resolution gate: all #{refs.size} referenced column(s) and " \
+       "#{metric_refs.size} referenced metric(s) resolve against the live DM " \
+       "(#{available.size} columns, #{metrics_census&.size || 0} metrics) or the spec's own elements."
   exit 0
 end
 
-warn "[FAIL] workbook ref-resolution gate — #{unresolved.size} of #{refs.size} referenced " \
-     "column(s) do NOT exist in the live DM (#{available.size} columns):"
-unresolved.values.first(40).each do |r|
-  warn "         ✗ #{r[:display]}   (referenced via #{r[:elements].to_a.map { |e| "[#{e}/…]" }.join(', ')})"
+if unresolved.any?
+  # Keep the progress count on the [FAIL] head. The retry breaker consumes
+  # this exact shape to distinguish a converging repair (18 -> 17 misses)
+  # from a repeating or growing failure.
+  warn "[FAIL] workbook ref-resolution gate — #{unresolved.size} of #{refs.size} referenced " \
+       "column(s) do NOT exist in the live DM " \
+       "(#{available.size} columns):"
+  unresolved.values.first(40).each do |r|
+    warn "         ✗ #{r[:display]}   (referenced via #{r[:elements].to_a.map { |e| "[#{e}/…]" }.join(', ')})"
+  end
+  warn "         … and #{unresolved.size - 40} more." if unresolved.size > 40
+elsif metric_fails.any?
+  warn "[FAIL] workbook ref-resolution gate — #{metric_fails.size} of #{metric_refs.size} referenced " \
+       'metric(s) failed the DM metrics census:'
+else
+  warn '[FAIL] workbook ref-resolution gate'
 end
-warn "         … and #{unresolved.size - 40} more." if unresolved.size > 40
+if metric_fails.any?
+  warn "       #{metric_fails.size} of #{metric_refs.size} referenced metric(s) failed the DM metrics census:" \
+    if unresolved.any?
+  metric_fails.values.first(40).each { |failure| warn "         ✗ #{failure}" }
+  warn "         … and #{metric_fails.size - 40} more." if metric_fails.size > 40
+end
 if extra_fails.any?
   warn "       plus #{extra_fails.size} structural failure(s):"
   extra_fails.first(20).each { |f| warn "         ✗ #{f}" }

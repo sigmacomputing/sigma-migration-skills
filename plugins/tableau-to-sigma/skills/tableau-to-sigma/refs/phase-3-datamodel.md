@@ -29,6 +29,30 @@ Write the spec to `<WORK>/dm-spec.json`. Full schema is in
 4. **Element name = formula prefix**. The `name` field on a DM element (e.g. `"Orders"`) becomes the prefix in all workbook formulas that reference it: `[Orders/Sales]`. Choose clean, stable names.
 5. **Relationships go on the source element**, not the target. See `refs/data-model-spec.md`.
 6. **Column formulas use the warehouse table name as prefix**: path `["DEMO_DB", "Tableau Test", "ORDERS"]` → formula `"[ORDERS/Column Name]"`.
+7. **Tables first; Custom SQL only with a reason.** A Tableau
+   `<relation type="text">` proves that the source used SQL, but does not make
+   embedded SQL the preferred Sigma model. When its tables, joins, filters,
+   and scalar derivations can be represented exactly as `warehouse-table`
+   elements + relationships/calc columns, use that maintainable model and
+   record an equivalence proof in `semantic-edits.json`. Preserve
+   `source.kind: "sql"` when decomposition would change grain, filtering,
+   aggregation, window behavior, vendor-specific semantics, or cannot yet be
+   proven. Never discard SQL clauses merely to get a table-shaped model.
+
+### Data-model metrics in workbook formulas
+
+Metrics defined in a data-model element's `metrics[]` **do flow into workbook
+elements** that source that model element. Reference them through the reserved
+namespace `[Metrics/<metric name>]` (name, not ID). `[Base/<metricName>]`,
+`[Base/<metricId>]`, and `[<element name>/<metric name>]` are column lookups;
+their `400 Dependency not found` response does not establish that metrics are
+unavailable.
+
+The orchestrator already writes the readback-confirmed metric census to
+`<WORK>/metrics.json` and binds equivalent chart/KPI measures through
+`[Metrics/<name>]`. If a metric has the exact same name as a column on its
+element, Sigma can omit that element's metrics from readback; the binder
+intentionally keeps those measures inline. Do not override that safeguard.
 
 ### When to use a Custom SQL element instead of a calc column
 

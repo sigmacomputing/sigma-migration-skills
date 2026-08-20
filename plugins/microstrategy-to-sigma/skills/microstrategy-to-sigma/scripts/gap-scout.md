@@ -62,7 +62,7 @@ DO
 ```
 Validated rules auto-apply on the next migrate via `learned-rules.py`.
 
-## Run-each-time gate (bead beads-sigma-5l5e) — why `--gap-id` + `--workdir` matter
+## Run-each-time gate () — why `--gap-id` + `--workdir` matter
 
 `scout-gate-readback.py` reads the workbook back after POST, finds each type=error
 column, and **STOPS** (exit 11) with a `GAP-SCOUT REQUIRED` block listing each
@@ -89,5 +89,5 @@ ready-to-run commands for the shared `escalate-gap.py` filer. The main agent:
 3. Only if the user says yes, runs `escalation.file_cmd` (the same command + `--yes`).
 
 MSTR metric gaps are **converter** gaps, so they mirror to both converter repos
-(`sigma-data-model-manager` + `sigma-data-model-mcp`) with a cross-link and a bead as
+(`sigma-data-model-manager` + `converter-source`) with a cross-link and a bead as
 the authoritative tracker. See `scripts/escalate-gap.py`.

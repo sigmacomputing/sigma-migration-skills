@@ -28,6 +28,7 @@
 # wires it to the live readback on the workbook path and WARNs loudly on any
 # dropped field (a WARN, not a hard stop: the workbook is live and correct
 # except for the ignored field; the operator sets it in the UI).
+require_relative 'workbook_code'
 
 module ControlFieldCensus
   # Keys never expected to survive: builder-internal annotations (underscore-
@@ -109,7 +110,7 @@ module ControlFieldCensus
 
   def controls(spec)
     return [] unless spec.is_a?(Hash)
-    (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
-                         .select { |e| e.is_a?(Hash) && e['kind'].to_s == 'control' }
+    WorkbookCode.elements(spec)
+                .select { |element| element.is_a?(Hash) && element['kind'].to_s == 'control' }
   end
 end

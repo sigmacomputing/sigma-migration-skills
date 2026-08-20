@@ -1,0 +1,41 @@
+{
+  "token": "r1",
+  "name": "Monthly Revenue Report",
+  "description": "Revenue trend and breakdown by region.",
+  "state": "active",
+  "type": "report",
+  "account_id": 1,
+  "space_token": "spc_1",
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-15T00:00:00Z",
+  "_links": {
+    "self": { "href": "/api/acme/reports/r1" },
+    "queries": { "href": "/api/acme/reports/r1/queries" },
+    "space": { "href": "/api/acme/spaces/spc_1" },
+    "report_filters": { "href": "/api/acme/reports/r1/report_filters" },
+    "runs": { "href": "/api/acme/reports/r1/runs" },
+    "web": { "href": "https://app.mode.com/acme/reports/r1" }
+  },
+  "_embedded": {
+    "queries": {
+      "_links": {
+        "self": { "href": "/api/acme/reports/r1/queries" }
+      },
+      "_embedded": {
+        "queries": [
+          {
+            "token": "q1",
+            "name": "Monthly Revenue",
+            "raw_query": "select order_date, revenue, region from orders",
+            "data_source_id": "49894",
+            "created_at": "2026-01-01T00:00:00Z",
+            "_links": {
+              "self": { "href": "/api/acme/reports/r1/queries/q1" },
+              "charts": { "href": "/api/acme/reports/r1/queries/q1/charts" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

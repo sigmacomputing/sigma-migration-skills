@@ -17,6 +17,7 @@ DIR = __dir__
 $LOAD_PATH.unshift File.join(DIR, 'lib')
 require 'zone_census'
 require 'layout'
+require 'action_ledger'
 
 fails = []
 def check(cond, msg, fails)
@@ -167,6 +168,308 @@ tog = entries.select { |e| e['detail'].include?('toggle') }
 check(exp && exp['recoverable'] == true, 'export button → recoverable residue (Sigma has a built-in export menu)', fails)
 check(tog.size == 1 && tog.first['visual'].include?('×3'),
       "3 identical toggles dedupe to ONE ledger row with a count (got #{tog.map { |t| t['visual'] }.inspect})", fails)
+
+puts
+puts 'Part 5 — Stage 1: navigate buttons emit a valid action (SIGMA_BUTTON_ELEMENTS=on)'
+# Re-run the SAME fixture (the TWB constant from Part 3, zones 10 + 11) through
+# the REAL parse + emit path (parse-twb-layout.rb -> build-charts-from-signals.rb
+# as subprocesses, exactly like Parts 3/4 drive the real parser/residue code) —
+# never a locally-constructed element. That is the only way this check can
+# fail when the emitter regresses, which is how the missing-`id` bug shipped.
+els = nil
+manifest = nil
+charts_log = ''
+ENV['SIGMA_BUTTON_ELEMENTS'] = 'on'
+Dir.mktmpdir do |d|
+  twb = File.join(d, 'wb.twb')
+  lay = File.join(d, 'layout.json')
+  mm  = File.join(d, 'master-map.json')
+  File.write(twb, TWB)
+  File.write(mm, JSON.dump({}))
+  File.write(File.join(d, 'get-workbook.json'),
+             JSON.dump('views' => { 'view' => [{ 'id' => 'v1', 'name' => 'Trend' }] }))
+  Dir.mkdir(File.join(d, 'views'))
+  File.write(File.join(d, 'views', 'v1.csv'), '')
+  abort 'parse-twb-layout failed' unless system('ruby', File.join(DIR, 'parse-twb-layout.rb'), twb, lay,
+                                                out: File::NULL, err: File::NULL)
+
+  out = File.join(d, 'specs.json')
+  charts_log = IO.popen(['ruby', File.join(DIR, 'build-charts-from-signals.rb'),
+                         '--tableau-dir', d, '--layout', lay,
+                         '--meta', lay.sub(/\.json$/, '-meta.json'), '--master-map', mm,
+                         '--master-element-id', 'master', '--skip-dashboard-read', 'unit-test',
+                         '--title', 'Overview', '--out', out], err: %i[child out], &:read)
+  els = JSON.parse(File.read(out)) if File.exist?(out)
+  mpath = out.sub(/\.json$/, '-actions-emitted.json')
+  manifest = JSON.parse(File.read(mpath)) if File.exist?(mpath)
+end
+ENV.delete('SIGMA_BUTTON_ELEMENTS')
+
+if els.nil?
+  check(false, "build-charts-from-signals.rb produced no --out — log tail:\n#{charts_log.to_s.lines.last(15).join}", fails)
+  els = []
+end
+
+btn = els.find { |e| e['kind'] == 'button' }
+check(!btn.nil?, 'a kind:button element is emitted with the flag on', fails)
+act = btn && (btn['actions'] || []).first
+check(!act.nil?, 'the button carries an action', fails)
+check(!act.nil? && !act['id'].to_s.empty?,
+      "the action has an id (THE SHIPPING BUG - got #{act && act['id'].inspect})", fails)
+check(!act.nil? && act['trigger'] == 'on-click', 'trigger is on-click', fails)
+check(!act.nil? && act['effects'].is_a?(Array) && act['effects'][0]['effect'] == 'navigate',
+      "effect is navigate, not open-url (got #{act && act['effects'] && act['effects'][0] && act['effects'][0]['effect'].inspect})", fails)
+check(!act.nil? && act['effects'].is_a?(Array) && act['effects'][0].dig('target', 'type') == 'page',
+      'target.type is page', fails)
+check(!JSON.generate(els).include?('nav.invalid'),
+      'the emitted button carries no nav.invalid placeholder', fails)
+
+# workbook-global id uniqueness across BOTH button zones (10 and 11)
+ids = els.select { |e| e['kind'] == 'button' }
+         .flat_map { |e| (e['actions'] || []).map { |a| a['id'] } }
+check(ids.size == ids.uniq.size, "action ids unique workbook-wide (#{ids.inspect})", fails)
+
+els.select { |e| e['kind'] == 'button' }.each do |e|
+  (e['actions'] || []).each do |a|
+    errs = ActionLedger.validate_action(a)
+    check(errs.empty?, "emitted action #{a['id'].inspect} validates: #{errs.inspect}", fails)
+  end
+end
+
+# Fix 1: every manifest entry carries the raw target dashboard NAME — the key
+# put-layout.rb's publish-time repair needs to resolve navigate.target.page by
+# name (the build-time "page-<slug>" id is only a guess; see the comment at
+# the emission site for why it can't be authoritative here).
+check(!manifest.nil? && manifest.is_a?(Array) && manifest.size == 2,
+      "manifest has one entry per emitted action (got #{manifest.inspect})", fails)
+Array(manifest).each do |entry|
+  check(!entry['targetPageName'].to_s.empty?,
+        "manifest entry #{entry['actionId'].inspect} carries a non-empty targetPageName (got #{entry['targetPageName'].inspect})", fails)
+end
+
+puts
+puts 'Part 6 — Fix 2 regression: manifest must not go stale under --page-per-dashboard renaming'
+# Tableau zone ids restart per dashboard, so TWO dashboards each having a
+# nav-button at zone id 10 is a common collision, not an edge case. In
+# --page-per-dashboard mode the SECOND dashboard's "btn-10" element (and its
+# embedded action id, which EMBEDS the element-id stem) gets renamed by the
+# cross-dashboard id-namespacing pass (`namespace_ids`, build-charts-from-
+# signals.rb) — a pass that runs AFTER the manifest was originally populated.
+# This reproduces that exact collision end-to-end and asserts the manifest
+# entry for the renamed button tracks the SAME rename, not the pre-rename id.
+TWB2 = <<~XML
+  <?xml version='1.0' encoding='utf-8' ?>
+  <workbook>
+    <datasources>
+      <datasource caption='Sales' name='federated.x'>
+        <column caption='Region' name='[Region]' datatype='string' role='dimension' />
+        <column caption='Revenue' name='[Revenue]' datatype='real' role='measure' />
+      </datasource>
+    </datasources>
+    <worksheets>
+      <worksheet name='Trend'>
+        <table>
+          <view>
+            <datasource-dependencies datasource='federated.x'>
+              <column caption='Region' name='[Region]' datatype='string' role='dimension' />
+              <column caption='Revenue' name='[Revenue]' datatype='real' role='measure' />
+              <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+              <column-instance column='[Revenue]' derivation='Sum' name='[sum:Revenue:qk]' pivot='key' type='quantitative' />
+            </datasource-dependencies>
+          </view>
+          <rows>[federated.x].[sum:Revenue:qk]</rows>
+          <cols>[federated.x].[none:Region:nk]</cols>
+          <pane><mark class='Bar' /></pane>
+        </table>
+      </worksheet>
+    </worksheets>
+    <dashboards>
+      <dashboard name='Dash One'>
+        <zones>
+          <zone id='1' type-v2='layout-basic' x='0' y='0' w='100000' h='100000'>
+            <zone id='5' name='Trend' x='0' y='20000' w='100000' h='60000' />
+            <zone id='10' type-v2='dashboard-object' x='0' y='0' w='20000' h='5000'>
+              <button action='tabdoc:goto-sheet window-id=&quot;{ABC-999}&quot;'>
+                <button-visual-state><caption>Go to Detail (One)</caption></button-visual-state>
+              </button>
+            </zone>
+          </zone>
+        </zones>
+      </dashboard>
+      <dashboard name='Dash Two'>
+        <zones>
+          <zone id='1' type-v2='layout-basic' x='0' y='0' w='100000' h='100000'>
+            <zone id='5' name='Trend' x='0' y='20000' w='100000' h='60000' />
+            <zone id='10' type-v2='dashboard-object' x='0' y='0' w='20000' h='5000'>
+              <button action='tabdoc:goto-sheet window-id=&quot;{ABC-999}&quot;'>
+                <button-visual-state><caption>Go to Detail (Two)</caption></button-visual-state>
+              </button>
+            </zone>
+          </zone>
+        </zones>
+      </dashboard>
+    </dashboards>
+    <windows>
+      <window class='dashboard' name='Dash One'/>
+      <window class='dashboard' name='Dash Two'/>
+      <window class='dashboard' name='Detail View'><simple-id uuid='{ABC-999}'/></window>
+    </windows>
+  </workbook>
+XML
+
+spec2 = nil
+manifest2 = nil
+charts_log2 = ''
+ENV['SIGMA_BUTTON_ELEMENTS'] = 'on'
+Dir.mktmpdir do |d|
+  twb = File.join(d, 'wb.twb')
+  lay = File.join(d, 'layout.json')
+  mm  = File.join(d, 'master-map.json')
+  File.write(twb, TWB2)
+  File.write(mm, JSON.dump('(?i)^Region$' => { 'id' => 'm-reg', 'name' => 'Region' },
+                           '(?i)^Revenue$' => { 'id' => 'm-rev', 'name' => 'Revenue' }))
+  File.write(File.join(d, 'get-workbook.json'),
+             JSON.dump('views' => { 'view' => [{ 'id' => 'v1', 'name' => 'Trend' }] }))
+  Dir.mkdir(File.join(d, 'views'))
+  File.write(File.join(d, 'views', 'v1.csv'), "Region,Revenue\nEast,100\nWest,200\n")
+  abort 'parse-twb-layout failed' unless system('ruby', File.join(DIR, 'parse-twb-layout.rb'), twb, lay,
+                                                out: File::NULL, err: File::NULL)
+
+  out = File.join(d, 'specs.json')
+  charts_log2 = IO.popen(['ruby', File.join(DIR, 'build-charts-from-signals.rb'),
+                          '--tableau-dir', d, '--layout', lay,
+                          '--meta', lay.sub(/\.json$/, '-meta.json'), '--master-map', mm,
+                          '--master-element-id', 'master', '--skip-dashboard-read', 'unit-test',
+                          '--page-per-dashboard', '--out', out], err: %i[child out], &:read)
+  spec2 = JSON.parse(File.read(out)) if File.exist?(out)
+  mpath = out.sub(/\.json$/, '-actions-emitted.json')
+  manifest2 = JSON.parse(File.read(mpath)) if File.exist?(mpath)
+end
+ENV.delete('SIGMA_BUTTON_ELEMENTS')
+
+if spec2.nil? || manifest2.nil?
+  check(false, "Part 6 fixture produced no --out/manifest — log tail:\n#{charts_log2.to_s.lines.last(15).join}", fails)
+else
+  pages2 = spec2['pages'] || []
+  dash_one_els = (pages2.find { |p| p['name'] == 'Dash One' } || {})['elements'] || []
+  dash_two_els = (pages2.find { |p| p['name'] == 'Dash Two' } || {})['elements'] || []
+  btn_one = dash_one_els.find { |e| e['kind'] == 'button' }
+  btn_two = dash_two_els.find { |e| e['kind'] == 'button' }
+
+  check(!btn_one.nil? && !btn_two.nil?, 'both dashboards emitted their nav-button element', fails)
+  check(!btn_one.nil? && btn_one['id'] == 'btn-10',
+        "the FIRST occurrence of the colliding zone id keeps its plain id (got #{btn_one && btn_one['id'].inspect})", fails)
+  check(!btn_two.nil? && btn_two['id'] != 'btn-10',
+        "the SECOND occurrence of the colliding zone id (btn-10 on Dash Two) was renamed by the namespacing pass " \
+        "(got #{btn_two && btn_two['id'].inspect}) — if this is still 'btn-10' the collision fixture stopped colliding", fails)
+
+  # Ground truth: every navigate action id actually present in the built spec.
+  spec_action_ids = pages2.flat_map { |p| p['elements'] || [] }
+                          .select { |e| e['kind'] == 'button' }
+                          .flat_map { |e| (e['actions'] || []).map { |a| a['id'] } }
+  spec_host_ids = pages2.flat_map { |p| p['elements'] || [] }
+                        .select { |e| e['kind'] == 'button' }
+                        .map { |e| e['id'] }
+  manifest_action_ids = manifest2.map { |m| m['actionId'] }
+  manifest_host_ids   = manifest2.map { |m| m['hostElementId'] }
+
+  # Bidirectional: manifest <-> spec must agree exactly (the later gate the
+  # coordinator described asserts precisely this both ways).
+  check(manifest_action_ids.sort == spec_action_ids.sort,
+        "manifest actionIds match the spec's actual action ids exactly, both directions " \
+        "(manifest=#{manifest_action_ids.sort.inspect}, spec=#{spec_action_ids.sort.inspect})", fails)
+  check(manifest_host_ids.sort == spec_host_ids.sort,
+        "manifest hostElementIds match the spec's actual button element ids exactly, both directions " \
+        "(manifest=#{manifest_host_ids.sort.inspect}, spec=#{spec_host_ids.sort.inspect})", fails)
+
+  # The specific stale-entry shape the coordinator described: Dash Two's
+  # manifest entry must carry the RENAMED id, not the pre-rename "btn-10".
+  two_entry = manifest2.find { |m| m['source'] && m['source']['sourceSheet'] == 'Dash Two' }
+  check(!two_entry.nil? && !btn_two.nil? && two_entry['hostElementId'] == btn_two['id'],
+        "Dash Two's manifest entry hostElementId matches its ACTUAL (renamed) element id, not the stale pre-rename one " \
+        "(manifest=#{two_entry && two_entry['hostElementId'].inspect}, actual=#{btn_two && btn_two['id'].inspect})", fails)
+  check(!two_entry.nil? && !btn_two.nil? &&
+        two_entry['actionId'] == (btn_two['actions'] || []).first&.dig('id'),
+        "Dash Two's manifest entry actionId matches the ACTUAL emitted action id, not the stale pre-rename one " \
+        "(manifest=#{two_entry && two_entry['actionId'].inspect}, " \
+        "actual=#{btn_two && (btn_two['actions'] || []).first&.dig('id').inspect})", fails)
+end
+
+puts
+puts 'Part 7 - Default mode (flag OFF): nav buttons stay kind:text with the nav.invalid placeholder'
+# Same fixture, same real subprocess pipeline as Part 5 (parse-twb-layout.rb ->
+# build-charts-from-signals.rb) - but with SIGMA_BUTTON_ELEMENTS explicitly
+# UNSET, not merely absent by luck of part ordering. Save/restore whatever the
+# env held before so this part's outcome can never depend on what ran earlier
+# (Parts 5/6 set the flag to 'on'). The brief calls a regression here Critical:
+# this is the path every real conversion runs by default.
+had_flag = ENV.key?('SIGMA_BUTTON_ELEMENTS')
+prev_flag = ENV['SIGMA_BUTTON_ELEMENTS']
+ENV.delete('SIGMA_BUTTON_ELEMENTS')
+
+els7 = nil
+manifest7 = nil
+charts_log7 = ''
+begin
+  Dir.mktmpdir do |d|
+    twb = File.join(d, 'wb.twb')
+    lay = File.join(d, 'layout.json')
+    mm  = File.join(d, 'master-map.json')
+    File.write(twb, TWB)
+    File.write(mm, JSON.dump({}))
+    File.write(File.join(d, 'get-workbook.json'),
+               JSON.dump('views' => { 'view' => [{ 'id' => 'v1', 'name' => 'Trend' }] }))
+    Dir.mkdir(File.join(d, 'views'))
+    File.write(File.join(d, 'views', 'v1.csv'), '')
+    abort 'parse-twb-layout failed' unless system('ruby', File.join(DIR, 'parse-twb-layout.rb'), twb, lay,
+                                                  out: File::NULL, err: File::NULL)
+
+    out = File.join(d, 'specs.json')
+    charts_log7 = IO.popen(['ruby', File.join(DIR, 'build-charts-from-signals.rb'),
+                            '--tableau-dir', d, '--layout', lay,
+                            '--meta', lay.sub(/\.json$/, '-meta.json'), '--master-map', mm,
+                            '--master-element-id', 'master', '--skip-dashboard-read', 'unit-test',
+                            '--title', 'Overview', '--out', out], err: %i[child out], &:read)
+    els7 = JSON.parse(File.read(out)) if File.exist?(out)
+    mpath = out.sub(/\.json$/, '-actions-emitted.json')
+    manifest7 = JSON.parse(File.read(mpath)) if File.exist?(mpath)
+  end
+ensure
+  check(!ENV.key?('SIGMA_BUTTON_ELEMENTS'), 'SIGMA_BUTTON_ELEMENTS stayed unset for the whole subprocess run', fails)
+  if had_flag
+    ENV['SIGMA_BUTTON_ELEMENTS'] = prev_flag
+  else
+    ENV.delete('SIGMA_BUTTON_ELEMENTS')
+  end
+end
+
+if els7.nil?
+  check(false, "build-charts-from-signals.rb produced no --out -- log tail:\n#{charts_log7.to_s.lines.last(15).join}", fails)
+  els7 = []
+end
+
+nav_els7 = els7.select { |e| %w[btn-10 btn-11].include?(e['id']) }
+check(nav_els7.size == 2,
+      "both nav-button elements (zones 10 + 11) present in default mode (got ids #{els7.map { |e| e['id'] }.inspect})", fails)
+
+nav_els7.each do |e|
+  check(e['kind'] == 'text',
+        "default mode: nav-button #{e['id'].inspect} is kind:text (got #{e['kind'].inspect})", fails)
+  check(e['kind'] != 'button',
+        "default mode: nav-button #{e['id'].inspect} is NOT kind:button", fails)
+  check(JSON.generate(e).include?('nav.invalid'),
+        "default mode: nav-button #{e['id'].inspect} still carries the nav.invalid placeholder URL", fails)
+  check(!e.key?('actions'),
+        "default mode: nav-button #{e['id'].inspect} has no actions key " \
+        "(kind:text cannot host actions -- got keys #{e.keys.inspect})", fails)
+end
+
+check(!manifest7.nil?, 'default mode: the emitted-actions manifest sidecar was still written (empty is meaningful)', fails)
+manifest7_hosts = Array(manifest7).map { |m| m['hostElementId'] }
+check((manifest7_hosts & %w[btn-10 btn-11]).empty?,
+      "default mode: manifest claims NO entry for either nav-button (nothing was auto-wired; got hosts #{manifest7_hosts.inspect})", fails)
+check(Array(manifest7).empty?,
+      "default mode: manifest is an empty array -- no actions were auto-emitted at all (got #{manifest7.inspect})", fails)
 
 puts
 if fails.empty?

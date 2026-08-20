@@ -33,27 +33,40 @@ end
 def build_fixture(dir)
   tiles = %w[el-revpie el-revregionline el-rev-top3 el-nfipie el-nfiregionline
              el-nfi-top3 el-unitspie el-unitsregionline el-units-top3]
+  data_elements = [
+    { 'id' => 'masterAll', 'kind' => 'table', 'name' => 'Master All' },
+    { 'id' => 'master', 'kind' => 'table', 'name' => 'Master',
+      'source' => { 'kind' => 'element', 'elementId' => 'masterAll' } }
+  ]
+  # The Region control FILTERS all 9 tiles — realistic wiring (filters[].source.
+  # elementId points at each tile). A prior version of this test left the control
+  # with NO filters, which hid a blocker: control-filter targets were being
+  # misclassified as feeders, so the empty tiles escaped the gate. Keep the real
+  # filter wiring so that regression can never re-hide.
+  dashboard_elements = [
+    { 'id' => 'el-param-region', 'kind' => 'control', 'name' => 'Region',
+      'selectionMode' => 'single', 'value' => 'Region A & B',
+      'filters' => tiles.map { |t| { 'source' => { 'elementId' => t }, 'columnId' => "#{t}-region" } } }
+  ] + tiles.map do |t|
+    { 'id' => t, 'kind' => (t.end_with?('pie') ? 'chart' : 'table'),
+      'name' => t.sub(/\Ael-/, '').tr('-', ' '),
+      'source' => { 'kind' => 'table', 'elementId' => 'master' } }
+  end
+  data_layout = data_elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join
+  dashboard_layout = dashboard_elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join
   spec = {
-    'pages' => [
-      { 'id' => 'page-data', 'name' => 'Data', 'elements' => [
-        { 'id' => 'masterAll', 'kind' => 'table', 'name' => 'Master All' },
-        { 'id' => 'master', 'kind' => 'table', 'name' => 'Master',
-          'source' => { 'kind' => 'element', 'elementId' => 'masterAll' } }
-      ] },
-      { 'id' => 'page-dash-1', 'name' => 'Dashboard', 'elements' => (
-        # The Region control FILTERS all 9 tiles — realistic wiring (filters[].source.
-        # elementId points at each tile). A prior version of this test left the control
-        # with NO filters, which hid a blocker: control-filter targets were being
-        # misclassified as feeders, so the empty tiles escaped the gate. Keep the real
-        # filter wiring so that regression can never re-hide.
-        [{ 'id' => 'el-param-region', 'kind' => 'control', 'name' => 'Region',
-           'selectionMode' => 'single', 'value' => 'Region A & B',
-           'filters' => tiles.map { |t| { 'source' => { 'elementId' => t }, 'columnId' => "#{t}-region" } } }] +
-        tiles.map { |t| { 'id' => t, 'kind' => (t.end_with?('pie') ? 'chart' : 'table'),
-                          'name' => t.sub(/\Ael-/, '').tr('-', ' '),
-                          'source' => { 'kind' => 'table', 'elementId' => 'master' } } }
-      ) }
-    ]
+    'workbookId' => 'wb-test',
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [
+        { 'id' => 'page-data', 'name' => 'Data' },
+        { 'id' => 'page-dash-1', 'name' => 'Dashboard' }
+      ],
+      'elements' => data_elements + dashboard_elements,
+      'layout' => "<Page id=\"page-data\">#{data_layout}</Page>" \
+                  "<Page id=\"page-dash-1\">#{dashboard_layout}</Page>"
+    }
   }
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(spec))
 

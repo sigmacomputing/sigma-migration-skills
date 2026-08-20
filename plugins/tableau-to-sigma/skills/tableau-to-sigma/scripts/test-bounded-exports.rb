@@ -82,9 +82,24 @@ def run_stubbed(stub_dir, extra_env, *argv)
     RbConfig.ruby, '-I', stub_dir, '-r', 'sigma_rest', *argv)
 end
 
+def workbook_response(elements)
+  layout = "<Page id=\"pg1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  {
+    'workbookId' => 'wb',
+    'latestDocumentVersion' => '1',
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],
+      'elements' => elements,
+      'layout' => layout
+    }
+  }
+end
+
 def write_anchor_fixture(dir, elements, anchors)
   File.write(File.join(dir, 'stub-spec.json'),
-             JSON.pretty_generate('pages' => [{ 'id' => 'pg1', 'elements' => elements }]))
+             JSON.pretty_generate(workbook_response(elements)))
   File.write(File.join(dir, 'source-anchors.json'),
              JSON.pretty_generate('source_image' => 'views/dash.png',
                                   'transcribed_at' => '2026-07-17T00:00:00Z',
@@ -193,11 +208,11 @@ end
 # Part 4 — collect-parity-actuals.rb: truncated tile → too-large-for-export
 # ============================================================================
 puts '-- collect-parity-actuals: truncated tile fails LOUD, routed off the export path --'
-COLLECT_SPEC = { 'pages' => [{ 'elements' => [
+COLLECT_SPEC = workbook_response([
   { 'id' => 'el-ok',   'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
   { 'id' => 'el-big',  'columns' => [{ 'id' => 'c-r2', 'name' => 'Region' }, { 'id' => 'c-v2', 'name' => 'Revenue' }] },
   { 'id' => 'el-slow', 'columns' => [{ 'id' => 'c-s', 'name' => 'Region' }] }
-] }] }.freeze
+]).freeze
 Dir.mktmpdir do |dir|
   stub_dir = File.join(dir, 'stub')
   Dir.mkdir(stub_dir)

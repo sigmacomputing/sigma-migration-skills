@@ -19,9 +19,9 @@
 # backgroundCanvas, categoricalScheme}. sequentialScheme/divergingScheme take
 # NAMED schemes only — Tableau custom ramps can never ride the theme.
 #
-# Contract: returns {} when the source declares nothing (emit neither
-# themeName nor themeOverrides — an unstyled workbook gets pure Sigma
-# defaults, byte-identical to the pre-theme output).
+# Contract: returns {} when the source declares nothing (apply! then emits no
+# document.settings.theme — an unstyled workbook gets pure Sigma defaults,
+# byte-identical to the pre-theme output).
 require_relative 'series_colors'
 
 module ThemeDerive
@@ -144,8 +144,11 @@ module ThemeDerive
     overrides['colorOverrides'] = { 'backgroundCanvas' => theme['backgroundCanvas'] } if theme['backgroundCanvas']
     overrides['categoricalScheme'] = theme['categoricalScheme'] if theme['categoricalScheme']
     unless overrides.empty?
-      spec['themeName'] = 'Light'
-      spec['themeOverrides'] = overrides
+      # Live since 2026-08: themeName/themeOverrides moved to
+      # document.settings.theme.{name,overrides} (see shared/lib/code_rep.rb
+      # DOC_KEYS). A flat top-level themeName/themeOverrides is invalid on
+      # write and gets silently dropped by the code-rep wrapper.
+      spec['settings'] = (spec['settings'] || {}).merge('theme' => { 'name' => 'Light', 'overrides' => overrides })
     end
     spec
   end

@@ -86,9 +86,8 @@ end
 # Every content-page element (skip the Data page). Builder hashes visual ids into
 # element ids, so tests match on the (unique) visual title instead.
 def content_elements(spec)
-  Array(spec['pages']).reject { |pg| pg['id'] == 'page-data' }
-                      .flat_map { |pg| Array(pg['elements']) }
-                      .select { |e| e.is_a?(Hash) }
+  Array(spec.dig('document', 'elements'))
+       .select { |e| e.is_a?(Hash) && e['visibleAsSource'] != false }
 end
 
 def el_name(el)

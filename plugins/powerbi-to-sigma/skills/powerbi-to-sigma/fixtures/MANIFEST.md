@@ -28,7 +28,7 @@ itself the (b) restructuring.
 | Avg Salary | measure | `AVERAGE(EMPLOYEES[ANNUAL_SALARY])` | `Avg([Employees/Annual Salary])` | a | |
 | Headcount | measure | `COUNTROWS(EMPLOYEES)` | `Count([Employees/Employee Id])` | a | Coverage row 2 caveat: `Count` skips nulls; EMPLOYEE_ID is the PK so OK. `COUNTROWS` counts physical rows. |
 | Distinct Departments | measure | `DISTINCTCOUNT(EMPLOYEES[DEPARTMENT])` | `CountDistinct([Employees/Department])` | a | |
-| Active Headcount | measure | `CALCULATE(COUNTROWS(EMPLOYEES), EMPLOYEES[STATUS]="Active")` | `CountIf([Employees/Status]="Active")` | a | Single-predicate CALCULATE (coverage row 6). **Sigma `CountIf` takes ONE logical arg** — the 2-arg `CountIf([col],[cond])` form errors at query time (beads-sigma-862). |
+| Active Headcount | measure | `CALCULATE(COUNTROWS(EMPLOYEES), EMPLOYEES[STATUS]="Active")` | `CountIf([Employees/Status]="Active")` | a | Single-predicate CALCULATE (coverage row 6). **Sigma `CountIf` takes ONE logical arg** — the 2-arg `CountIf([col],[cond])` form errors at query time ([bead]). |
 | Total Comp Estimate | measure | `SUMX(EMPLOYEES, EMPLOYEES[ANNUAL_SALARY]*1.25)` | `Sum([Employees/Annual Salary]*1.25)` | a | SUMX collapses (coverage row 10). |
 | Avg Years To Today | measure | `AVERAGEX(EMPLOYEES, DATEDIFF(EMPLOYEES[HIRE_DATE], TODAY(), YEAR))` | `Avg(DateDiff("year", [Employees/Hire Date], Today()))` | a | AVERAGEX + DATEDIFF + TODAY. **NEW**: `DATEDIFF`/`TODAY` not in coverage doc. |
 | Pct Active | measure | `DIVIDE([Active Headcount], [Headcount])` | `[Active Headcount] / [Headcount]` (or `Divide(...)`) | a | Measure-on-measure ref. |
@@ -64,7 +64,7 @@ itself the (b) restructuring.
 | Salary Pct of Dept | measure | `DIVIDE([Total Salary], CALCULATE([Total Salary], ALLEXCEPT(EMPLOYEES, EMPLOYEES[DEPARTMENT])))` | `PercentOfTotal(Sum([Annual Salary]), "parent_grouping", 1)` | a→b | Coverage row 7. Requires the consuming table be grouped by Department as the parent grouping — borderline (b). |
 | Company Avg Salary | measure | `CALCULATE(AVERAGE(...), ALL(EMPLOYEES))` | grand-total average; in a grouped table use `Avg` at grand-total scope or a windowless reference | **b** | `ALL()` to strip all filter context has no scalar Sigma form; needs ungrouped/grand-total element. |
 | Avg Salary vs Dept | measure | `[Avg Salary] - CALCULATE(AVERAGE(...), ALLEXCEPT(...,DEPARTMENT))` | `Avg([Annual Salary]) - <dept-level avg via parent grouping>` | b | Compares row avg to dept avg — needs grouping context. |
-| High Earner Count | measure | `CALCULATE(COUNTROWS, FILTER(EMPLOYEES, ANNUAL_SALARY>100000))` | `CountIf([Annual Salary]>100000)` | a | FILTER with non-equality constant predicate → single-arg `CountIf` mask (beads-sigma-862; 2-arg form errors). |
+| High Earner Count | measure | `CALCULATE(COUNTROWS, FILTER(EMPLOYEES, ANNUAL_SALARY>100000))` | `CountIf([Annual Salary]>100000)` | a | FILTER with non-equality constant predicate → single-arg `CountIf` mask ([bead]; 2-arg form errors). |
 | Above Avg Earner Count | measure | `CALCULATE(COUNTROWS, FILTER(EMPLOYEES, ANNUAL_SALARY > [Company Avg Salary]))` | row value vs an aggregate → needs windowed compare (`[Annual Salary] > <grand-total avg>`) | **b** | FILTER predicate references a measure (aggregate) → can't be a simple row mask; coverage doc flags FILTER-with-aggregate as refuse/restructure. |
 | Active FullTime Salary | measure | `CALCULATE(SUM, STATUS="Active", EMPLOYMENT_TYPE="Full-Time")` | `SumIf([Annual Salary], [Status]="Active" And [Employment Type]="Full-Time")` | a | Multi-predicate CALCULATE → `And` (coverage row 6). |
 | Total Absence Hours | measure | SUM | `Sum` | a | |
@@ -121,7 +121,7 @@ same Sigma translations and buckets apply. Notable:
 |---|---|---|---|---|
 | Retention Rate | `VAR Started=[Headcount] VAR StillActive=[Active Headcount] RETURN DIVIDE(StillActive, Started)` | `[Active Headcount] / [Headcount]` | a | trivial VAR/RETURN that inlines (unlike fixture_04's, which need ALL/restructuring). |
 | Incident Risk Index | `VAR Total=DISTINCTCOUNT VAR Weighted=SUMX(..., [Severity Score]) RETURN DIVIDE(Weighted, Total)` | `Sum([Severity Score]) / CountDistinct([Incident Id])` | a | SUMX over a calc col + distinct count; inlines to two aggregates. |
-| Absence Hours Per Head | `DIVIDE([Total Absence Hours], [Headcount])` | **refuse**: structured warning — reproduce via constant-key (All Key=1) Lookup join to EMPLOYEES, then `Sum([Hours]) / CountDistinct([ABSENCE_RECORDS/Absence -> All Employees/Employee Id])` (denominator = GLOBAL headcount) | **b** | cross-table measure ratio (Absence vs Employees). `[Headcount]` lives on EMPLOYEES → a same-element `[A]/[B]` metric resolves NULL. Converter now drops it + warns rather than ship a null metric (beads-sigma-m1a). |
+| Absence Hours Per Head | `DIVIDE([Total Absence Hours], [Headcount])` | **refuse**: structured warning — reproduce via constant-key (All Key=1) Lookup join to EMPLOYEES, then `Sum([Hours]) / CountDistinct([ABSENCE_RECORDS/Absence -> All Employees/Employee Id])` (denominator = GLOBAL headcount) | **b** | cross-table measure ratio (Absence vs Employees). `[Headcount]` lives on EMPLOYEES → a same-element `[A]/[B]` metric resolves NULL. Converter now drops it + warns rather than ship a null metric ([bead]). |
 
 ---
 

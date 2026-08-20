@@ -31,6 +31,7 @@ FileUtils.mkdir_p(opts[:workdir])
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
+require 'code_rep'
 
 BASE = ENV.fetch('SIGMA_BASE_URL')
 
@@ -67,7 +68,7 @@ end
 # Orphan-prevention pre-check: workbook POSTs are create-only. If this is a
 # second invocation in the same conversion, the previous workbook is being
 # orphaned in the customer's My Documents. WARN loudly and emit the PUT
-# alternative. Tracked at beads-sigma-38a (3-workbook customer regression).
+# alternative. Tracked at [bead] (3-workbook customer regression).
 posted_log = File.join(opts[:workdir], 'posted-workbooks.jsonl') if opts[:type] == 'workbook'
 prior_ids = []
 if posted_log && File.exist?(posted_log)
@@ -76,19 +77,30 @@ end
 # Decide POST (create) vs PUT (update existing). An explicit --update-id always
 # wins; otherwise, for a workbook retry, auto-reuse the last id we posted in this
 # conversion so a re-run UPDATES the workbook in place instead of orphaning it
-# (beads-sigma-38a — the 3-workbook customer regression). DM updates require an
+# ([bead] — the 3-workbook customer regression). DM updates require an
 # explicit --update-id (Phase 3 normally reuses a DM via the ref-dm path).
 update_id = opts[:update_id] || (prior_ids.last if opts[:type] == 'workbook' && prior_ids.any?)
 
+# Workbook code-rep nests non-metadata fields under `document` (verified live
+# 2026-08-03/04) and REJECTS the old flat body with HTTP 400. The datamodel
+# surface is confirmed NOT changing — it ignores `document` — so only the
+# workbook branch wraps the outgoing body.
+spec_body = if opts[:type] == 'workbook'
+              posting_doc = JSON.parse(File.read(opts[:spec]))
+              JSON.generate(Sigma::CodeRep.wrap(Sigma::CodeRep.document(posting_doc), extra: Sigma::CodeRep.metadata(posting_doc)))
+            else
+              File.read(opts[:spec])
+            end
+
 if update_id
   warn "UPDATE mode: PUT #{opts[:type]} #{update_id} (no new #{opts[:type]} created)"
-  resp = http(:put, format(GET_PATH, update_id), File.read(opts[:spec]))
+  resp = http(:put, format(GET_PATH, update_id), spec_body)
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed[ID_FIELD] || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.is_a?(Net::HTTPSuccess)
   warn "PUT ok: #{ID_FIELD}=#{oid}"
 else
-  resp = http(:post, POST_PATH, File.read(opts[:spec]))
+  resp = http(:post, POST_PATH, spec_body)
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed[ID_FIELD] or abort("POST failed: #{parsed.inspect}")
   warn "POST ok: #{ID_FIELD}=#{oid}"
@@ -103,8 +115,11 @@ else
   end
 end
 
-# Read back
-spec = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).body)
+# Read back. Workbook code-rep responses nest non-metadata fields (pages/
+# layout/schemaVersion/kind) under `document` (live since 2026-08); the DM
+# readback is unchanged and stays flat.
+raw_readback = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).body)
+spec = opts[:type] == 'workbook' ? Sigma::CodeRep.document(raw_readback) : raw_readback
 
 # Fetch the resolved /columns BEFORE writing the id-map so we can attach the
 # AUTHORITATIVE per-element column labels (the suffixed display names Sigma
@@ -121,17 +136,31 @@ labels_by_el = Hash.new { |h, k| h[k] = [] }
   labels_by_el[c['elementId']] << c['label'] if c['elementId'] && c['label']
 end
 
+page_elements =
+  if opts[:type] == 'workbook'
+    elements_by_id = Sigma::CodeRep.workbook_elements(spec).each_with_object({}) do |element, index|
+      index[element['id']] = element if element['id']
+    end
+    Sigma::CodeRep.workbook_page_element_ids(spec).transform_values do |ids|
+      ids.filter_map { |id| elements_by_id[id] }
+    end
+  else
+    spec.fetch('pages', []).each_with_object({}) do |page, out_pages|
+      out_pages[page['id']] = page['elements'] || []
+    end
+  end
+
 out = {
   ID_FIELD => oid,
-  'pages'  => spec.fetch('pages', []).map do |p|
+  'pages' => spec.fetch('pages', []).map do |page|
     {
-      'id'       => p['id'],
-      'name'     => p['name'],
-      'visibility' => p['visibility'],
-      'elements' => (p['elements'] || []).map do |e|
-        el = { 'id' => e['id'], 'kind' => e['kind'], 'name' => e['name'] }
-        el['columnLabels'] = labels_by_el[e['id']] if labels_by_el.key?(e['id'])
-        el
+      'id' => page['id'],
+      'name' => page['name'],
+      'visibility' => page['visibility'],
+      'elements' => Array(page_elements[page['id']]).map do |element|
+        row = { 'id' => element['id'], 'kind' => element['kind'], 'name' => element['name'] }
+        row['columnLabels'] = labels_by_el[element['id']] if labels_by_el.key?(element['id'])
+        row
       end
     }
   end
@@ -180,7 +209,7 @@ end
 
 # Layout-quality lint (shared scripts/lib/layout_lint.rb — vendored byte-
 # identical, md5 discipline): fails loudly on raw-id element display names,
-# input controls outside the GridContainer bands of a banded page, and dead
+# input controls outside the Container bands of a banded page, and dead
 # zones (>25% empty grid rows between a page's first and last element). The
 # "PHASEE PBI Employee Dashboard" regression shipped a parity-green workbook
 # that was a visual mess — every data gate passed. Escape: --skip-layout-lint

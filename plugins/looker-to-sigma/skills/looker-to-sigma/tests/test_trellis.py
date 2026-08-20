@@ -35,6 +35,8 @@ VERIFY = os.path.join(SCRIPTS, "verify-trellis-survived.rb")   # synced shared g
 FIX = os.path.join(SKILL, "fixtures", "skilltest-orders")
 VIEWS = os.path.join(FIX, "views")
 sys.path.insert(0, SCRIPTS)
+sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
+import code_rep  # noqa: E402
 
 # A donut-multiples tile (grid of donuts: one donut per region, sliced by channel)
 # + a plain pie tile that must stay flat. Exercises DETECTION via the real parser.
@@ -86,7 +88,7 @@ def build(contract, workdir):
         capture_output=True, text=True)
     assert r.returncode == 0, "build_workbook failed:\n" + r.stderr
     spec = json.load(open(opath))
-    els = [e for p in spec["pages"] for e in p["elements"]]
+    els = code_rep.workbook_elements(spec)
     return els, (r.stdout + r.stderr)
 
 
@@ -145,12 +147,15 @@ def main():
        nt["source"] == "looker" and len(recs) == 1 and d["id"] in recs
        and recs[d["id"]]["axis"] == "columnsBy")
     if os.path.exists(VERIFY):
-        spec_ok = {"pages": [{"elements": [d]}]}
+        spec_ok = {"pages": [{"id": "p"}], "elements": [d],
+                   "layout": f'<Page id="p"><Element elementId="{d["id"]}"/></Page>'}
         rp = os.path.join(workdir, "readback-ok.json"); json.dump({"spec": spec_ok}, open(rp, "w"))
         g = subprocess.run(["ruby", VERIFY, "--emitted", nt_path, "--spec", rp],
                            capture_output=True, text=True)
         ok("verify-trellis-survived PASSES on a faithful readback", g.returncode == 0)
-        spec_bad = {"pages": [{"elements": [{"id": d["id"], "kind": d["kind"]}]}]}  # trellis stripped
+        spec_bad = {"pages": [{"id": "p"}],
+                    "elements": [{"id": d["id"], "kind": d["kind"]}],
+                    "layout": f'<Page id="p"><Element elementId="{d["id"]}"/></Page>'}
         bp = os.path.join(workdir, "readback-stripped.json"); json.dump({"spec": spec_bad}, open(bp, "w"))
         b = subprocess.run(["ruby", VERIFY, "--emitted", nt_path, "--spec", bp],
                            capture_output=True, text=True)

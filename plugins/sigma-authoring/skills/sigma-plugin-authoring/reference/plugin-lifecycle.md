@@ -12,11 +12,46 @@ is `examples/gauge-embed.json`.
 
 ## 1. Registration: `POST /v2/plugins`
 
+**Beta / lightly-documented API.** Plugin registration
+(`POST`/`GET`/`DELETE /v2/plugins`) is not covered by either of Sigma's
+public split OpenAPI specs (`sigma-rest-api.json` / `code-representation.json`)
+— it's documented only via the Sigma docs reference site
+(`help.sigmacomputing.com/reference/create-custom-plugin`), and Sigma's own
+docs elsewhere label organization-plugin usage "(Beta)". Treat this
+section's schema claims as best-available, not as load-bearing as a GA
+endpoint's published spec would be.
+
 ```
 POST /v2/plugins
 { "name": "<unique plugin name>", "description": "<what it does>",
-  "url": "<hosted index.html URL>", "type": "element" }
+  "url": "<hosted index.html URL>", "devUrl": "<dev-mode URL, e.g. http://localhost:5173>",
+  "type": "element" }
 ```
+
+`name` is the only required field. `description` and `url` are optional
+(an omitted `url` registers the plugin with an empty URL — fine to backfill
+later, see "`url` is set-once" below). `devUrl` is also optional and
+defaults to `http://localhost:5173` if omitted — Sigma loads the plugin from
+this URL when it runs in dev mode — but **set it explicitly** rather than
+relying on the implicit default whenever you're actively iterating on a
+plugin locally.
+
+`type` is **not** listed in the live create-plugin request-body schema
+(confirmed via the Sigma API reference docs, not a live POST) — that page
+documents it as response-only, hardcoded to `"element"` on every
+`GET`/`POST /v2/plugins` response entry. Even so, **this recipe keeps
+sending it in the request**: the body above (with `type` included) is the
+one proven to work live against a real Sigma org (WS2 v1, gauge archetype —
+see this file's header), and whether an undocumented extra field is
+silently accepted or actually rejected was never live-tested (that specific
+test — POSTing a throwaway plugin just to check — was explicitly declined).
+Dropping a field from a known-working body on the strength of a schema
+reading alone is a worse trade than keeping one harmless extra field —
+most REST APIs silently ignore request properties outside their documented
+schema rather than rejecting the whole call. If this ever does get
+live-tested, confirming `type` is truly a no-op would let this recipe drop
+it for real; until then, treat its removal as unverified and its presence
+as the safer, proven default.
 
 A successful register returns a `pluginId`. **Always call
 `shared/scripts/register-plugin.rb` (`PluginRegister.register_or_get`)** rather

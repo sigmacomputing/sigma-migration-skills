@@ -42,6 +42,7 @@
 require 'json'
 require 'tmpdir'
 require 'fileutils'
+require 'open3'
 
 GATE = File.expand_path('../scripts/assert-phase6-ran.rb', __dir__)
 # Self-identifies the adopting converter from this file's own path (e.g. a
@@ -65,6 +66,21 @@ end
 
 def write_json(dir, name, obj)
   File.write(File.join(dir, name), JSON.generate(obj))
+end
+
+# Like run_gate, but also captures stdout AND stderr — needed where a
+# scenario must assert on the exact PRINTED success/failure message, not just
+# the exit code (a crash before the print, or the wrong branch's message,
+# could still coincidentally produce the same exit code without this). Every
+# `warn` call in the gate (all of its diagnostic/remediation text, including
+# FAIL-branch hints) goes to stderr, not stdout — callers that only need
+# stdout can still destructure just `code, out = run_gate_capture(...)` and
+# the captured stderr string is simply dropped.
+def run_gate_capture(dir, *extra_args)
+  cmd = ['ruby', GATE, '--workdir', dir] + extra_args
+  env = { 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '' }
+  out, err, status = Open3.capture3(env, *cmd)
+  [status.exitstatus, out, err]
 end
 
 # A workdir with valid, minimal fixtures for every FILE-DRIVEN gate this
@@ -108,6 +124,16 @@ HAPPY_FLAGS = [
   '--skip-visual-comparison', 'verifier: render pre-verified by a prior session (policy-excluded from the waiver budget)'
 ].freeze
 
+# Conditions (a)+(c)+(d) of the anchors-oracle substitution (charts_total<=0
+# branch) satisfied — every scenario below is only exercising condition (b)
+# (the visual-verify-tile confirmation), so the other three are held constant
+# and passing here.
+PASSING_ANCHORS_ORACLE = {
+  'pass' => true, 'checked' => 5, 'matched' => 5, 'anchors_matched_in_displayed' => 5,
+  'tiles_all_nonempty' => true,
+  'anchor_coverage' => { 'covered' => 3, 'displayed' => 3, 'uncovered' => [] }
+}.freeze
+
 # Build a fresh good workdir, let the block corrupt/add exactly one thing,
 # run the gate with `flags`, and assert the EXACT exit code.
 def scenario(name, expect_exit, flags = HAPPY_FLAGS)
@@ -129,7 +155,7 @@ scenario('parity-final.json status=FAIL -> exit 2', 2) do |dir|
   write_json(dir, 'parity-final.json', 'charts_total' => 3, 'charts_pass' => 2, 'status' => 'FAIL', 'mode' => 'live')
 end
 
-puts '== gate 2 (orphan workbooks) =='
+puts '== gate 2 (orphan workbooks, [bead]) =='
 scenario('2 workbooks POSTed, no cleanup-marker.json -> exit 4', 4) do |dir|
   File.write(File.join(dir, 'posted-workbooks.jsonl'),
              [{ 'id' => 'wb-1' }, { 'id' => 'wb-2' }].map { |h| JSON.generate(h) }.join("\n") + "\n")
@@ -285,8 +311,10 @@ puts '== gate 21 (chart-kind parity, PR-10) =='
 scenario('verified source kind (line) disagrees with the live readback (bar) -> exit 28', 28) do |dir|
   write_json(dir, 'png-read.json', 'verified' => true, 'tiles' => [{ 'title' => 'Sales by Region', 'kind' => 'line' }])
   write_json(dir, 'wb-readback.json',
-             'pages' => [{ 'elements' => [{ 'name' => 'Sales by Region', 'kind' => 'bar-chart',
-                                             'visibleAsSource' => true }] }])
+             'pages' => [{ 'id' => 'overview', 'name' => 'Overview' }],
+             'elements' => [{ 'id' => 'sales-region', 'name' => 'Sales by Region',
+                              'kind' => 'bar-chart', 'visibleAsSource' => true }],
+             'layout' => '<Page id="overview"><Element elementId="sales-region"/></Page>')
 end
 
 puts '== waiver budget (exit 19; checked LAST, after every other gate passes) =='
@@ -294,6 +322,200 @@ scenario('3 budget-counted waivers (column+layout+orphan), 1 policy-excluded (vi
          HAPPY_FLAGS + ['--skip-orphan-check', 'budget test: deliberately exceed the cap of 2'])
 
 puts
+puts '== gate 3 (ruzs: silent SKIP paths are RECORDED, never a free pass) =='
+# A [SKIP] in gate 3/7 that leaves no artifact lets a workbook whose live
+# columns were never audited reach GREEN ("gates => all-pass" survives).
+# Ratified remedy: the skip is recorded to column-scan.json, which the
+# degradation ledger derives into a quality-waiver — capping the verdict at
+# YELLOW — rather than a hard exit (a transient outage must not hard-block).
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  File.delete(File.join(dir, 'wb-ids.json')) # no workbook id resolvable at all
+  run_gate(dir, '--skip-layout-check', 'no wb id for gate 4 either',
+           '--skip-visual-comparison', 'verifier: pre-verified')
+  scan = (JSON.parse(File.read(File.join(dir, 'column-scan.json'))) rescue nil)
+  eq(scan.is_a?(Hash), true, 'no-wb-id skip writes column-scan.json')
+  eq(scan && scan['status'], 'skipped-no-workbook-id',
+     'column-scan.json records status=skipped-no-workbook-id')
+  ledger = (JSON.parse(File.read(File.join(dir, 'degradation-ledger.json'))) rescue nil)
+  entry = ledger && Array(ledger['entries']).find { |e| e['item'] == 'gate-3-column-scan' }
+  eq(!entry.nil?, true, 'the skip lands in the degradation ledger as gate-3-column-scan')
+  eq(entry && entry['class'], 'quality-waiver', 'ledger entry class is quality-waiver (caps at YELLOW)')
+end
+
+require 'socket'
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  # Stub Sigma: first /columns page promises a nextPage, then the server 500s
+  # every later request — the mid-scan transient the ruzs bead describes.
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  th = Thread.new do
+    first = true
+    loop do
+      client = server.accept
+      while (l = client.gets) && l != "\r\n"; end
+      if first
+        first = false
+        body = JSON.generate('entries' => [{ 'columnId' => 'c1', 'label' => 'A',
+                                             'type' => { 'type' => 'number' } }],
+                             'nextPage' => 'p2')
+        client.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" \
+                     "Content-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}")
+      else
+        client.write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+      end
+      client.close
+    end
+  rescue StandardError
+    nil
+  end
+  env = { 'SIGMA_BASE_URL' => "http://127.0.0.1:#{port}", 'SIGMA_API_TOKEN' => 'stub-token' }
+  system(env, 'ruby', GATE, '--workdir', dir,
+         '--skip-layout-check', 'stub server serves only gate 3',
+         '--skip-visual-comparison', 'verifier: pre-verified',
+         out: File::NULL, err: File::NULL)
+  server.close rescue nil
+  th.kill
+  scan = (JSON.parse(File.read(File.join(dir, 'column-scan.json'))) rescue nil)
+  eq(scan.is_a?(Hash), true, 'incomplete scan writes column-scan.json')
+  eq(scan && scan['status'], 'skipped-incomplete', 'column-scan.json records status=skipped-incomplete')
+  eq(scan && scan['columns_read'], 1, 'the partial read count is recorded (1 column seen)')
+end
+
+# The clean COMPLETE scan must stay a free pass: complete-clean is recorded as
+# positive evidence and derives NO ledger entry (GREEN stays reachable).
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  server = TCPServer.new('127.0.0.1', 0)
+  port = server.addr[1]
+  th = Thread.new do
+    loop do
+      client = server.accept
+      while (l = client.gets) && l != "\r\n"; end
+      body = JSON.generate('entries' => [{ 'columnId' => 'c1', 'label' => 'A',
+                                           'type' => { 'type' => 'number' } }])
+      client.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" \
+                   "Content-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}")
+      client.close
+    end
+  rescue StandardError
+    nil
+  end
+  env = { 'SIGMA_BASE_URL' => "http://127.0.0.1:#{port}", 'SIGMA_API_TOKEN' => 'stub-token' }
+  system(env, 'ruby', GATE, '--workdir', dir,
+         '--skip-layout-check', 'stub server serves only gate 3',
+         '--skip-visual-comparison', 'verifier: pre-verified',
+         out: File::NULL, err: File::NULL)
+  server.close rescue nil
+  th.kill
+  scan = (JSON.parse(File.read(File.join(dir, 'column-scan.json'))) rescue nil)
+  eq(scan && scan['status'], 'complete-clean', 'a full clean scan records complete-clean')
+  ledger = (JSON.parse(File.read(File.join(dir, 'degradation-ledger.json'))) rescue nil)
+  entry = ledger && Array(ledger['entries']).find { |e| e['item'] == 'gate-3-column-scan' }
+  eq(entry, nil, 'complete-clean derives NO ledger entry (GREEN stays reachable)')
+end
+
+puts
+puts '== anchors-oracle SUBSTITUTION (charts_total<=0) fallback: page-level visual verdict when =='
+puts '== no visual-verify/manifest.json exists (Tableau-only artifact; 7 other converters share this file) =='
+# The manifest-only condition (b) capped every non-Tableau converter sharing
+# this canonical file below GREEN whenever they hit the charts_total<=0 path
+# (their NORMAL case for a fully dashboard-embedded workbook) — only
+# Tableau's own skill emits visual-verify/manifest.json. These scenarios
+# exercise the fallback to the page-level record-visual-check.rb verdict
+# already stamped into parity-final.json.
+
+scenario('anchors-oracle: no manifest, no recorded visual verdict -> condition (b) incomplete, gate still fails', 2) do |dir|
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live')
+end
+
+scenario('anchors-oracle: no manifest, agent_vision:false recorded -> condition (b) still incomplete (blind attestation rejected)', 2) do |dir|
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live',
+             'visual_checked' => true, 'visual_verdict' => 'pass', 'agent_vision' => false)
+end
+
+# scenarios 2 and 5 assert on the exact PRINTED success line (not just the
+# exit code) — a crash before the print, or the wrong branch's wording, could
+# otherwise coincidentally still exit 0.
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live',
+             'visual_checked' => true, 'visual_verdict' => 'pass', 'agent_vision' => true)
+  code, out = run_gate_capture(dir, *HAPPY_FLAGS)
+  eq(code, 0, 'anchors-oracle: no manifest, page-level visual_verdict=pass recorded -> gate 2 passes via anchors oracle')
+  eq(out.include?('page-level visual verdict recorded (pass)'), true,
+     'success line names the page-level fallback wording — proves the print path executed, not a coincidental exit 0')
+  eq(out.include?('tile(s) image-verified'), false,
+     'success line does NOT use the manifest-path wording ("all N tile(s) image-verified") when no manifest exists')
+end
+
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  File.delete(File.join(dir, 'wb-ids.json')) # gates 3/4 take the free no-workbook-id SKIP (zero waiver-budget
+                                              # cost) so this scenario's waiver-budget math isolates the
+                                              # visual-divergent census entry (budget is 2; --skip-visual-comparison
+                                              # here is the policy-excluded /verifier/i reason, never budget-counted).
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live',
+             'visual_checked' => true, 'visual_verdict' => 'divergent', 'agent_vision' => true)
+  code = run_gate(dir, '--skip-visual-comparison', 'verifier: pre-verified by a prior session')
+  eq(code, 0, 'anchors-oracle: no manifest, page-level visual_verdict=divergent recorded -> still satisfies condition (b)')
+  pf = (JSON.parse(File.read(File.join(dir, 'parity-final.json'))) rescue nil)
+  eq(pf.is_a?(Hash) && Array(pf['waivers']).include?('visual-divergent'), true,
+     "waiver census still counts 'visual-divergent' (pre-existing mechanism; the fallback doesn't bypass it)")
+end
+
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live')
+  FileUtils.mkdir_p(File.join(dir, 'visual-verify'))
+  write_json(dir, File.join('visual-verify', 'manifest.json'),
+             [{ 'worksheet' => 'Tile A', 'visual_verified' => true },
+              { 'worksheet' => 'Tile B', 'visual_verified' => true }])
+  code, out = run_gate_capture(dir, *HAPPY_FLAGS)
+  eq(code, 0, 'anchors-oracle: manifest PRESENT and fully verified -> unchanged existing behavior (regression guard)')
+  eq(out.include?('all 2 tile(s) image-verified'), true,
+     'success line keeps the ORIGINAL manifest-path wording ("all N tile(s) image-verified") — proves the manifest path is untouched by the fallback')
+end
+
+# Regression guard for the misdirection this fix corrects: a REAL manifest
+# that exists but has a failing tile must never be reported with the
+# no-manifest-at-all remediation hint ("no manifest.json + no recorded
+# page-level visual verdict... run scripts/record-visual-check.rb") — that
+# hint is only correct when NO manifest exists at all (_vv_source ==
+# :page_verdict); here a manifest genuinely exists and one tile failed real
+# per-tile verification, so the fix is verify-visual-tiles.rb, not
+# record-visual-check.rb. Without this guard, a future edit could reintroduce
+# the exact misdirection two prior whole-branch reviews missed.
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE)
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'PASS', 'mode' => 'live')
+  FileUtils.mkdir_p(File.join(dir, 'visual-verify'))
+  write_json(dir, File.join('visual-verify', 'manifest.json'),
+             [{ 'worksheet' => 'Tile A', 'visual_verified' => true },
+              { 'worksheet' => 'Tile B', 'visual_verified' => false }])
+  code, _out, err = run_gate_capture(dir, *HAPPY_FLAGS)
+  eq(code, 2, 'anchors-oracle: manifest PRESENT with a failing tile -> condition (b) incomplete, gate fails')
+  eq(err.include?('every visual-verify tile confirmed (incomplete)'), true,
+     'stderr reports condition (b) as incomplete (the real, manifest-driven failure)')
+  eq(err.include?('no manifest.json'), false,
+     'stderr does NOT print the no-manifest remediation hint when a manifest genuinely exists — the Fix-2 regression guard')
+  eq(err.include?('record-visual-check.rb'), false,
+     'stderr does NOT recommend record-visual-check.rb (the wrong remediation for a manifest-present failure) — re-running verify-visual-tiles.rb is the real fix')
+end
+
 if $failures.zero? then puts 'ALL PASS'; exit 0 else puts "#{$failures} FAILURE(S)"; exit 1 end
 
 # NOTE on coverage boundaries NOT tested above (documented, not faked):

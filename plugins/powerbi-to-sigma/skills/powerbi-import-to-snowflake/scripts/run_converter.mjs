@@ -3,7 +3,7 @@
 // use; the normal path is the powerbi-to-sigma skill / MCP tool).
 // Usage: node run_converter.mjs <model.bim> <sigma-conn-id> <DB> <SCHEMA> <out.json>
 //   Point at the converter with CONVERTER_PATH=<.../build/powerbi.js> or
-//   PBI_MCP_DIR=<sigma-data-model-mcp checkout>. Falls back to the vendored
+//   PBI_MCP_DIR=<converter-source checkout>. Falls back to the vendored
 //   powerbi-to-sigma bundle if present.
 import fs from "fs";
 import { existsSync } from "fs";
@@ -23,7 +23,7 @@ const CONV = process.env.CONVERTER_PATH
   || (existsSync(SIBLING) ? SIBLING : null);
 if (!CONV) {
   console.error("no converter found: set CONVERTER_PATH (or PBI_MCP_DIR) to the "
-    + "sigma-data-model-mcp build/powerbi.js, or use the powerbi-to-sigma skill / MCP tool");
+    + "converter-source build/powerbi.js, or use the powerbi-to-sigma skill / MCP tool");
   process.exit(2);
 }
 const { convertPowerBIToSigma } = await import(pathToFileURL(CONV).href);

@@ -7,6 +7,8 @@ HERE = os.path.dirname(__file__)
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 sys.path.insert(0, SCRIPTS)
 import convert as C
+import verify_layout as V
+code_rep = C.code_rep
 
 FIX = os.path.join(HERE, "..", "fixtures")
 model = json.load(open(os.path.join(FIX, "model_ecommerce.json")))
@@ -33,16 +35,21 @@ spec, _ = C.convert_dashboard(dashboards, model, dm_info)
 rc, out = run_gate(dashboards, spec)
 ok("auto-arrange fixtures -> layout gate GREEN", rc == 0 and "GREEN (all" in out, out)
 
-# --- controls must be placed FLAT, never in a <GridContainer> ---
-# (Sigma rejects a GridContainer whose elementId isn't a real container element.)
+# --- controls must be placed FLAT, never in a <Container> ---
+# (Sigma rejects a Container whose elementId isn't a real container element.)
 import re as _re
-ctrl_ids = [e["id"] for e in spec["pages"][1]["elements"] if e.get("kind") == "control"]
-lay = spec.get("layout", "")
+ctrl_ids = [e["id"] for e in code_rep.workbook_elements(spec)
+            if e.get("kind") == "control"]
+lay = code_rep.document(spec).get("layout", "")
 ok("controls present in this fixture", len(ctrl_ids) >= 1, f"found {len(ctrl_ids)}")
-ok("layout emits NO <GridContainer>", "GridContainer" not in lay)
-placed_ids = set(_re.findall(r'<LayoutElement elementId="([^"]+)"', lay))
-ok("every control placed as a flat LayoutElement", all(c in placed_ids for c in ctrl_ids),
+ok("layout emits canonical tags only",
+   "<Element " in lay and "LayoutElement" not in lay and "GridContainer" not in lay)
+placed_ids = set(_re.findall(r'<Element elementId="([^"]+)"', lay))
+ok("every control placed as a flat Element", all(c in placed_ids for c in ctrl_ids),
    f"missing={[c for c in ctrl_ids if c not in placed_ids]}")
+legacy = '<LayoutElement elementId="old" gridColumn="1 / 2" gridRow="3 / 4"/>'
+ok("layout verifier retains legacy LayoutElement read compatibility",
+   V.parse_layout(legacy).get("old") == (1, 2, 3, 4))
 
 # --- inline 2-column dashboard: faithful path ---
 def chart(oid, wtype, panel):
@@ -62,8 +69,10 @@ ok("faithful 2-col dashboard -> layout gate GREEN", rc2 == 0 and "GREEN (all" in
 bad = json.loads(json.dumps(spec2))
 import re
 # collapse every element onto the same grid cell -> guaranteed overlap
-bad["layout"] = re.sub(r'gridColumn="[^"]+" gridRow="[^"]+"',
-                       'gridColumn="1 / 13" gridRow="1 / 13"', bad["layout"])
+bad["document"]["layout"] = re.sub(
+    r'gridColumn="[^"]+" gridRow="[^"]+"',
+    'gridColumn="1 / 13" gridRow="1 / 13"',
+    bad["document"]["layout"])
 rc3, out3 = run_gate(multicol, bad)
 ok("corrupted layout (overlap) -> gate RED", rc3 != 0 and "NO-OVERLAP" in out3 and "RED" in out3)
 

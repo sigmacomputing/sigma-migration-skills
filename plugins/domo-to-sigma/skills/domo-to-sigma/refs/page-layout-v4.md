@@ -45,14 +45,11 @@ collection; treat it as real but unverified until we see one.
   `standard`. Domo 60 → Sigma 24 is **×0.4**.
 - `content[]` entries with `type: "HEADER"` carry a `text` field and NO `cardId` —
   these are Domo's named section dividers, and they get x/y/w/h in
-  `standard.template` like anything else. They map onto the section-title concept the
-  layout builder currently *infers* from `collections[]`; with v4 we get the titles
-  AND their real positions. (**Not yet wired**: `merge_pagelayoutv4_geometry` reads
-  `content[]` only far enough to skip entries with no `cardId` — HEADER/PAGE_BREAK
-  are safely ignored, never converted into a section title or divider in the
-  composed dashboard. Surfacing them remains a documented follow-up, not part of
-  this fix.)
-- `PAGE_BREAK` entries also appear in `standard.template`.
+  `standard.template` like anything else. `pagelayoutv4_content` preserves them
+  as authored text elements at their real positions.
+- `PAGE_BREAK` entries also appear in `standard.template`; they map to the
+  released Sigma `page-break` element and are fixed to one grid row in the
+  authoritative layout. No page break is inferred from geometry alone.
 
 ## Two defects — fixed
 
@@ -103,11 +100,7 @@ GET /api/content/v4/pages/layouts/{layoutId}/sectionState     # seen in HAR; pur
 
 ## Why this matters
 
-Pages that fall through to kind-aware default composition today would get real
-coordinates, real widths, and exact section-header positions instead (the
-section-header *positions* are captured in `standard.template` alongside every
-other content entry, but nothing downstream turns them into a rendered section
-title/divider yet — see the caveat above; only real card geometry is wired end to
-end by this fix). The screenshot / `layout-observed.json` rung stays — but it
-becomes the fallback for genuinely legacy pages rather than the only route to
-fidelity.
+Pages that would otherwise fall through to kind-aware default composition get
+real coordinates, widths, section headers, and authored print breaks. The
+screenshot / `layout-observed.json` rung stays, but becomes the fallback for
+genuinely legacy pages rather than the only route to fidelity.

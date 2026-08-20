@@ -1,10 +1,10 @@
 """Sigma Computing ID generation and naming utilities.
 
-Python port of the shared sigma-ids.ts module (the canonical
+Python port of the shared sigma-ids.ts module (metabase-to-sigma /
 converter/sigma-ids.ts) — ported byte-for-byte on the display-name derivation
 rule, since that rule must match Sigma's OWN internal derivation exactly or
 cross-element formula refs compile to type "error" at POST time
-(beads-sigma-c31q). No Hex-specific logic lives here; every sibling skill
+([bead]). No Hex-specific logic lives here; every sibling skill
 that ports this converter for a new source tool should carry this file over
 unchanged.
 """
@@ -116,7 +116,7 @@ def infer_sigma_format(agg: str | None, hex_display_format: dict | None) -> dict
     """Build a Sigma format object from Hex's own displayFormat, when present
     (METRIC cells and EXPLORE fields both carry one) — the PRIMARY format
     signal, mirroring the family convention of preferring the source's own
-    format mask over name/formula heuristics (beads-sigma-4q7k)."""
+    format mask over name/formula heuristics ([bead])."""
     if not hex_display_format:
         return None
     fmt = hex_display_format.get("format")

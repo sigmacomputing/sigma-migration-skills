@@ -114,10 +114,14 @@ new schema.
 
 ## 5. Build the workbook — one page per tab
 
+> The workbook spec is `document`-wrapped, not flat (confirmed live 2026-08-03, including on
+> `/verify` 2026-08-04): `schemaVersion`, `pages`, `kind`, and `layout` below all nest under a
+> top-level `document` key. Data-model specs remain flat — do not wrap those.
+
 `source: { kind: data-model, dataModelId, elementId }`; chart column formulas reference the
 **DM element name**: `[Enrollment/School Year]`. Dimension columns un-aggregated; measures
 `Sum(...)`/`Avg(...)`. Emit one `pages[]` entry per Cognos tab, and **one `<Page id>` block
-per page** inside the single top-level `layout` XML string.
+per page** inside the single `layout` XML string (`document.layout`).
 
 ### Labels + formats fidelity (carry them — don't leave Sigma to guess)
 

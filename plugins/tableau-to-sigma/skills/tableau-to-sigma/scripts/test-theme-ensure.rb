@@ -13,6 +13,7 @@ DIR = __dir__
 SRC = File.read(File.join(DIR, 'post-and-readback.rb'))
 m = SRC.match(/^def ensure_theme!.*?\n^end$/m) or abort('could not extract ensure_theme!')
 require_relative 'lib/theme_derive'
+require_relative 'lib/workbook_code'
 # require_relative cannot infer a basepath inside eval — the lib is preloaded.
 eval(m[0].sub(/require_relative\s+'lib\/theme_derive'/, 'nil')) # rubocop:disable Security/Eval
 
@@ -23,7 +24,16 @@ def check(c, msg, fails)
 end
 
 THEME = { 'categoricalScheme' => ['#0E8DA0', '#123456'], 'backgroundCanvas' => '#FFFFFF' }.freeze
-SPEC  = { 'name' => 'W', 'pages' => [{ 'id' => 'p', 'elements' => [] }] }.freeze
+SPEC  = {
+  'name' => 'W',
+  'document' => {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p', 'name' => 'P' }],
+    'elements' => [],
+    'layout' => '<Page id="p"></Page>'
+  }
+}.freeze
 
 $opts_type = 'workbook'
 
@@ -32,22 +42,27 @@ Dir.mktmpdir do |d|
   File.write(File.join(d, 'chart-specs-theme.json'), JSON.generate(THEME))
   out = ensure_theme!(JSON.generate(SPEC), d)
   spec = JSON.parse(out)
-  check(spec.dig('themeOverrides', 'categoricalScheme') == THEME['categoricalScheme'],
+  check(spec.dig('document', 'settings', 'theme', 'overrides', 'categoricalScheme') == THEME['categoricalScheme'],
         'sidecar theme applied to a spec that carried none', fails)
-  check(spec['themeName'] == 'Light', 'themeName stamped by ThemeDerive.apply!', fails)
+  check(spec.dig('document', 'settings', 'theme', 'name') == 'Light',
+        'theme name stamped by ThemeDerive.apply!', fails)
 
-  # a spec that ALREADY carries themeOverrides is untouched
-  themed = SPEC.merge('themeOverrides' => { 'categoricalScheme' => ['#ABCDEF'] })
+  # a spec that ALREADY carries a settings.theme.overrides is untouched
+  themed = SPEC.merge(
+    'document' => SPEC['document'].merge(
+      'settings' => { 'theme' => { 'overrides' => { 'categoricalScheme' => ['#ABCDEF'] } } }
+    )
+  )
   out2 = ensure_theme!(JSON.generate(themed), d)
-  check(JSON.parse(out2)['themeOverrides'] == themed['themeOverrides'],
-        'existing themeOverrides never overwritten', fails)
+  check(JSON.parse(out2).dig('document', 'settings') == themed.dig('document', 'settings'),
+        'existing settings.theme.overrides never overwritten', fails)
 end
 
 Dir.mktmpdir do |d|
   # theme via the pages-mode 'theme' key of chart-specs.json
   File.write(File.join(d, 'chart-specs.json'), JSON.generate('pages' => [], 'theme' => THEME))
   out = ensure_theme!(JSON.generate(SPEC), d)
-  check(JSON.parse(out).dig('themeOverrides', 'colorOverrides', 'backgroundCanvas') == '#FFFFFF',
+  check(JSON.parse(out).dig('document', 'settings', 'theme', 'overrides', 'colorOverrides', 'backgroundCanvas') == '#FFFFFF',
         "builder-output 'theme' key applied", fails)
 end
 

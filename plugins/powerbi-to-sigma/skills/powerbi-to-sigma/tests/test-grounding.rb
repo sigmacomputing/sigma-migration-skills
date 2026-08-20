@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # test-grounding.rb — grounding regression for build-workbook-from-pbir.rb
-# (beads-sigma-kvza). Mirrors the looker-to-sigma pilot's tests/test_grounding.py.
+# ([bead]). Mirrors the looker-to-sigma pilot's tests/test_grounding.py.
 #
 # Proves the Power BI dashboard classifier is documentation-grounded and
 # loud-on-unmapped:
@@ -104,7 +104,10 @@ EXPECT_SIGMA_KIND = {
   'area' => 'area-chart', 'combo' => 'combo-chart', 'scatter' => 'scatter-chart',
   'pie' => 'pie-chart', 'donut' => 'donut-chart', 'table' => 'table',
   'pivot-table' => 'pivot-table', 'text' => 'text', 'control' => 'control',
-  'map' => 'map', 'image' => 'image'
+  'map' => 'map', 'image' => 'image',
+  # Aug-2026 workbook-as-code release mappings.
+  'waterfall' => 'waterfall-chart', 'progress' => 'progress',
+  'navigation' => 'navigation'
 }.freeze
 derived_kind = CATS['viz-kind'].rows.each_with_object({}) { |r, h| h[r['source']] = r['sigma'] }
 # The lock's PURPOSE is that no existing token's Sigma kind changes silently. The catalog
@@ -112,7 +115,7 @@ derived_kind = CATS['viz-kind'].rows.each_with_object({}) { |r, h| h[r['source']
 # coerced to bar charts), so assert the original 14 pairs are preserved EXACTLY, and that
 # every additional row is a non-rendering class — i.e. a new row can never introduce a new
 # renderable mapping without editing this test on purpose.
-ok('the original 14 SIGMA_KIND pairs are preserved verbatim',
+ok('the documented renderable SIGMA_KIND pairs are preserved verbatim',
    EXPECT_SIGMA_KIND.all? { |k, v| derived_kind[k] == v })
 extra = derived_kind.keys - EXPECT_SIGMA_KIND.keys
 ok("any ADDED viz-kind row is non-rendering (added: #{extra.sort.inspect})",

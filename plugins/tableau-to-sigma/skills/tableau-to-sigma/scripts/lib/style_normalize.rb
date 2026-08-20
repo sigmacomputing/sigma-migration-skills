@@ -55,6 +55,8 @@
 # NOT here: SN-1 title-hide ships separately via put-layout — the live API
 # rejects name:{text, visibility:'hidden'} (probed 2026-07-11: 400 "cannot mix
 # visibility:'hidden' with title content").
+require_relative 'workbook_code'
+
 module StyleNormalize
   RULE_TOTALS  = 'SN-2-pivot-totals'
   RULE_GRAMMAR = 'SN-3-format-grammar'
@@ -106,24 +108,18 @@ module StyleNormalize
     @warnings = []
     changes = []
     return changes unless spec.is_a?(Hash)
+    document = WorkbookCode.document(spec)
     zones = chart_zones_by_key(layout)
-    pages = spec['pages']
-    pages = [] unless pages.is_a?(Array)
-    pages.each do |page|
-      next unless page.is_a?(Hash)
-      elements = page['elements']
-      next unless elements.is_a?(Array)
-      elements.each do |el|
-        next unless el.is_a?(Hash)
-        normalize_pivot_totals!(el, zones, changes)
-        normalize_scheme_defaults!(spec, el, changes)
-        columns = el['columns']
-        next unless columns.is_a?(Array)
-        columns.each_with_index do |col, i|
-          next unless col.is_a?(Hash)
-          repair_format_grammar!(el, col, i, changes)
-          normalize_percent_precision!(el, col, i, changes)
-        end
+    WorkbookCode.elements(document).each do |el|
+      next unless el.is_a?(Hash)
+      normalize_pivot_totals!(el, zones, changes)
+      normalize_scheme_defaults!(document, el, changes)
+      columns = el['columns']
+      next unless columns.is_a?(Array)
+      columns.each_with_index do |col, i|
+        next unless col.is_a?(Hash)
+        repair_format_grammar!(el, col, i, changes)
+        normalize_percent_precision!(el, col, i, changes)
       end
     end
     changes
@@ -243,7 +239,7 @@ module StyleNormalize
   def normalize_scheme_defaults!(spec, el, changes)
     cfs = el['conditionalFormats']
     return unless cfs.is_a?(Array)
-    theme = spec['themeOverrides'].is_a?(Hash) ? spec['themeOverrides']['categoricalScheme'] : nil
+    theme = spec.dig('settings', 'theme', 'overrides', 'categoricalScheme')
     return unless theme.is_a?(Array) && !theme.empty?
     dominant = theme.first.to_s.strip.downcase
     cfs.each_with_index do |cf, i|
@@ -253,7 +249,7 @@ module StyleNormalize
       next unless scheme.any? { |c| ROYAL_DEFAULT_LITERALS.include?(c.to_s.strip.downcase) }
       unless dominant =~ /\A#\h{6}\z/
         warnings << "#{RULE_SCHEME} #{element_label(el)}: conditionalFormats[#{i}] carries the " \
-                    "Sigma default royal scheme but themeOverrides.categoricalScheme[0] " \
+                    "Sigma default royal scheme but settings.theme.overrides.categoricalScheme[0] " \
                     "(#{theme.first.inspect}) is not #rrggbb hex — left untouched"
         next
       end

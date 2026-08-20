@@ -42,19 +42,38 @@ end
 
 def run_guide(twb, dir, extra = [])
   out  = File.join(dir, 'POSTPUBLISH_GUIDE.md')
-  json = File.join(dir, 'postpublish-guide.json')
+  json = File.join(dir, 'action-ledger.json')
   ok = system(RUBY, SCRIPT, '--twb', twb, '--out', out, '--json-out', json,
               *extra, err: File::NULL)
   raise "generator exited nonzero for #{twb}" unless ok
   # Explicit UTF-8: the guide carries →/⋮/☐ and a LANG-less shell would read
   # it back as US-ASCII, breaking include? checks.
+  # --json-out now writes the LEDGER OBJECT ({schemaVersion, detectedCount,
+  # emitted, residue}), not a bare entries array — that is the contract Task
+  # 6's gates read. Callers that want "all detected interactions" (nothing
+  # was passed via --emitted-manifest) should read ledger['residue'], which
+  # equals the full detected set when nothing was auto-wired.
   [File.read(out, encoding: 'UTF-8'), JSON.parse(File.read(json, encoding: 'UTF-8'))]
+end
+
+# Slice out one rendered section's markdown by its heading, e.g.
+# "## 3. Parameter actions (1)\n\n...body...\n## 4. Set actions ...". Used to
+# check the per-entry "Sigma status" badge text without the JSON carrying a
+# raw sigma_status field any more (status is now derived from kind + ledger
+# membership at render time, not asserted per-entry).
+def section_text(md, title)
+  md[/^## \d+\. #{Regexp.escape(title)}\b.*?(?=\n## \d+\.|\n## Checklist|\z)/m] || ''
 end
 
 Dir.mktmpdir do |d|
   # ---- 1. Full action fixture (no wb-ids) ----------------------------------
   puts "== postpublish-actions.twb =="
-  md, entries = run_guide(File.join(FIXTURE, 'postpublish-actions.twb'), File.join(Dir.mktmpdir))
+  md, ledger = run_guide(File.join(FIXTURE, 'postpublish-actions.twb'), File.join(Dir.mktmpdir))
+  # No --emitted-manifest was passed, so nothing was auto-wired: residue ==
+  # every detected interaction, same content the old bare-array contract used
+  # to hand back directly.
+  entries = ledger['residue']
+  check(ledger['detectedCount'] == entries.length, 'no manifest passed: residue == everything detected')
   by_kind = entries.group_by { |e| e['kind'] }
 
   expected = {
@@ -69,8 +88,10 @@ Dir.mktmpdir do |d|
   end
   check(entries.length == expected.values.reduce(:+),
         "total interactions == #{expected.values.reduce(:+)} (got #{entries.length})")
-  check(entries.all? { |e| e['sigma_status'] && e['ui_steps'] },
-        'every entry carries sigma_status + ui_steps')
+  check(entries.all? { |e| e['ui_steps'] }, 'every entry carries ui_steps')
+  check(entries.none? { |e| e.key?('sigma_status') },
+        'entries no longer carry a hardcoded sigma_status field — status is now ' \
+        'derived from kind + ledger membership at render time, not asserted per-entry')
 
   # Filter action: fields from the tsl: link mapping; target dashboard expands
   # to its sheets minus the exclude list.
@@ -80,11 +101,13 @@ Dir.mktmpdir do |d|
   check(fa_sheets.include?('Sales by Region') && fa_sheets.include?('Region Detail') &&
         !fa_sheets.include?('Metric Buttons'),
         "filter target expands dashboard sheets minus exclude (got #{fa_sheets.inspect})")
-  check(fa['sigma_status'] == 'ui-configurable', 'filter action is ui-configurable')
+  check(section_text(md, 'Cross-element filter actions').include?('UI-configurable'),
+        'filter action renders as UI-configurable in the guide')
 
   # Highlight: no equivalent, never a claimed UI path.
   hl = (by_kind['highlight-action'] || []).first || {}
-  check(hl['sigma_status'] == 'no-equivalent', 'highlight action is no-equivalent')
+  check(section_text(md, 'Highlight actions').include?('no equivalent'),
+        'highlight action renders as no equivalent in the guide')
   check(hl['ui_steps'].to_s.include?('no cross-element highlight'),
         "highlight steps state the gap plainly")
 
@@ -107,13 +130,14 @@ Dir.mktmpdir do |d|
         "param action source field caption resolved (got #{pa['fields'].inspect})")
   check(((pa['targets'] || []).first || {})['name'] == 'Metric Picker',
         'param action target parameter caption resolved')
-  check(pa['sigma_status'] == 'control-equivalent-built', 'param action is control-equivalent-built')
+  check(section_text(md, 'Parameter actions').include?('control-based equivalent already built'),
+        'param action renders as control-equivalent-built in the guide')
 
   # Set action: no equivalent.
   sa = (by_kind['set-action'] || []).first || {}
-  check(sa['sigma_status'] == 'no-equivalent' &&
+  check(section_text(md, 'Set actions').include?('no equivalent') &&
         ((sa['targets'] || []).first || {})['name'] == 'Top Regions Set',
-        'set action is no-equivalent with the set named')
+        'set action renders as no-equivalent with the set named')
 
   # Drill hierarchy: levels in order.
   dh = (by_kind['drill-hierarchy'] || []).first || {}
@@ -127,15 +151,17 @@ Dir.mktmpdir do |d|
   viz   = tips.find { |t| t['caption'] == 'Region Detail' } || {}
   check(plain['fields'] == ['Profit Ratio'],
         "tooltip calc ref resolves to caption (got #{plain['fields'].inspect})")
-  check(viz['viz_in_tooltip'] == true && viz['sigma_status'] == 'no-equivalent',
-        'viz-in-tooltip detected and marked no-equivalent')
+  check(viz['viz_in_tooltip'] == true, 'viz-in-tooltip detected')
+  check(section_text(md, 'Custom tooltips').include?('no equivalent'),
+        'the viz-in-tooltip entry renders as no-equivalent in the guide')
 
   # Buttons: toggle names its toggled container's content; goto-sheet button
   # resolves the window uuid to the dashboard; export names the format.
   sh = (by_kind['show-hide-button'] || []).first || {}
   check(((sh['targets'] || []).first || {})['name'].to_s.include?('Filter Panel Sheet'),
         'show/hide toggle names the toggled container content')
-  check(sh['sigma_status'] == 'no-equivalent', 'show/hide toggle is no-equivalent')
+  check(section_text(md, 'Show/hide container buttons').include?('no equivalent'),
+        'show/hide toggle renders as no-equivalent in the guide')
   nb = (by_kind['nav-button'] || []).first || {}
   check(((nb['targets'] || []).first || {})['name'] == 'Detail Page',
         'goto-sheet button resolves window uuid → dashboard')
@@ -177,8 +203,9 @@ Dir.mktmpdir do |d|
   }
   ids_path = File.join(d, 'wb-ids.json')
   File.write(ids_path, JSON.generate(wb_ids))
-  md2, entries2 = run_guide(File.join(FIXTURE, 'postpublish-actions.twb'),
-                            File.join(Dir.mktmpdir), ['--wb-ids', ids_path])
+  md2, ledger2 = run_guide(File.join(FIXTURE, 'postpublish-actions.twb'),
+                           File.join(Dir.mktmpdir), ['--wb-ids', ids_path])
+  entries2 = ledger2['residue']
   pa2 = entries2.find { |e| e['kind'] == 'parameter-action' } || {}
   check(pa2['ui_steps'].to_s.include?("the Sigma control 'Metric Picker'"),
         'wb-ids: parameter action names the built control')
@@ -190,8 +217,9 @@ Dir.mktmpdir do |d|
 
   # ---- 3. Zone visibility fixture -------------------------------------------
   puts "== postpublish-zone-visibility.twb =="
-  md3, entries3 = run_guide(File.join(FIXTURE, 'postpublish-zone-visibility.twb'),
-                            File.join(Dir.mktmpdir))
+  md3, ledger3 = run_guide(File.join(FIXTURE, 'postpublish-zone-visibility.twb'),
+                           File.join(Dir.mktmpdir))
+  entries3 = ledger3['residue']
   zv = entries3.select { |e| e['kind'] == 'zone-visibility' }
   check(zv.length == 1, "detects 1 zone-visibility (got #{zv.length})")
   z = zv.first || {}
@@ -199,19 +227,58 @@ Dir.mktmpdir do |d|
         "visibility driving field resolves through the graph, (copy)_n stripped (got #{z['fields'].inspect})")
   check(z['caption'].to_s.include?("sheet 'Detail Band'") && z['caption'].to_s.include?('KPI Dash'),
         'visibility zone + dashboard resolved by uuid/zone-id')
-  check(z['sigma_status'] == 'no-equivalent' &&
+  check(section_text(md3, 'Dynamic zone visibility').include?('no equivalent') &&
         md3.include?('No direct equivalent today'),
-        'zone visibility marked no-equivalent, shipped pattern stated')
+        'zone visibility renders as no-equivalent, shipped pattern stated')
 
   # ---- 4. Zero-action workbook ----------------------------------------------
   puts "== postpublish-empty.twb =="
   dir4 = File.join(Dir.mktmpdir)
-  md4, entries4 = run_guide(File.join(FIXTURE, 'postpublish-empty.twb'), dir4)
-  check(entries4 == [], 'zero-action workbook emits an empty JSON array')
+  md4, ledger4 = run_guide(File.join(FIXTURE, 'postpublish-empty.twb'), dir4)
+  check(ledger4['residue'] == [], 'zero-action workbook has empty residue')
+  check(ledger4['emitted'] == [] && ledger4['detectedCount'] == 0 && ledger4['schemaVersion'] == 1,
+        'zero-action ledger still carries the full shape (schemaVersion, detectedCount 0, empty emitted)')
   check(File.exist?(File.join(dir4, 'POSTPUBLISH_GUIDE.md')),
         'guide file exists even with zero actions (gate contract)')
   check(md4.include?('No interactive actions detected'),
         'zero-action guide states the minimal body')
+
+  # ---- 5. Ledger shape + emitted-vs-residue disjointness (--emitted-manifest) ----
+  # This is the contract Task 6's gates read: --json-out must now write the
+  # FULL LEDGER OBJECT ({schemaVersion, detectedCount, emitted, residue}), not
+  # a bare entries array, and the guide must render ONLY residue (no
+  # instructions for work the converter already did).
+  puts "== postpublish-actions.twb + --emitted-manifest =="
+  manifest = File.join(d, 'm-actions-emitted.json')
+  # 'Go to Detail' is the zone-11 goto-sheet button on the 'Overview'
+  # dashboard in postpublish-actions.twb (see extract_buttons). Its
+  # actionName ('Overview::zone-11') is what build-charts-from-signals.rb
+  # now also records on the manifest entry's source — dashboard-object
+  # button zones carry no Tableau `name=` attribute, so kind+caption alone
+  # can't disambiguate two same-captioned buttons; actionName can.
+  File.write(manifest, JSON.generate([
+    { 'actionId' => 'act-btn-11-1',
+      'source' => { 'kind' => 'nav-button', 'caption' => 'Go to Detail',
+                    'actionName' => 'Overview::zone-11' },
+      'hostElementId' => 'btn-11', 'trigger' => 'on-click',
+      'effects' => [{ 'effect' => 'navigate',
+                      'target' => { 'type' => 'page', 'page' => 'page-detail' } }] }
+  ]))
+  md5, led5 = run_guide(File.join(FIXTURE, 'postpublish-actions.twb'),
+                        Dir.mktmpdir, ['--emitted-manifest', manifest])
+  check(led5['schemaVersion'] == 1, 'ledger carries schemaVersion')
+  check(led5.key?('emitted') && led5.key?('residue'), 'ledger has emitted and residue')
+  check(led5['detectedCount'] == led5['emitted'].size + led5['residue'].size,
+        'CONSERVATION holds on a real fixture')
+  key_pairs = ->(a) { a.map { |e| [e['kind'], e['caption']] } }
+  check((key_pairs.(led5['residue']) & key_pairs.(led5['emitted'].map { |e| e['source'] })).empty?,
+        'emitted and residue are disjoint')
+  check(!md5.include?('Go to Detail'),
+        'an EMITTED action does NOT appear in the guide (no instructions for done work)')
+  check(md5.include?('Brush') || md5.match?(/highlight/i),
+        'residue still appears in the guide')
+  check(led5['residue'].none? { |e| e['kind'] == 'nav-button' && e['caption'] == 'Go to Detail' },
+        'the emitted nav-button is excluded from residue')
 end
 
 puts ''

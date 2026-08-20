@@ -36,6 +36,8 @@ require 'uri'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'probe_registry'
+require 'code_rep'
+require 'workbook_code'
 
 DM_ID   = ENV['DM_ID']   || '11111111-2222-4333-8444-555555555555' # WINPROBE Base
 EL_ID   = ENV['EL_ID']   || 'p13miPuGpa'                           # "Orders Base"
@@ -102,7 +104,13 @@ def find_schema_version
   (jget('/v2/workbooks?limit=30')['entries'] || []).each do |w|
     wid = w['workbookId'] || w['id']; next unless wid
     s = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue next)
-    return s['schemaVersion'] if s.is_a?(Hash) && s['schemaVersion']
+    next unless s.is_a?(Hash)
+    # Workbook code-rep GETs nest schemaVersion/pages under `document` (live
+    # since 2026-08); a bare s['schemaVersion'] read here was always nil,
+    # silently falling back to the schemaVersion=1 default below instead of
+    # the org's real value.
+    doc = Sigma::CodeRep.document(s)
+    return doc['schemaVersion'] if doc['schemaVersion']
   end
   1
 end
@@ -160,7 +168,10 @@ ungrouped = {
 wb_spec = { 'name' => 'ZZ probe-window-contexts (throwaway)', 'folderId' => HOME, 'schemaVersion' => SV,
             'description' => 'window-function calc-column context probe',
             'pages' => [{ 'id' => 'pg', 'name' => 'Probe', 'elements' => [grouped, ungrouped] }] }
-wresp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb_spec),
+# Workbook code-rep POSTs require the nested `document` envelope (verified
+# live 2026-08-03/04: a flat body 400s) -- wrap the throwaway probe spec.
+wb_post_body = WorkbookCode.canonicalize(wb_spec)
+wresp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb_post_body),
                       content_type: 'application/json', accept: 'application/json')
 wb = wresp['workbookId'] || wresp['id']
 abort "workbook CREATE failed: #{wresp.inspect}" unless wb
@@ -228,7 +239,11 @@ begin
                  { 'kind' => 'table', 'id' => 't', 'name' => 'DM passthrough',
                    'source' => { 'kind' => 'data-model', 'dataModelId' => dm2, 'elementId' => new_el['id'] },
                    'columns' => cols, 'order' => cols.map { |c| c['id'] } }] }] }
-  w2resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb2_spec),
+  # Same workbook `document` wrap as the first probe-workbook POST above; the
+  # `dm_spec` POST just above (/v2/dataModels/spec) stays flat -- DM surface
+  # is confirmed unchanged.
+  wb2_post_body = WorkbookCode.canonicalize(wb2_spec)
+  w2resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb2_post_body),
                          content_type: 'application/json', accept: 'application/json')
   wb2 = w2resp['workbookId'] || w2resp['id']
   raise "DM-WB CREATE failed: #{w2resp.inspect}" unless wb2

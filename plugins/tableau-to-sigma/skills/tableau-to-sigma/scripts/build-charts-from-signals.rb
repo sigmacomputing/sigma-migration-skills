@@ -68,8 +68,11 @@ require_relative 'lib/threshold_halo'  # C2: threshold-halo (computed-boolean co
 require_relative 'lib/integer_dim'    # PR-18: integer-coded dimension decode-to-text routing
 require_relative 'lib/trellis_emit'   # shared native-trellis emitter (supported-kind gate + fallbacks)
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+require_relative 'lib/tableau_dynamic_title'
 require_relative 'lib/kpi_card'       # shared KPI-chart emitter (comparative-KPI-ready)
 require_relative 'lib/kpi_comparison_detect' # Task 5: prior/target comparison-measure detector
+require_relative 'lib/action_ledger' # workbook-wide action id registry + validate/manifest
+require_relative 'lib/action_column_resolver' # Task 5: raw Tableau source-field ref -> emitted Sigma column name
 require 'erb'
 
 opts = { master_id: 'master' }
@@ -98,7 +101,7 @@ OptionParser.new do |p|
   p.on('--workbook-patterns PATH', 'converter conv-meta.json (workbookPatterns) — auto-wire param measure-pickers') { |v| opts[:wb_patterns] = v }
   p.on('--out PATH')                { |v| opts[:out] = v }
   # Where the migration COVERAGE ledger lands (the aggregated drop/approx report
-  # migrate-tableau.rb surfaces). Default: coverage.json next to --out. bead beads-sigma-59mk.
+  # migrate-tableau.rb surfaces). Default: coverage.json next to --out..
   p.on('--coverage-out PATH')       { |v| opts[:coverage_out] = v }
   # 🚧 GATE escape hatch — waive the Phase 1d dashboard-read requirement. Use ONLY
   # when the source dashboard PNG genuinely cannot be read; name the reason in your report.
@@ -107,6 +110,16 @@ OptionParser.new do |p|
   # source.elementId) — a measure whose inline aggregate matches one binds to a
   # governed [Metrics/<name>] ref instead of re-deriving inline. Absent → inline.
   p.on('--metrics PATH', 'JSON array of DM metrics {name,formula} referenceable on the master element') { |v| opts[:metrics_file] = v }
+  # Bridge input from build-postpublish-guide.rb --detect-only — the raw
+  # detected-entries array (nav-action/parameter-action/etc.) from the .twb
+  # parse, available here to the element-building code below. Optional:
+  # absent or missing file behaves exactly like today (empty list) — this
+  # flag does not itself change what gets emitted (no nav-action/parameter-
+  # action emission yet; that is a follow-up task's job).
+  p.on('--detected-actions PATH',
+       'detected-actions.json from build-postpublish-guide.rb --detect-only (default: none = empty list)') do |v|
+    opts[:detected_actions_file] = v
+  end
 end.parse!
 %i[tab layout mmap out].each { |k| abort("missing --#{k.to_s.tr('_','-')}") unless opts[k] }
 
@@ -115,6 +128,16 @@ end.parse!
 # equivalence (strip the literal 'Master' prefix). Empty/absent → inline, byte-identical.
 opts[:metrics] = (opts[:metrics_file] && File.exist?(opts[:metrics_file]) ?
                   JSON.parse(File.read(opts[:metrics_file], encoding: 'UTF-8')) : [])
+
+# Detected Tableau dashboard actions (the bridge's payload) — reuses
+# ActionLedger.read_manifest, which already returns [] for a nil/missing path
+# and rescues an unparseable file to [], so omitting --detected-actions is
+# byte-identical to today. `opts[:detected_actions]` is a top-level local,
+# visible everywhere below (including inside the element-building loop) via
+# normal closure scoping — no plumbing through method args needed yet.
+opts[:detected_actions] = ActionLedger.read_manifest(opts[:detected_actions_file])
+warn "loaded #{opts[:detected_actions].size} detected action(s) from " \
+     "#{opts[:detected_actions_file] || '(no --detected-actions given)'}"
 
 # 🚧 GATE (Phase 1d) — refuse to build charts until the SOURCE dashboard PNG has
 # been read and enumerated. png-read.json is the artifact of that read; without it
@@ -233,6 +256,7 @@ SIGMA_KIND = {
   'pie'           => 'pie-chart',
   'scatter'       => 'scatter-chart',
   'combo'         => 'combo-chart',
+  'waterfall'     => 'waterfall-chart',
   'map-region'    => 'region-map',
   'map-point'     => 'point-map',
   'pivot-table'   => 'pivot-table',
@@ -250,7 +274,51 @@ SIGMA_KIND = {
 # source labels them, not by internal sheet name.
 def tile_title(zone, fallback)
   t = zone && zone['display_title']
-  t && !t.to_s.strip.empty? ? t.to_s.strip : fallback
+  return fallback unless t && !t.to_s.strip.empty?
+
+  # `<Sheet Name>` resolves here (the worksheet is known). Parameter tokens are
+  # deliberately left for the post-pass below: a Sigma dynamic-text reference
+  # only renders against a control the WORKBOOK carries, and no control has been
+  # built yet at tile-build time.
+  TableauDynamicTitle.translate(t.to_s.strip, zone['calculations'],
+                                sheet_name: fallback, control_ids: [])
+end
+
+# Carry an explicitly-authored Tableau color-legend zone into Sigma's native
+# chart legend controls when attribution is unambiguous. A legend is attributable
+# when its caption/param names the worksheet, or when the dashboard has exactly
+# one color-encoded chart and one legend. Free-floating pixel offsets have no
+# Sigma equivalent; map the legend to the nearest chart edge.
+def legend_config_for(zone, dashboard)
+  legends = Array(dashboard['zones']).select { |candidate| candidate['kind'] == 'legend' }
+  return nil if legends.empty?
+
+  caption = zone['caption'].to_s
+  matches = legends.select do |legend|
+    [legend['caption'], legend['view_ref']].compact.any? { |value| value.to_s.include?(caption) }
+  end
+  if matches.empty?
+    color_charts = Array(dashboard['zones']).select do |candidate|
+      candidate['kind'] == 'chart' && candidate.dig('channels', 'color', 'column')
+    end
+    matches = legends if legends.one? && color_charts.one? && color_charts.first.equal?(zone)
+  end
+  return nil unless matches.one?
+
+  legend = matches.first
+  chart_left = zone['x_pct'].to_f
+  chart_right = chart_left + zone['w_pct'].to_f
+  chart_top = zone['y_pct'].to_f
+  chart_bottom = chart_top + zone['h_pct'].to_f
+  legend_x = legend['x_pct'].to_f + (legend['w_pct'].to_f / 2.0)
+  legend_y = legend['y_pct'].to_f + (legend['h_pct'].to_f / 2.0)
+  distances = {
+    'left' => (legend_x - chart_left).abs,
+    'right' => (legend_x - chart_right).abs,
+    'top' => (legend_y - chart_top).abs,
+    'bottom' => (legend_y - chart_bottom).abs
+  }
+  { 'position' => distances.min_by { |_, distance| distance }.first }
 end
 
 # ---- Tableau derivation → Sigma aggregation function name ----
@@ -704,6 +772,30 @@ def translate_dim_calc(formula, mmap, columns_by_guid = {})
   nil
 end
 
+# A selected Tableau filter bound to a calculated dimension must evaluate the
+# Tableau formula even when the reused DM exposes a same-named physical column.
+# The physical column is not semantic proof and may be entirely NULL. Replace
+# it only when the calculation translates and all dependencies resolve.
+def master_calc_filter_override(caption, formula, mmap, columns_by_guid = {})
+  target = map_column(caption, mmap)
+  return nil unless target
+
+  translated = translate_dim_calc(formula, mmap, columns_by_guid) ||
+               translate_row_level_calc(formula, mmap, columns_by_guid)
+  return nil unless translated
+
+  mapped_names = mmap.values.filter_map { |entry| entry['name'] if entry.is_a?(Hash) }
+  refs = translated.scan(/\[Master\/([^\]]+)\]/).flatten
+  return nil if refs.empty? || refs.any? { |name| !mapped_names.include?(name) }
+  return nil if refs.any? { |name| name.casecmp?(target['name'].to_s) }
+
+  {
+    'id' => target['id'],
+    'name' => target['name'],
+    'formula' => translated.gsub(/\[Master\/([^\]]+)\]/, '[\1]')
+  }
+end
+
 # ---- FIXED-LOD / grain-aware two-stage aggregation --------------------------
 # Tableau `{FIXED [dims] : AGG([m])}` (and Avg-of-a-dim-table-measure, which
 # Tableau evaluates at the dim table's native grain under relationship
@@ -969,6 +1061,12 @@ end
 # (field sort on the measure, unresolvable) sorts by the measure, which was
 # the previous hardcoded behaviour.
 def sort_target_column_id(sort_info, dim, dim_hdr, dim_col_id, meas_col_id)
+  # K21: an <alphabetic-sort> is by definition a sort on the dimension itself.
+  # This MUST precede the empty-token fallback below — that fallback returns the
+  # measure, and an alphabetic-sort carries no `column` attribute (the XSD
+  # declares it as an empty element), so without this the axis is silently wrong.
+  return dim_col_id if sort_info['alphabetic']
+
   raw   = sort_info['column'].to_s
   inner = raw[/\[([^\[\]]+)\]\z/, 1].to_s
   token = (inner.split(':')[1] || inner).downcase.gsub(/\W+/, '')
@@ -1997,7 +2095,7 @@ def build_aggregate_dim_helper(el_id:, master_id:, base_dims:, agg_metrics:, mea
   [inner, passthru, pass_name]
 end
 
-# ---- Nested FIXED LOD decomposition (beads-sigma-t67b) ----------------------
+# ---- Nested FIXED LOD decomposition ([bead]) ----------------------
 # Tableau allows LODs inside LODs:
 #   {FIXED [Region] : AVG({FIXED [Region], [Customer Id] : SUM([Sales])})}
 # Sigma formulas can't nest aggregates, but the verified pattern is a CHAIN of
@@ -3838,7 +3936,7 @@ end
 # single measure and no dimensions — translate to a Sigma kpi-chart element.
 # Without this, the chart_kind=kpi worksheet would fall through to the
 # CSV-driven flat-table flow and quietly produce nothing usable.
-# See beads-sigma-bw3.
+# See [bead].
 def build_kpi_element(z, meta, mmap, opts, warnings, data_elements = [])
   cap = z['caption']
   el_id = "el-kpi-#{cap.downcase.gsub(/\W+/, '-')[0..38]}".sub(/-$/, '')
@@ -4247,7 +4345,7 @@ ds_filter_applications = Hash.new { |h, k| h[k] = [] } # object_id → [workshee
 # left resolved/stale probes lingering across builds (review-caught).
 _stale_probes = opts[:out].sub(/\.json$/, '-topn-probes.json')
 File.delete(_stale_probes) if File.exist?(_stale_probes)
-lod_chains = [] # nested-FIXED helper-element chains (beads-sigma-t67b)
+lod_chains = [] # nested-FIXED helper-element chains ([bead])
 # Tiles built from .twb signals because their Tableau data export was EMPTY
 # (action-filter-gated, etc). They can't be value-diffed (no actuals), so they
 # route to IMAGE-based visual verification instead of silently passing parity.
@@ -4347,7 +4445,7 @@ layout.each do |dash|
     # KPI fast path: Tableau scorecards (chart_kind=kpi) emit a Sigma kpi-chart
     # with a single measure as value. Without this, the worksheet would fall
     # into the CSV-driven 2-column flow which requires headers.length >= 2 and
-    # silently drops single-measure tiles. beads-sigma-bw3.
+    # silently drops single-measure tiles. [bead].
     if z['chart_kind'] == 'kpi'
       kpi_el = build_kpi_element(z, meta, mmap, opts, warnings, data_elements)
       if kpi_el
@@ -4361,7 +4459,7 @@ layout.each do |dash|
     end
 
     # v5.4 ZONE-DROP HONESTY: a NAMED mark class with no Sigma equivalent
-    # (GanttBar waterfalls/candlesticks/strips, VizExtension third-party
+    # (GanttBar timelines/candlesticks/strips, VizExtension third-party
     # marks, …) previously fell through SIGMA_KIND['other'] → 'bar-chart' and
     # shipped a silently WRONG chart shape. Emit a LOUD named handoff instead:
     # the zone is not auto-built, the coverage ledger records it dropped with
@@ -4375,8 +4473,9 @@ layout.each do |dash|
       else
         warnings << "ZONE DROPPED / STAYS-MANUAL: '#{cap}' uses Tableau mark class '#{mc}' with no Sigma " \
                     'chart equivalent — NOT auto-built (a bar-chart stand-in misrepresents the mark). ' \
-                    'Re-author in Sigma by hand (waterfall/candlestick: bar + running-total helper; ' \
-                    'gantt: no native equivalent; viz-extension: rebuild with a native chart). ' \
+                    'Re-author in Sigma by hand (gantt/candlestick: no native equivalent; ' \
+                    'a GanttBar with RUNNING_SUM is detected separately and emits native waterfall-chart; ' \
+                    'viz-extension: rebuild with a native chart). ' \
                     'The Phase-6 tile census will report this zone unmatched.'
         next
       end
@@ -5200,6 +5299,9 @@ layout.each do |dash|
     kind = SIGMA_KIND[z['chart_kind']] || 'bar-chart'
     if z['chart_kind'] == 'automatic'
       warnings << "'#{cap}' has chart_kind=automatic — defaulted to bar-chart; verify against PNG"
+    elsif kind == 'waterfall-chart'
+      warnings << "'#{cap}' GanttBar + RUNNING_SUM signature emitted as native waterfall-chart — " \
+                  'verify that the selected y-series is the per-category delta (not an already-cumulative export)'
     end
     # v5.4 DONUT discriminator: Tableau has no donut mark — a donut is a Pie
     # mark whose rows/cols shelf carries ONLY constant-aggregate placeholder
@@ -5322,11 +5424,14 @@ layout.each do |dash|
                     'over a grouped calculation on the hidden source (one value per point)'
       end
       unless rows.any? { |r| r[0].nil? || r[0].to_s.strip.empty? }
+        # S11/K20: list filters reject boolean-typed columns ("Invalid filter",
+        # blank tile) while /export still returns rows. Cast via Text() and pass
+        # string values — same shape as the hf-* keep-filter family.
         element['columns'] << { 'id' => "nn-c-#{el_id}", 'name' => "#{dim['name']} Not Null",
-                                'formula' => "IsNotNull([#{src_name}/#{dim['name']}])" }
+                                'formula' => "Text(IsNotNull([#{src_name}/#{dim['name']}]))" }
         element['filters'] = [{ 'id' => "flt-#{el_id}-nn", 'columnId' => "nn-c-#{el_id}",
                                 'kind' => 'list', 'mode' => 'include',
-                                'selectionMode' => 'multiple', 'values' => [true] }]
+                                'selectionMode' => 'multiple', 'values' => ['true'] }]
       end
       element['_worksheet'] = cap
       element['_dashboard'] = dash['dashboard']
@@ -5375,6 +5480,14 @@ layout.each do |dash|
       'source'  => { 'kind' => 'table', 'elementId' => chart_source_eid },
       'columns' => [dim_col_obj, meas_col_obj]
     }
+    if kind == 'waterfall-chart'
+      element['waterfallShape'] = { 'calculation' => 'sum', 'connectorLine' => 'shown' }
+      element['startPoint'] = {
+        'value' => { 'type' => 'constant', 'value' => 0 },
+        'visibility' => 'hidden'
+      }
+      element['grouping'] = 'stacked'
+    end
     element['columns'] << extra_meas_col if extra_meas_col
 
     # C2 THRESHOLD HALO (gap ubr5.11): a color channel driven by a threshold on
@@ -5462,30 +5575,35 @@ layout.each do |dash|
                   'palette in the Sigma editor if Tableau used one'
     end
 
+    if (legend = legend_config_for(z, dash))
+      element['legend'] = legend
+      warnings << "'#{cap}' explicit Tableau legend zone mapped to Sigma legend.position=#{legend['position']}"
+    end
+
     # Null-dim exclusion (Tableau↔Sigma join-semantics parity): Sigma DM
     # relationships are LEFT joins, so fact rows without a dim match surface a
     # NULL dim bucket that the Tableau view excluded. When the Tableau CSV has
-    # NO null dim values, mirror the exclusion with a verified bool-filter
-    # (IsNotNull calc column + include:[true] list filter — the spec shape from
-    # reference_sigma_rls_cls_spec_shape). A no-null dataset makes this a
-    # harmless no-op.
+    # NO null dim values, mirror the exclusion with a Text(IsNotNull(...))
+    # column + include:["true"] list filter (S11/K20 — boolean-typed list
+    # filter targets render "Invalid filter" and blank the tile while /export
+    # still returns rows). A no-null dataset makes this a harmless no-op.
     null_excl_filters = []
     # Charts only: a table/pivot RENDERS every column, so the helper column
     # would show up as a visible "X Not Null" column (and crosstabs keep their
     # null buckets in Tableau anyway).
-    null_excl_kinds = %w[bar-chart line-chart area-chart combo-chart pie-chart donut-chart scatter-chart]
+    null_excl_kinds = %w[bar-chart line-chart area-chart combo-chart waterfall-chart pie-chart donut-chart scatter-chart]
     [[dim_csv_idx, dim_col_obj], [color_csv_idx, color_col_obj]].each do |(ci, cobj)|
       next unless null_excl_kinds.include?(kind)
       next if ci.nil? || cobj.nil?
       next if rows.any? { |r| r[ci].nil? || r[ci].to_s.strip.empty? } # Tableau kept nulls
       nn_id = "nn-#{cobj['id']}"
       element['columns'] << { 'id' => nn_id, 'name' => "#{cobj['name']} Not Null",
-                              'formula' => "IsNotNull(#{cobj['formula'] || "[Master/#{cobj['name']}]"})" }
+                              'formula' => "Text(IsNotNull(#{cobj['formula'] || "[Master/#{cobj['name']}]"}))" }
       null_excl_filters << { 'columnId' => nn_id, 'kind' => 'list', 'mode' => 'include',
-                             'selectionMode' => 'multiple', 'values' => [true] }
+                             'selectionMode' => 'multiple', 'values' => ['true'] }
     end
     unless null_excl_filters.empty?
-      warnings << "'#{cap}' null-dim exclusion: #{null_excl_filters.size} IsNotNull filter(s) emitted (Tableau view shows no null dim bucket; Sigma LEFT joins would)"
+      warnings << "'#{cap}' null-dim exclusion: #{null_excl_filters.size} Text(IsNotNull) filter(s) emitted (Tableau view shows no null dim bucket; Sigma LEFT joins would)"
     end
 
     # Reference lines / bands / trendlines from Tableau → Sigma `refMarks`.
@@ -5503,7 +5621,7 @@ layout.each do |dash|
     # live API only accepts the wrapped object form. `value.type: column` is
     # also rejected — use `formula` with a column ref instead.
     ref_emit, trend_emit, ref_skip = [], [], []
-    if z['ref_marks'] && !z['ref_marks'].empty? && %w[bar-chart line-chart area-chart combo-chart scatter-chart].include?(kind)
+    if z['ref_marks'] && !z['ref_marks'].empty? && %w[bar-chart line-chart area-chart combo-chart waterfall-chart scatter-chart].include?(kind)
       meas_name = meas_col_obj['name']
       tab_to_sigma_agg = { 'average' => 'Avg', 'median' => 'Median', 'max' => 'Max', 'min' => 'Min', 'sum' => 'Sum', 'count' => 'Count' }
       # Trendline shape verified 2026-05-22 against a UI-built workbook
@@ -5576,7 +5694,7 @@ layout.each do |dash|
       if !ref_skip.empty?
         skip_counts = ref_skip.each_with_object(Hash.new(0)) { |r, h| h[r['kind']] += 1 }
         skip_kinds = skip_counts.map { |k, n| "#{n}× #{k}" }.join(', ')
-        warnings << "'#{cap}' has #{ref_skip.size} Tableau reference mark(s) not auto-emitted (#{skip_kinds}) — bands/distributions need manual review (beads-sigma-7ak)"
+        warnings << "'#{cap}' has #{ref_skip.size} Tableau reference mark(s) not auto-emitted (#{skip_kinds}) — bands/distributions need manual review ([bead])"
       end
       if !ref_emit.empty?
         warnings << "'#{cap}' auto-emitted #{ref_emit.size} Sigma refMarks from Tableau reference marks — verify visual fidelity"
@@ -5827,7 +5945,7 @@ layout.each do |dash|
     #      from <pane><style><style-rule element='mark'>
     #             <format attr='mark-labels-show' value='true'/>
     #      (verified against "Orders Conversion Test" workbook, 2026-05-22)
-    if %w[bar-chart line-chart area-chart combo-chart scatter-chart pie-chart donut-chart].include?(kind)
+    if %w[bar-chart line-chart area-chart combo-chart waterfall-chart scatter-chart pie-chart donut-chart].include?(kind)
       has_label_channel = z.dig('channels', 'label', 'column') || z.dig('channels', 'text', 'column')
       has_mark_labels   = z['mark_labels_show'] == true
       if has_label_channel || has_mark_labels
@@ -6192,7 +6310,7 @@ layout.each do |dash|
       next if formula.empty?
 
       # Tableau bin column (calc class='bin') → Sigma NATIVE binning
-      # (beads-sigma-t67b). Must run before the bare-column-ref skip below —
+      # ([bead]). Must run before the bare-column-ref skip below —
       # a bin calc's formula IS a bare ref to the base field. Sigma has
       # BinFixed(value, min, max, binCount) (equal-width bins over [min, max])
       # and BinRange(value, b1, b2, ...) (explicit cutoffs); do NOT hand-roll
@@ -6209,7 +6327,7 @@ layout.each do |dash|
         next
       end
 
-      # Nested FIXED LODs → helper-element chain (beads-sigma-t67b). One DM/
+      # Nested FIXED LODs → helper-element chain ([bead]). One DM/
       # workbook helper element per LOD level, innermost first; the outer level
       # consumes the inner via [LOD Helper k/Value]. Machine-readable chain
       # lands in <out>-lod-chains.json for the agent to build the elements.
@@ -6600,8 +6718,12 @@ end
 # ---- v5.0: image (bitmap) zones → Sigma image elements ---------------------
 # Tableau image zones ship their bitmap INSIDE the .twbx (`image_path` is the
 # exact zip path, e.g. 'Image/title art.png'). Extract each to <tab>/assets/
-# and emit {kind:"image", url:"data:image/…;base64,…"} (data URIs live-verified
-# — refs/workbook-layout.md). Zones with a web-hosted `image_file_url` use the
+# and emit {kind:"image", source:{kind:"url", url:"data:image/…;base64,…"}}.
+# The URL may be a data: URI or a hosted URL — BOTH validate. What the API
+# rejects is the FLAT `url:` shape, for every image (live-probed 2026-08-06:
+# flat -> 400 Invalid kind: "image"; nested source -> valid:true). The original
+# register blamed data: URIs; the shape was the actual defect.
+# Zones with a web-hosted `image_file_url` use the
 # URL directly. Full-canvas backgrounds (is_background) are page-level design,
 # not grid tiles: extracted + recorded in <tab>/image-assets.json for the
 # background/composite step, never emitted as elements (the layout builder
@@ -6681,7 +6803,9 @@ unless opts[:pages_mode] == :worksheet
         next
       end
       styled_text_by_dash[dash['dashboard']] <<
-        { 'id' => "img-#{z['id']}", 'kind' => 'image', 'url' => url, '_dashboard' => dash['dashboard'] }
+        { 'id' => "img-#{z['id']}", 'kind' => 'image',
+          'source' => { 'kind' => 'url', 'url' => url },
+          '_dashboard' => dash['dashboard'] }
     end
   end
   if image_asset_records.any?
@@ -6705,6 +6829,30 @@ end
 # machine-recognizable placeholder URL https://nav.invalid/#page=<name>;
 # put-layout.rb rewrites it to the live workbook page URL post-publish
 # (the workbook URL doesn't exist until the POST returns).
+action_id_registry = {} # workbook-wide — ActionLedger.new_id, never per-dash/per-zone
+emitted_actions = []
+# (dash_name, pre-namespacing host id) → an ARRAY of the SAME hash objects held
+# in emitted_actions, so the --page-per-dashboard rename hooks below
+# (namespace_ids and the els.map! pass) can mutate every affected manifest entry
+# in place when its host element id gets suffixed. Keyed by a compound
+# (dashboard, host) pair, NOT by host alone — two unrelated dashboards' buttons
+# can share a host string ("btn-10") purely because Tableau zone ids restart per
+# dashboard, and a stem-only key (the pattern chart-provenance uses, which
+# assumes stem collisions are the SAME worksheet reused) would silently pair one
+# dashboard's caption with another's action.
+#
+# The value is an ARRAY, never a single entry: ONE host element can carry
+# actions of MORE THAN ONE KIND (a worksheet with both a <nav-action> and an
+# <edit-parameter-action> yields an on-select→navigate AND an
+# on-select→set-control-value on the same chart, both keyed by the same
+# (dashboard, host) pair). A scalar value made the second writer EVICT the
+# first; the rename pass then synced only the survivor, and the evicted entry
+# shipped a stale hostElementId/actionId. put-layout.rb:224 looks the manifest
+# up BY actionId against the posted spec — a stale id misses, and the whole
+# navigate.target.page repair is skipped with NO warning, leaving the
+# provisional page id live in the published workbook. Action counts still
+# match, so no gate catches it. Append here; iterate at both rename sites.
+emitted_action_index = {}
 nav_button_records = []
 unless opts[:pages_mode] == :worksheet
   layout.each do |dash|
@@ -6721,15 +6869,65 @@ unless opts[:pages_mode] == :worksheet
       url = "https://nav.invalid/#page=#{ERB::Util.url_encode(z['button_nav_target'])}"
       el =
         if ENV['SIGMA_BUTTON_ELEMENTS'] == 'on'
-          e = { 'id' => "btn-#{z['id']}", 'kind' => 'button', 'text' => label,
+          host = "btn-#{z['id']}"
+          # Target page id is PROVISIONAL, not a fact. Two page-id schemes exist
+          # in this codebase and there is no way to know at this call site which
+          # one the final workbook spec will use:
+          #   - build-workbook-spec.rb:177   "page-#{slug}"      (name-derived)
+          #   - mechanical-specs.rb:1881     "page-dash-#{i+1}"  (array-position)
+          # migrate-tableau.rb (the primary end-to-end driver) always assembles
+          # through mechanical-specs.rb, so the slug id below will NOT match
+          # there. We still emit it — it's the best guess available pre-publish
+          # — but the real fix is the same one already proven for the
+          # nav.invalid URL placeholder a few lines down: put-layout.rb repairs
+          # `navigate.target.page` BY NAME after publish, once the real page ids
+          # exist, using `targetPageName` recorded on the manifest entry below.
+          # Do not treat this id as authoritative anywhere downstream.
+          slug = z['button_nav_target'].to_s.downcase.gsub(/[^a-z0-9]+/, '-')
+                  .sub(/\A-/, '').sub(/-\z/, '')[0..40].to_s
+          target_page_id = "page-#{slug}"
+          action = {
+            'id'      => ActionLedger.new_id(action_id_registry, host),
+            'trigger' => 'on-click',
+            'effects' => [{ 'effect' => 'navigate',
+                            'target' => { 'type' => 'page', 'page' => target_page_id } }]
+          }
+          errs = ActionLedger.validate_action(action)
+          raise "emitted an invalid action on #{host}: #{errs.join('; ')}" if errs.any?
+          manifest_entry = {
+            'actionId'       => action['id'],
+            # 'actionName' mirrors build-postpublish-guide.rb's extract_buttons
+            # (dashboard + Tableau zone id — dashboard-object button zones
+            # carry no Tableau `name=` attribute, so this is the closest
+            # workbook-wide-unique substitute). ActionLedger.key_of prefers
+            # this over [kind, caption]: without it, two same-captioned
+            # nav-buttons (e.g. two "Home" buttons on different dashboards)
+            # where only one is actually auto-wired would collide on
+            # [kind, caption] and the join could silently drop the unemitted
+            # one out of residue instead of flagging it for manual wiring.
+            'source'         => { 'kind' => 'nav-button', 'caption' => label,
+                                  'sourceSheet' => dash['dashboard'],
+                                  'actionName' => "#{dash['dashboard']}::zone-#{z['id']}" },
+            'hostElementId'  => host,
+            # The key put-layout.rb's publish-time repair resolves against —
+            # see the page-id comment above: target_page_id is provisional,
+            # and this is the raw dashboard NAME the real page id must match.
+            'targetPageName' => z['button_nav_target'],
+            'trigger'        => action['trigger'],
+            'effects'        => action['effects']
+          }
+          emitted_actions << manifest_entry
+          (emitted_action_index[[dash['dashboard'], host]] ||= []) << manifest_entry
+          e = { 'id' => host, 'kind' => 'button', 'text' => label,
                 'appearance' => 'filled', 'align' => 'center', 'size' => 'small',
-                'actions' => [{ 'trigger' => 'on-click', 'effects' => [{
-                  'effect' => 'open-url', 'openTarget' => '_self', 'url' => url }] }] }
+                'actions' => [action] }
           e['fillColor'] = z['fill_color'][0, 7] if z['fill_color']
           e['fontColor'] = z['button_font_color'] if z['button_font_color']
           e
         else
           # Text-pill fallback (proven live): bold markdown link, pill bg.
+          # UNCHANGED — kind:text cannot host actions[], so this branch keeps
+          # the nav.invalid placeholder; put-layout.rb rewrites it post-publish.
           body = "[**#{label}**](#{url})"
           body = %(<span style="background-color: #{z['fill_color'][0, 7]}">#{body}</span>) if z['fill_color']
           { 'id' => "btn-#{z['id']}", 'kind' => 'text',
@@ -6745,6 +6943,87 @@ unless opts[:pages_mode] == :worksheet
     side = opts[:out].sub(/\.json$/, '-nav-buttons.json')
     File.write(side, JSON.pretty_generate(nav_button_records))
     warn "wrote #{side} (#{nav_button_records.size} navigation button(s) — put-layout.rb rewrites the placeholder URLs post-publish)"
+  end
+  # NOTE: the actions-emitted manifest is intentionally NOT written here. In
+  # --page-per-dashboard mode, the id-namespacing pass further down (rename
+  # site: `namespace_ids`, guarded by `opts[:pages_mode] == :dashboard`) can
+  # still rename this button's element id (a Tableau zone id collision across
+  # two dashboards — zone ids restart per dashboard, so "btn-10" recurring on a
+  # second dashboard is common, not exotic). `emitted_action_index` lets that
+  # rename site update this exact entry in place; write_manifest itself runs
+  # AFTER that whole pass, once ids are final (see below, alongside the
+  # chart-provenance/hidden-titles sidecars, which write "after the emitters"
+  # for the identical reason).
+end
+
+# ---- nav-action MARK CLICKS (bfxd step 1) ----------------------------------
+# A Tableau <nav-action> fires from a mark click on a WORKSHEET, not from a
+# dashboard-object button. on-select -> navigate is runtime-proven, so these
+# are auto-wirable; only three shapes are not, and each stays residue with its
+# reason named rather than being silently dropped:
+#   - on-hover / tooltip-menu activation: Sigma has no equivalent trigger.
+#   - a WORKSHEET target: Sigma navigates to a PAGE; there is no element-id
+#     index that would let us target a sheet within one.
+#   - a source naming zero or multiple worksheets: no unambiguous host element.
+#
+# Page ids are provisional here for the same reason as the nav-button block
+# above — two id schemes coexist and put-layout.rb repairs navigate.target.page
+# BY NAME after publish using targetPageName.
+unless opts[:pages_mode] == :worksheet
+  Array(opts[:detected_actions]).each do |det|
+    next unless det['kind'] == 'nav-action'
+
+    caption = det['caption'].to_s
+    unless det['trigger'].to_s.strip.casecmp('on select').zero?
+      warnings << "nav-action '#{caption}' activates on #{det['trigger'].inspect} — " \
+                  'Sigma has no equivalent trigger (named residue)'
+      next
+    end
+    sheets = Array(det.dig('source', 'worksheets'))
+    if sheets.length != 1
+      warnings << "nav-action '#{caption}' sources #{sheets.length} worksheet(s) — " \
+                  'no unambiguous host element (named residue)'
+      next
+    end
+    target = Array(det['targets']).first || {}
+    unless target['dashboard'] == true
+      warnings << "nav-action '#{caption}' targets worksheet '#{target['name']}', not a " \
+                  'dashboard — Sigma navigates to a page, and there is no element-id ' \
+                  'index for a sheet within one (named residue)'
+      next
+    end
+
+    host_el = elements.find { |e| e['_worksheet'] == sheets.first }
+    if host_el.nil?
+      warnings << "nav-action '#{caption}' sources worksheet '#{sheets.first}', which " \
+                  'produced no emitted element (named residue)'
+      next
+    end
+
+    slug = target['name'].to_s.downcase.gsub(/[^a-z0-9]+/, '-')
+             .sub(/\A-/, '').sub(/-\z/, '')[0..40].to_s
+    action = {
+      'id'      => ActionLedger.new_id(action_id_registry, host_el['id']),
+      'trigger' => 'on-select',
+      'effects' => [{ 'effect' => 'navigate',
+                      'target' => { 'type' => 'page', 'page' => "page-#{slug}" } }]
+    }
+    errs = ActionLedger.validate_action(action)
+    raise "emitted an invalid nav-action on #{host_el['id']}: #{errs.join('; ')}" if errs.any?
+
+    manifest_entry = {
+      'actionId'       => action['id'],
+      'source'         => { 'kind' => 'nav-action', 'caption' => caption,
+                            'sourceSheet' => sheets.first,
+                            'actionName' => det['actionName'] },
+      'hostElementId'  => host_el['id'],
+      'targetPageName' => target['name'],
+      'trigger'        => action['trigger'],
+      'effects'        => action['effects']
+    }
+    emitted_actions << manifest_entry
+    (emitted_action_index[[host_el['_dashboard'], host_el['id']]] ||= []) << manifest_entry
+    (host_el['actions'] ||= []) << action
   end
 end
 
@@ -6774,6 +7053,25 @@ norm_cap = ->(s) { s.to_s.strip.downcase.gsub(/[^a-z0-9]+/, '') }
 # filter propagates to every chart sourcing from it). Rides the output JSON as
 # `master_decode_columns` (only when non-empty — additive/byte-identical).
 master_decode_columns = []
+# Source-calculated filters with explicit selections override same-named DM
+# passthroughs on the master. The orchestrator applies these after chart build.
+master_calc_columns = []
+(meta['worksheets'] || {}).each_value do |worksheet|
+  (Array(worksheet['filters']) + Array(worksheet['hidden_filters'])).each do |filter|
+    next if Array(filter['members']).empty?
+    caption = (filter['column_caption'] || filter['caption']).to_s.strip
+    formula = calc_formula_by_caption[caption]
+    next if caption.empty? || formula.to_s.empty?
+
+    override = master_calc_filter_override(caption, formula, mmap, meta['columns_by_guid'] || {})
+    next unless override
+    next if master_calc_columns.any? { |column| column['id'] == override['id'] }
+
+    master_calc_columns << override
+    warnings << "selected calculated filter '#{caption}' overrides the same-named master passthrough " \
+                "with its translated Tableau formula (#{override['formula'][0, 120]})"
+  end
+end
 
 # PR-18 — route an integer-coded discrete-dimension LIST control through a
 # Text() decode helper. A Sigma list/dropdown control sources STRING option
@@ -7052,7 +7350,7 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       spec['value'] = canonical_switch_value(p['default_value'])
     elsif p['param_domain'] == 'range' && %w[integer real].include?(p['datatype'])
       # Numeric range parameter → Sigma `number-range` control (discovered by
-      # gap-scout 2026-05-20, beads-sigma-ebw). Two-handle slider; the single-
+      # gap-scout 2026-05-20, [bead]). Two-handle slider; the single-
       # value Tableau parameter is rendered as a range with handles initially
       # collapsed to the default. Bounds are the schema's flat min/max (the old
       # mode:'between' + values:[…] pair was out-of-schema and never
@@ -7384,14 +7682,15 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
           'source' => { 'kind' => 'table', 'elementId' => opts[:master_id] },
           'columns' => [
             { 'id' => opt_val_col, 'name' => cap.strip, 'formula' => "[Master/#{m['name']}]" },
+            # S11/K20: Text() + string values — boolean list filters blank the tile
             { 'id' => opt_nn_col, 'name' => "#{cap.strip} Not Null",
-              'formula' => "IsNotNull([Master/#{m['name']}])" }
+              'formula' => "Text(IsNotNull([Master/#{m['name']}]))" }
           ],
           # every element filter needs an `id` — the spec API 400s
           # `filters[N].id: Invalid string: undefined` without one (field report)
           'filters' => [{ 'id' => "flt-#{opt_id}-0", 'columnId' => opt_nn_col,
                           'kind' => 'list', 'mode' => 'include',
-                          'selectionMode' => 'multiple', 'values' => [true] }],
+                          'selectionMode' => 'multiple', 'values' => ['true'] }],
           'visibleAsSource' => false
         }
         spec['source'] = {
@@ -7661,6 +7960,38 @@ end
 
 all_extras = extras + param_controls + auto_controls
 
+# ---- Tableau title tokens → Sigma dynamic text (post-pass) ------------------
+# Runs AFTER every control is built, because workbook dynamic text renders only
+# against a control the WORKBOOK carries. A Tableau parameter is commonly
+# converted into a DATA-MODEL control, which workbook dynamic text cannot
+# reference; for those the parameter's current value is substituted so the title
+# reads the way the source displayed it. Without this pass the raw Tableau token
+# ships into the element name and Sigma renders it literally, e.g.
+# "Sales Orders - Last <[Parameters].[Parameter 1 3]> weeks" (field-caught).
+begin
+  title_control_ids = all_extras.map { |c| c['controlId'] }.compact
+  title_parameters = meta['parameters'] || []
+  title_calculations = (meta['worksheets'] || {}).values.flat_map { |w| w['calculations'] || [] }
+  title_notes = []
+  (elements + all_extras).each do |el|
+    next unless el.is_a?(Hash)
+
+    %w[name body].each do |field|
+      next unless el[field].is_a?(String)
+
+      translated = TableauDynamicTitle.translate(
+        el[field], title_calculations,
+        parameters: title_parameters, control_ids: title_control_ids, notes: title_notes
+      )
+      el[field] = translated
+    end
+  end
+  title_notes.uniq.each { |note| warnings << note }
+rescue StandardError => e
+  warnings << "title-token translation skipped (#{e.class}: #{e.message}) — raw Tableau parameter " \
+              'tokens may remain in element names; the pre-POST lint (N2) will name them'
+end
+
 # ---- Control-coverage reconciliation — "never miss a .twb parameter/filter" ----
 # Enumerate EVERY extracted parameter + quick-filter and confirm each is
 # accounted for (emitted / needs-wiring / needs-materialization / dropped-with-
@@ -7701,6 +8032,157 @@ begin
               (missing.any? ? "; #{missing.size} UNACCOUNTED (#{missing.map { |r| r['name'] }.join(', ')}) — must be 0" : '; 0 unaccounted ✓')
 rescue => e
   warnings << "control-coverage reconciliation error: #{e.message}"
+end
+
+# ---- PARAMETER actions (bfxd step 2) ---------------------------------------
+# on-select -> set-control-value {type: "column"}: the mark click sets a control
+# to the clicked row's value. RUNTIME-PROVEN 2026-08-06 end to end.
+#
+# Placement note: structurally this cannot sit right after Task 3's nav-action
+# block (immediately after the zones/nav-button loop, before `param_controls`/
+# `auto_controls` are even declared) — resolving `target_name` to a control
+# needs both arrays fully populated, and they aren't until further down. This
+# is the earliest point after both exist, while `elements` still carry
+# `_worksheet`/`_dashboard` (stripped inside the pages_mode branches below) and
+# before the actions-emitted manifest is written — the same two constraints
+# Task 3's block had to satisfy.
+#
+# Three hard constraints, each confirmed by breaking it:
+#   - `control` takes the controlId, NOT the control element's id. /verify
+#     ACCEPTS the wrong form; the live create rejects it.
+#   - a control with no filters[] makes this a SILENT no-op. There is no direct
+#     chart->chart filter effect; it always routes through a control.
+#   - the clicked column must exist on the HOST element for {type: "column"} to
+#     bind, and the effect carries that column's ID. When the host does not
+#     carry it, that is residue, not a guess. Enforced by the HOST-COLUMN
+#     BINDING guard below — `mmap` answers a workbook-global question and
+#     cannot enforce this on its own.
+unless opts[:pages_mode] == :worksheet
+  Array(opts[:detected_actions]).each do |det|
+    next unless det['kind'] == 'parameter-action'
+
+    caption = det['caption'].to_s
+    unless det['trigger'].to_s.strip.casecmp('on select').zero?
+      warnings << "parameter-action '#{caption}' activates on #{det['trigger'].inspect} — " \
+                  'Sigma has no equivalent trigger (named residue)'
+      next
+    end
+    sheets = Array(det.dig('source', 'worksheets'))
+    if sheets.length != 1
+      warnings << "parameter-action '#{caption}' sources #{sheets.length} worksheet(s) — " \
+                  'no unambiguous host element (named residue)'
+      next
+    end
+    host_el = elements.find { |e| e['_worksheet'] == sheets.first }
+    if host_el.nil?
+      warnings << "parameter-action '#{caption}' sources worksheet '#{sheets.first}', " \
+                  'which produced no emitted element (named residue)'
+      next
+    end
+
+    col = ActionColumnResolver.resolve(ref: det['sourceFieldRef'], mmap: mmap,
+                                       columns_by_guid: meta['columns_by_guid'] || {})
+    if col.nil?
+      warnings << "parameter-action '#{caption}' source field " \
+                  "#{det['sourceFieldRef'].inspect} does not resolve to an emitted column — " \
+                  'add a master-columns.json regex, or wire it by hand (named residue)'
+      next
+    end
+
+    # HOST-COLUMN BINDING — the third hard constraint in this block's header,
+    # and the one `mmap` alone cannot enforce. `ActionColumnResolver.resolve`
+    # answers a WORKBOOK-GLOBAL question ("which Sigma column NAME does this
+    # Tableau ref mean?"); {type: "column"} asks a per-element one ("which
+    # column OF THE HOST does the clicked mark carry?"). A source field that
+    # resolves globally but is not on this chart binds to nothing: the click
+    # sets the control to the wrong value (or to nothing at all), through a
+    # schema-valid action every gate passes — action_column_resolver.rb's own
+    # stated anti-goal. Proven before this guard existed: an [Order ID] source
+    # field on a host carrying only Region / Profit Ratio / Region Not Null
+    # emitted column "Order ID" with no warning at all.
+    #
+    # The effect takes the host column's **id**, not its name — the
+    # live-probed shape is `value: {type: "column", column: <columnId>}` (the
+    # design's VERIFIED SIGMA SHAPES). Host columns are {id:, name:, formula:}
+    # (e.g. {"id" => "x-el-sales-by-region", "name" => "Region"}), and their
+    # `name` is the same master-map `name` the resolver returns, so an exact
+    # match is the normal case; the strip/case-insensitive second pass covers
+    # incidental whitespace/casing drift between the two, never a different
+    # column. No match at all is RESIDUE, never a guess.
+    host_cols = Array(host_el['columns']).select { |c| c.is_a?(Hash) && c['id'] }
+    host_col  = host_cols.find { |c| c['name'].to_s == col.to_s } ||
+                host_cols.find { |c| c['name'].to_s.strip.casecmp(col.to_s.strip).zero? }
+    if host_col.nil?
+      warnings << "parameter-action '#{caption}' source field " \
+                  "#{det['sourceFieldRef'].inspect} resolves to column #{col.inspect}, which is " \
+                  "NOT a column of its host element '#{host_el['id']}' " \
+                  "(has: #{host_cols.map { |c| c['name'] }.inspect}) — a {type: \"column\"} value " \
+                  'can only bind a column the clicked mark actually carries, so this would set the ' \
+                  'control to the wrong value; wire it by hand (named residue)'
+      next
+    end
+    col_id = host_col['id']
+
+    # The control the parameter already migrated to. A Tableau parameter's
+    # auto-generated control lives in `param_controls` (built from
+    # meta['parameters']); a quick-filter's lives in `auto_controls` (built
+    # from meta['shared_filters']) — search both, exactly as every other
+    # consumer of "all controls" in this file does (control-coverage above,
+    # and the page-emission duplication passes at :8437/:8515/:8659).
+    # targetParameterRef's caption is what extract_parameter_actions rendered
+    # into targets[0]['name'].
+    target_name = Array(det['targets']).first.to_h['name'].to_s
+    ctl = (param_controls + auto_controls).find { |c| c['name'].to_s.strip.casecmp(target_name.strip).zero? }
+    if ctl.nil?
+      warnings << "parameter-action '#{caption}' targets parameter '#{target_name}', which " \
+                  'has no emitted control — the click has nothing to set (named residue)'
+      next
+    end
+    if Array(ctl['filters']).empty?
+      warnings << "parameter-action '#{caption}' targets control '#{ctl['controlId']}', " \
+                  'which carries no filters[] — setting it would be a SILENT no-op ' \
+                  '(named residue)'
+      next
+    end
+
+    action = {
+      'id'      => ActionLedger.new_id(action_id_registry, host_el['id']),
+      'trigger' => 'on-select',
+      'effects' => [{ 'effect'  => 'set-control-value',
+                      # controlId, NOT the control element's id. In
+                      # --page-per-dashboard/--page-per-worksheet mode this
+                      # captured id is PROVISIONAL: the per-page control-
+                      # duplication pass further down suffixes every
+                      # param/auto control's controlId per page via
+                      # `ctl_rewrites`, and that pass has been extended (see
+                      # the two `ctl_rewrites` loops below) to rewrite this
+                      # exact field in lockstep — mirroring how
+                      # emitted_action_index keeps nav-action/nav-button
+                      # references correct across that same per-page rename.
+                      'control' => ctl['controlId'],
+                      # The HOST element's columnId (not a bare column name):
+                      # the live-probed shape is
+                      # {type: "column", column: <columnId>}. Resolved just
+                      # above against host_el['columns'] — see the
+                      # HOST-COLUMN BINDING note there.
+                      'value'   => { 'type' => 'column', 'column' => col_id } }]
+    }
+    errs = ActionLedger.validate_action(action)
+    raise "emitted an invalid parameter-action on #{host_el['id']}: #{errs.join('; ')}" if errs.any?
+
+    manifest_entry = {
+      'actionId'      => action['id'],
+      'source'        => { 'kind' => 'parameter-action', 'caption' => caption,
+                           'sourceSheet' => sheets.first,
+                           'actionName' => det['actionName'] },
+      'hostElementId' => host_el['id'],
+      'trigger'       => action['trigger'],
+      'effects'       => action['effects']
+    }
+    emitted_actions << manifest_entry
+    (emitted_action_index[[host_el['_dashboard'], host_el['id']]] ||= []) << manifest_entry
+    (host_el['actions'] ||= []) << action
+  end
 end
 
 # ---- v5.1 leaked-ref guard (fail-closed) ------------------------------------
@@ -8278,6 +8760,27 @@ if opts[:pages_mode] == :worksheet
         end
         col['formula'] = f
       end
+      # Dynamic text in a title/body references a control the same way a formula
+      # does, so it has to follow the per-page controlId suffix or it points at
+      # an id this page no longer carries and renders nothing.
+      %w[name body].each do |field|
+        next unless el[field].is_a?(String)
+
+        ctl_rewrites.each { |from, to| el[field] = el[field].gsub("{{[#{from}]}}", "{{[#{to}]}}") }
+      end
+      # A set-control-value effect's `control` names a param/auto controlId —
+      # the SAME id this page just suffixed above. Without this, an emitted
+      # action (parameter-action emission is currently gated off in
+      # page-per-worksheet mode, but this keeps the two duplication sites in
+      # lockstep against future changes) would reference a controlId that no
+      # longer exists on this page, exactly the staleness class the
+      # formula-rewrite above exists to prevent.
+      (el['actions'] || []).each do |a|
+        (a['effects'] || []).each do |eff|
+          nxt = ctl_rewrites[eff['control']]
+          eff['control'] = nxt if eff['effect'] == 'set-control-value' && nxt
+        end
+      end
     end
     pages << {
       'name'     => ws_name,
@@ -8292,6 +8795,7 @@ if opts[:pages_mode] == :worksheet
   # PR-18: decode columns the orchestrator injects into the master element (only
   # when a master-rooted integer-dim control was routed — additive/byte-identical).
   _out['master_decode_columns'] = master_decode_columns if master_decode_columns.any?
+  _out['master_calc_columns'] = master_calc_columns if master_calc_columns.any?
   File.write(opts[:out], JSON.pretty_generate(_out))
   warn "wrote #{opts[:out]} (page-per-worksheet: #{pages.size} pages, #{auto_controls.size} auto-controls per page" \
        "#{data_elements.any? ? ", #{data_elements.size} hidden data element(s)" : ''})"
@@ -8300,15 +8804,23 @@ elsif opts[:pages_mode] == :dashboard
   # 4 dashboards must become 4 laid-out pages, each with its own title text and
   # its own copy of the dashboard-global controls (ids suffixed for global
   # uniqueness, control refs in calc formulas rewritten per page).
-  dash_order = layout.map { |d| d['dashboard'] }
+  # Storyboards are emitted by build-story-pages.rb, not as ordinary dashboard
+  # pages. parse-twb-layout may also mark hidden/parameter dashboards
+  # `emit_page:false`; retaining either here creates migration-debris tabs.
+  page_layout = layout.reject { |d| d['is_story'] || d['emit_page'] == false }
+  dash_order = page_layout.map { |d| d['dashboard'] }
   by_dash = elements.group_by { |e| e['_dashboard'] }
   pages = []
   seen_el_ids = {}   # element id → true; a worksheet reused on N dashboards
                      # yields N element copies sharing one id → "Duplicate id"
                      # on POST. Namespace the 2nd+ occurrence per page.
   dash_order.each do |dash_name|
-    els = by_dash[dash_name]
-    next if els.nil? || els.empty?
+    els = by_dash[dash_name] || []
+    # A Tableau dashboard can be intentionally chartless (User Guide / help /
+    # methodology tabs made entirely of styled text, images, and buttons).
+    # Those zones already live in styled_text_by_dash; do not discard the page
+    # merely because it has no worksheet-backed element.
+    next if els.empty? && styled_text_by_dash[dash_name].empty?
     els.each { |e| e.delete('_worksheet'); e.delete('_dashboard') }
     d_slug = dash_name.to_s.downcase.gsub(/\W+/, '-')[0..30].sub(/-$/, '')
     # Skip the synthetic "# <dashboard>" title when this dashboard has its OWN top
@@ -8372,7 +8884,74 @@ elsif opts[:pages_mode] == :dashboard
         ctl_rewrites.each { |from, to| f = f.gsub("[#{from}]", "[#{to}]") }
         col['formula'] = f
       end
+      # Dynamic text in a title/body follows the same per-page controlId suffix
+      # as a formula reference (see the page-per-worksheet branch above).
+      %w[name body].each do |field|
+        next unless el[field].is_a?(String)
+
+        ctl_rewrites.each { |from, to| el[field] = el[field].gsub("{{[#{from}]}}", "{{[#{to}]}}") }
+      end
+      # A parameter-action's set-control-value effect names a param/auto
+      # controlId — the SAME id this dashboard page just suffixed above via
+      # ctl_rewrites. Without this rewrite the emitted action would reference
+      # a controlId that only existed pre-namespacing and never appears in
+      # this page's own control list — a schema-valid action the live create
+      # rejects ("references unknown control"), same failure mode as passing
+      # an element id instead of a controlId. Mirrors the formula rewrite
+      # immediately above; mutates the effect hash in place, which the
+      # actions-emitted manifest (built from the SAME object) picks up too.
+      (el['actions'] || []).each do |a|
+        (a['effects'] || []).each do |eff|
+          nxt = ctl_rewrites[eff['control']]
+          eff['control'] = nxt if eff['effect'] == 'set-control-value' && nxt
+        end
+      end
     end
+    # K3: page_extras (styled text, title text, images) carry Tableau ZONE ids,
+    # which are unique per dashboard but NOT globally — "text-550" recurs on the
+    # next dashboard. They were concatenated in after this pass, so they never
+    # got namespaced and the POST hard-failed on "Duplicate id". Same op as the
+    # els pass below, minus the top-N source-restore (page_extras have no
+    # source.elementId).
+    namespace_ids = lambda do |list|
+      list.map do |el|
+        stem = el['id']
+        next el unless stem
+
+        if seen_el_ids[stem]
+          ns = "#{stem}-#{d_slug[0..20]}"
+          ($hidden_title_ns_ids ||= []) << ns if ($hidden_title_ids || []).include?(stem)
+          if (pv = $chart_provenance[stem])
+            $chart_provenance[ns] = pv.merge('dashboard' => dash_name)
+          end
+          # EVERY manifest entry hosted here (keyed by the EXACT (dashboard,
+          # host) pair — never by stem alone, since two unrelated dashboards'
+          # buttons can share a host string) gets updated IN PLACE so its
+          # hostElementId/actionId/effects track the same rename this gsub is
+          # about to apply to the real element. Without this, write_manifest
+          # below would ship a hostElementId/actionId that no longer exists in
+          # the spec — exactly the staleness the manifest exists to prevent.
+          # ITERATE, never `= entry`: one host can carry actions of several
+          # kinds (see the emitted_action_index declaration), and syncing only
+          # one of them re-creates the stale-actionId silent skip.
+          Array(emitted_action_index[[dash_name, stem]]).each do |entry|
+            entry['hostElementId'] = ns
+            entry['actionId'] = entry['actionId'].to_s.gsub(stem, ns)
+            # Effects can EMBED the stem too — a set-control-value's
+            # value.column is the host column's id (x-<stem>/y-<stem>/…), which
+            # the whole-element gsub below rewrites in the spec. The manifest
+            # copy must move in lockstep or probe-actions-readback.rb diffs a
+            # pre-rename column id against the posted one.
+            entry['effects'] = JSON.parse(entry['effects'].to_json.gsub(stem, ns)) if entry['effects']
+          end
+          JSON.parse(el.to_json.gsub(stem, ns))
+        else
+          seen_el_ids[stem] = true
+          el
+        end
+      end
+    end
+
     # Namespace element ids that already appeared on a prior page (a worksheet
     # placed on multiple dashboards). The element id is the stem of its column
     # ids (x-<id>/y-<id>/g-<id>) and grouping refs, so gsub the stem across the
@@ -8394,6 +8973,30 @@ elsif opts[:pages_mode] == :dashboard
         if (pv = $chart_provenance[stem])
           $chart_provenance[ns] = pv.merge('dashboard' => dash_name)
         end
+        # EVERY manifest entry hosted here (keyed by the EXACT (dashboard,
+        # host) pair, same as namespace_ids above) gets updated IN PLACE so its
+        # hostElementId/actionId/effects track the same rename this gsub is
+        # about to apply to the real element. Without this, put-layout.rb's
+        # navigate.target.page repair looks up the manifest by actionId
+        # against the POSTED spec's action id, finds nothing (stale), and
+        # silently skips the repair — no warning — leaving the provisional
+        # page id live. Mirrors namespace_ids exactly; do not invent a
+        # different mechanism.
+        #
+        # ITERATE over an ARRAY, never `if (entry = ...)`: one chart element
+        # can host BOTH a nav-action (on-select→navigate) and a
+        # parameter-action (on-select→set-control-value) when its worksheet is
+        # the source of both Tableau actions. A scalar index let the second
+        # emitter evict the first, and syncing only the survivor left the
+        # evicted entry's actionId stale — the exact silent-skip this block
+        # exists to prevent, reintroduced through the back door.
+        Array(emitted_action_index[[dash_name, stem]]).each do |entry|
+          entry['hostElementId'] = ns
+          entry['actionId'] = entry['actionId'].to_s.gsub(stem, ns)
+          # See namespace_ids above: value.column is a host column id, which
+          # embeds the stem, so the manifest's effects must be rewritten too.
+          entry['effects'] = JSON.parse(entry['effects'].to_json.gsub(stem, ns)) if entry['effects']
+        end
         src_before = el.dig('source', 'elementId')
         el2 = JSON.parse(el.to_json.gsub(stem, ns))
         # v5.1.3: the stem gsub also rewrites a source.elementId that EMBEDS
@@ -8412,7 +9015,7 @@ elsif opts[:pages_mode] == :dashboard
         el
       end
     end
-    page = { 'name' => dash_name, 'elements' => page_extras + els }
+    page = { 'name' => dash_name, 'elements' => namespace_ids.call(page_extras) + els }
     # v5.0: full-canvas designed background (the Figma/PPT card-art pattern) →
     # page-level backgroundImage (data URI live-verified rendering behind the
     # page's elements). image_asset_records carries the extracted asset.
@@ -8430,6 +9033,7 @@ elsif opts[:pages_mode] == :dashboard
   # PR-18: decode columns the orchestrator injects into the master element (only
   # when a master-rooted integer-dim control was routed — additive/byte-identical).
   _out['master_decode_columns'] = master_decode_columns if master_decode_columns.any?
+  _out['master_calc_columns'] = master_calc_columns if master_calc_columns.any?
   File.write(opts[:out], JSON.pretty_generate(_out))
   warn "wrote #{opts[:out]} (page-per-dashboard: #{pages.size} page(s), #{data_elements.size} hidden data element(s), #{(param_controls + auto_controls).size} controls per page)"
 else
@@ -8482,6 +9086,24 @@ begin
   end
 rescue => e
   warn "  WARN  chart-provenance sidecar write error (parity plan falls back to display-name matching): #{e.message}"
+end
+
+# actions-emitted manifest sidecar WRITE — after the emitters for the SAME
+# reason as chart-provenance/hidden-titles just above: --page-per-dashboard's
+# namespacing pass (the `namespace_ids` rename site) can still rename a
+# nav-button's element id after `emitted_actions` was first populated, and
+# `emitted_action_index` hooks that exact rename to keep each entry's
+# hostElementId/actionId in step. Writing here, not at the point of emission,
+# is what makes the manifest match the FINAL spec instead of a stale
+# mid-build snapshot. Written unconditionally (even empty) whenever
+# nav-button processing could have run at all (never in --page-per-worksheet
+# mode, which has no dashboard-object zones to process) — an empty manifest
+# means "nothing was auto-emitted," which Task 4's join must distinguish from
+# "no manifest at all."
+unless opts[:pages_mode] == :worksheet
+  manifest_path = opts[:out].sub(/\.json$/, '-actions-emitted.json')
+  ActionLedger.write_manifest(manifest_path, emitted_actions)
+  warn "wrote #{manifest_path} (#{emitted_actions.size} auto-emitted Sigma action(s))"
 end
 
 # ---- Intended-scope contract (control-scope.json) ---------------------------
@@ -8561,7 +9183,7 @@ unless control_scope_records.empty?
   end
 end
 # Classify each build message so the WARN count reflects ACTUAL gaps, not volume
-# (bead beads-sigma-59mk). The builder historically prefixed every note — including
+# (). The builder historically prefixed every note — including
 # SUCCESS confirmations ("decomposed: …", "translated inline: …") and verify-nudges
 # ("auto-emitted … verify", "sort carried", "inferred from shelves") — with WARN,
 # so a clean conversion read like a pile of failures (the "drops a lot" perception).
@@ -8646,7 +9268,7 @@ if $zone_datasource && $zone_datasource.values.uniq.length > 1
   end
 end
 
-# ---- Nested-LOD chains sidecar (beads-sigma-t67b) ---------------------------
+# ---- Nested-LOD chains sidecar ([bead]) ---------------------------
 # Machine-readable helper-element chains for every nested {FIXED} calc: the
 # agent builds one grouped element per chain level (innermost first; Value =
 # sigma_aggregate, grouped by dims), relates each level to the next on the
@@ -8814,7 +9436,7 @@ def spec_api_limit_entries(layout, cmp_wired = {})
 end
 
 # ---- coverage.json — ONE consolidated "what didn't carry over (and why)" ledger
-# (bead beads-sigma-59mk; ports powerbi-to-sigma PR #177). The builder already
+# (; ports powerbi-to-sigma PR #177). The builder already
 # emits the facts — 87 build WARN lines + the dropped-control / inferred-tile /
 # nested-LOD sidecars — but scattered across the log + several files. This
 # AGGREGATES them into the shared coverage.json schema that CoverageGate renders,

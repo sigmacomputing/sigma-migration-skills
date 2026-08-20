@@ -43,15 +43,15 @@ end
 puts '-- absolute_rects'
 xml = <<~XML
   <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="pg">
-  <GridContainer elementId="band-1" type="grid" gridColumn="1 / 25" gridRow="4 / 12" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-    <LayoutElement elementId="el-a" gridColumn="1 / 13" gridRow="1 / 9"/>
-    <LayoutElement elementId="el-b" gridColumn="13 / 25" gridRow="1 / 9"/>
-  </GridContainer>
-  <GridContainer elementId="rail" type="grid" gridColumn="21 / 25" gridRow="12 / 30" gridTemplateColumns="repeat(1, 1fr)" gridTemplateRows="auto">
-    <LayoutElement elementId="ctl-1" gridColumn="1 / 2" gridRow="1 / 3"/>
-    <LayoutElement elementId="ctl-2" gridColumn="1 / 2" gridRow="3 / 5"/>
-  </GridContainer>
-  <LayoutElement elementId="el-c" gridColumn="1 / 21" gridRow="12 / 30"/>
+  <Container elementId="band-1" type="grid" gridColumn="1 / 25" gridRow="4 / 12" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
+    <Element elementId="el-a" gridColumn="1 / 13" gridRow="1 / 9"/>
+    <Element elementId="el-b" gridColumn="13 / 25" gridRow="1 / 9"/>
+  </Container>
+  <Container elementId="rail" type="grid" gridColumn="21 / 25" gridRow="12 / 30" gridTemplateColumns="repeat(1, 1fr)" gridTemplateRows="auto">
+    <Element elementId="ctl-1" gridColumn="1 / 2" gridRow="1 / 3"/>
+    <Element elementId="ctl-2" gridColumn="1 / 2" gridRow="3 / 5"/>
+  </Container>
+  <Element elementId="el-c" gridColumn="1 / 21" gridRow="12 / 30"/>
   </Page>
 XML
 rects = ArrangementLint.absolute_rects(xml)

@@ -34,6 +34,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 require 'base64'
+require_relative 'lib/layout'
 
 opts = { mode: 'page-per-worksheet' }
 OptionParser.new do |p|
@@ -133,11 +134,39 @@ else
   abort('chart-specs.json must be either { pages: [...] } or [ ... ]')
 end
 
+page_records = [data_page] + visible_pages
+flat_elements = page_records.flat_map { |page| page['elements'] || [] }
+layout_pages = page_records.map do |page|
+  row = 1
+  children = (page['elements'] || []).map do |element|
+    height = case element['kind']
+             when 'page-break' then 1
+             when 'control', 'text', 'navigation', 'progress' then 3
+             when 'kpi-chart' then 6
+             when 'table', 'pivot-table' then 12
+             else 10
+             end
+    xml = SigmaLayout.le(element['id'], 1, 25, row, row + height)
+    row += height
+    xml
+  end
+  SigmaLayout.page_xml(page['id'], children.join("\n"))
+end
+
 wb = {
-  'name'          => opts[:name],
-  'schemaVersion' => 1,
-  'folderId'      => opts[:folder_id],
-  'pages'         => [data_page] + visible_pages
+  'name' => opts[:name],
+  'folderId' => opts[:folder_id],
+  'document' => {
+    'schemaVersion' => 1,
+    'kind' => 'workbook',
+    'pages' => page_records.map do |page|
+      metadata = page.reject { |key, _| key == 'elements' }
+      metadata['visibility'] = 'hidden' if page['id'] == 'page-data'
+      metadata
+    end,
+    'elements' => flat_elements,
+    'layout' => SigmaLayout.assemble(*layout_pages)
+  }
 }
 wb['description'] = opts[:description] if opts[:description]
 

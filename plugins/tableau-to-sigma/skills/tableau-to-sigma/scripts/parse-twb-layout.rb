@@ -675,7 +675,9 @@ def worksheet_display_title(ws)
   return nil unless ft
   # .elements.to_a('run') / .text — supported by BOTH backends of twb_xml
   # (the Nokogiri shim and the REXML fallback); get_elements is REXML-only.
-  txt = ft.elements.to_a('run').map { |r| r.text.to_s }.join.strip
+  # Tableau writes line breaks as an Æ sentinel plus the actual newline. Keep
+  # the newline but do not leak the sentinel into the Sigma element title.
+  txt = ft.elements.to_a('run').map { |r| r.text.to_s.gsub("Æ", '') }.join.strip
   return nil if txt.empty?
   return nil if txt =~ /\A<[^<>]+>\z/ # "<Sheet Name>" / field-token default
   txt
@@ -762,6 +764,22 @@ xml.elements.each('//worksheet') do |ws|
       direction: (cs.attributes['direction'].to_s =~ /desc/i ? 'descending' : 'ascending'),
       column:    cs.attributes['column'],
       using:     cs.attributes['using']
+    }
+  end
+
+  # K21: <alphabetic-sort> — "sort this dimension alphabetically". The vendored
+  # XSD (schemas/twb_2026.2.0.xsd, Sort-Alphabetic-G) declares it as an EMPTY
+  # element with no attributes, so there is no `column` to resolve. That matters:
+  # sort_target_column_id falls back to the MEASURE on an empty column token, so
+  # wiring this through without an explicit marker silently sorts the wrong axis.
+  # Hence `alphabetic: true`, which the resolver checks before that fallback.
+  # `direction`/`column` are read defensively in case a real export carries them
+  # (the XSD says it does not; not verified against a live .twb).
+  if sort_info.nil? && (as = ws.elements['.//alphabetic-sort'])
+    sort_info = {
+      direction:  (as.attributes['direction'].to_s =~ /desc/i ? 'descending' : 'ascending'),
+      column:     as.attributes['column'],
+      alphabetic: true
     }
   end
 
@@ -946,7 +964,7 @@ xml.elements.each('//worksheet') do |ws|
     # Tableau numeric bins are calc columns with class='bin': `formula` is the
     # base field ref, `size` (or a `size-parameter` ref) is the bin width and
     # `peg` the bin origin. Surfaced so build-charts-from-signals.rb can emit
-    # the Sigma-native BinFixed/BinRange translation (beads-sigma-t67b).
+    # the Sigma-native BinFixed/BinRange translation ([bead]).
     if cls == 'bin'
       entry['bin_size'] = calc.attributes['size'] || calc.attributes['size-parameter']
       entry['bin_peg']  = calc.attributes['peg']
@@ -1058,7 +1076,7 @@ xml.elements.each('//worksheet') do |ws|
   # ≥1 measure (on shelves or on the worksheet's Marks card). Tableau
   # "scorecard" / "big number" tiles match this shape — they're not detail
   # lists, not crosstabs, just a single aggregated value rendered as text.
-  # Maps to Sigma kpi-chart. beads-sigma-bw3.
+  # Maps to Sigma kpi-chart. [bead].
   # Automatic mark included (bead 3w4d): Tableau's default mark for a
   # zero-dim single-measure sheet renders as a big-number text table — the
   # FATSCALE rehearsal lost 14/40 tiles because these fell through to the
@@ -1310,6 +1328,17 @@ def chart_kind_for(meta)
   return 'map-region' if geo_mark || meta[:has_geometry]
   return 'map-point'  if has_xy
 
+  # Tableau implements waterfalls with a Gantt Bar mark positioned by a
+  # running-total table calculation. Gantt bars are also used for timelines and
+  # candlesticks, so only the explicit running-total signature maps to Sigma's
+  # native waterfall-chart; every other GanttBar remains an honest manual gap.
+  if mc == 'ganttbar'
+    running_total = Array(meta[:calculations]).any? do |calculation|
+      calculation.is_a?(Hash) && calculation['formula'].to_s.match?(/\bRUNNING_SUM\s*\(/i)
+    end
+    return running_total ? 'waterfall' : 'other'
+  end
+
   case mc
   when 'bar'        then 'bar'
   when 'line'       then 'line'
@@ -1429,12 +1458,24 @@ end
 # i.e. 1:1 Sigma pages). Export/toggle buttons have no Sigma spec equivalent
 # and become named residue downstream.
 WINDOW_BY_UUID = {}
+VISIBLE_DASHBOARD_WINDOWS = []
 xml.elements.each('//windows/window') do |w|
   sid = w.elements['simple-id']
   WINDOW_BY_UUID[sid.attributes['uuid']] = {
     'name' => w.attributes['name'], 'class' => w.attributes['class']
   } if sid
+  if w.attributes['class'] == 'dashboard' && w.attributes['hidden'] != 'true'
+    VISIBLE_DASHBOARD_WINDOWS << w.attributes['name']
+  end
 end
+VISIBLE_DASHBOARD_WINDOWS.compact!
+VISIBLE_DASHBOARD_WINDOWS.uniq!
+STORY_CAPTURED_SHEETS = []
+xml.elements.each('//story-point') do |story_point|
+  captured = story_point.attributes['captured-sheet']
+  STORY_CAPTURED_SHEETS << captured if captured
+end
+STORY_CAPTURED_SHEETS.uniq!
 
 def zone_button_fields(z)
   b = z.elements['button'] or return {}
@@ -1854,6 +1895,7 @@ xml.elements.each('//dashboard') do |d|
       'is_pill'    => ztext['is_pill'],
       # v5.0 design-compiler signals (nil when absent — additive)
       'corner_radius' => zstyle['corner_radius'],
+      'rounding'      => zstyle['rounding'],
       'border_width'  => zstyle['border_width'],
       'is_fixed'      => (z.attributes['is-fixed'] == 'true' || nil),
       'fixed_size'    => (z.attributes['fixed-size'] ? z.attributes['fixed-size'].to_i : nil),
@@ -1878,7 +1920,7 @@ xml.elements.each('//dashboard') do |d|
   # A "storyboard" dashboard is Tableau's story container (sequential story
   # points in a flipboard zone) — flag it so downstream layout builders don't
   # treat the flipboard chrome as a regular chart page. The story itself is
-  # parsed into story-plan.json below (beads-sigma-y6b).
+  # parsed into story-plan.json below ([bead]).
   is_story = d.attributes['type-v2'] == 'storyboard' || !d.elements['.//story-points'].nil?
   # Nested container tree (additive — see build_zone_tree). Walk the direct
   # children of the dashboard's <zones> root so nesting is preserved.
@@ -1903,6 +1945,13 @@ xml.elements.each('//dashboard') do |d|
   dash_h = {
     'dashboard'     => d.attributes['name'],
     'is_story'      => is_story,
+    # Tableau's <windows> collection is the visible-tab contract. A dashboard
+    # absent from it is hidden migration plumbing (parameter hosts are common),
+    # not a Sigma page. Older/minimal TWBs may omit <windows>; fail open there.
+    # Story-captured sheets remain eligible so build-story-pages can clone them.
+    'emit_page'     => (VISIBLE_DASHBOARD_WINDOWS.empty? ||
+                        VISIBLE_DASHBOARD_WINDOWS.include?(dash_name) ||
+                        STORY_CAPTURED_SHEETS.include?(dash_name)),
     'canvas_px'     => canvas_px,
     # Theme channel: this dashboard's Format▸Dashboard rules + the workbook's
     # Format▸Workbook rules (lib/theme_derive resolves precedence).
@@ -2181,7 +2230,7 @@ end
 # builder (scripts/build-story-pages.rb) knows whether the point's Sigma page
 # clones a whole dashboard page or a single worksheet element. Output:
 # story-plan.json in the same directory as OUT (only when stories exist).
-# beads-sigma-y6b.
+# [bead].
 stories = []
 dashboard_names = dashboards.map { |d| d['dashboard'] }
 xml.elements.each('//story-points') do |spn|

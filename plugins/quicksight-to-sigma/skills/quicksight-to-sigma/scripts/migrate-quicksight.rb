@@ -9,7 +9,7 @@
 # This script does NOT re-implement any phase — it chains the existing scripts:
 #   quicksight-discover.py [--from-fixtures]                       (Phase 1)
 #   convert-model.rb --emit-mcp → MCP gate → --converted resume,
-#     or a local sigma-data-model-mcp build via a node shim        (Phase 2)
+#     or a local converter-source build via a node shim        (Phase 2)
 #   qs-dm-signature.py + find-or-pick-dm.rb (DM-reuse check)       (Phase 2.5)
 #   convert-model.rb --fixup --folder-id + validate-spec.rb
 #     + post-and-readback.rb                                       (Phase 3/DM)
@@ -57,7 +57,7 @@ $LOAD_PATH.unshift File.expand_path('lib', HERE)
 
 # Converter resolution (issue #227). The pinned VENDORED bundle is the DEFAULT so a
 # developer machine and a customer machine produce identical output for the same
-# input. A local sigma-data-model-mcp build is used ONLY when EXPLICITLY opted in
+# input. A local converter-source build is used ONLY when EXPLICITLY opted in
 # via --mcp-dir / QS_MCP_DIR — there is NO silent auto-discovery of ~/… checkouts
 # (that was the "works in my demo, differs for the customer" footgun). Returns
 # [conv_module, mcp_build_dir_or_nil, loud_provenance_line].
@@ -129,7 +129,7 @@ if opts[:conn] !~ /\A\h{8}-\h{4}-\h{4}-\h{4}-\h{12}\z/
 end
 
 # Converter resolution (issue #227): the pinned VENDORED bundle is the DEFAULT so a
-# dev machine and a customer machine convert identically. A local sigma-data-model-mcp
+# dev machine and a customer machine convert identically. A local converter-source
 # build is used ONLY via explicit --mcp-dir / QS_MCP_DIR — no silent auto-discovery of
 # ~/… checkouts (that was the "works in my demo, differs for the customer" footgun).
 # CONV_MODULE is what the Phase-2 shim imports; nil only if the bundle is also absent
@@ -205,7 +205,7 @@ puts "   analysis '#{an_name}': #{signals['datasets'].size} dataset(s), " \
 # Phase 2 — Convert. Three routes (in priority order):
 #   a) --converted <file>: the convert_quicksight_to_sigma MCP TOOL already ran
 #      (gate-resume — the default route on machines without a local build)
-#   b) a local sigma-data-model-mcp build: run it in-process via a node shim
+#   b) a local converter-source build: run it in-process via a node shim
 #   c) neither: print the exact MCP request (convert-model.rb --emit-mcp) and
 #      GATE — re-run with --converted <the tool's result JSON>.
 # ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ elsif CONV_MODULE
   c_out, c_err, c_st = Open3.capture3('node', shim)
   abort "FATAL: converter failed:\n#{c_err}#{c_out}" unless c_st.success?
 else
-  puts '   no local sigma-data-model-mcp build found (set --mcp-dir / QS_MCP_DIR for the in-process route).'
+  puts '   no local converter-source build found (set --mcp-dir / QS_MCP_DIR for the in-process route).'
   puts
   emit = ['ruby', File.join(HERE, 'convert-model.rb'), '--emit-mcp',
           '--discover-dir', WORK, '--connection-id', opts[:conn]]
@@ -293,9 +293,7 @@ end
 APPROX = {
   'TreeMapVisual'       => 'approximate-to-bar',
   'FunnelChartVisual'   => 'approximate-to-bar',
-  'WaterfallVisual'     => 'approximate-to-bar',
   'HistogramVisual'     => 'approximate-to-bar',
-  'GaugeChartVisual'    => 'approximate-to-kpi',
   'HeatMapVisual'       => 'data-migrate-as-table',
   'BoxPlotVisual'       => 'data-migrate-as-table',
   'SankeyDiagramVisual' => 'data-migrate-as-table',
@@ -342,7 +340,7 @@ unless opts[:folder]
                  'options' => ['supply --folder <id>', 'proceed into My Documents'], 'default' => 'proceed into My Documents' }
 end
 
-# RUN-EACH-TIME GAP-SCOUT GATE (bead beads-sigma-5l5e). Degraded calcs are
+# RUN-EACH-TIME GAP-SCOUT GATE (). Degraded calcs are
 # scout-eligible — the gap-scout must ATTEMPT a Sigma translation for each
 # before we accept the Null degradation. --yes does NOT skip this; it only
 # accepts calcs the scout already tried (validated locally, or escalated). The
@@ -607,7 +605,8 @@ FileUtils.mkdir_p(vqa)
 # (returns YAML / silently zero pages); POST preserves these ids, so the local
 # copy is authoritative. Exclude any id containing "data" (hidden data pages).
 wbspec = (JSON.parse(File.read(wb_spec)) rescue {})
-content_pages = (wbspec['pages'] || []).reject { |p| p['id'].to_s.downcase.include?('data') }
+wbdoc = wbspec['document'].is_a?(Hash) ? wbspec['document'] : wbspec
+content_pages = (wbdoc['pages'] || []).reject { |p| p['id'].to_s.downcase.include?('data') }
 tok = (Sigma.auth_token rescue ENV['SIGMA_API_TOKEN'])
 pngs = []
 content_pages.each do |pg|

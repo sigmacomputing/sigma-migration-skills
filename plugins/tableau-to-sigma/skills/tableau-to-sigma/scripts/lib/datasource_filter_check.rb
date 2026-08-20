@@ -26,6 +26,7 @@
 #   DatasourceFilterCheck.violations(datasource_filters:, filter_shelf:, spec:, master_id: 'master')
 require 'json'
 require 'set'
+require_relative 'workbook_code'
 
 module DatasourceFilterCheck
   module_function
@@ -34,16 +35,13 @@ module DatasourceFilterCheck
     s.to_s.downcase.strip.gsub(/\s+/, ' ')
   end
 
-  # Every element regardless of spec shape: pages[].elements[] or a flat list.
+  # Every workbook element regardless of envelope. Canonical workbooks use
+  # flat document.elements; WorkbookCode retains a legacy nested fallback for
+  # pre-release fixtures.
   def all_elements(spec)
     return [] unless spec.is_a?(Hash) || spec.is_a?(Array)
-    if spec.is_a?(Array)
-      spec
-    elsif spec['pages'].is_a?(Array)
-      spec['pages'].flat_map { |pg| Array(pg.is_a?(Hash) ? pg['elements'] : nil) }
-    else
-      Array(spec['elements'])
-    end.select { |e| e.is_a?(Hash) }
+    records = spec.is_a?(Array) ? spec : WorkbookCode.elements(spec)
+    records.select { |element| element.is_a?(Hash) }
   end
 
   # columnIds (across every element) whose column display name matches `caption`.

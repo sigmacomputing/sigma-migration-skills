@@ -59,7 +59,7 @@
 #
 # The reference form is the literal namespace [Metrics/<Metric Name>] — NOT
 # [Element/Name] (that errors). Extracted from the looker reference implementation
-# (PR #484); see the phase docs. Mirror: shared/lib/metric_binding.py — keep the
+# (PR #484); see [bead]. Mirror: shared/lib/metric_binding.py — keep the
 # two in lockstep.
 
 module MetricBinding

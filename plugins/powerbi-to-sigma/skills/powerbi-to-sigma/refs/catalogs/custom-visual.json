@@ -150,8 +150,8 @@
       "sigma_target": null,
       "doc_ref": "https://learn.microsoft.com/en-us/power-bi/developer/visuals/power-bi-custom-visuals",
       "sigma_verified": { "status": "n/a" },
-      "guidance": "Specialist chart type with no native Sigma equivalent (sankey / word cloud / network / chord / sunburst / radar / tornado / box-whisker / violin, etc.). Two honest options, both recorded rather than faked: (1) build it as a Sigma custom plugin -- see the sigma-plugin-development skill; (2) substitute the nearest standard Sigma chart (sunburst/radar -> grouped bar; tornado -> diverging bar; box-whisker -> bar of the quartile aggregates) and mark it approximated. Never emit a plain bar chart silently.",
-      "notes": "Grouped into one row because the guidance and the decision are identical for all of them."
+      "guidance": "Specialist chart type with no currently published workbook-spec equivalent (sankey / word cloud / network / chord / sunburst / radar / tornado / box-whisker / violin, etc.). Two honest options, both recorded rather than faked: (1) build it as a Sigma custom plugin -- see the sigma-plugin-development skill; (2) substitute the nearest standard Sigma chart (sunburst/radar -> grouped bar; tornado -> diverging bar; box-whisker -> a reviewed quartile table/bar) and mark it approximated. Box-whisker remains an explicit gap until `box-chart` is published in workbook-as-code. Never emit a plain bar chart silently.",
+      "notes": "Grouped into one row because the guidance and the decision are identical for all of them. Keep box plots on this fallback even if another Sigma surface names box-chart; the workbook code representation does not publish it yet."
     },
     {
       "source": "infographic-cardbrowser",

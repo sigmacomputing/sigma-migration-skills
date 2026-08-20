@@ -246,6 +246,40 @@ Dir.mktmpdir do |wd|
         'report_lines renders one line per entry with its class', fails)
 end
 
+# ---- quality-waiver: gate-3 column scan skipped at runtime (ruzs) ------------
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'column-scan.json'), JSON.pretty_generate(
+    'gate' => 'gate 3/7 live column type=error scan',
+    'status' => 'skipped-incomplete', 'columns_read' => 37, 'http' => '500',
+    'reason' => 'live column scan did not complete'))
+  entries = DegradationLedger.derive(wd)
+  qw = entries.select { |e| e['class'] == 'quality-waiver' }
+  check(qw.length == 1, "skipped-incomplete column scan → 1 quality-waiver (got #{qw.length})", fails)
+  check(items(qw) == ['gate-3-column-scan'], 'the entry is named gate-3-column-scan', fails)
+  check(DegradationLedger.verdict(entries) == 'YELLOW',
+        'a run whose live column audit did not complete caps at YELLOW', fails)
+end
+
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'column-scan.json'), JSON.pretty_generate(
+    'gate' => 'gate 3/7 live column type=error scan',
+    'status' => 'skipped-no-workbook-id',
+    'reason' => 'no workbook ID resolvable'))
+  entries = DegradationLedger.derive(wd)
+  check(classes(entries) == ['quality-waiver'], 'no-workbook-id skip derives a quality-waiver', fails)
+  check(DegradationLedger.verdict(entries) == 'YELLOW', 'no-workbook-id skip → YELLOW', fails)
+end
+
+# ---- a COMPLETE clean scan is positive evidence, not a degradation -----------
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'column-scan.json'), JSON.pretty_generate(
+    'gate' => 'gate 3/7 live column type=error scan',
+    'status' => 'complete-clean', 'columns_read' => 118))
+  entries = DegradationLedger.derive(wd)
+  check(entries == [], 'complete-clean column scan derives no entry', fails)
+  check(DegradationLedger.verdict(entries) == 'GREEN', 'complete-clean keeps GREEN reachable', fails)
+end
+
 puts
 if fails.empty?
   puts 'ALL PASS — degradation ledger derivation (every artifact class) + verdict matrix'

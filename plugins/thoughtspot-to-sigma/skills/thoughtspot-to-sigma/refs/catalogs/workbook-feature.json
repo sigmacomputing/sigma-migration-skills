@@ -1,0 +1,119 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "thoughtspot",
+  "authoritative_doc": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+  "on_unmapped_default": "record-explicit-gap",
+  "description": "Audit of released Sigma workbook-as-code features against documented ThoughtSpot TML semantics. A target is emitted only where the source artifact carries equivalent intent; unrelated Sigma capabilities remain explicit gaps rather than invented dashboard behavior.",
+  "rows": [
+    {
+      "source": "liveboard-layout-tabs",
+      "sigma": "pages + navigation:auto",
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "single content page",
+      "notes": "Each ThoughtSpot tab becomes metadata-only page metadata and one authoritative layout Page block. Multi-tab workbooks receive an in-canvas auto navigation element on every content page."
+    },
+    {
+      "source": "chart-legend-formatting",
+      "sigma": "element.legend",
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/chart-types",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "preserve Sigma default",
+      "notes": "Known client-state visibility, title visibility, and placement values map to published Sigma legend fields; unknown settings are not guessed."
+    },
+    {
+      "source": "multi-level-axis-drill",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-answers",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag-retain-first-x-axis-level",
+      "notes": "Answer TML documents axis_configs only as axis column assignment, not as a persisted drill hierarchy. Sigma's released drill control exposes only id/kind/controlId/controlType and no authorable source, category, or target binding. Retain the first x-axis level, preserve deeper columns, and flag the missing interaction rather than inventing wiring."
+    },
+    {
+      "source": "standalone-legend-control",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-answers",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "ThoughtSpot Answer TML carries per-chart advanced configuration through client_state but has no standalone legend-control artifact. Map recognized chart legend settings to element.legend; do not invent a separate controlType:legend element."
+    },
+    {
+      "source": "chart-series-styling",
+      "sigma": "color + dataLabel + orientation + stacking",
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/chart-types",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "preserve Sigma default",
+      "notes": "Existing series colors and labels are retained; bar orientation and stacked variants now preserve their source semantics."
+    },
+    {
+      "source": "control-formula-references",
+      "sigma": "controlId",
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/filters",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "record control gap",
+      "notes": "Filter controls use controlId as the formula handle and double-nested value sources; element ids remain layout identity only."
+    },
+    {
+      "source": "grouped-scatter-source",
+      "sigma": "table groupingId",
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/chart-types",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag scatter parity",
+      "notes": "Scatter/bubble charts retain their grouped hidden source and groupingId. Source-model joins remain data-model specs and are intentionally unchanged."
+    },
+    {
+      "source": "liveboard-tabs-as-tabbed-container",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "ThoughtSpot tabs are top-level dashboard pages, not alternate views sharing one region; mapping them to tabbed-container would change navigation semantics."
+    },
+    {
+      "source": "repeated-container",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Liveboard TML has no documented row-repeating card construct. Do not invent a repeated-container from ordinary tiles."
+    },
+    {
+      "source": "page-break",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "Liveboard TML has no print-pagination marker. Emitting a Sigma page-break would invent source intent."
+    },
+    {
+      "source": "gauge-as-progress",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-answers",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "flag-degrade-to-table",
+      "notes": "Native progress requires trustworthy min/max/value formulas. Current ThoughtSpot TML extraction does not expose a stable gauge range, so GAUGE remains an explicit flagged fallback instead of a misleading progress bar."
+    },
+    {
+      "source": "workbook-panels",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "doc_ref": "https://docs.thoughtspot.com/cloud/latest/tml-liveboards",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "ThoughtSpot Liveboard filters are in-canvas controls in this converter; no documented TML header/sidebar panel metadata is available to map. Existing Sigma panel metadata is nevertheless preserved on full-document PUT."
+    }
+  ]
+}

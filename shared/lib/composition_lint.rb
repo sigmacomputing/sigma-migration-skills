@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 # composition_lint.rb — verify a composed layout XML fragment: each gridRow band
 # tiles the columns [1, page_cols+1) with no gap/overlap, and bands are contiguous
-# vertically with no gap/overlap. A top-level <GridContainer> (Styling's header /
+# vertically with no gap/overlap. A top-level <Container> (Styling's header /
 # section_card card wrappers — shared/lib/styling.rb) participates in PAGE band
-# tiling exactly like a <LayoutElement>: its own gridColumn/gridRow is the rect
+# tiling exactly like a <Element>: its own gridColumn/gridRow is the rect
 # checked against the page. Its DIRECT CHILDREN are then validated the SAME way
 # but against the container's OWN rect — column count from the container's
 # gridTemplateColumns ("repeat(N, ...)" -> N; absent -> page_cols), and rows
@@ -12,13 +12,15 @@
 # tag doesn't truncate an outer container's body). Returns an array of
 # human-readable errors ([] = clean).
 module CompositionLint
-  TOKENS = %r{</GridContainer>|<GridContainer\b[^>]*?/?>|<LayoutElement\b[^>]*?/?>}m
+  # Parse canonical tags plus pre-2026-08-08 aliases. This is a read-only
+  # compatibility boundary; emitters must use Element/Container.
+  TOKENS = %r{</(?:Container|GridContainer)>|<(?:Container|GridContainer)\b[^>]*?/?>|<(?:Element|LayoutElement)\b[^>]*?/?>}m
 
   module_function
 
-  # Pull {id:, c0:, c1:, r0:, r1:} out of a <GridContainer ...> or
-  # <LayoutElement ...> opening/self-closing tag, independent of attribute
-  # order (a GridContainer carries extra attrs — type, gridTemplateColumns,
+  # Pull {id:, c0:, c1:, r0:, r1:} out of a <Container ...> or
+  # <Element ...> opening/self-closing tag, independent of attribute
+  # order (a Container carries extra attrs — type, gridTemplateColumns,
   # gridTemplateRows — between elementId and gridColumn/gridRow).
   def self.rect_of(tag)
     { id: tag[/elementId="([^"]*)"/, 1],
@@ -38,16 +40,16 @@ module CompositionLint
   # [{type: :element|:container, id:, c0:, c1:, r0:, r1:, tmpl_cols:, children: [...]}, ...]
   # (tmpl_cols/children only meaningful for :container). Mirrors the
   # nesting-aware stack walk in layout_lint.rb's `containers` so an inner
-  # container's </GridContainer> can't truncate an outer one's body.
+  # container's </Container> can't truncate an outer one's body.
   def self.parse(xml)
     roots = []
     stack = []
     xml.to_s.scan(TOKENS) do
       tag = Regexp.last_match(0)
-      if tag.start_with?('</GridContainer')
+      if tag.match?(%r{\A</(?:Container|GridContainer)})
         node = stack.pop
         (stack.empty? ? roots : stack.last[:children]) << node if node
-      elsif tag.start_with?('<GridContainer')
+      elsif tag.match?(%r{\A<(?:Container|GridContainer)\b})
         node = rect_of(tag).merge(type: :container, tmpl_cols: tmpl_cols_of(tag), children: [])
         if tag.end_with?('/>')
           (stack.empty? ? roots : stack.last[:children]) << node
@@ -90,7 +92,7 @@ module CompositionLint
     errors
   end
 
-  # Recursively check every <GridContainer>'s direct children against the
+  # Recursively check every <Container>'s direct children against the
   # container's OWN rect (not the page).
   def self.check_containers(node, page_cols)
     return [] unless node[:type] == :container
@@ -102,7 +104,7 @@ module CompositionLint
 
   def self.check(layout_xml, page_cols: 24)
     roots = parse(layout_xml)
-    return ['no <LayoutElement> tags found'] if roots.empty?
+    return ['no <Element> tags found'] if roots.empty?
     errors = check_region(roots, page_cols, 'page')
     roots.each { |node| errors.concat(check_containers(node, page_cols)) }
     errors

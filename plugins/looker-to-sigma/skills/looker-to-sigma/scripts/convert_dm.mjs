@@ -4,7 +4,7 @@
 //
 // Usage:
 //   LOOKML_DIR=/path/to/lookml-project \
-//   CONVERTER_SRC=/path/to/sigma-data-model-mcp/src/lookml.ts \
+//   CONVERTER_SRC=/path/converter-source/src/lookml.ts \
 //     node --import tsx/esm convert_dm.mjs <exploreName> <out.json>
 //
 // LOOKML_DIR must contain *.view.lkml files — directly or in a views/ subdir.
@@ -30,7 +30,7 @@ const out = process.argv[3] || '/tmp/looker_dm.json';
 const dir = process.env.LOOKML_DIR;
 if (!dir) { console.error('Set LOOKML_DIR=/path/to/lookml-project'); process.exit(1); }
 const converterSrc = process.env.CONVERTER_SRC;
-if (!converterSrc) { console.error('Set CONVERTER_SRC=/path/to/sigma-data-model-mcp/src/lookml.ts'); process.exit(1); }
+if (!converterSrc) { console.error('Set CONVERTER_SRC=/path/converter-source/src/lookml.ts'); process.exit(1); }
 const connectionId = process.env.SIGMA_CONNECTION_ID || 'PLACEHOLDER_CONNECTION_ID';
 
 const { convertLookMLToSigma } = await import(pathToFileURL(converterSrc).href);

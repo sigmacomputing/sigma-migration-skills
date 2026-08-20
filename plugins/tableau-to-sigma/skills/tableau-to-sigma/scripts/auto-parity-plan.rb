@@ -35,6 +35,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 require 'set'
+require_relative 'lib/workbook_code'
 
 opts = { renames: {} }
 OptionParser.new do |p|
@@ -77,15 +78,17 @@ view_by_name = views.each_with_object({}) { |v, h| h[v['name']] = v }
 
 # Load Sigma side
 spec = JSON.parse(File.read(opts[:wb]))
+workbook_pages = WorkbookCode.pages(spec)
+workbook_elements = WorkbookCode.elements(spec)
 
 # Per-dashboard scope: narrow the pages we plan parity over to the matching
-# page(s). The master-detection + chart-matching loops below iterate `pages`
-# instead of `spec['pages']`, so a scoped run gates ONLY the target tab's tiles
-# (per-tab parity, not all-or-nothing). No flag ⇒ every page (current behavior).
-pages = spec['pages']
+# page(s). Workbook pages are metadata-only; layout owns page membership, so
+# scoped element selection must use WorkbookCode.elements_for_page rather than
+# reading a nonexistent pages[].elements array.
+pages = workbook_pages
 if opts[:dashboards] && !opts[:dashboards].empty?
   want = opts[:dashboards].map(&:downcase)
-  pages = spec['pages'].select do |pg|
+  pages = workbook_pages.select do |pg|
     nm = pg['name'].to_s.downcase
     pid = pg['id'].to_s.downcase
     want.any? { |w| !w.empty? && (nm == w || nm.include?(w) || pid == w) }
@@ -93,6 +96,12 @@ if opts[:dashboards] && !opts[:dashboards].empty?
   abort("--dashboard/--page matched no workbook page in #{opts[:wb]}") if pages.empty?
   warn "scoped parity to page(s): #{pages.map { |p| p['name'] }.join(', ')}"
 end
+scoped_elements =
+  if opts[:dashboards] && !opts[:dashboards].empty?
+    pages.flat_map { |page| WorkbookCode.elements_for_page(spec, page) }.uniq { |element| element['id'] }
+  else
+    workbook_elements
+  end
 
 # Build the set of master-element-IDs we should treat as "the master" for
 # chart matching. Either explicit via --master-id (repeatable) OR auto-detect
@@ -106,24 +115,17 @@ master_ids =
   if opts[:master_ids] && !opts[:master_ids].empty?
     opts[:master_ids]
   else
-    detected = []
-    spec['pages'].each do |pg|
-      pg['elements'].each do |e|
-        if e['kind'] == 'table' &&
-           e['visibleAsSource'] == false &&
-           e.dig('source', 'kind') == 'data-model'
-          detected << e['id']
-        end
+    detected = workbook_elements.each_with_object([]) do |element, out|
+      if element['kind'] == 'table' &&
+         element['visibleAsSource'] == false &&
+         element.dig('source', 'kind') == 'data-model'
+        out << element['id']
       end
     end
     # Legacy fallback for specs that pre-date the master/visibleAsSource shape:
     # any element whose ID literally starts with `master`.
     if detected.empty?
-      spec['pages'].each do |pg|
-        pg['elements'].each do |e|
-          detected << e['id'] if e['id'].to_s.start_with?('master')
-        end
-      end
+      workbook_elements.each { |element| detected << element['id'] if element['id'].to_s.start_with?('master') }
     end
     detected.uniq
   end
@@ -131,8 +133,8 @@ if master_ids.empty?
   # A hand-authored spec may have NO intermediate master tables at all — every
   # chart sources the data model directly. That's a valid documented shape,
   # not an error (the chart loop below matches DM-sourced charts on its own).
-  has_dm_charts = spec['pages'].any? do |pg|
-    (pg['elements'] || []).any? { |e| e.dig('source', 'kind') == 'data-model' && e['kind'] != 'table' }
+  has_dm_charts = scoped_elements.any? do |element|
+    element.dig('source', 'kind') == 'data-model' && element['kind'] != 'table'
   end
   abort('auto-parity-plan.rb: no master element(s) detected; pass --master-id explicitly') unless has_dm_charts
   warn 'no master tables detected — matching data-model-sourced charts directly'
@@ -144,28 +146,23 @@ master_id_set = master_ids.to_set
 # Transitive: hidden helper tables that THEMSELVES source a master (e.g. the
 # scatter grouped-source tables, bead z1d0) count as masters for chart
 # matching — the scatter chart sources the helper, not the master.
-spec['pages'].each do |pg|
-  pg['elements'].each do |e|
-    next unless e['kind'] == 'table' && e['visibleAsSource'] == false
-    next unless e['source'] && master_id_set.include?(e['source']['elementId'])
-    master_id_set << e['id']
-  end
+workbook_elements.each do |element|
+  next unless element['kind'] == 'table' && element['visibleAsSource'] == false
+  next unless element['source'] && master_id_set.include?(element['source']['elementId'])
+  master_id_set << element['id']
 end
-sigma_charts = []
-pages.each do |pg|
-  pg['elements'].each do |e|
-    next if master_id_set.include?(e['id'])
-    # A chart counts when it sources a detected master — OR sources the data
-    # model DIRECTLY (source.kind=='data-model' on the chart itself, the
-    # documented hand-authored shape). The master-only check silently produced
-    # a "0 CSV tiles" census on every exit-4 workbook, forcing an
-    # --allow-missing-tiles waiver for tiles that were fully verifiable
-    # (field-caught round 2, two independent runs).
-    from_master = e['source'] && master_id_set.include?(e['source']['elementId'])
-    from_dm     = e.dig('source', 'kind') == 'data-model' && !%w[table control text image container].include?(e['kind'].to_s)
-    next unless from_master || from_dm
-    sigma_charts << e
-  end
+sigma_charts = scoped_elements.each_with_object([]) do |element, out|
+  next if master_id_set.include?(element['id'])
+  # A chart counts when it sources a detected master — OR sources the data
+  # model DIRECTLY (source.kind=='data-model' on the chart itself, the
+  # documented hand-authored shape). The master-only check silently produced
+  # a "0 CSV tiles" census on every exit-4 workbook, forcing an
+  # --allow-missing-tiles waiver for tiles that were fully verifiable
+  # (field-caught round 2, two independent runs).
+  from_master = element['source'] && master_id_set.include?(element['source']['elementId'])
+  from_dm = element.dig('source', 'kind') == 'data-model' &&
+            !%w[table control text image container].include?(element['kind'].to_s)
+  out << element if from_master || from_dm
 end
 
 # Match Sigma chart → Tableau view
@@ -425,7 +422,7 @@ end
 #
 # This script intentionally leaves entry['actual'] unset; the agent fills
 # it after running the MCP queries in parallel (single tool-use message
-# with N parallel tool calls). beads-sigma-s04.
+# with N parallel tool calls). [bead].
 puts "  NOTE: actuals must be fetched via mcp__sigma-mcp-v2__query (MCP), not REST."
 puts "        Fire all #{plan_entries.size} per-chart queries in ONE parallel tool-use batch,"
 puts "        then merge the rows into the parity plan's actual.rows arrays."

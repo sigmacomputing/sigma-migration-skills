@@ -70,6 +70,7 @@ require 'kpi_card'
 require 'richness'
 require 'styling'
 require 'actions'
+require 'code_rep'
 
 def log(msg)
   $stderr.puts("[verify-ws4-e2e] #{msg}")
@@ -198,7 +199,8 @@ def reference_schema_version
     wid = w['workbookId'] || w['id']
     next unless wid
     spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
-    return spec['schemaVersion'] if spec.is_a?(Hash) && spec['schemaVersion']
+    doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
+    return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
@@ -248,7 +250,7 @@ end
 # white-text patch merged onto a COPY, never mutating the original kpi Hash)
 # -> Styling.sparkline (a separate borderless line-chart stacked below the
 # kpi inside the SAME container). Returns the three elements + the inner
-# layout fragment (relative to the outer GridContainer the caller still has
+# layout fragment (relative to the outer Container the caller still has
 # to place on the page — gradient_card's own contract: "placing the container
 # on the page is the caller's job").
 # ---------------------------------------------------------------------------
@@ -279,7 +281,7 @@ def build_gradient_kpi(id:, title:, cur_formula:, pri_formula:, fmt_sym:, gradie
 
   inner_layout = [
     gc[:child_layout],
-    "  <LayoutElement elementId=\"#{spark['id']}\" gridColumn=\"1 / 25\" gridRow=\"7 / 11\"/>"
+    "  <Element elementId=\"#{spark['id']}\" gridColumn=\"1 / 25\" gridRow=\"7 / 11\"/>"
   ].join("\n")
 
   { container: gc[:element].first, kpi: patched_card, spark: spark, inner_layout: inner_layout }
@@ -396,26 +398,26 @@ def build_spec(home, schema_version)
     <?xml version="1.0" encoding="utf-8"?>
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PG_MAIN}">
     #{hdr_main[:layout]}
-      <GridContainer elementId="#{k_rev[:container]['id']}" type="grid" gridColumn="1 / 13" gridRow="6 / 18" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
+      <Container elementId="#{k_rev[:container]['id']}" type="grid" gridColumn="1 / 13" gridRow="6 / 18" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
     #{k_rev[:inner_layout]}
-      </GridContainer>
-      <GridContainer elementId="#{k_ord[:container]['id']}" type="grid" gridColumn="13 / 25" gridRow="6 / 18" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
+      </Container>
+      <Container elementId="#{k_ord[:container]['id']}" type="grid" gridColumn="13 / 25" gridRow="6 / 18" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
     #{k_ord[:inner_layout]}
-      </GridContainer>
-      <LayoutElement elementId="chat-hd" gridColumn="1 / 25" gridRow="18 / 19"/>
-      <LayoutElement elementId="chat" gridColumn="1 / 25" gridRow="19 / 36"/>
+      </Container>
+      <Element elementId="chat-hd" gridColumn="1 / 25" gridRow="18 / 19"/>
+      <Element elementId="chat" gridColumn="1 / 25" gridRow="19 / 36"/>
     </Page>
   XML
 
   pg_actions_layout = <<~XML
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PG_ACTIONS}">
     #{hdr_actions[:layout]}
-      <LayoutElement elementId="#{NOTE_CTL_ID}" gridColumn="1 / 13" gridRow="5 / 8"/>
-      <LayoutElement elementId="btn-reset" gridColumn="13 / 17" gridRow="5 / 8"/>
-      <LayoutElement elementId="btn-preset" gridColumn="17 / 21" gridRow="5 / 8"/>
-      <LayoutElement elementId="btn-log" gridColumn="21 / 25" gridRow="5 / 8"/>
-      <LayoutElement elementId="targets" gridColumn="1 / 25" gridRow="8 / 20"/>
-      <LayoutElement elementId="review-log" gridColumn="1 / 25" gridRow="20 / 30"/>
+      <Element elementId="#{NOTE_CTL_ID}" gridColumn="1 / 13" gridRow="5 / 8"/>
+      <Element elementId="btn-reset" gridColumn="13 / 17" gridRow="5 / 8"/>
+      <Element elementId="btn-preset" gridColumn="17 / 21" gridRow="5 / 8"/>
+      <Element elementId="btn-log" gridColumn="21 / 25" gridRow="5 / 8"/>
+      <Element elementId="targets" gridColumn="1 / 25" gridRow="8 / 20"/>
+      <Element elementId="review-log" gridColumn="1 / 25" gridRow="20 / 30"/>
     </Page>
   XML
 
@@ -427,42 +429,37 @@ def build_spec(home, schema_version)
 
   pg_data_layout = <<~XML
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PG_DATA}">
-      <LayoutElement elementId="#{SRC_ID}" gridColumn="1 / 25" gridRow="1 / 10"/>
-      <LayoutElement elementId="#{CAT_PIVOT_ID}" gridColumn="1 / 25" gridRow="10 / 20"/>
+      <Element elementId="#{SRC_ID}" gridColumn="1 / 25" gridRow="1 / 10"/>
+      <Element elementId="#{CAT_PIVOT_ID}" gridColumn="1 / 25" gridRow="10 / 20"/>
     </Page>
   XML
 
-  {
-    'name' => "WS4 surfaces probe — E2E proof (#{RUN_TAG})",
-    'folderId' => home,
+  elements = [
+    *hdr_main[:element],
+    k_rev[:container], k_rev[:kpi], k_rev[:spark],
+    k_ord[:container], k_ord[:kpi], k_ord[:spark],
+    chat_hd, chat,
+    *hdr_actions[:element],
+    note_ctl, btn_reset, btn_preset, btn_log,
+    targets, review_log,
+    *gh_glow[:element], *gh_rings[:element], *gh_byo[:element],
+    src, cat_pivot
+  ]
+  doc = {
     'schemaVersion' => schema_version,
-    'description' => 'Live GO/NO-GO proof of WS4 shared-lib surfaces: Richness.agent/chat, ' \
-                      'Styling.gradient_header (+motif menu)/gradient_card/sparkline, Actions.* ' \
-                      '(buttons/effects, empty + linked input tables). Throwaway test artifact.',
+    'kind' => 'workbook', # PATCHED for live probe: current contract requires document.kind
     'agents' => [agent],
     'pages' => [
-      { 'id' => PG_MAIN, 'name' => 'Overview',
-        'elements' => [
-          *hdr_main[:element],
-          k_rev[:container], k_rev[:kpi], k_rev[:spark],
-          k_ord[:container], k_ord[:kpi], k_ord[:spark],
-          chat_hd, chat
-        ] },
-      { 'id' => PG_ACTIONS, 'name' => 'Actions & Write-back',
-        'elements' => [
-          *hdr_actions[:element],
-          note_ctl, btn_reset, btn_preset, btn_log,
-          targets, review_log
-        ] },
-      { 'id' => PG_MOTIFS, 'name' => 'Motif gallery',
-        'elements' => [*gh_glow[:element], *gh_rings[:element], *gh_byo[:element]] },
-      { 'id' => PG_DATA, 'name' => 'Data', 'visibility' => 'hidden',
-        'elements' => [src, cat_pivot] },
+      { 'id' => PG_MAIN, 'name' => 'Overview' },
+      { 'id' => PG_ACTIONS, 'name' => 'Actions & Write-back' },
+      { 'id' => PG_MOTIFS, 'name' => 'Motif gallery' },
+      { 'id' => PG_DATA, 'name' => 'Data', 'visibility' => 'hidden' },
     ],
+    'elements' => elements,
     # IMPORTANT (live-discovered, this task): layout is a single WORKBOOK-TOP-
-    # LEVEL field (sibling of `pages`), matching build-plugs-command-center.rb
-    # — NOT a per-page `layout` key (the shape verify-richness-surfaces-e2e.rb
-    # uses). An isolated A/B POST probe during this task's run confirmed a
+    # LEVEL document field (sibling of `pages` and `elements`), matching
+    # build-plugs-command-center.rb — NOT a per-page `layout` key. An isolated
+    # A/B POST probe during this task's run confirmed a
     # per-page `layout` key is silently IGNORED and replaced by Sigma's own
     # auto-arrange (all elements squeezed into the left half of the page,
     # stacked in element-array order) — only ONE combined top-level `layout`
@@ -470,6 +467,13 @@ def build_spec(home, schema_version)
     # concatenated) is actually honored.
     'layout' => [pg_main_layout, pg_actions_layout, pg_motifs_layout, pg_data_layout].join("\n")
   }
+  Sigma::CodeRep.wrap(doc, extra: {
+    'name' => "WS4 surfaces probe — E2E proof (#{RUN_TAG})",
+    'folderId' => home,
+    'description' => 'Live GO/NO-GO proof of WS4 shared-lib surfaces: Richness.agent/chat, ' \
+                     'Styling.gradient_header (+motif menu)/gradient_card/sparkline, Actions.* ' \
+                     '(buttons/effects, empty + linked input tables). Throwaway test artifact.'
+  })
 end
 
 # ---------------------------------------------------------------------------
@@ -494,7 +498,8 @@ begin
 
   # --- structural (GET) readback ------------------------------------------
   spec_back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
-  els = spec_back['pages'].flat_map { |p| p['elements'] || [] }
+  spec_back = Sigma::CodeRep.document(spec_back)
+  els = Sigma::CodeRep.workbook_elements(spec_back)
   find_el = ->(id) { els.find { |e| e['id'] == id } }
   agents_back = spec_back['agents'] || []
 
@@ -517,17 +522,17 @@ begin
 
   surfaces = {
     'gradient_header :glow (hero, pg-main)' => {
-      post_accepted: !!(hdr_main_bg && hdr_main_bg.dig('backgroundImage', 'url').to_s.start_with?('data:image/svg+xml;base64,')),
+      post_accepted: !!(hdr_main_bg && hdr_main_bg.dig('backgroundImage', 'source', 'url').to_s.start_with?('data:image/svg+xml;base64,')),
       render_hint: 'Read the pg-main render — top band should show a dark-slate->blue diagonal gradient with a soft ' \
                     'radial glow motif (top-right) behind the white title/subtitle text.'
     },
     'gradient_header :rings (pg-actions)' => {
-      post_accepted: !!(hdr_actions_bg && hdr_actions_bg.dig('backgroundImage', 'url').to_s.start_with?('data:image/svg+xml;base64,')),
+      post_accepted: !!(hdr_actions_bg && hdr_actions_bg.dig('backgroundImage', 'source', 'url').to_s.start_with?('data:image/svg+xml;base64,')),
       render_hint: 'Read the pg-actions render — header band should show the purple gradient with concentric-ring ' \
                     '"signal" motif (top-right).'
     },
     'gradient_header bring-your-own (pg-motifs)' => {
-      post_accepted: !!(hdr_byo_bg && hdr_byo_bg.dig('backgroundImage', 'url') == BYO_URI),
+      post_accepted: !!(hdr_byo_bg && hdr_byo_bg.dig('backgroundImage', 'source', 'url') == BYO_URI),
       render_hint: 'Read the pg-motifs render (bottom band) — should show the teal/green diagonal gradient with the ' \
                     'hexagon-tile pattern verbatim (NOT the glow/rings library motifs), proving the bring-your-own ' \
                     'path bypasses SVG compose entirely.'
@@ -544,7 +549,7 @@ begin
                     'agents are enabled on this org) or a "not enabled" placeholder. Report exactly which.'
     },
     'KpiCard + gradient_card + sparkline (Revenue)' => {
-      post_accepted: !!(k_rev_bg && k_rev_bg.dig('backgroundImage', 'url').to_s.start_with?('data:') &&
+      post_accepted: !!(k_rev_bg && k_rev_bg.dig('backgroundImage', 'source', 'url').to_s.start_with?('data:') &&
                          k_rev_kpi && k_rev_kpi['comparisonColumn'] &&
                          k_rev_kpi.dig('value', 'color').to_s.downcase == '#ffffff' &&
                          k_rev_spark && k_rev_spark['kind'] == 'line-chart'),
@@ -553,7 +558,7 @@ begin
                     'validates the Task-3 padding:none fix).'
     },
     'KpiCard + gradient_card + sparkline (Orders)' => {
-      post_accepted: !!(k_ord_bg && k_ord_bg.dig('backgroundImage', 'url').to_s.start_with?('data:') &&
+      post_accepted: !!(k_ord_bg && k_ord_bg.dig('backgroundImage', 'source', 'url').to_s.start_with?('data:') &&
                          k_ord_kpi && k_ord_kpi['comparisonColumn'] &&
                          k_ord_kpi.dig('value', 'color').to_s.downcase == '#ffffff' &&
                          k_ord_spark && k_ord_spark['kind'] == 'line-chart'),

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # test-join-plan-resolution-surfacing.rb — unit test for
-# scripts/lib/join_plan_resolutions.rb (beads-sigma-zjkw, the real M5 gap).
+# scripts/lib/join_plan_resolutions.rb ([bead], the real M5 gap).
 #
 # WHY: probe-join-keys.rb (gate 16) lets an operator resolve a non-unique join
 # by recording {how, reason} on the entry's 'resolution' key in
