@@ -15,25 +15,39 @@ The per-tool data-model converters ship as self-contained JavaScript bundles
 inline the following third-party libraries.
 
 --------------------------------------------------------------------------------
-1. fast-xml-parser (v4.5.6) — MIT License
+1. fast-xml-parser — MIT License
    Copyright (c) 2017 Amit Kumar Gupta
    https://github.com/NaturalIntelligence/fast-xml-parser
    Bundled into:
-     plugins/tableau-to-sigma/skills/tableau-to-sigma/converter/tableau.mjs
-     plugins/cognos-to-sigma/skills/cognos-to-sigma/converter/cli.mjs
+     plugins/tableau-to-sigma/skills/tableau-to-sigma/converter/tableau.mjs  (v4.5.6)
+     plugins/cognos-to-sigma/skills/cognos-to-sigma/converter/cli.mjs        (v5.10.1)
 
-2. strnum (v1.1.2) — MIT License
+2. strnum — MIT License
    Copyright (c) 2021 Natural Intelligence
    https://github.com/NaturalIntelligence/strnum
-   Bundled (transitive dependency of fast-xml-parser) into the same bundles.
+   Bundled (transitive dependency of fast-xml-parser) into:
+     tableau.mjs (v1.1.2)  and  cognos cli.mjs (v2.4.2)
 
-3. js-yaml — MIT License
+3. fast-xml-parser v5 transitive dependencies — MIT License
+   Bundled (via fast-xml-parser 5.10.1) into the cognos converter/cli.mjs ONLY:
+     @nodable/entities        (v3.0.0)  Copyright (c) Amit Gupta / SoloThought
+                                        https://github.com/nodable/val-parsers
+     is-unsafe                (v2.0.0)  Copyright (c) 2026 Natural Intelligence
+                                        https://github.com/NaturalIntelligence/is-unsafe
+     path-expression-matcher  (v1.6.2)  Copyright (c) 2024 Natural Intelligence
+                                        https://github.com/NaturalIntelligence/path-expression-matcher
+     xml-naming               (v0.3.0)  Copyright (c) 2026 Natural Intelligence
+                                        https://github.com/NaturalIntelligence/xml-naming
+     anynum                   (v1.0.1)  Copyright (c) 2026 Natural Intelligence
+                                        https://github.com/NaturalIntelligence/anynum
+
+4. js-yaml — MIT License
    Copyright (C) 2011-2015 by Vitaly Puzrin
    https://github.com/nodeca/js-yaml
    Bundled into:
      plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/converter/thoughtspot.mjs
 
-The MIT License, applicable to components 1–3 above:
+The MIT License, applicable to components 1–4 above:
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
