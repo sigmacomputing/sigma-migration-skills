@@ -11,5 +11,6 @@
     "sigma-ids.ts",
     "workbook-features.ts"
   ],
-  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
+  "note": "cli.mjs is GENERATED from converter/*.ts \u2014 do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb.",
+  "bundle_sha256": "7224f2c95267195ccf6846a02a76c637d169bd9116bf3fab5770827b763f4b9f"
 }
