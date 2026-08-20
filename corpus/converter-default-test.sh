@@ -43,9 +43,9 @@ for spec in "${CASES[@]}"; do
 
   fh=$(mktemp -d)
   # Plant a fake dev checkout in BOTH well-known home locations — must be ignored.
-  mkdir -p "$converter-source/build" "$fh/converter-source/build"
-  echo "x" > "$converter-source/build/$build"
+  mkdir -p "$fh/converter-source/build" "$fh/Desktop/converter-source/build"
   echo "x" > "$fh/converter-source/build/$build"
+  echo "x" > "$fh/Desktop/converter-source/build/$build"
 
   # (a) clean env + planted checkout → MUST resolve to the vendored bundle
   out_default=$(HOME="$fh" env -u "$envvar" "$runner" "$orch" --print-converter 2>/dev/null | head -1)
