@@ -87,8 +87,8 @@ parity-verified (D13 page 2 "Revenue by Segment": Consumer $56,442.54 = Snowflak
 
 ### D9 — Gauge / Funnel / TreeMap
 - QS: 1 sheet, 3 visuals, 3 fields. Sigma: 1 page, 3 elements.
-- **MATCH (approximated)** — gauge→kpi-chart, funnel→bar, treemap→bar (Sigma has no native gauge/
-  funnel/treemap kind; data + values parity ✓). Chart *kind* is the only (c)-tail.
+- **RELEASE MAPPING** — gauge→native `progress`; funnel→bar and treemap→bar remain approximations
+  (data + values parity ✓). Funnel/treemap chart *kind* is the only (c)-tail.
 
 ### D10 — Employees Transforms
 - QS: 1 sheet, 3 visuals, 4 fields. Sigma: 1 page, 3 elements.
@@ -128,8 +128,10 @@ parity-verified (D13 page 2 "Revenue by Segment": Consumer $56,442.54 = Snowflak
 ### D16 — Paginated Ticket Report
 - QS: 1 sheet, 1 Table in a SectionBasedLayout (header/body/footer/page-break).
 - **MATCH (data)** — table exact.
-- **(c)-tail** — Sigma has no paginated/section report construct; sections flatten to a single
-  stacked grid. Page-break/header-footer pagination is not reproducible in a Sigma workbook.
+- **RELEASE MAPPING** — an enabled section break emits native `page-break`; a body
+  `RepeatConfiguration` with one resolvable dimension emits `repeated-container`.
+- **(c)-tail** — QuickSight header/footer section semantics and multi-dimension repeat sections
+  remain explicit gaps; they flatten rather than being guessed.
 
 ### D17 — Workforce Maps
 - QS: 1 sheet, 2 visuals (GeospatialMap points, FilledMap choropleth), 3 fields.
@@ -138,10 +140,11 @@ parity-verified (D13 page 2 "Revenue by Segment": Consumer $56,442.54 = Snowflak
 
 ### D18 — Exotic Chart Gallery
 - QS: 1 sheet, 6 visuals: Waterfall, Sankey, BoxPlot, Histogram, WordCloud, Radar.
-- **MATCH (data-migrated)** — all 6 produce a Sigma element: waterfall+histogram→bar, the rest→
-  grouped tables. Top incident-type count 48 = Snowflake ✓.
-- **(c)-tail** — the chart KINDS (waterfall/sankey/box-plot/histogram-binning/word-cloud/radar) have
-  no Sigma equivalent; the data migrates, the exact visual encoding does not.
+- **MATCH (data-migrated)** — all 6 produce a Sigma element: waterfall is now native,
+  histogram→bar, and the rest→grouped tables. Top incident-type count 48 = Snowflake ✓.
+- **(c)-tail** — sankey/box-plot/histogram-binning/word-cloud/radar remain non-native.
+  `box-chart` is release-gated and must not be emitted until it appears in the published
+  workbook element union.
 
 ### D19 — Secured Conditional Table
 - QS: 1 sheet, 1 Table with gradient ConditionalFormatting + (dataset) RLS/CLS.
@@ -164,7 +167,7 @@ parity-verified (D13 page 2 "Revenue by Segment": Consumer $56,442.54 = Snowflak
 | Bucket | Count | Dashboards |
 |---|---|---|
 | Full match (data + chart) | 11 | D1, D2, D3, D4, D5, D6, D10, D11, D15, D17, D19 |
-| Match w/ approximated chart kind (data exact) | 3 | D9 (gauge/funnel/treemap→kpi/bar), D18 (zoo→bars/tables), D20 (bar/line ok; ML+embed dropped) |
+| Match w/ approximated chart kind (data exact) | 3 | D9 (gauge→progress; funnel/treemap→bar), D18 (waterfall native; remaining zoo→bars/tables), D20 (bar/line ok; ML+embed dropped) |
 | Fixed this pass | 4 | D7 (param), D8 (scatter size data), D12 (window cols), D13+D14 (multi-sheet pages) |
 | Documented Sigma limitation present | — | D7 (control), D8 (bubble-size), D12 (window funcs), D13 (cross-sheet filters), D14 (visual actions), D16 (pagination), D18 (chart kinds), D19 (RLS/CLS), D20 (ML/embed) |
 
@@ -175,9 +178,9 @@ in-place re-migration).
 **What is genuinely NOT parity (the real (c)-tail), stated plainly:**
 - Interactive QuickSight constructs with no Sigma spec equivalent: what-if controls (D7), cross-sheet
   cascading filters (D13), visual actions (D14), ML Insights (D20), CustomContent embeds (D20).
-- Visual encodings Sigma cannot render: scatter bubble-size (D8), waterfall/sankey/box-plot/
-  histogram-binning/word-cloud/radar chart kinds (D18), gauge/funnel/treemap (D9, approximated to
-  kpi/bar), paginated section reports (D16).
+- Visual encodings Sigma cannot render: scatter bubble-size (D8), sankey/box-plot/
+  histogram-binning/word-cloud/radar chart kinds (D18), funnel/treemap (D9, approximated to bar),
+  and paginated header/footer or multi-dimension repeat semantics (D16).
 - Live window/table-calc functions in the data model (D12, D20) — migrated as documented Null columns
   with the source expression preserved for manual re-authoring.
 - Dataset-level RLS/CLS (D19) — not present in the analysis definition, so not migratable from it.

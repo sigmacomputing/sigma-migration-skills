@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Regression test for E1 (gap beads-sigma-ubr5.17): dropdown vs segmented control
+# Regression test for E1 (gap [bead].17): dropdown vs segmented control
 # style. Tableau surfaces a quick-filter/parameter display mode on the zone `mode`
 # attr, which parse-twb-layout emits as `control_display` ('compact' → dropdown,
 # 'type_in' → text, absent → default button/radio). Before this fix the builder

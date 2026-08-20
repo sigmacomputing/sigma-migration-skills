@@ -44,11 +44,18 @@ ok("model: column formula prefix is phys table",
 dm_info = {"dataModelId": "dm-x", "factElementId": "fact-x", "factName": "Commerce"}
 wb, dflags = C.convert_dashboard(
     [d for d in dashboards if d.get("title") == "ECommerce Overview (Live)"], model, dm_info)
-page_els = wb["pages"][1]["elements"]
+doc = C.code_rep.document(wb)
+all_els = C.code_rep.workbook_elements(wb)
+page_by_element = C.code_rep.workbook_page_by_element(wb)
+page_els = [e for e in all_els if (page_by_element.get(e["id"]) or {}).get("id") == "pmain"]
 controls = [e for e in page_els if e["kind"] == "control"]
 viz = [e for e in page_els if e["kind"] != "control"]
 kinds = [e["kind"] for e in viz]
-ok("wb: master data element present", wb["pages"][0]["elements"][0]["id"] == "master")
+master = next(e for e in all_els if e["id"] == "master")
+ok("wb: current document wrapper", "document" in wb and "pages" not in wb and wb["name"])
+ok("wb: metadata-only pages", all("elements" not in p for p in doc["pages"]))
+ok("wb: flat elements", len(doc["elements"]) == len(all_els))
+ok("wb: master data element present", master["id"] == "master")
 ok("wb: 6 viz elements", len(viz) == 6)
 ok("wb: has kpi-chart", "kpi-chart" in kinds)
 ok("wb: has bar-chart", "bar-chart" in kinds)
@@ -58,7 +65,7 @@ ok("wb: dashboard filters -> controls", len(controls) == 2 and all(c["controlTyp
 ok("wb: control bound to master + has default values", controls[0]["filters"][0]["source"]["elementId"]=="master" and controls[0]["values"])
 ok("wb: viz source the master", all(e["source"]["elementId"] == "master" for e in viz))
 ok("wb: master cols are cross-ref or own (no bare warehouse path)",
-   all("formula" in c for c in wb["pages"][0]["elements"][0]["columns"]))
+   all("formula" in c for c in master["columns"]))
 
 # --- layout: Sisense columnar grid -> Sigma grid XML ---
 import re, xml.dom.minidom as _M
@@ -66,19 +73,23 @@ def parse_layout(xml):
     """elementId -> (col_start, col_end, row_start, row_end)."""
     out = {}
     for eid, gc, gr in re.findall(
-            r'<LayoutElement elementId="([^"]+)" gridColumn="([^"]+)" gridRow="([^"]+)"', xml):
+            r'<Element elementId="([^"]+)" gridColumn="([^"]+)" gridRow="([^"]+)"', xml):
         cs, ce = (int(x) for x in gc.split(" / "))
         rs, re_ = (int(x) for x in gr.split(" / "))
         out[eid] = (cs, ce, rs, re_)
     return out
 
-lay = wb["layout"]
+lay = doc["layout"]
 _M.parseString("<r>" + lay.split("?>", 1)[1] + "</r>")        # raises if malformed
 ok("layout: present + well-formed XML", lay.startswith("<?xml") and "pmain" in lay and "pdata" in lay)
+ok("layout: emits canonical Element tags only",
+   "<Element " in lay and "LayoutElement" not in lay and "GridContainer" not in lay)
 P = parse_layout(lay)
 all_ids = {e["id"] for e in viz} | {e["id"] for e in controls} | {"master"}
 ok("layout: every element placed exactly once", all(i in P for i in all_ids))
 ok("layout: no orphan placement refs", all(eid in all_ids for eid in P))
+ok("layout: authoritative one-to-one membership",
+   all(lay.count(f'elementId="{eid}"') == 1 for eid in all_ids))
 ok("layout: grid is 24-col (no element exceeds col 25)", all(ce <= 25 for _, ce, _, _ in P.values()))
 # the Live dashboard's 2 KPIs auto-arrange into one card row, side by side
 kpi_ids = [e["id"] for e in viz if e["kind"] == "kpi-chart"]
@@ -101,8 +112,9 @@ multicol = {"title": "MC", "oid": "mc", "filters": [],
             {"name": "x-axis", "items": [{"jaql": {"dim": "[Commerce.Category ID]", "title": "Cat"}}]},
             {"name": "values", "items": [{"jaql": {"dim": "[Commerce.Revenue]", "agg": "sum", "title": "Rev"}}]}]}}]}
 wb2, _ = C.convert_dashboard([multicol], model, dm_info)
-viz2 = [e for e in wb2["pages"][1]["elements"] if e["kind"] != "control"]
-P2 = parse_layout(wb2["layout"])
+viz2 = [e for e in C.code_rep.workbook_elements(wb2)
+        if e["kind"] not in ("control", "table")]
+P2 = parse_layout(C.code_rep.document(wb2)["layout"])
 a_id, b_id = viz2[0]["id"], viz2[1]["id"]
 ok("faithful: 2 cols -> wider col gets more grid (60/40 split)",
    (P2[a_id][1] - P2[a_id][0]) > (P2[b_id][1] - P2[b_id][0]))

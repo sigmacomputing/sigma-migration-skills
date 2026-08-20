@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for parameter-derived controlId charset
+     sanitization — invented, neutral names; no customer data. Reproduces
+     Tableau's own pipe-delimited multi-value parameter-caption convention
+     ("MultiParam | Category" / "MultiParam | Segment", the auto-name Tableau
+     gives a duplicated parameter) which is not customer-identifying — it is
+     a generic Tableau naming pattern, and is the exact shape the 2026-08-08
+     regression bisect found live. A third parameter ("Multi Param @
+     Category") is added deliberately so that, after '|' and '@' both
+     sanitize to the same separator, its controlId COLLIDES with the first
+     parameter's — proving the existing controlId-dedupe loop still catches a
+     caption collision once the illegal-character bug is fixed. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Parameters' name='Parameters' hasconnection='false'>
+      <column caption='MultiParam | Category' datatype='string' name='[Parameter 1]' param-domain-type='all' role='measure' type='nominal' value='&quot;All&quot;' />
+      <column caption='MultiParam | Segment' datatype='string' name='[Parameter 2]' param-domain-type='all' role='measure' type='nominal' value='&quot;All&quot;' />
+      <column caption='Multi Param @ Category' datatype='string' name='[Parameter 3]' param-domain-type='all' role='measure' type='nominal' value='&quot;All&quot;' />
+    </datasource>
+    <datasource caption='Order Facts' name='federated.orders1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh.example.snowflakecomputing.com' name='snowflake.conn1'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='wh.example.snowflakecomputing.com' warehouse='COMPUTE_WH' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.conn1' name='ORDER_FACTS' table='[SALES].[ORDER_FACTS]' type='table'>
+          <columns>
+            <column name='Region' datatype='string' />
+            <column name='Revenue' datatype='real' />
+          </columns>
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>Region</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Region]</local-name>
+            <parent-name>[ORDER_FACTS]</parent-name>
+            <remote-alias>Region</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='measure'>
+            <remote-name>Revenue</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Revenue]</local-name>
+            <parent-name>[ORDER_FACTS]</parent-name>
+            <remote-alias>Revenue</remote-alias>
+            <local-type>real</local-type>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Revenue' datatype='real' name='[Revenue]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Revenue by Region'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.orders1'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Revenue' datatype='real' name='[Revenue]' role='measure' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.orders1].[none:Region:nk]</rows>
+        <cols>[federated.orders1].[sum:Revenue:qk]</cols>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

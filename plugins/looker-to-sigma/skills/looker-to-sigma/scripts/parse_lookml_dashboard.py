@@ -69,6 +69,35 @@ def norm_color(viz):
     }
 
 
+def norm_legend(viz):
+    """Documented LookML legend controls -> released Sigma legend fields.
+
+    Looker's left/right values are positions. Its ``center`` value is horizontal
+    alignment within the default legend region, which has no equivalent Sigma
+    field, so retain it as an explicit gap signal instead of guessing a position.
+    """
+    hidden = viz.get("hide_legend")
+    if hidden is None and viz.get("show_legend") is not None:
+        hidden = not bool(viz.get("show_legend"))
+    position = viz.get("legend_position")
+    out = {}
+    if hidden is True:
+        out["visibility"] = "hidden"
+    elif hidden is False:
+        out["visibility"] = "shown"
+    if position in ("left", "right"):
+        out["position"] = position
+    if position and position not in ("left", "right"):
+        out["_unmappedPosition"] = position
+    return out or None
+
+
+def norm_style(viz):
+    """Literal tile styling exposed by LookML dashboard parameters."""
+    color = viz.get("background_color")
+    return {"backgroundColor": color} if isinstance(color, str) and color.strip() else None
+
+
 def norm_cell_viz(el):
     """series_cell_visualizations (LookML grid data bars) -> {field: {scheme:[hex]|None}}.
     Mirrors fetch_looker_dashboard._cell_viz; see it for the Looker shape + caveats."""
@@ -135,6 +164,12 @@ def norm_element(el):
         # single_value comparison (Sigma KPI spec has no comparison slot → warn)
         "showComparison": bool(el.get("show_comparison")),
         "comparisonType": el.get("comparison_type"),
+        # Released chart display/styling fields. Unknown legend alignment remains
+        # an explicit signal so the builder can warn rather than invent a value.
+        "legend": norm_legend(el),
+        "style": norm_style(el),
+        # Looker 26.4+ dashboard tabs assign every element by tab_name.
+        "tabName": el.get("tab_name"),
         # chart reference lines (vis config) → Sigma refMarks
         "referenceLines": norm_reflines(el),
         # color encoding (series_colors / colors / color_application) → Sigma color channel
@@ -184,6 +219,13 @@ def parse(path):
             "layoutMode": d.get("layout", "newspaper"),
             "source": "lookml",
             "lookmlLinkId": None,
+            "tabs": [{"name": t.get("name"), "label": t.get("label") or t.get("name")}
+                     for t in (d.get("tabs") or []) if isinstance(t, dict) and t.get("name")],
+            "style": norm_style(d),
+            "filterPanel": {
+                "location": "top" if d.get("filters_location_top", True) else "sidebar",
+                "collapsed": bool(d.get("filters_bar_collapsed")),
+            },
             "filters": [norm_filter(f) for f in (d.get("filters") or [])],
             "elements": [norm_element(e) for e in (d.get("elements") or [])],
         })

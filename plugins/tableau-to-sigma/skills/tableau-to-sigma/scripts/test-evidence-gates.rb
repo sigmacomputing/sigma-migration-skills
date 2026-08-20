@@ -67,6 +67,21 @@ def ledger(dir)
   File.exist?(p) ? File.readlines(p).map { |l| JSON.parse(l) rescue nil }.compact : []
 end
 
+def workbook_response(workbook_id:, version:, elements:)
+  layout = "<Page id=\"pg1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  {
+    'workbookId' => workbook_id,
+    'latestDocumentVersion' => version,
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],
+      'elements' => elements,
+      'layout' => layout
+    }
+  }
+end
+
 # ---- A. offline: terminal summary + waive + fail entries ---------------------
 puts '-- ledger: success summary / waived gate / failing gate --'
 Dir.mktmpdir do |dir|
@@ -76,7 +91,10 @@ Dir.mktmpdir do |dir|
   entries = ledger(dir)
   summary = entries.find { |e| e['gate'] == 'phase6-gates' }
   check(!summary.nil?, 'terminal run-summary entry appended')
-  check(summary && summary['verdict'] == 'GREEN' && summary['evidence_kind'] == 'gate-summary',
+  # ruzs: this offline harness resolves no workbook id, so gate 3/7's live
+  # column audit auto-skips and is RECORDED — an unaudited run is YELLOW, not
+  # GREEN. The summary MECHANISM (entry shape, keying) is what this pins.
+  check(summary && summary['verdict'] == 'YELLOW' && summary['evidence_kind'] == 'gate-summary',
         "summary carries the PR-14 verdict (got #{summary && summary['verdict']})")
   check(summary && summary['evidence_key'] =~ /\Awb:.*@v/ && summary['at'] =~ /Z\z/,
         'summary is version-keyed and timestamped')
@@ -107,10 +125,11 @@ end
 
 # ---- B. gate 21: divergence → ledger + kind_parity census stamp --------------
 puts '-- gate 21: kind-parity divergences land in ledger + census --'
-KP_READBACK_BAR = { 'workbookId' => 'wb-kp', 'latestDocumentVersion' => '3',
-                    'pages' => [{ 'id' => 'pg1', 'elements' => [
-                      { 'id' => 'el-1', 'name' => 'Trend', 'kind' => 'bar-chart' }
-                    ] }] }.freeze
+KP_READBACK_BAR = workbook_response(
+  workbook_id: 'wb-kp',
+  version: '3',
+  elements: [{ 'id' => 'el-1', 'name' => 'Trend', 'kind' => 'bar-chart' }]
+).freeze
 Dir.mktmpdir do |dir|
   base_workdir(dir, per_tile: [{ 'position' => 'r1c1', 'source_family' => 'line', 'target_family' => 'bar' }])
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(KP_READBACK_BAR))
@@ -134,7 +153,7 @@ end
 Dir.mktmpdir do |dir|
   base_workdir(dir, per_tile: [{ 'position' => 'r1c1', 'source_family' => 'line', 'target_family' => 'line' }])
   rb = JSON.parse(JSON.generate(KP_READBACK_BAR))
-  rb['pages'][0]['elements'][0]['kind'] = 'line-chart'
+  rb['document']['elements'][0]['kind'] = 'line-chart'
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(rb))
   File.write(File.join(dir, 'png-read.json'), JSON.pretty_generate(
                'verified' => true, 'tiles' => [{ 'title' => 'Trend', 'kind' => 'line-chart' }]))
@@ -149,18 +168,17 @@ Dir.mktmpdir do |dir|
 end
 
 # ---- C. live: one spec GET + gate 7b recorded-RAW acceptance ----------------
-LIVE_SPEC = {
-  'workbookId' => 'wb-7b', 'latestDocumentVersion' => '7',
-  'layout' => '<Layout><Page id="pg1"><LayoutElement elementId="el-chart" gridColumn="1 / 13"/>' \
-              '<LayoutElement elementId="el-ctl" gridColumn="13 / 25"/></Page></Layout>',
-  'pages' => [{ 'id' => 'pg1', 'name' => 'Overview', 'elements' => [
+LIVE_SPEC = workbook_response(
+  workbook_id: 'wb-7b',
+  version: '7',
+  elements: [
     { 'id' => 'el-chart', 'kind' => 'bar-chart', 'name' => 'Region Chart',
       'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
     { 'id' => 'el-ctl', 'kind' => 'control', 'controlId' => 'ctl-1', 'name' => 'Region Filter',
       'controlType' => 'list-values',
       'filters' => [{ 'source' => { 'elementId' => 'el-chart' }, 'columnId' => 'c-r' }] }
-  ] }]
-}.freeze
+  ]
+).freeze
 
 def start_stub(counters)
   server = TCPServer.new('127.0.0.1', 0)

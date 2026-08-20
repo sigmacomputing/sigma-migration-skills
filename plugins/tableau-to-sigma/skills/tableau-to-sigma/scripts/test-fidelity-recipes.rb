@@ -27,7 +27,7 @@ end
 # A representative live workbook spec: two elements + a real layout string.
 def base_spec
   {
-    'themeName' => 'Light',
+    'settings' => { 'theme' => { 'name' => 'Light' } },
     'pages' => [{
       'id' => 'p1',
       'elements' => [
@@ -35,15 +35,15 @@ def base_spec
         { 'elementId' => 'b1', 'kind' => 'bar-chart', 'name' => 'By Region' }
       ]
     }],
-    'layout' => '<Page id="p1"><GridContainer><LayoutElement elementId="k1"/><LayoutElement elementId="b1"/></GridContainer></Page>'
+    'layout' => '<Page id="p1"><Container><Element elementId="k1"/><Element elementId="b1"/></Container></Page>'
   }
 end
 
 # Canonical recipe spec-shapes — the exact patch an agent authors per catalog row.
 RECIPE_PATCHES = {
-  'canvas background'      => { 'themeOverrides' => { 'colorOverrides' => { 'backgroundCanvas' => '#0F172A' } } },
-  'workbook palette'       => { 'themeOverrides' => { 'categoricalScheme' => %w[#0e7c7b #14b8a6 #f2a900] } },
-  'fonts'                  => { 'themeOverrides' => { 'fonts' => { 'textFont' => 'Inter', 'dataFont' => 'Inter' } } },
+  'canvas background'      => { 'settings' => { 'theme' => { 'overrides' => { 'colorOverrides' => { 'backgroundCanvas' => '#0F172A' } } } } },
+  'workbook palette'       => { 'settings' => { 'theme' => { 'overrides' => { 'categoricalScheme' => %w[#0e7c7b #14b8a6 #f2a900] } } } },
+  'fonts'                  => { 'settings' => { 'theme' => { 'overrides' => { 'fonts' => { 'textFont' => 'Inter', 'dataFont' => 'Inter' } } } } },
   'chart-over-tint'        => { 'pages' => [{ 'id' => 'p1', 'elements' => [{ 'elementId' => 'b1', 'style' => { 'backgroundColor' => '#00000000' } }] }] },
   'kpi hide title'         => { 'pages' => [{ 'id' => 'p1', 'elements' => [{ 'elementId' => 'k1', 'value' => { 'name' => ' ' } }] }] },
   'status chips'           => { 'pages' => [{ 'id' => 'p1', 'elements' => [{ 'elementId' => 'b1', 'conditionalFormats' => [{ 'type' => 'single', 'condition' => 'greaterThan', 'value' => 0 }] }] }] },
@@ -68,7 +68,7 @@ end
 puts 'catalog covers every recipe surface named in the calibration ledgers:'
 catalog = File.read(RECIPES)
 # The spec paths / idioms the calibration fixes reference must appear in the catalog.
-%w[categoricalScheme backgroundCanvas holeValue themeOverrides.fonts
+%w[categoricalScheme backgroundCanvas holeValue settings.theme.overrides.fonts
    tableStyle style.backgroundColor #00000000 conditionalFormats
    text-formula list\ control presentation].each do |surface|
   needle = surface.gsub('\\ ', ' ')

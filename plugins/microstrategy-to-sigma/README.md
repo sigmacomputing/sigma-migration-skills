@@ -3,7 +3,9 @@
 Claude Code plugin for migrating **MicroStrategy (Strategy One)** to
 **Sigma**, in the same format and phase structure as the
 [sigma-migration-skills](https://github.com/sigmacomputing/sigma-migration-skills)
-converters (Tableau, Power BI, Qlik, ThoughtSpot, QuickSight, Cognos).
+converters (Tableau, Power BI, Qlik, ThoughtSpot, QuickSight, Cognos,
+Metabase). Built standalone so it can graduate into that marketplace's
+`plugins/`.
 
 ## Status: live-validated (classic-schema grid path)
 

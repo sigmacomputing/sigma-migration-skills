@@ -1,0 +1,154 @@
+{
+  "Name": "QuickSight Workbook Code Release",
+  "Definition": {
+    "CalculatedFields": [],
+    "ParameterDeclarations": [],
+    "Sheets": [
+      {
+        "SheetId": "overview",
+        "Name": "Overview",
+        "Visuals": [
+          {
+            "WaterfallVisual": {
+              "VisualId": "waterfall",
+              "Title": {"FormatText": {"PlainText": "Amount Change"}},
+              "ColumnHierarchies": [
+                {
+                  "ExplicitHierarchy": {
+                    "HierarchyId": "geo",
+                    "Columns": [
+                      {"DataSetIdentifier": "orders", "ColumnName": "REGION"},
+                      {"DataSetIdentifier": "orders", "ColumnName": "STATE"}
+                    ]
+                  }
+                }
+              ],
+              "ChartConfiguration": {
+                "FieldWells": {
+                  "WaterfallChartAggregatedFieldWells": {
+                    "Categories": [
+                      {"CategoricalDimensionField": {"FieldId": "state", "Column": {"DataSetIdentifier": "orders", "ColumnName": "STATE"}}}
+                    ],
+                    "Values": [
+                      {"NumericalMeasureField": {"FieldId": "amount", "Column": {"DataSetIdentifier": "orders", "ColumnName": "AMOUNT"}, "AggregationFunction": {"SimpleNumericalAggregation": "SUM"}}}
+                    ],
+                    "Breakdowns": [
+                      {"CategoricalDimensionField": {"FieldId": "region", "Column": {"DataSetIdentifier": "orders", "ColumnName": "REGION"}}}
+                    ]
+                  }
+                },
+                "Legend": {"Visibility": "HIDDEN", "Position": "RIGHT"}
+              }
+            }
+          },
+          {
+            "GaugeChartVisual": {
+              "VisualId": "gauge",
+              "Title": {"FormatText": {"PlainText": "Goal"}},
+              "ChartConfiguration": {
+                "FieldWells": {
+                  "GaugeChartAggregatedFieldWells": {
+                    "Values": [
+                      {"NumericalMeasureField": {"FieldId": "goal", "Column": {"DataSetIdentifier": "orders", "ColumnName": "AMOUNT"}, "AggregationFunction": {"SimpleNumericalAggregation": "SUM"}}}
+                    ]
+                  }
+                },
+                "GaugeChartOptions": {"ArcAxis": {"Range": {"Min": 10, "Max": 500}}}
+              }
+            }
+          },
+          {
+            "BoxPlotVisual": {
+              "VisualId": "box",
+              "Title": {"FormatText": {"PlainText": "Distribution"}},
+              "ChartConfiguration": {
+                "FieldWells": {
+                  "BoxPlotAggregatedFieldWells": {
+                    "GroupBy": [
+                      {"CategoricalDimensionField": {"FieldId": "box-region", "Column": {"DataSetIdentifier": "orders", "ColumnName": "REGION"}}}
+                    ],
+                    "Values": [
+                      {"NumericalMeasureField": {"FieldId": "box-amount", "Column": {"DataSetIdentifier": "orders", "ColumnName": "AMOUNT"}, "AggregationFunction": {"SimpleNumericalAggregation": "SUM"}}}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "Layouts": [
+          {
+            "Configuration": {
+              "GridLayout": {
+                "Elements": [
+                  {"ElementId": "waterfall", "ColumnIndex": 0, "ColumnSpan": 12, "RowIndex": 0, "RowSpan": 8},
+                  {"ElementId": "gauge", "ColumnIndex": 12, "ColumnSpan": 6, "RowIndex": 0, "RowSpan": 8},
+                  {"ElementId": "box", "ColumnIndex": 18, "ColumnSpan": 6, "RowIndex": 0, "RowSpan": 8}
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "SheetId": "detail-sheet",
+        "Name": "Detail",
+        "ContentType": "PAGINATED",
+        "Visuals": [
+          {
+            "TableVisual": {
+              "VisualId": "detail",
+              "Title": {"FormatText": {"PlainText": "Regional Detail"}},
+              "ChartConfiguration": {
+                "FieldWells": {
+                  "TableAggregatedFieldWells": {
+                    "GroupBy": [
+                      {"CategoricalDimensionField": {"FieldId": "detail-region", "Column": {"DataSetIdentifier": "orders", "ColumnName": "REGION"}}}
+                    ],
+                    "Values": [
+                      {"NumericalMeasureField": {"FieldId": "detail-amount", "Column": {"DataSetIdentifier": "orders", "ColumnName": "AMOUNT"}, "AggregationFunction": {"SimpleNumericalAggregation": "SUM"}}}
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "Layouts": [
+          {
+            "Configuration": {
+              "SectionBasedLayout": {
+                "BodySections": [
+                  {
+                    "SectionId": "regional-cards",
+                    "Content": {
+                      "Layout": {
+                        "FreeFormLayout": {
+                          "Elements": [
+                            {"ElementId": "detail", "XAxisLocation": "0px", "YAxisLocation": "0px", "Width": "800px", "Height": "300px"}
+                          ]
+                        }
+                      }
+                    },
+                    "RepeatConfiguration": {
+                      "DimensionConfigurations": [
+                        {
+                          "DynamicCategoryDimensionConfiguration": {
+                            "Column": {"DataSetIdentifier": "orders", "ColumnName": "REGION"},
+                            "Limit": 20
+                          }
+                        }
+                      ],
+                      "PageBreakConfiguration": {"After": {"Status": "ENABLED"}}
+                    },
+                    "PageBreakConfiguration": {"After": {"Status": "ENABLED"}}
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

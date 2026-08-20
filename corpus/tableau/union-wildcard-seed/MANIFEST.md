@@ -23,7 +23,8 @@ Emission shape per `plugins/sigma-authoring/skills/sigma-data-models/reference/s
 - members are pushed **first** and the union element **last** (last-writer-wins
   display-name resolution), while `factEl` selection prefers a union source —
   so translated calcs and auto-metrics attach to the stacked rows, not one
-  member (pinned here: the `Net Revenue` metric lands on the union element).
+  member (pinned here: the collision-safe `Total Net Revenue` metric lands on
+  the union element).
 
 Underivable shapes are **refused loudly**: named ⚠ warning, NO elements
 emitted, and `scan-workbook-gaps.rb` reports the ❌-unhandled
@@ -82,7 +83,7 @@ normalized via `corpus/lib/corpus_check.py normalize`.
       "metrics": 1,
       "relationships": 0,
       "warnings": 2,
-      "metric_names": ["Net Revenue"]
+      "metric_names": ["Total Net Revenue"]
     }
   }
 }

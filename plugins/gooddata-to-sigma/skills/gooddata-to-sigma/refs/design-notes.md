@@ -90,8 +90,10 @@ Original findings (for reference):
 
 ## Dashboard layout (implemented)
 
-`build_workbook` emits one Sigma page per GoodData dashboard and a top-level
-`layout` XML built from the dashboard's own grid: each `layout.sections[]` → a row
+`build_workbook` emits one Sigma page per GoodData dashboard and a `document.layout`
+XML (the workbook body is `document`-wrapped as of 2026-08-03 — `schemaVersion`/
+`pages`/`kind`/`layout` all nest there; the DM spec above is unaffected and stays
+flat) built from the dashboard's own grid: each `layout.sections[]` → a row
 band, each widget's `size.xl.gridWidth` (GoodData 12-col) → a Sigma 24-col span
 (×2), KPIs short / charts+tables taller. Applied as the LAST write (a bare spec
 stacks every element full-width). Non-dashboard auto-elements (e.g. the FOR

@@ -1,0 +1,9 @@
+{
+  "document": {
+    "pages": [{ "id": "p1", "name": "Probe" }],
+    "elements": [
+      { "id": "e1", "kind": "text", "pageId": "p1", "body": "layout contract probe" }
+    ],
+    "layout": "<Page id=\"p1\"><LayoutElement id=\"e1\"/></Page>"
+  }
+}

@@ -1,6 +1,6 @@
 # Sources (non-warehouse)
 
-Recipe book for source kinds other than `warehouse-table`. For the canonical schema of any source kind, pull it by its `kind` value (`warehouse-table`, `sql`, `table`, `data-model`, `join`, `union`, `transpose`):
+Recipe book for source kinds other than `warehouse-table`. For the canonical schema of any source kind, pull it by its `kind` value (`warehouse-table`, `sql`, `table`, `data-model`, `join`, `union`, `transpose`, `csv-table`, `metric-view`, `semantic-view`):
 
 ```bash
 jq --arg k join 'first(.. | objects | select((.allOf? and any(.allOf[]?; .properties?.kind?.enum==[$k])) or .properties?.kind?.enum==[$k]))' /tmp/sigma-api.json
@@ -38,6 +38,15 @@ elementId: <element-uuid within that model>
 
 Optionally add `groupingId` to apply one of the model element's groupings.
 
+Columns exposed by the data-model element use the element's name as their
+formula prefix, for example `[Order Fact/Revenue]`. Governed metrics are
+different: reference them through the reserved namespace
+`[Metrics/<metric name>]`, for example `[Metrics/Total Revenue]`. Do not use
+the data-model element name or metric ID as the prefix. Confirm the metric is
+present in the data-model GET readback before binding a workbook formula; a
+successful model write alone does not prove that the metric survived
+normalization.
+
 ## join
 
 Joins multiple sources into one logical source via an array of `joins`. Each leg (`primarySource`, `left`, `right`) can be any source kind, so warehouse tables, other elements, and data-model elements can be joined interchangeably.
@@ -69,6 +78,24 @@ joins:
 
 Each entry in a join's top-level `columns[]` is a join-key pair (`left`/`right`, with an optional `op` for non-equi joins) — a different shape from an element's `columns[]` (see below). Pull `joinType` values and the column-pair shape from the spec via the recipe at the top.
 
+### Join groupings
+
+A join leg that references another workbook table can pin one of that table's
+groupings with `groupingId`:
+
+```yaml
+left:
+  kind: table
+  elementId: orders-summary
+  groupingId: by-customer
+```
+
+The grouping changes the rows/columns exposed by that leg, so join keys and
+downstream formulas must resolve against the grouped output, not the table's
+ungrouped base columns. Preserve `groupingId` on readback and verify the
+compiled join SQL; a structurally valid grouping does not prove the join
+cardinality is correct.
+
 **Column formula prefixes with joins** — see `formulas.md` for the full rules:
 - Primary-source columns use the **join's top-level `name`**: `[Sales Star/Order Number]`
 - Joined-table columns use the **join leg's `name`**: `[Sales/Cust Key]`
@@ -77,6 +104,51 @@ Each entry in a join's top-level `columns[]` is a join-key pair (`left`/`right`,
 ## sql
 
 A custom SQL query against a connection — `kind: sql` with `connectionId` + `statement`. Pull the shape from the spec via the recipe.
+
+Column formulas use the literal prefix `Custom SQL` and the query's exact
+output alias: `[Custom SQL/order_month]`. Do not apply warehouse friendly-name
+canonicalization to SQL aliases.
+
+Custom SQL statements can bind workbook controls with
+`{{<controlId>}}`. `controlId` is the control's formula handle, not its element
+`id`. Read back and query the element after POST: template text can survive
+serialization even when the runtime binding or SQL type is wrong.
+
+## csv-table
+
+References a CSV file uploaded directly into Sigma, not a table synced from a connection.
+
+```yaml
+kind: csv-table
+connectionId: <conn-uuid>
+inodeId: <csv-file-inode-uuid>
+```
+
+The `inodeId` is scoped to the workbook it was uploaded into — it doesn't resolve against another workbook's copy of the same file (live-verified: reusing one elsewhere fails with `CSV table does not belong to this workbook`). No REST endpoint uploads a CSV, and `GET /v2/files` doesn't list these inodes; find one by reading an existing workbook's spec, or upload via the UI. Column formula prefix is the CSV filename, e.g. `[sigma_demo_users.csv/user_id]`.
+
+## metric-view
+
+References a Databricks metric view — a governed dimensions+measures object native to Databricks, not something authored through Sigma's data-model `metrics` block. Same `path`-array shape as `warehouse-table`; Sigma resolves it through a connection's object hierarchy the same way it resolves a table.
+
+```yaml
+kind: metric-view
+connectionId: <conn-uuid>
+path: [CATALOG, SCHEMA, METRIC_VIEW_NAME]
+```
+
+Live-verified: a real metric view builds and reads back; a bogus path is rejected server-side (`metric-view not found: ...`). This org had no REST-exposed way to introspect the view's own dimension/measure names, so populate `columns[]` from names you already know.
+
+## semantic-view
+
+References a Snowflake semantic view — same governed, platform-native pattern as `metric-view`. Per spec, the final `path` segment names the view's **base logical table**, distinct from the view itself.
+
+```yaml
+kind: semantic-view
+connectionId: <conn-uuid>
+path: [DATABASE, SCHEMA, SEMANTIC_VIEW_NAME]  # final segment = base logical table, per spec
+```
+
+A real semantic view exists and resolves in this org, but creating a workbook element against it returned `` `semantic-view` sources are not enabled for this workspace `` — a workspace-level feature flag, independent of the object being real. Unverified end-to-end here; shape above is spec evidence plus that live lookup, not a full create+readback.
 
 ## transpose
 

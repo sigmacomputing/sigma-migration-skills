@@ -2,65 +2,99 @@
 
 A Sigma workbook can carry a **spec-authorable AI agent** that end users chat with
 inside the workbook. It is easy to miss: it is **not a page element** — it's a
-**workbook-top-level `agents:[]` array**, a sibling of `pages`/`layout`/`themeName`.
-An element-kind scan of `pages[].elements[]` alone will never find it and can wrongly
-conclude "not authorable." The agent is *surfaced* on a page via a small `chat`
-element that just references the agent's id.
+**`document.agents[]` array**, a sibling of `pages` / `layout` / `settings`.
+The agent is surfaced by a flat `document.elements[]` `chat` entry that
+references the agent id; layout places that chat on a page or panel.
 
-> **Not in the compiled/public OpenAPI as of this writing.** Unlike most of this
-> skill's surface, `agents[]` / `dataSources` / `tools` / the `chat` element kind
-> do not appear in the compiled Fern OpenAPI asset this skill points to (see
-> `SKILL.md`'s *Sources of truth*) — this shape was recovered by live POST +
-> GET-readback + render probing on a test org, not read off a schema. Treat field
-> names as verified-by-example, not exhaustive; if you need a field not listed
-> here, confirm it against a live workbook readback before relying on it.
+> **Now fully in the public OpenAPI** (confirmed 2026-08-05 against the canonical
+> asset — see `SKILL.md` → *Fetching the compiled asset*). `document.agents[]`,
+> `dataSources`, `greeting`, all four `tools[]` kinds, and the `chat` element kind
+> are schema-documented. An earlier revision of this file said they were absent and
+> recovered only by live probing; that was true of the **stale** Fern docs asset,
+> not of the current spec. Read the schema, and use a live readback as the tiebreaker.
 
 ## Shape
 
+Note the `document` wrapper — `agents` is a sibling of `pages` / `layout` /
+`settings`, **inside** `document` (see `schema.md`):
+
 ```yaml
 name: My Workbook
-schemaVersion: 1
 folderId: <folderId>
-agents:
-  - id: ag-analyst
-    name: Analyst
-    instructions: >-
-      You are an analyst for this dataset. Answer questions about revenue,
-      orders, and trends over time. Be concise and quantitative; cite the
-      numbers you used.
-    dataSources:
-      - kind: table
-        elementId: src          # an element id already in this workbook's pages
-pages:
-  - id: pg
-    name: Overview
-    elements:
-      - id: src
-        kind: table
-        # ...
-      - id: chat
-        kind: chat
-        agentId: ag-analyst     # the AGENT's `id` above, not an element id
+document:
+  schemaVersion: 1
+  kind: workbook
+  agents:
+    - id: ag-analyst
+      name: Analyst
+      instructions: >-
+        You are an analyst for this dataset. Answer questions about revenue,
+        orders, and trends over time. Be concise and quantitative; cite the
+        numbers you used.
+      dataSources:
+        - kind: table
+          elementId: src
+  elements:
+    - id: src
+      kind: table
+      # ...
+    - id: chat
+      kind: chat
+      agentId: ag-analyst
+  pages:
+    - id: pg
+      name: Overview
+  layout: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="pg">
+      <Element elementId="src" gridColumn="1 / 17" gridRow="1 / 20"/>
+      <Element elementId="chat" gridColumn="17 / 25" gridRow="1 / 20"/>
+    </Page>
 ```
 
 | Field (agent entry) | Required | Notes |
 |---|---|---|
 | `id` | yes | The agent's handle — referenced by `chat.agentId`, not an element id. |
-| `name` | yes | Display name shown in the chat UI. |
-| `instructions` | yes | System-prompt-style guidance: role, scope, tone. |
-| `dataSources` | yes | Array of `{ kind: table, elementId: <id> }` — one entry per element (table/pivot/etc.) the agent may query. Maps 1:1 to the elements it can see; it cannot see elements not listed here. |
-| `tools` | — | **Omit entirely for a read-only analyst** (see below). Present only on a write/action agent. |
+| `name` | — | Optional display name shown in the chat UI. |
+| `instructions` | yes | System-prompt-style guidance: role, scope, tone. The key must be present, but an empty string is accepted. |
+| `dataSources` | — | Optional array of `{ kind: table, elementId: <id> }` entries. When present, it lists the elements the agent may query. |
+| `tools` | — | **Omit entirely for a read-only analyst** (see below). Present only on a write/action agent. Four `kind`s — see *Tool kinds* below. |
+| `description` | — | Free-text description of the agent. |
+| `greeting` | — | The chat's opening message. **An object, not a string** — see below. Omit for Sigma's default greeting. |
+
+### `greeting` — the chat's first message
+
+`greeting` is a **two-variant object**. Passing a bare string is a 400
+(`document.agents[0].greeting: Invalid value: string`):
+
+```yaml
+greeting:                        # fixed text
+  mode: static
+  message: Hi! Ask me anything about this quarter's pipeline.
+```
+
+```yaml
+greeting:                        # the agent writes its own opener at open time
+  mode: generated
+  prompt: Greet the user and summarize the biggest change in the data.
+```
+
+Both `message` and `prompt` support `{{formula}}` references. **Live-verified
+2026-08-05:** both variants pass `/verify` and round-trip; the `static` message
+was additionally confirmed *rendering* in the chat element on a PNG export of the
+created workbook.
 
 The `chat` page element is minimal: `{ id, kind: "chat", agentId }` — no other
 fields observed. Lay it out like any other element (`gridColumn`/`gridRow` via
-`<LayoutElement>`), typically in a sidebar rail next to the dashboard body.
+`<Element>`), typically in a sidebar rail next to the dashboard body.
 
 ## Read-only analyst vs. write/action agent
 
 **Read-only analyst — the common case.** The agent entry **omits the `tools` key
 entirely** — not `tools: []`. An empty-but-present `tools` array is a different
 (untested) shape; the verified read-only shape is the key's total absence. It can
-only read the elements named in `dataSources` and answer questions about them.
+only read the elements named in `dataSources` and answer questions about them;
+omitting `dataSources` leaves it with no workbook elements to query.
 
 **Write/action agent — adds `tools`.** Each tool gives the agent an action it can
 invoke (function-calling style), described to the agent via `name`/`description`
@@ -91,15 +125,84 @@ agents:
                 inputName: note         # the agent supplies this at call time
 ```
 
-`value: { type: "agent-input", inputName }` is the tool-call analog of the
+`values: { <column-id>: { type: "agent-input", inputName } }` is the tool-call analog of the
 `type: "control"` / `type: "constant"` value shapes an `insert-rows` effect takes
 from a button (see `reference/workflows/actions.md`) — instead of pulling from a
 control's current value or a hard-coded constant, the value comes from an argument
 the agent fills in when it decides to call the tool, keyed by `inputName`.
 
-> **Scope note:** the write/action agent shape above documents the *pattern*
-> from the design spec's live probe — it is not independently exercised end-to-end
-> in this pass (no automated test drives an agent into actually invoking a tool).
+### `requiresApproval` — gate a tool behind a confirmation
+
+An `action` tool also accepts `requiresApproval: true`, which makes the agent ask
+the user before executing. **Round-trips verified 2026-08-05.** Set it on anything
+that writes: an agent that can silently `delete-rows` is a support ticket.
+
+```yaml
+tools:
+  - toolId: log-note
+    kind: action
+    name: Log a review note
+    description: Records a review note.
+    requiresApproval: true
+    steps: [ ... ]
+```
+
+## Tool kinds
+
+`tools[]` has **four** `kind`s, not just `action`:
+
+| `kind` | Fields | Status |
+|---|---|---|
+| `action` | `toolId`, `name`, `description`, `steps`, `requiresApproval?` | **Live-verified** (create + readback) |
+| `mcp-connector` | `toolId`, `name`, `connectorId` | Shape accepted; needs a real connector — see below |
+| `warehouse-agent` | `toolId`, `connectionId`, `path` (live readback; `description` optional) | Shape parses; `/verify` resolves the path against the host and can return `invocable inodes are not supported by this host` when the host lacks the registered agent. |
+| `search-service` | `toolId`, `connectionId`, `path` (live-example shape; `description` optional) | Requires a registered search service; verify with a real path before shipping. |
+
+`mcp-connector` lets a workbook agent call an external MCP tool by `connectorId`.
+A syntactically valid but fake `connectorId` is rejected with `invocable inodes are
+not supported by this host: '<id>'` — i.e. the **shape parses** and the id is
+resolved against real org inodes, so this needs an actual registered connector to
+verify end to end. `warehouse-agent` and `search-service` both take a
+`connectionId` + `path` pair (a warehouse-side agent/service), same as a
+warehouse-table path. The compiled OpenAPI currently under-describes these live
+fields, so use a live readback or `/verify` result as the tiebreaker rather than
+omitting them.
+
+For action-agent steps, `/verify` accepts `agent-input` values for
+`set-control-value` and both `page` and `control` `clear-control` scopes. The
+button-specific guidance in `reference/workflows/actions.md` is narrower because
+only page-scoped `clear-control` has been proven to fire from a button; acceptance
+of an agent step does not prove that an action will execute successfully at run
+time.
+
+### `steps[]` — `effect` or `sequence`
+
+An `action` tool's `steps[]` accepts two kinds. `{ kind: effect, ... }` inlines any
+of the effect shapes from `reference/workflows/actions.md` (plus an optional `name`
+for display). The other is a **reference** to a saved workbook action sequence:
+
+```yaml
+steps:
+  - kind: sequence
+    sequenceId: <existing action sequence id>
+    name: Run the reset sequence      # optional display name
+```
+
+> **You cannot define a sequence from spec — only reference one.** There is **no**
+> top-level `sequences` array in the workbook spec (confirmed against the compiled
+> OpenAPI: top-level keys are `name`, `folderId`, `schemaVersion`, `kind`, `pages`,
+> `layout`, `settings`, `agents`; `name`/`folderId`/`description` sit outside `document`). A
+> `sequenceId` that isn't already in the workbook is rejected at verify time:
+> `agents[0].tools[0].steps[0].sequenceId: references unknown action sequence
+> 'seq-1'`. So `kind: sequence` is only usable against a sequence created in the
+> UI — for spec-authored workbooks, inline the effects with `kind: effect` instead.
+> (This refines the blanket "action sequences are unsupported" claim: they are not
+> *authorable*, but they are *referenceable*.)
+
+> **Scope note:** the write/action agent shape and the listed effect-step shapes
+> have been accepted by neutral `/verify` probes, including action tools targeting
+> `inputMode: view` tables. This is not end-to-end execution: no automated test
+> drives an agent into actually invoking a tool or proves a warehouse mutation.
 > `Richness.agent`'s `tools:` parameter passes an already-shaped array through
 > **verbatim** (never reshapes it) for exactly this reason: confirm any non-trivial
 > tool/step shape against a live POST + readback before shipping it, same discipline
@@ -136,11 +239,11 @@ gated feature look implemented.
 
 ## Cross-links
 
-- `shared/lib/richness.rb` / `richness.py` — `Richness.agent(id:, name:,
-  instructions:, data_source_ids:, tools: [])` builds the `agents[]` entry
-  (`data_source_ids` maps to `dataSources`; empty `tools:` is omitted from the
-  emitted Hash, matching the read-only shape above). `Richness.chat(id:,
-  agent_id:)` builds the page element. Both are gated behind
+- `scripts/lib/richness.rb` — `Richness.agent(id:, instructions:, name: nil,
+  data_source_ids: [], tools: [], description: nil, greeting: nil)` builds the
+  `agents[]` entry (`data_source_ids` maps to `dataSources`; empty `tools:` is
+  omitted from the emitted Hash, matching the read-only shape above).
+  `Richness.chat(id:, agent_id:)` builds the page element. Both are gated behind
   `Richness::SURFACES[:agent]`; a NO-GO flip returns `{opt_in: true, id:}` rather
   than emitting an unverified shape.
 - `reference/workflows/actions.md` — the `insert-rows`/`clear-control`/

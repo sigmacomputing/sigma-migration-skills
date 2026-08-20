@@ -54,6 +54,7 @@ require 'shellwords'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sigma_rest'
 require 'export_pool'
+require 'code_rep'
 require_relative 'register-plugin'
 
 RUN_TAG        = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
@@ -314,7 +315,8 @@ def reference_schema_version
     wid = w['workbookId'] || w['id']
     next unless wid
     spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
-    return spec['schemaVersion'] if spec.is_a?(Hash) && spec['schemaVersion']
+    doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
+    return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
@@ -344,39 +346,43 @@ end
 # the synthetic fallback" here; export_and_check's element-level data-parity
 # assertion below is the actual gate.
 def build_spec(home, schema_version, plugin_id, actual_formula, target_formula)
-  {
+  elements = [
+    {
+      'id' => SRC_ELEMENT_ID, 'kind' => 'table', 'name' => 'Gauge source (e2e)',
+      'source' => {
+        'kind' => 'sql', 'connectionId' => CONNECTION_ID,
+        'statement' => 'SELECT 82 AS actual, 100 AS target',
+      },
+      'columns' => [
+        { 'id' => 'actual', 'name' => 'Actual', 'formula' => actual_formula },
+        { 'id' => 'target', 'name' => 'Target', 'formula' => target_formula },
+      ],
+    },
+    {
+      'id' => GAUGE_EL_ID, 'kind' => 'plugin', 'pluginId' => plugin_id, 'name' => 'Gauge (e2e)',
+      'config' => {
+        'source' => { 'kind' => 'element', 'elementId' => SRC_ELEMENT_ID },
+        'value' => 'actual',
+        'target' => 'target',
+      },
+    },
+  ]
+  doc = {
+    'schemaVersion' => schema_version,
+    'pages' => [{ 'id' => PAGE_ID, 'name' => 'WS2 Gauge E2E' }],
+    'elements' => elements,
+    'layout' => <<~XML,
+      <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE_ID}">
+        <Element elementId="#{SRC_ELEMENT_ID}" gridColumn="1 / 13" gridRow="1 / 13"/>
+        <Element elementId="#{GAUGE_EL_ID}" gridColumn="13 / 25" gridRow="1 / 13"/>
+      </Page>
+    XML
+  }
+  Sigma::CodeRep.wrap(doc, extra: {
     'name' => "WS2 gauge plugin lifecycle — E2E proof (#{RUN_TAG})",
     'folderId' => home,
-    'schemaVersion' => schema_version,
-    'description' => 'Live proof: register/embed/bind/data-parity a custom Sigma plugin. Throwaway test artifact.',
-    'pages' => [
-      {
-        'id' => PAGE_ID,
-        'name' => 'WS2 Gauge E2E',
-        'elements' => [
-          {
-            'id' => SRC_ELEMENT_ID, 'kind' => 'table', 'name' => 'Gauge source (e2e)',
-            'source' => {
-              'kind' => 'sql', 'connectionId' => CONNECTION_ID,
-              'statement' => 'SELECT 82 AS actual, 100 AS target',
-            },
-            'columns' => [
-              { 'id' => 'actual', 'name' => 'Actual', 'formula' => actual_formula },
-              { 'id' => 'target', 'name' => 'Target', 'formula' => target_formula },
-            ],
-          },
-          {
-            'id' => GAUGE_EL_ID, 'kind' => 'plugin', 'pluginId' => plugin_id, 'name' => 'Gauge (e2e)',
-            'config' => {
-              'source' => { 'kind' => 'element', 'elementId' => SRC_ELEMENT_ID },
-              'value' => 'actual',
-              'target' => 'target',
-            },
-          },
-        ],
-      },
-    ],
-  }
+    'description' => 'Live proof: register/embed/bind/data-parity a custom Sigma plugin. Throwaway test artifact.'
+  })
 end
 
 # ---------------------------------------------------------------------------

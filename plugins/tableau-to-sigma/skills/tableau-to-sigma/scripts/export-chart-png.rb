@@ -30,6 +30,7 @@ require 'net/http'
 require 'uri'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/code_rep'
 
 opts = { width: 1400, height: 700 }
 OptionParser.new do |p|
@@ -67,7 +68,11 @@ spec = begin
 rescue JSON::ParserError
   YAML.safe_load(spec_resp.body, permitted_classes: [Date, Time])
 end
-elements = (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
+# Workbook code-rep GETs nest pages under `document` (live since 2026-08) — a
+# bare spec['pages'] read here was always nil, so `elements` came back empty
+# and every run hit the "no matching elements" abort below.
+spec = Sigma::CodeRep.document(spec)
+elements = Sigma::CodeRep.workbook_elements(spec)
 targets = if opts[:element_ids]
             elements.select { |e| opts[:element_ids].include?(e['id']) }
           else

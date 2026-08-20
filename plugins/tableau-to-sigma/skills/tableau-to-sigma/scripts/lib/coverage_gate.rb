@@ -9,7 +9,7 @@
 #
 # Converter-agnostic + pure + unit-tested (test-coverage-gate.rb), like DaxGate.
 # The builder already warns loudly at each drop site; this module only aggregates
-# + classifies. Canonical lives in shared/lib; edit there,
+# + classifies. Canonical lives in shared/lib (); edit there,
 # run tools/sync-shared.rb.
 #
 # coverage.json schema (written by each converter's build script):

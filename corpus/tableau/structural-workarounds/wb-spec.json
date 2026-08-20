@@ -1,27 +1,36 @@
 {
   "name": "Structural Workarounds Test",
-  "pages": [
-    { "id": "page-data", "name": "Data", "elements": [
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      { "id": "page-data", "name": "Data" },
+      { "id": "page-overview", "name": "Overview Dash" }
+    ],
+    "elements": [
       { "id": "master", "kind": "table", "name": "Master",
         "source": { "kind": "table", "elementId": "dm-base" },
         "columns": [
-          { "id": "m-region", "name": "Region" },
-          { "id": "m-sales", "name": "Sales" },
-          { "id": "m-orderdate", "name": "Order Date" },
-          { "id": "m-custid", "name": "Customer Id" }
-        ] } ] },
-    { "name": "Overview Dash", "elements": [
+          { "id": "m-region", "name": "Region", "formula": "[Master/Region]" },
+          { "id": "m-sales", "name": "Sales", "formula": "[Master/Sales]" },
+          { "id": "m-orderdate", "name": "Order Date", "formula": "[Master/Order Date]" },
+          { "id": "m-custid", "name": "Customer Id", "formula": "[Master/Customer Id]" }
+        ] },
       { "id": "el-attainment-by-region", "kind": "bar-chart", "name": "Attainment by Region",
         "source": { "kind": "table", "elementId": "master" },
         "columns": [
           { "id": "x-1", "name": "Region", "formula": "[Master/Region]" },
           { "id": "y-1", "name": "Sales", "formula": "Sum([Master/Sales])" } ],
+        "xAxis": { "columnId": "x-1" },
+        "yAxis": { "columnIds": ["y-1"] },
         "filters": [ { "id": "flt-el-attainment-0", "columnId": "x-1", "kind": "list", "mode": "include", "values": ["North", "South"] } ] },
       { "id": "el-sales-trend", "kind": "line-chart", "name": "Sales Trend",
         "source": { "kind": "table", "elementId": "master" },
         "columns": [
           { "id": "x-2", "name": "Order Date", "formula": "DateTrunc(\"month\", [Master/Order Date])" },
-          { "id": "y-2", "name": "Sales", "formula": "Sum([Master/Sales])" } ] },
+          { "id": "y-2", "name": "Sales", "formula": "Sum([Master/Sales])" } ],
+        "xAxis": { "columnId": "x-2" },
+        "yAxis": { "columnIds": ["y-2"] } },
       { "id": "el-ctl-region", "kind": "control", "controlId": "ctl-region", "name": "Region",
         "controlType": "list", "mode": "include", "selectionMode": "multiple", "values": [],
         "source": { "kind": "source", "source": { "kind": "table", "elementId": "master" }, "columnId": "m-region" },
@@ -31,6 +40,7 @@
         "columns": [
           { "id": "x-3", "name": "Customer Id", "formula": "[Master/Customer Id]" },
           { "id": "y-3", "name": "Sales", "formula": "[Master/Sales]" } ] }
-    ] }
-  ]
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-overview\">\n  <Element elementId=\"el-attainment-by-region\" gridColumn=\"1 / 25\" gridRow=\"1 / 9\"/>\n  <Element elementId=\"el-sales-trend\" gridColumn=\"1 / 25\" gridRow=\"9 / 17\"/>\n  <Element elementId=\"el-ctl-region\" gridColumn=\"1 / 25\" gridRow=\"17 / 19\"/>\n  <Element elementId=\"el-customer-detail\" gridColumn=\"1 / 25\" gridRow=\"19 / 29\"/>\n</Page>"
+  }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Regression test for D1 + Pass-7 canvas (gaps beads-sigma-ubr5.15 / .6): the
+# Regression test for D1 + Pass-7 canvas (gaps [bead].15 / .6): the
 # workbook theme derived from the parsed layout. build-workbook-spec.rb turns the
 # outermost zone fill into themeOverrides.colorOverrides.backgroundCanvas and the
 # tinted region-card container fills into themeOverrides.categoricalScheme (the

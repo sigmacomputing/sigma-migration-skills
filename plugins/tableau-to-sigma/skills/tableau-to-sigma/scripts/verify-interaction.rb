@@ -267,6 +267,8 @@ return if $PROGRAM_NAME != __FILE__ && !ENV['VERIFY_INTERACTION_CLI'] # allow `r
 # CLI — live probing.
 # ---------------------------------------------------------------------------
 require 'sigma_rest'
+require 'code_rep'
+require 'workbook_code'
 require_relative 'lib/py_resolve'
 
 opts = { values: {}, controls: [], per_dashboard: 1, timeout: 90, renders: true }
@@ -308,10 +310,19 @@ end
 # vendored shared artifact, so the two stay independent by design) -----------
 def fetch_spec(wb)
   body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
-  return body if body.is_a?(Hash)
-  require 'yaml'
-  require 'date'
-  YAML.safe_load(body.to_s, permitted_classes: [Date, Time]) || {}
+  spec =
+    if body.is_a?(Hash)
+      body
+    else
+      require 'yaml'
+      require 'date'
+      YAML.safe_load(body.to_s, permitted_classes: [Date, Time]) || {}
+    end
+  # Workbook code-rep GETs nest pages/schemaVersion under `document` (live
+  # since 2026-08); ControlLint.elements/controls_report expect a flat
+  # spec['pages'] (same "unwrap at the caller, not in the lib" contract as
+  # assert-datasource-filters.rb / other lint-lib callers).
+  Sigma::CodeRep.metadata(spec).merge(Sigma::CodeRep.document(spec))
 end
 
 def export_csv(wb, element_id, params, timeout)
@@ -361,7 +372,7 @@ Array(parity['charts']).each do |c|
 end
 
 wb_ids = (JSON.parse(File.read(File.join(W, 'wb-ids.json'))) rescue {})
-page_id_by_name = (wb_ids['pages'] || []).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
+page_id_by_name = WorkbookCode.pages(wb_ids).each_with_object({}) { |p, h| h[p['name']] = p['id'] if p['name'] }
 
 spec  = fetch_spec(WB)
 elems = ControlLint.elements(spec)

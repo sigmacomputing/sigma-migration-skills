@@ -4590,6 +4590,71 @@ function metricRefOrInline(inline, masterName, metrics) {
   return inline;
 }
 
+// workbook-features.ts
+var VIZ_KIND = {
+  "com.ibm.vis.clusteredbar": "bar-chart",
+  "com.ibm.vis.stackedbar": "bar-chart",
+  "com.ibm.vis.clusteredcolumn": "bar-chart",
+  "com.ibm.vis.stackedcolumn": "bar-chart",
+  "com.ibm.vis.line": "line-chart",
+  "com.ibm.vis.spline": "line-chart",
+  "com.ibm.vis.area": "area-chart",
+  "com.ibm.vis.stackedarea": "area-chart",
+  "com.ibm.vis.pie": "pie-chart",
+  "com.ibm.vis.donut": "donut-chart",
+  "com.ibm.vis.clusteredcombination": "combo-chart",
+  "com.ibm.vis.stackedcombination": "combo-chart",
+  "com.ibm.vis.bubble": "scatter-chart",
+  "com.ibm.vis.scatter": "scatter-chart",
+  // Released in workbook code: required shape is source + columns + yAxis.
+  "com.ibm.vis.waterfall": "waterfall-chart",
+  "com.ibm.vis.waterfallchart": "waterfall-chart"
+};
+var VIZ_NO_ANALOG = {
+  "com.ibm.vis.network": "network diagram",
+  "com.ibm.vis.wordcloud": "word cloud",
+  "com.ibm.vis.packedbubble": "packed bubble",
+  "com.ibm.vis.treemap": "treemap"
+};
+var VIZ_GATED = {
+  "com.ibm.vis.box": "box plot",
+  "com.ibm.vis.boxplot": "box plot",
+  "com.ibm.vis.boxandwhisker": "box-and-whisker plot"
+};
+function workbookGap(feature, detail) {
+  return `\u26D4 WORKBOOK FEATURE GAP [${feature}]: ${detail}`;
+}
+
+// ../scripts/lib/code_rep.mjs
+var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+function flattenElements(doc) {
+  if (!isObj(doc) || !Array.isArray(doc.pages)) return doc;
+  const nested = [];
+  const pages = doc.pages.map((page) => {
+    const copy = { ...page };
+    if (Array.isArray(copy.elements)) nested.push(...copy.elements);
+    delete copy.elements;
+    return copy;
+  });
+  const elements = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const element of [...Array.isArray(doc.elements) ? doc.elements : [], ...nested]) {
+    const id = isObj(element) ? element.id : null;
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    elements.push(element);
+  }
+  return { ...doc, pages, elements };
+}
+function canonicalizeLayout(layoutXml) {
+  return String(layoutXml || "").replace(/<([/]?)LayoutElement\b/g, "<$1Element").replace(/<([/]?)GridContainer\b/g, "<$1Container");
+}
+function wrap(doc, extra = {}) {
+  const flattened = flattenElements(doc);
+  const canonical = isObj(flattened) && "layout" in flattened ? { ...flattened, layout: canonicalizeLayout(flattened.layout) } : flattened;
+  return { ...extra, document: canonical };
+}
+
 // cognos-report.ts
 var xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -4626,6 +4691,71 @@ function findAll(node, tag, out = []) {
     }
   }
   return out;
+}
+var xmlEsc = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function buildAuthoritativeLayout(pages, byPage, containerChildren) {
+  const blocks = pages.map((page) => {
+    const elements = byPage.get(page.id) || [];
+    const nested = new Set([...containerChildren.values()].flat());
+    const lines = [];
+    let row = 1;
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
+      if (nested.has(element.id)) continue;
+      const children = containerChildren.get(element.id);
+      if (children?.length) {
+        const height2 = Math.max(6, children.length * 11);
+        const inner = children.map(
+          (id, n) => `    <Element elementId="${xmlEsc(id)}" gridColumn="1 / 25" gridRow="${1 + n * 11} / ${1 + (n + 1) * 11}"/>`
+        ).join("\n");
+        lines.push(`  <Container elementId="${xmlEsc(element.id)}" type="grid" gridColumn="1 / 25" gridRow="${row} / ${row + height2}" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
+${inner}
+  </Container>`);
+        row += height2;
+        continue;
+      }
+      if (element.kind === "page-break") {
+        lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 25" gridRow="${row} / ${row + 1}"/>`);
+        row += 1;
+        continue;
+      }
+      if (element.kind === "kpi-chart") {
+        const run = [];
+        let j = i;
+        while (j < elements.length && !nested.has(elements[j].id) && elements[j].kind === "kpi-chart" && run.length < 4) {
+          run.push(elements[j]);
+          j++;
+        }
+        const span = Math.floor(24 / run.length);
+        run.forEach((kpi, n) => {
+          const c0 = 1 + n * span;
+          const c1 = n === run.length - 1 ? 25 : c0 + span;
+          lines.push(`  <Element elementId="${xmlEsc(kpi.id)}" gridColumn="${c0} / ${c1}" gridRow="${row} / ${row + 6}"/>`);
+        });
+        row += 6;
+        i = j - 1;
+        continue;
+      }
+      const next = elements[i + 1];
+      const isChart = element.kind.endsWith("-chart") && element.kind !== "kpi-chart";
+      const nextIsChart = !!next && !nested.has(next.id) && next.kind.endsWith("-chart") && next.kind !== "kpi-chart";
+      if (isChart && nextIsChart) {
+        lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 13" gridRow="${row} / ${row + 11}"/>`);
+        lines.push(`  <Element elementId="${xmlEsc(next.id)}" gridColumn="13 / 25" gridRow="${row} / ${row + 11}"/>`);
+        row += 11;
+        i += 1;
+        continue;
+      }
+      const height = element.kind === "control" || element.kind === "navigation" || element.kind === "text" ? 3 : element.visibleAsSource === false ? 1 : 12;
+      lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 25" gridRow="${row} / ${row + height}"/>`);
+      row += height;
+    }
+    return `<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="${xmlEsc(page.id)}">
+${lines.join("\n")}
+</Page>`;
+  });
+  return `<?xml version="1.0" encoding="utf-8"?>
+${blocks.join("\n")}`;
 }
 function convertCognosReportToSigma(xml2, options = {}) {
   resetIds();
@@ -4775,10 +4905,39 @@ function convertCognosReportToSigma(xml2, options = {}) {
     if (nf) return { kind: "number", formatString: scaled(nf) ? `$,.${dec(nf, 1) + 2}s` : `,.${dec(nf, 2)}f` };
     return void 0;
   };
-  const pages = [];
   const reportPages = findAll(report.layouts || report, "reportPage").concat(findAll(report.layouts || report, "page"));
+  const pageNodes = reportPages.length ? reportPages : [{ "@_name": "Report" }];
+  const pages = pageNodes.map((p) => ({
+    id: sigmaShortId(),
+    name: p["@_name"] || "Report"
+  }));
+  const pageIdBySourceNode = /* @__PURE__ */ new WeakMap();
+  pageNodes.forEach((pageNode, i) => {
+    if (!pageNode || typeof pageNode !== "object") return;
+    for (const tag of ["singleton", "list", "crosstab", "vizControl", "pageBreak", "repeater", "repeaterTable", "block"]) {
+      for (const node of findAll(pageNode, tag)) {
+        if (node && typeof node === "object") pageIdBySourceNode.set(node, pages[i].id);
+      }
+    }
+  });
+  const elementsByPage = new Map(pages.map((p) => [p.id, []]));
+  const elementsBySourceNode = /* @__PURE__ */ new WeakMap();
+  const containerChildren = /* @__PURE__ */ new Map();
   const lists = findAll(report, "list");
   const pageEls = [];
+  const addToPage = (pageId, element) => {
+    elementsByPage.get(pageId).push(element);
+    if (element.kind !== "control") pageEls.push(element);
+  };
+  const addElement = (sourceNode, element) => {
+    const pageId = sourceNode && typeof sourceNode === "object" ? pageIdBySourceNode.get(sourceNode) || pages[0].id : pages[0].id;
+    addToPage(pageId, element);
+    if (sourceNode && typeof sourceNode === "object") {
+      const current = elementsBySourceNode.get(sourceNode) || [];
+      current.push(element);
+      elementsBySourceNode.set(sourceNode, current);
+    }
+  };
   const dmSource = (q) => ({ kind: "data-model", dataModelId: options.dataModelId || "<DM_ID \u2014 wire after posting the data model>", elementId: q.subject ? sigmaDisplayName(q.subject) : "<element>" });
   const bindMeasure = (formula, q) => {
     const map = options.metrics || {};
@@ -4889,7 +5048,7 @@ function convertCognosReportToSigma(xml2, options = {}) {
       value: { columnId: valId }
     };
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(sg, el);
   }
   for (const L of lists) {
     const qName2 = L["@_refQuery"];
@@ -4962,7 +5121,7 @@ function convertCognosReportToSigma(xml2, options = {}) {
       el.groupings = [{ id: sigmaShortId(), groupBy: dimIds, calculations: measureIds }];
     }
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(L, el);
   }
   const isTotal = (r) => /^(Total|Summary|Aggregate|Average|Count|Maximum|Minimum)\(/i.test(r || "");
   for (const X of findAll(report, "crosstab")) {
@@ -5006,7 +5165,7 @@ function convertCognosReportToSigma(xml2, options = {}) {
       values
     };
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(X, el);
   }
   const dsToQuery = /* @__PURE__ */ new Map();
   for (const ds of findAll(report, "reportDataStore")) {
@@ -5015,28 +5174,6 @@ function convertCognosReportToSigma(xml2, options = {}) {
     if (nm && rq) dsToQuery.set(nm, rq);
   }
   const ROLLUP_AGG = { total: "Sum", sum: "Sum", average: "Avg", avg: "Avg", count: "Count", countdistinct: "CountDistinct", maximum: "Max", minimum: "Min" };
-  const VIZ_KIND = {
-    "com.ibm.vis.clusteredbar": "bar-chart",
-    "com.ibm.vis.stackedbar": "bar-chart",
-    "com.ibm.vis.clusteredcolumn": "bar-chart",
-    "com.ibm.vis.stackedcolumn": "bar-chart",
-    "com.ibm.vis.line": "line-chart",
-    "com.ibm.vis.spline": "line-chart",
-    "com.ibm.vis.area": "area-chart",
-    "com.ibm.vis.stackedarea": "area-chart",
-    "com.ibm.vis.pie": "pie-chart",
-    "com.ibm.vis.donut": "donut-chart",
-    "com.ibm.vis.clusteredcombination": "combo-chart",
-    "com.ibm.vis.stackedcombination": "combo-chart",
-    "com.ibm.vis.bubble": "scatter-chart",
-    "com.ibm.vis.scatter": "scatter-chart"
-  };
-  const VIZ_NOANALOG = {
-    "com.ibm.vis.network": "network diagram",
-    "com.ibm.vis.wordcloud": "word cloud",
-    "com.ibm.vis.packedbubble": "packed bubble",
-    "com.ibm.vis.treemap": "treemap"
-  };
   const isMapViz = (t) => /tiledmap|choropleth|\bmap\b/.test(t);
   const chartSource = dmSource;
   const COGNOS_SCHEME = {
@@ -5077,6 +5214,34 @@ function convertCognosReportToSigma(xml2, options = {}) {
     }
     const pal = findAll(V, "vcSlotData").map((s) => s["@_refPaletteDefinition"] || s["@_refPalette"]).find(Boolean) || V["@_refPaletteDefinition"] || V["@_refPalette"];
     return pal ? String(pal) : void 0;
+  };
+  const legendFromViz = (V) => {
+    let seen = false;
+    let visibility;
+    let position;
+    for (const tag of ["vizPropertyBooleanValue", "vizPropertyEnumValue", "vizPropertyStringValue"]) {
+      for (const prop of findAll(V, tag)) {
+        const name = String(prop["@_name"] || "");
+        if (!/legend/i.test(name)) continue;
+        seen = true;
+        const value = String(prop["@_value"] ?? txt(prop)).toLowerCase();
+        if (/visible|show|display/i.test(name)) visibility = /^(false|hidden|none|off|0)$/.test(value) ? "hidden" : "shown";
+        if (/position|placement|location/i.test(name)) {
+          const side = ["top", "bottom", "left", "right"].find((x) => value.includes(x));
+          if (side) position = side;
+        }
+      }
+    }
+    return seen ? { ...visibility ? { visibility } : {}, ...position ? { position } : {} } : void 0;
+  };
+  const styleFromNode = (node) => {
+    const css = findAll(node, "CSS").map((x) => String(x["@_value"] || txt(x))).join(";");
+    const style = {};
+    const background = css.match(/background(?:-color)?\s*:\s*(#[0-9a-f]{3,8})/i)?.[1];
+    if (background) style.backgroundColor = background;
+    const radius = css.match(/border-radius\s*:\s*([^;]+)/i)?.[1]?.trim();
+    if (radius && radius !== "0" && radius !== "0px") style.borderRadius = "round";
+    return Object.keys(style).length ? style : void 0;
   };
   const buildRefMarks = (V, q, vizName) => {
     const nodes = [...findAll(V, "baseline"), ...findAll(V, "vizBaseline")];
@@ -5161,6 +5326,40 @@ function convertCognosReportToSigma(xml2, options = {}) {
     const cats = slot("categories"), series = slot("series"), vals = slot("values");
     const sizes = slot("size"), xs = slot("x"), ys = slot("y"), colorSlot = slot("color");
     const kind = VIZ_KIND[vizType];
+    if (/progress|bullet|gauge/.test(vizType)) {
+      const valueEntry = vals[0] || sizes[0] || ys[0];
+      const valueId = addCol(valueEntry, true);
+      const valueCol = cols.find((c) => c.id === valueId);
+      if (!valueCol) {
+        warnings.push(workbookGap("progress", `chart "${vizName}" had no resolvable value measure; no progress element was emitted.`));
+        continue;
+      }
+      const sourceName = `${vizName} (progress source)`;
+      const source = {
+        id: sigmaShortId(),
+        kind: "table",
+        name: sourceName,
+        source: chartSource(q),
+        columns: cols,
+        order: cols.map((c) => c.id),
+        visibleAsSource: false
+      };
+      const percent = valueEntry?.format?.formatString?.includes("%");
+      const progress = {
+        id: sigmaShortId(),
+        kind: "progress",
+        name: vizName,
+        min: "0",
+        max: percent ? "1" : "100",
+        value: { columnId: valueId },
+        mode: percent ? "percent" : "value",
+        shape: /ring|radial|gauge/.test(vizType) ? "ring" : "bar"
+      };
+      progress.value = `[${sourceName}/${valueCol.name}]`;
+      addElement(V, source);
+      addElement(V, progress);
+      continue;
+    }
     if (isMapViz(vizType)) {
       const lat = slot("latlonglocations.latitude")[0] || slot("latitude")[0];
       const lon = slot("latlonglocations.longitude")[0] || slot("longitude")[0];
@@ -5170,6 +5369,8 @@ function convertCognosReportToSigma(xml2, options = {}) {
         const sizeId = addCol(slot("latlongsize")[0] || sizes[0], true);
         const colorId = addCol(slot("latlongcolor")[0] || colorSlot[0], true);
         const el2 = { id: sigmaShortId(), kind: "point-map", name: vizName, source: chartSource(q), columns: cols, order: [] };
+        const legend2 = legendFromViz(V);
+        if (legend2) el2.legend = legend2;
         if (latId) el2.latitude = { id: latId };
         if (lonId) el2.longitude = { id: lonId };
         if (sizeId) el2.size = { id: sizeId };
@@ -5180,7 +5381,7 @@ function convertCognosReportToSigma(xml2, options = {}) {
           continue;
         }
         applyQueryFilters(el2, q);
-        pageEls.push(el2);
+        addElement(V, el2);
       } else if (region) {
         const regId = addCol(region, false);
         const colorId = addCol(slot("locationcolor")[0] || colorSlot[0] || slot("locationheight")[0], true);
@@ -5189,10 +5390,12 @@ function convertCognosReportToSigma(xml2, options = {}) {
           continue;
         }
         const el2 = { id: sigmaShortId(), kind: "region-map", name: vizName, source: chartSource(q), columns: cols, order: cols.map((c) => c.id), region: { id: regId, regionType: "country" } };
+        const legend2 = legendFromViz(V);
+        if (legend2) el2.legend = legend2;
         if (colorId) el2.color = { by: "scale", column: colorId };
         warnings.push(`chart "${vizName}" \u2192 region-map: defaulted regionType to "country" \u2014 set it to match your data (country / us-state / us-county / us-zipcode / us-cbsa / us-postal-place / ca-province).`);
         applyQueryFilters(el2, q);
-        pageEls.push(el2);
+        addElement(V, el2);
       } else {
         for (const c of findAll(V, "vcSlotDsColumn")) if (c["@_refDsColumn"]) addCol({ ref: c["@_refDsColumn"], rollup: c["@_rollupMethod"] }, !!c["@_rollupMethod"]);
         if (!cols.length) {
@@ -5201,25 +5404,37 @@ function convertCognosReportToSigma(xml2, options = {}) {
         }
         warnings.push(`chart "${vizName}" is a Cognos map (${vizType}) with no lat/long or named-location slot \u2014 emitted its data as a table; add geographic columns + a map in the workbook.`);
         const fb = { id: sigmaShortId(), kind: "table", name: `${vizName} (was map)`, source: chartSource(q), columns: cols, order: cols.map((c) => c.id) };
+        const measures = cols.filter((c) => /^\s*(Sum|Avg|Min|Max|Count|CountDistinct)\s*\(/.test(c.formula)).map((c) => c.id);
+        const dimensions = cols.filter((c) => !measures.includes(c.id)).map((c) => c.id);
+        if (measures.length && dimensions.length) fb.groupings = [{ id: sigmaShortId(), groupBy: dimensions, calculations: measures }];
         applyQueryFilters(fb, q);
-        pageEls.push(fb);
+        addElement(V, fb);
       }
       continue;
     }
     if (!kind) {
-      const label = VIZ_NOANALOG[vizType] || vizType.replace("com.ibm.vis.", "");
+      const gated = VIZ_GATED[vizType];
+      const label = gated || VIZ_NO_ANALOG[vizType] || vizType.replace("com.ibm.vis.", "");
       for (const c of findAll(V, "vcSlotDsColumn")) if (c["@_refDsColumn"]) addCol({ ref: c["@_refDsColumn"], rollup: c["@_rollupMethod"] }, !!c["@_rollupMethod"]);
       if (!cols.length) {
         warnings.push(`<vizControl> "${vizName}" (${vizType}) had no resolvable columns \u2014 skipped.`);
         continue;
       }
-      warnings.push(`chart "${vizName}" is a Cognos ${label} (${vizType}) \u2014 Sigma has no native equivalent; emitted its data as a table. Re-pick a Sigma chart in the workbook.`);
+      warnings.push(workbookGap(
+        gated ? "box-chart (workspace gated)" : `visual ${vizType}`,
+        gated ? `chart "${vizName}" is a Cognos ${label}; Sigma box-chart is workspace-gated, so the converter preserved its data as a table instead of risking a masked entitlement failure. Enable and verify box-chart before replacing it.` : `chart "${vizName}" is a Cognos ${label}; no grounded Sigma mapping is cataloged. Its data was preserved as a table.`
+      ));
       const fb = { id: sigmaShortId(), kind: "table", name: `${vizName} (was ${label})`, source: chartSource(q), columns: cols, order: cols.map((c) => c.id) };
+      const measures = cols.filter((c) => /^\s*(Sum|Avg|Min|Max|Count|CountDistinct)\s*\(/.test(c.formula)).map((c) => c.id);
+      const dimensions = cols.filter((c) => !measures.includes(c.id)).map((c) => c.id);
+      if (measures.length && dimensions.length) fb.groupings = [{ id: sigmaShortId(), groupBy: dimensions, calculations: measures }];
       applyQueryFilters(fb, q);
-      pageEls.push(fb);
+      addElement(V, fb);
       continue;
     }
     const el = { id: sigmaShortId(), kind, name: vizName, source: chartSource(q), columns: [], order: [] };
+    const legend = legendFromViz(V);
+    if (legend) el.legend = legend;
     if (kind === "pie-chart" || kind === "donut-chart") {
       const colorId = addCol(cats[0] || colorSlot[0], false);
       const valId = addCol(vals[0] || sizes[0], true);
@@ -5265,8 +5480,8 @@ function convertCognosReportToSigma(xml2, options = {}) {
         el.order = scols.map((c) => c.id);
         const sRefMarks2 = buildRefMarks(V, q, vizName);
         if (sRefMarks2.length) el.refMarks = sRefMarks2;
-        pageEls.push(src);
-        pageEls.push(el);
+        addElement(V, src);
+        addElement(V, el);
         continue;
       }
       if (xId) el.xAxis = { columnId: xId };
@@ -5276,7 +5491,7 @@ function convertCognosReportToSigma(xml2, options = {}) {
       if (sRefMarks.length) el.refMarks = sRefMarks;
     } else {
       const xId = addCol(cats[0], false, true);
-      if (xId) {
+      if (xId && kind !== "waterfall-chart") {
         el.xAxis = { columnId: xId };
         if (cats[0]?.sort) el.xAxis.sort = { by: xId, direction: /desc/i.test(cats[0].sort) ? "descending" : "ascending" };
       }
@@ -5310,6 +5525,12 @@ function convertCognosReportToSigma(xml2, options = {}) {
         if (/\bbar\b/.test(vizType) && !/column/.test(vizType)) el.orientation = "horizontal";
       }
       if (kind === "combo-chart" && yIds.length > 1) warnings.push(`chart "${vizName}" \u2192 combo-chart: all measures placed on the primary axis as the same mark \u2014 set per-series shape / secondary axis in the workbook.`);
+      if (kind === "waterfall-chart" && cats.length > 1) {
+        warnings.push(workbookGap(
+          "waterfall category hierarchy",
+          `chart "${vizName}" has ${cats.length} Cognos category levels, but released waterfall-chart code exposes no xAxis hierarchy. All category columns were retained; verify the rendered step labels.`
+        ));
+      }
     }
     el.columns = cols;
     el.order = cols.map((c) => c.id);
@@ -5318,14 +5539,151 @@ function convertCognosReportToSigma(xml2, options = {}) {
       continue;
     }
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(V, el);
+  }
+  for (const pageBreak of findAll(report, "pageBreak")) {
+    addElement(pageBreak, { id: sigmaShortId(), kind: "page-break" });
+  }
+  for (const drill of findAll(report, "drillBehavior")) {
+    if (!drill || typeof drill !== "object" || Object.keys(drill).length === 0) continue;
+    const id = sigmaShortId();
+    addToPage(pages[0].id, {
+      id,
+      kind: "control",
+      controlId: `drill-${id}`,
+      name: "Drill",
+      controlType: "drill"
+    });
+  }
+  for (const reportDrill of findAll(report, "reportDrill")) {
+    const name = reportDrill["@_name"] || "unnamed report drill";
+    const path = findAll(reportDrill, "reportPath")[0]?.["@_path"];
+    warnings.push(workbookGap(
+      "cross-report drill-through",
+      `"${name}" targets ${path || "another Cognos report"}. The released Sigma drill control is hierarchy drill, not cross-document navigation; wire a converted target page/document explicitly.`
+    ));
+  }
+  for (const repeater of [...findAll(report, "repeater"), ...findAll(report, "repeaterTable")]) {
+    const qName2 = repeater["@_refQuery"];
+    const q = queries.get(qName2);
+    if (!q) {
+      warnings.push(workbookGap("repeater", `refQuery="${qName2 || "(missing)"}" has no matching query; repeater was not emitted.`));
+      continue;
+    }
+    const refs = [...new Set(findAll(repeater, "dataItemValue").map((x) => x["@_refDataItem"]).filter(Boolean))];
+    const sourceName = `${repeater["@_name"] || qName2} source`;
+    const sourceColumns = refs.flatMap((ref) => {
+      const di = q.items.get(ref);
+      if (!di) return [];
+      const translated = translate(di.expression, q);
+      translated.warns.forEach((w) => warnings.push(`"${qName2}.${ref}": ${w}`));
+      return [{ id: sigmaShortId(), name: sigmaDisplayName(di.name), formula: translated.formula }];
+    });
+    const source = {
+      id: sigmaShortId(),
+      kind: "table",
+      name: sourceName,
+      source: dmSource(q),
+      columns: sourceColumns,
+      order: sourceColumns.map((c) => c.id),
+      visibleAsSource: false
+    };
+    addElement(repeater, source);
+    const rc = {
+      id: sigmaShortId(),
+      kind: "repeated-container",
+      name: repeater["@_name"] || `${qName2} repeater`,
+      source: { kind: "table", elementId: source.id },
+      arrangement: "list",
+      cardSize: "small",
+      noDataText: "No rows",
+      cardStyle: styleFromNode(repeater)
+    };
+    addElement(repeater, rc);
+    const children = [];
+    for (const ref of refs) {
+      const di = q.items.get(ref);
+      if (!di) continue;
+      const child = {
+        id: sigmaShortId(),
+        kind: "text",
+        body: `{{[${sourceName} repeated container/${sigmaDisplayName(di.name)}]}}`
+      };
+      addElement(repeater, child);
+      children.push(child.id);
+    }
+    if (children.length) containerChildren.set(rc.id, children);
+    else warnings.push(workbookGap(
+      "repeater content",
+      `"${rc.name}" had no resolvable dataItemValue children. The repeated-container shell was preserved, but its card content must be authored.`
+    ));
+  }
+  const claimedPanelChildren = /* @__PURE__ */ new Set();
+  for (const block of findAll(report, "block")) {
+    if (!block["@_name"]) continue;
+    const children = [];
+    for (const tag of ["singleton", "list", "crosstab", "vizControl", "repeater", "repeaterTable"]) {
+      for (const node of findAll(block, tag)) {
+        for (const element of elementsBySourceNode.get(node) || []) {
+          if (!claimedPanelChildren.has(element.id)) {
+            children.push(element.id);
+            claimedPanelChildren.add(element.id);
+          }
+        }
+      }
+    }
+    if (!children.length) continue;
+    const panel = {
+      id: sigmaShortId(),
+      kind: "container",
+      name: sigmaDisplayName(block["@_name"]),
+      ...styleFromNode(block) ? { style: styleFromNode(block) } : {}
+    };
+    addElement(block, panel);
+    containerChildren.set(panel.id, children);
   }
   const controlEls = [...controls.values()];
-  pages.push({ id: sigmaShortId(), name: reportPages[0]?.["@_name"] || "Report", elements: [...controlEls, ...pageEls] });
+  controlEls.forEach((control) => addToPage(pages[0].id, control));
+  if (pages.length > 1 && report["@_viewPagesAsTabs"]) {
+    const pageLabels = Object.fromEntries(pages.map((p) => [p.id, p.name]));
+    for (const page of pages) {
+      const nav = {
+        id: sigmaShortId(),
+        kind: "navigation",
+        mode: "auto",
+        pageLabels
+      };
+      elementsByPage.get(page.id).unshift(nav);
+    }
+  }
   for (const fnode of findAll(report, "summaryFilter")) {
     const fexpr = txt(fnode.filterExpression || fnode.expression);
     if (fexpr) warnings.push(`summary filter: "${fexpr.slice(0, 80)}" \u2014 post-aggregation filter; re-create as a Sigma filter on the aggregated column.`);
   }
+  const panels = [];
+  pageNodes.forEach((pageNode, i) => {
+    const header = findAll(pageNode, "pageHeader")[0];
+    if (header) {
+      const style = styleFromNode(header);
+      panels.push({
+        id: sigmaShortId(),
+        type: "header",
+        title: `${pages[i].name} header`,
+        pages: [pages[i].id],
+        config: {
+          scroll: "none",
+          borderStyle: "none",
+          ...style?.backgroundColor ? { backgroundColor: style.backgroundColor } : {}
+        }
+      });
+    }
+    if (findAll(pageNode, "pageFooter").length) {
+      warnings.push(workbookGap(
+        "page footer panel",
+        `page "${pages[i].name}" has a Cognos pageFooter, but released workbook panels support header/sidebar only. Preserve footer content as ordinary page elements or a page-break print section.`
+      ));
+    }
+  });
   const stats = {
     queries: queries.size,
     tables: pageEls.filter((e) => e.kind === "table").length,
@@ -5337,10 +5695,25 @@ function convertCognosReportToSigma(xml2, options = {}) {
     filters: pageEls.reduce((n, e) => n + (e.filters?.length || 0), 0),
     controls: controls.size,
     refMarks: pageEls.reduce((n, e) => n + (e.refMarks?.length || 0), 0),
-    scaleColors: pageEls.filter((e) => e.color?.by === "scale").length
+    scaleColors: pageEls.filter((e) => e.color?.by === "scale").length,
+    pages: pages.length,
+    progress: pageEls.filter((e) => e.kind === "progress").length,
+    repeaters: pageEls.filter((e) => e.kind === "repeated-container").length,
+    panels: pageEls.filter((e) => e.kind === "container").length,
+    pagePanels: panels.length,
+    pageBreaks: pageEls.filter((e) => e.kind === "page-break").length
+  };
+  const elements = pages.flatMap((page) => elementsByPage.get(page.id) || []);
+  const document = {
+    schemaVersion: 1,
+    kind: "workbook",
+    pages,
+    elements,
+    layout: buildAuthoritativeLayout(pages, elementsByPage, containerChildren),
+    ...panels.length ? { panels } : {}
   };
   return {
-    workbook: { name: reportName, schemaVersion: 1, pages, controls: controlEls },
+    workbook: wrap(document, { name: reportName }),
     warnings,
     stats
   };

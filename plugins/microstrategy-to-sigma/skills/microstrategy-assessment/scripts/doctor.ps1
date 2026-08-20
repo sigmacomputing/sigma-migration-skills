@@ -145,7 +145,11 @@ if (-not $sigmaCreds) {
 } elseif ($env:SIGMA_SKIP_CRED_SMOKE) {
   Ok "Sigma credentials present (live token-mint smoke SKIPPED: SIGMA_SKIP_CRED_SMOKE)"
 } elseif ((Test-Path $sigmaLib) -and (Get-Command ruby -ErrorAction SilentlyContinue)) {
-  & ruby -e '$LOAD_PATH.unshift File.join(ARGV[0], "lib"); require "timeout"; require "sigma_rest"; Timeout.timeout(20) { Sigma.refresh_token! }' $PSScriptRoot 2>$null | Out-Null
+  # Quote-free -e payload (portability lint): Windows PowerShell 5.1 native-arg
+  # passing strips embedded double quotes, so the old inline requires reached
+  # Ruby unquoted and died at parse - a guaranteed false cred-probe negative.
+  # Load path and requires ride -I / -r flags instead.
+  & ruby -I (Join-Path $PSScriptRoot 'lib') -rtimeout -rsigma_rest -e 'Timeout.timeout(20) { Sigma.refresh_token! }' 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
     Ok "Sigma credentials present + live token mint OK"
     $script:SmokeSigma = "pass"
@@ -176,7 +180,9 @@ if ((Test-Path $tabSetup) -and (Test-Path $tabLib)) {
   } elseif ($env:SIGMA_SKIP_CRED_SMOKE) {
     Ok "Tableau credentials present (live PAT signin smoke SKIPPED: SIGMA_SKIP_CRED_SMOKE)"
   } elseif (Get-Command ruby -ErrorAction SilentlyContinue) {
-    & ruby -e '$LOAD_PATH.unshift File.join(ARGV[0], "lib"); require "timeout"; require "tableau_rest"; Timeout.timeout(20) { Tableau.refresh_token! }' $PSScriptRoot 2>$null | Out-Null
+    # Quote-free -e payload - same PS 5.1 native-arg constraint as the Sigma
+    # probe above.
+    & ruby -I (Join-Path $PSScriptRoot 'lib') -rtimeout -rtableau_rest -e 'Timeout.timeout(20) { Tableau.refresh_token! }' 2>$null | Out-Null
     if ($LASTEXITCODE -eq 0) {
       Ok "Tableau credentials present + live PAT signin OK"
       $script:SmokeTableau = "pass"

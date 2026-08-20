@@ -50,3 +50,21 @@ control path in `build-sigma-workbook.py`:
 
 `control-scope.json` must report `sourceFilterSignals: 5` and pass
 `ruby scripts/lib/control_lint.rb /tmp/qlik-smoke/wb-spec.json /tmp/qlik-smoke/control-scope.json`.
+
+## corectl-country-unbuild/
+
+A synthetic standard `corectl unbuild` folder. It intentionally has empty
+`measures.json` and `dimensions.json`; both authored visuals are nested under the
+sheet's recursive `qChildren`. Its load script also defines
+`If(Match(COUNTRY, ...)) AS REGION_GROUP`, proving calculated LOAD fields survive
+on the denormalized SQL element.
+
+```bash
+ruby scripts/migrate-qlik.rb \
+  --unbuild fixtures/corectl-country-unbuild \
+  --connection 00000000-0000-0000-0000-000000000000 \
+  --database ANALYTICS --schema PUBLIC --dry-run --yes --out /tmp/qlik-corectl-smoke
+```
+
+Expected: `workbook-coverage.json` reports 2/2 source visuals and the generated
+SQL contains `CASE WHEN f.COUNTRY IN ('US', 'CA') ... AS REGION_GROUP`.

@@ -64,9 +64,35 @@ warehouse3 = [{ 'name' => 'ORDER_ID', 'type' => 'LONG' }, { 'name' => 'ORDER_DAT
 s = suggest_derivation('ORDER_DATE', 'DATE', warehouse3)
 ok(s, 'a suggestion is returned')
 eq(s['pattern'], 'yyyymmdd_integer_key', 'suggested pattern name')
-eq(s['candidate_source_column'], 'ORDER_DATE_KEY', 'candidate is the one matching numeric column')
-ok(s['suggested_formula'].include?('MakeDate') && s['suggested_formula'].include?('ORDER_DATE_KEY'),
-   "suggested_formula references MakeDate and the candidate column, got #{s['suggested_formula'].inspect}")
+eq(s['candidate_source_column'], 'ORDER_DATE_KEY', 'candidate is the one matching numeric column (RAW warehouse name)')
+ok(s['suggested_formula'].include?('MakeDate') && s['suggested_formula'].include?('Order Date Key'),
+   "suggested_formula references MakeDate and the candidate column's Sigma DISPLAY name, got #{s['suggested_formula'].inspect}")
+
+puts '== suggest_derivation: suggested_formula brackets the candidate\'s Sigma-auto-assigned DISPLAY name, ' \
+     'NEVER the raw all-caps warehouse identifier () =='
+# Sigma's server Title-Cases every underscore-separated word of a raw warehouse
+# column UNCONDITIONALLY when auto-naming it (confirmed live, 2026-08-03:
+# ORDER_DATE_KEY -> "Order Date Key") -- a formula referencing [ORDER_DATE_KEY]
+# would not resolve against the real column, which is labeled [Order Date Key].
+s_bug = suggest_derivation('ORDER_DATE', 'DATE', warehouse3)
+ok(s_bug['suggested_formula'].include?('[Order Date Key]'),
+   "suggested_formula must bracket-reference the Title-Cased display name, got #{s_bug['suggested_formula'].inspect}")
+ok(!s_bug['suggested_formula'].include?('[ORDER_DATE_KEY]'),
+   "suggested_formula must NOT bracket-reference the raw all-caps warehouse name, got #{s_bug['suggested_formula'].inspect}")
+
+puts '== suggest_derivation: an already-mixed/Title-Case candidate name is left as-is by Title-Casing (idempotent-ish shape) =='
+# fetch_warehouse_columns reports names exactly as the warehouse catalog returns
+# them (preflight-columns.rb) -- for an unquoted Snowflake identifier that's
+# always all-caps, but guard the mixed-case shape too in case a differently
+# cased connector (or a quoted identifier) is ever the candidate.
+warehouse_mixed = [
+  { 'name' => 'Order_Date_Key', 'type' => 'INTEGER' },
+  { 'name' => 'ORDER_ID', 'type' => 'LONG' },
+]
+s_mixed = suggest_derivation('ORDER_DATE', 'DATE', warehouse_mixed)
+ok(s_mixed, 'a suggestion is returned for the mixed-case candidate')
+eq(s_mixed['suggested_formula'].include?('[Order Date Key]'), true,
+   "mixed-case warehouse name still normalizes to the Title-Cased display form, got #{s_mixed['suggested_formula'].inspect}")
 
 puts '== suggest_derivation: non-date Domo type -> no suggestion, even with a perfect candidate =='
 eq(suggest_derivation('ORDER_DATE', 'LONG', warehouse3), nil, 'only DATE/DATETIME Domo columns trigger this pattern')

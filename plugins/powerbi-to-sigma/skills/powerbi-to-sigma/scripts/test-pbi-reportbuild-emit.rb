@@ -30,6 +30,7 @@ require 'json'
 require 'tmpdir'
 require 'rbconfig'
 require_relative 'lib/layout_lint'
+require_relative 'lib/code_rep'
 
 BUILD = File.join(__dir__, 'build-workbook-from-pbir.rb')
 RUBY  = RbConfig.ruby
@@ -169,11 +170,16 @@ Dir.mktmpdir do |d|
               out: File::NULL, err: File.open(err_f, 'w'))
   ok('builder exits 0', st)
   spec  = JSON.parse(File.read(wb))
+  doc = Sigma::CodeRep.document(spec)
   err   = File.read(err_f)
   cover = JSON.parse(File.read(cov))['unresolved'] || []
   scopej = JSON.parse(File.read(scope))
 
-  pages = spec['pages'].each_with_object({}) { |p, h| h[p['id']] = p }
+  page_ids = Sigma::CodeRep.workbook_page_element_ids(doc)
+  by_id = Sigma::CodeRep.workbook_elements(doc).each_with_object({}) { |e, h| h[e['id']] = e }
+  pages = doc['pages'].each_with_object({}) do |p, h|
+    h[p['id']] = p.merge('elements' => Array(page_ids[p['id']]).filter_map { |id| by_id[id] })
+  end
   p1 = pages['page-p1']['elements']
   DATA = %w[kpi-chart bar-chart line-chart area-chart combo-chart scatter-chart
             pie-chart donut-chart region-map point-map table pivot-table].freeze
@@ -198,7 +204,7 @@ Dir.mktmpdir do |d|
     (el['columns'] || []).map { |c| c['id'] }.reject { |id| rest.include?(id) }
   end
   chart_pivot = %w[bar-chart line-chart area-chart combo-chart scatter-chart pie-chart donut-chart pivot-table].freeze
-  bad_orphans = spec['pages'].flat_map { |p| p['elements'] }
+  bad_orphans = doc['elements']
                     .select { |e| chart_pivot.include?(e['kind']) }
                     .flat_map { |e| orphans(e).map { |id| "#{e['id']}:#{id}" } }
   ok('2c) NO passthrough (orphan) column on any chart/pivot element',
@@ -254,7 +260,7 @@ Dir.mktmpdir do |d|
     el.dig('source', 'elementId') || el.dig('source', 'source', 'elementId')
   end
   leaks = []
-  spec['pages'].reject { |p| p['id'] == 'page-data' }.each do |p|
+  pages.values.reject { |p| p['id'] == 'page-data' }.each do |p|
     p['elements'].each do |el|
       s = elem_source(el)
       (el['columns'] || []).each do |c|
@@ -279,7 +285,7 @@ Dir.mktmpdir do |d|
      err.include?('cross-master') || err.include?('DIFFERENT master'))
 
   # 9. BUG 3 — every element `name` is a plain String (Hash name crashes validate-spec)
-  all_els = spec['pages'].flat_map { |p| p['elements'] }
+  all_els = doc['elements']
   bad_names = all_els.reject { |e| e['name'].nil? || e['name'].is_a?(String) }
                      .map { |e| "#{e['id']}:#{e['name'].class}" }
   ok('9a) every emitted element name is a String (no Hash name)',
@@ -288,13 +294,14 @@ Dir.mktmpdir do |d|
   ok('9b) the single-value KPI name is a String (was a {text,color} Hash)',
      kpi && kpi['name'].is_a?(String) && !kpi['name'].empty?)
 
-  # 10. BUG 5 — controls sit inside a GridContainer (no "orphan control" lint fail)
+  # 10. BUG 5 — controls sit inside a Container (no "orphan control" lint fail)
   lint_v = LayoutLint.lint(spec)
   orphan = lint_v.select { |v| v.to_s.include?('orphan control') }
   ok('10a) layout lint reports NO orphan control',
      orphan.empty? || (puts("    #{orphan.inspect}") && false))
-  ok('10b) the page emits a control-band GridContainer holding the slicers',
-     spec['layout'].to_s.include?("band-page-p1-ctrl"))
+  ok('10b) the page emits a canonical control-band Container holding the slicers',
+     doc['layout'].to_s.include?('<Container elementId="band-page-p1-ctrl"') &&
+       !doc['layout'].to_s.match?(%r{<(?:LayoutElement|GridContainer)\b}))
 
   # regression guard: the LEGACY per-visual mode still builds (escape hatch)
   wb2 = File.join(d, 'wb2.json')

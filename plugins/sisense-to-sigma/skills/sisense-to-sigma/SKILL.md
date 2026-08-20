@@ -84,7 +84,7 @@ widgets) — never emit confidently-wrong logic.
 ## Converter architecture (read if you know the other migration skills)
 
 Unlike the **Group-A** converters (tableau, powerbi, qlik, quicksight, looker,
-thoughtspot, cognos) — which share the vendored `sigma-data-model-mcp` engine
+thoughtspot, cognos) — which share the vendored `converter-source` engine
 (`converter/*.mjs`, with the hosted `convert_*` MCP tool as a fallback) — this
 skill uses a **self-contained Python converter that ships in `scripts/`**
 (`convert.py` + `jaql_expr.py`). It runs locally via `python3`; there is **no
@@ -158,20 +158,39 @@ metrics (from `--dm-spec`), so a workbook never points at an absent metric. SAFE
 Verified: `tests/test_metric_reference.py`.
 
 ## Phase 3 — Convert dashboards  ✅ live-validated
-`convert.py dashboard` → workbook spec: widget `type` → element
+`convert.py dashboard` → current workbook code-representation request:
+outer metadata (`name`) plus a nested `document`. Workbook pages are
+**metadata-only**, elements live once in the flat `document.elements[]`
+collection, and required `document.layout` is the authoritative page-membership
+map. (Data-model specs are intentionally unchanged and retain
+`pages[].elements`.) Widget `type` → element
 (`pivot2`→pivot-table, `indicator`→KPI, `chart/*`→chart, `tablewidget`→table),
 panel JAQL → formulas via `jaql_expr.py`, filters → controls.
 
-**Layout comes over too.** Sisense's `layout.columns[]` (vertical strips →
+Released feature mappings are source-gated: `chart/waterfall` maps to native
+`waterfall-chart`; explicit legend visibility/position and literal widget/canvas
+backgrounds are retained; and `indicator/gauge` maps to native `progress` only
+with a complete explicit min/value/max range. Box plots stay workspace-gated.
+Sisense drill/JTD, Tabber, filter-panel chrome, page breaks, and repeaters remain
+**loud gaps** until discovery provides a safely authorable equivalent. See
+`refs/workbook-code-release-gaps.md` and the executable
+`refs/catalogs/workbook-feature.json`.
+
+**Layout comes over too, and is required.** Sisense's `layout.columns[]` (vertical strips →
 `cells[]` stacked → `subcells[]` side-by-side → `elements[]` by `widgetid`+px
-height) is translated into Sigma's top-level `layout` XML (24-col grid,
-`<LayoutElement gridColumn gridRow/>`). A real multi-column/subcell layout is
+height) is translated into Sigma's `layout` XML (24-col grid,
+`<Element gridColumn gridRow/>`), which lives on the workbook spec's
+`document` object (`document.layout` — the workbook body is `document`-wrapped
+as of 2026-08-03; DM specs are unaffected and retain their page-nested
+elements). Every flat workbook element must occur exactly once in layout, and
+every metadata page must have one `<Page>` block; conversion fails closed on
+missing, orphan, or duplicate membership. A real multi-column/subcell layout is
 ported **faithfully** — column %widths → proportional grid spans, side-by-side
 stays side-by-side. A degenerate single full-width stack (Sisense's default) is
 **auto-arranged** into something clean: leading KPIs flow into rows of up to 4
 cards, charts go 2-up, and trends/tables/pivots span full width. Controls
 (from dashboard filters) are placed as a flat row at the top — **not** a
-`<GridContainer>`, which Sigma rejects unless its `elementId` points to a real
+`<Container>`, which Sigma rejects unless its `elementId` points to a real
 container element in the spec. Element IDs are preserved on workbook CREATE, so
 the layout refs resolve. The `layout` XML is the **last write** in the workbook
 spec — emitted after every element is positioned, so it reflects the final

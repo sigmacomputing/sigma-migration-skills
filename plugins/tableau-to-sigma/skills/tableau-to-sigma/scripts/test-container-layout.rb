@@ -9,7 +9,7 @@
 # build-dashboard-layout.rb (no Tableau/Sigma calls):
 #   1. The parser preserves the nested zone tree (a layout-flow rail INSIDE a
 #      layout-basic root, holding a filter zone + a paramctrl zone).
-#   2. The layout builder emits NESTED Sigma GridContainers (a container inside
+#   2. The layout builder emits NESTED Sigma Containers (a container inside
 #      a container), not a flat band stack.
 #   3. The filter control AND the parameter control both land INSIDE the same
 #      rail container — i.e. filters/params are laid out within their Tableau
@@ -117,18 +117,18 @@ fcap = rail && (rail['children'] || []).find { |c| c['kind'] == 'filter' }&.dig(
 check(fcap == 'Region', "parser: filter zone resolves column caption 'Region' (got #{fcap.inspect})", fails)
 
 # ---- 2 + 3. builder nested the containers and placed controls in the rail ---
-gcs = xml_doc ? xml_doc.elements.to_a('//GridContainer') : []
-nested = gcs.any? { |g| !g.elements.to_a('.//GridContainer').empty? }
-check(nested, 'builder: emitted NESTED GridContainers (container inside container)', fails)
+gcs = xml_doc ? xml_doc.elements.to_a('//Container') : []
+nested = gcs.any? { |g| !g.elements.to_a('.//Container').empty? }
+check(nested, 'builder: emitted NESTED Containers (container inside container)', fails)
 
 # Find the container whose descendants include BOTH control element ids.
 def descendant_el_ids(gc)
-  gc.elements.to_a('.//LayoutElement').map { |le| le.attributes['elementId'] }
+  gc.elements.to_a('.//Element').map { |le| le.attributes['elementId'] }
 end
 rail_gc = gcs.find do |g|
   ids = descendant_el_ids(g)
   ids.include?('el-region') && ids.include?('el-metric') &&
-    g.elements.to_a('.//GridContainer').empty? # innermost container = the rail
+    g.elements.to_a('.//Container').empty? # innermost container = the rail
 end
 check(!rail_gc.nil?, 'builder: both controls (Region + Metric Switch) live INSIDE one rail container', fails)
 chart_in_rail = rail_gc && descendant_el_ids(rail_gc).include?('el-chart')

@@ -1,0 +1,118 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "microstrategy",
+  "wired": true,
+  "status": "wired",
+  "authoritative_doc": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/intro_dossiers.htm",
+  "on_unmapped_default": "warn+manual — never silently drop a detected dossier feature",
+  "description": "Released workbook-as-code surfaces emitted only from equivalent MicroStrategy dossier semantics. Chapters ground page navigation; fully populated panelStacks ground tabbed containers; explicit print markers ground page-breaks; explicit gauge value/min/max ground progress; explicit row-card repeat metadata grounds repeated containers; literal style and chart-legend metadata are allowlisted. A selectorType label alone does not ground Sigma legend/drill controls, and report pageBy is not print pagination. Incomplete or unknown payloads are recorded loudly in feature-gaps.json.",
+  "rows": [
+    {
+      "source": "chapter-tabs",
+      "sigma": "navigation",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/intro_dossiers.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-03"},
+      "on_unmapped": "warn+manual",
+      "notes": "A multi-chapter dossier is a tabbed source experience; emit an auto navigation element using chapter names as page labels."
+    },
+    {
+      "source": "panel-stack",
+      "sigma": "tabbed-container",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/creating_panel_stacks.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-05"},
+      "on_unmapped": "warn+manual",
+      "notes": "Panel labels become tabs and concrete panel visualizations become positional layout children. If any panel lacks a buildable visualization, the entire tabbed container is suppressed and recorded as a loud gap."
+    },
+    {
+      "source": "print-page-break",
+      "sigma": "page-break",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/intro_dossiers.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-05"},
+      "on_unmapped": "warn+manual",
+      "notes": "Only an explicit pageBreakAfter/printPageBreakAfter extractor marker emits the id/kind-only element at exactly one layout row. Dossier page count alone does not prove print intent."
+    },
+    {
+      "source": "report-page-by",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "build": "explicit-gap",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/BasicReporting/WebHelp/Lang_1033/Content/Page-by.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+preserve-table",
+      "notes": "MicroStrategy report pageBy is a paging/filter axis, not a print/PDF break. It remains a loud interaction gap and never fabricates page-break."
+    },
+    {
+      "source": "gauge-progress",
+      "sigma": "progress",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/viz_gallery.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-03"},
+      "on_unmapped": "warn+table",
+      "notes": "Emit only when the source carries explicit value/min/max semantics; otherwise preserve data in a table and record the missing gauge semantics."
+    },
+    {
+      "source": "legend",
+      "sigma": "chart.legend",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/Formatting_a_graph_legend.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-03"},
+      "on_unmapped": "warn+omit",
+      "notes": "Allowlisted visibility and position fields only; unknown legend properties are gaps."
+    },
+    {
+      "source": "legend-selector",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "build": "explicit-gap",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/getting_started_selector.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+suppress-control",
+      "notes": "A selectorType string and one source attribute do not provide Sigma legend's categorical master source plus chart color target. Emit no dead control until extraction captures both bindings."
+    },
+    {
+      "source": "drill-selector",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "converter_gap": true,
+      "build": "explicit-gap",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/drilling_in_a_visualization.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+suppress-control",
+      "notes": "The released drill control requires ordered categories plus source and target column bindings. A selectorType string does not carry that contract, so unresolved selectors remain loud gaps."
+    },
+    {
+      "source": "repeater",
+      "sigma": "repeated-container",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/intro_dossiers.htm",
+      "sigma_verified": {"status": "y", "date": "2026-08-05"},
+      "on_unmapped": "warn+table",
+      "notes": "Requires explicit repeater metadata and at least one bound display field."
+    },
+    {
+      "source": "visual-style",
+      "sigma": "style/settings.theme",
+      "build": "released",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/Formatting_a_visualization.htm",
+      "sigma_verified": {"status": "y", "date": "2026-06-26"},
+      "on_unmapped": "warn+omit",
+      "notes": "Only current Sigma style keys are copied; arbitrary MicroStrategy formatting is never passed through."
+    },
+    {
+      "source": "workbook-panels",
+      "sigma": null,
+      "no_sigma_equiv": true,
+      "source_gap": true,
+      "build": "explicit-gap",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/Library/en-us/Content/creating_panel_stacks.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "emit-empty-collection",
+      "notes": "MicroStrategy panel stacks are in-canvas alternates mapped to tabbed-container, not Sigma document panel chrome. The builder emits document.panels:[] and never fabricates panel metadata."
+    }
+  ]
+}

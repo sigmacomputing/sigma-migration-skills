@@ -14,7 +14,7 @@
 #
 #   # all converters:
 #   tools/vendor-converters.sh /path/to/converter-source
-#   # a subset:
+#   # a subset from an explicit checkout:
 #   tools/vendor-converters.sh /path/to/converter-source lookml thoughtspot cognos
 #
 # Re-run after the converter source changes and commit the bundles. Requires a
@@ -53,8 +53,6 @@ if ! ls "$SRC"/build/*.js >/dev/null 2>&1; then
   ( cd "$SRC" && { npm ci --silent || npm install --silent; } && npm run build --silent )
 fi
 
-SHA="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-DATE="$(git -C "$SRC" log -1 --format=%cd --date=short 2>/dev/null || echo unknown)"
 STAMPED_DIRS=""
 
 for mod in "${WANT[@]}"; do
@@ -147,4 +145,4 @@ EOF
   done
 fi
 
-echo "Done — source $SHA ($DATE). Commit the converter/ diffs."
+echo "Done. Commit the converter/ diffs."

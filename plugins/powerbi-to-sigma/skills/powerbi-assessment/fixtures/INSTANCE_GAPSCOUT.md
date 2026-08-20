@@ -119,7 +119,7 @@ to the live PBI `executeQueries` value.
 - **Sigma value:** **3287 rows · min 2018-01-01 · max 2026-12-31** (deterministic spine);
   derived cols validated `EXTRACT(YEAR)=2018`, `EXTRACT(MONTH)=1`, `TO_CHAR(d,'Mon')='Jan'`.
 - **Verdict: VERIFIED — exact (row count + endpoints + every derived column).**
-- Closes the gap in **`beads-sigma-2rl`** (which synthesized only a MonthKey VALUES list,
+- Closes the gap in **`[bead]`** (which synthesized only a MonthKey VALUES list,
   not the ADDCOLUMNS-derived Year / MonthNo / Month columns).
 
 ---
@@ -185,7 +185,7 @@ untranslatable to *something* in Sigma; the 4.3% is "needs redesign," not "impos
    + `GrandTotal(Sum(...))`. (bead below)
 2. **`calendar_addcolumns` generator** — `ADDCOLUMNS(CALENDAR(a,b), …)` → Snowflake
    `GENERATOR` date spine with `EXTRACT`/`TO_CHAR`-derived columns. Extends
-   `beads-sigma-2rl` past the MonthKey-only VALUES it currently emits. (bead below)
+   `[bead]` past the MonthKey-only VALUES it currently emits. (bead below)
 3. **WEEKNUM → `DatePart("week", …)`** — move WEEKNUM from the (c) "no native" list to the
    (a) mechanical map in `measure-patterns.md` / `dax-to-sigma-coverage.md`. (bead below)
 

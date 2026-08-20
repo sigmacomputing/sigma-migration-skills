@@ -61,13 +61,22 @@ STUB = <<~'RUBY'
   $LOADED_FEATURES << real if real && !$LOADED_FEATURES.include?(real)
 RUBY
 
-SPEC = { 'pages' => [{ 'elements' => [
+ELEMENTS = [
   { 'id' => 'el-ok',    'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v', 'name' => 'Revenue' }] },
   { 'id' => 'el-500',   'columns' => [{ 'id' => 'c-a', 'name' => 'A' }, { 'id' => 'c-b', 'name' => 'B' }] },
   { 'id' => 'el-empty', 'columns' => [{ 'id' => 'c-e', 'name' => 'E' }] },
   { 'id' => 'el-html',  'columns' => [{ 'id' => 'c-h', 'name' => 'H' }] },
   { 'id' => 'el-pivot', 'columns' => [{ 'id' => 'c-p', 'name' => 'P' }] }
-] }] }.freeze
+].freeze
+SPEC = {
+  'document' => {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p1', 'name' => 'Overview' }],
+    'elements' => ELEMENTS,
+    'layout' => "<Page id=\"p1\">#{ELEMENTS.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  }
+}.freeze
 
 PLAN_CHARTS = [
   { 'chart' => 'OK Chart',        'sigma_kind' => 'bar-chart',   'sigma_element_id' => 'el-ok',      'sigma_columns' => %w[c-r c-v] },

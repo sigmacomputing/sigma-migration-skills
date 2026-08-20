@@ -4,7 +4,7 @@ id: developers_migrating_from_microstrategy_made_easy
 categories: Developers, Migration, AI
 environments: Web
 status: Draft
-feedback link: https://github.com/sigmacomputing/sigma-migration-skills/issues
+feedback link: https://github.com/sigmacomputing/microstrategy-to-sigma/issues
 
 # Migrating from MicroStrategy to Sigma made easy
 
@@ -112,6 +112,13 @@ Duration: 3
 - Finalize gate: `assert-phase6-ran.rb` — seven shared gates including the
   layout lint and the control-wiring lint (dossier selectors/chapter filters
   convert to Sigma controls wired to their declared viz targets).
-- Anything flagged (unmapped viz types, prompts, panel selectors) is listed
-  in the conversion notes and `control-scope.json` for human follow-up —
-  loud and explicit, never silent.
+- The workbook artifact uses outer metadata plus
+  `document:{schemaVersion,kind,pages,elements,overlays,panels,layout,...}`:
+  metadata-only pages, flat elements, explicit empty panel/overlay collections
+  when none are grounded, and required authoritative layout. Data-model page
+  nesting is unchanged.
+- Anything flagged (unmapped viz types, prompts, incomplete panel/repeater/
+  styling semantics, report page-by, selector labels that do not fully ground
+  released legend/drill controls, capability-gated box plots) is listed in the
+  conversion notes, `control-scope.json`, and `feature-gaps.json` for human
+  follow-up — loud and explicit, never silent.

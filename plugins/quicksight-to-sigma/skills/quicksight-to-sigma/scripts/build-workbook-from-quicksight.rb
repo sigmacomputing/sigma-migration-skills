@@ -9,7 +9,7 @@
 #   - one dashboard page whose chart elements source the master via {elementId, kind:"table"}
 #     and reference master columns as [<MasterName>/<Col>] with the QuickSight aggregation.
 #
-# Key behaviours (beads-sigma-nc6g / woaa / 23xu):
+# Key behaviours ([bead] / woaa / 23xu):
 #   - the master sources the DM element whose columns COVER the charted columns (the
 #     denormalized join element), NOT a hardcoded pages[0].elements[0];
 #   - QuickSight window/table-calc functions (runningSum/percentOfTotal/rank/difference/…)
@@ -17,8 +17,8 @@
 #     original expr goes into the column description);
 #   - a dataset FilterOperation surfaced by convert-model (dm-filters.json) is APPLIED as a
 #     real element-level list filter on the master, so downstream aggregates honor it;
-#   - GaugeChartVisual -> kpi-chart, FunnelChartVisual -> bar-chart, TreeMapVisual -> bar-chart
-#     (Sigma has no native gauge/funnel/treemap kind; this mirrors the PBI builder's mapping).
+#   - GaugeChartVisual -> native progress, WaterfallVisual -> native waterfall-chart;
+#     FunnelChartVisual and TreeMapVisual remain explicit bar-chart approximations.
 #
 # Usage:
 #   ruby scripts/build-workbook-from-quicksight.rb \
@@ -32,6 +32,7 @@ require 'set'
 require_relative 'lib/coverage_catalog'
 require_relative 'lib/trellis_emit' # shared native-trellis emitter (supported-kind gate + fallbacks)
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+require_relative 'lib/layout'
 
 opts = {}
 OptionParser.new do |o|
@@ -136,7 +137,7 @@ end.uniq
 
 # ---- pick the DM element whose columns COVER the charted columns ----
 # Use the dm-spec (has column display names) to score coverage; fall back to the
-# dm-readback element list when no dm-spec is provided. (beads-sigma-nc6g point 4)
+# dm-readback element list when no dm-spec is provided. ([bead] point 4)
 dm_spec = opts[:dmspec] && File.exist?(opts[:dmspec]) ? JSON.parse(File.read(opts[:dmspec])) : nil
 needed_disp = needed_resolved.map { |c| disp(c) }.to_set
 
@@ -232,7 +233,7 @@ NUM = ->(fs) { { 'kind' => 'number', 'formatString' => fs } }
 # number-format guessing. NO inline mapping literal may bypass these catalogs (grep-
 # enforced by tests/test-grounding.rb). refs/quicksight-coverage.md is GENERATED from
 # them. Mirrors the merged Looker/Qlik pilot (build_workbook.py): catalog = data, code =
-# thin resolver. (beads-sigma-kvza)
+# thin resolver. ([bead])
 CATALOGS = Coverage.load_all(Coverage.default_catalog_dir(__FILE__))
 VIZ_CAT  = CATALOGS.fetch('viz-kind')
 AGG_CAT  = CATALOGS.fetch('aggregation')
@@ -353,6 +354,32 @@ def qs_bars_stacking(inner)
   end
 end
 
+# QuickSight exposes per-chart LegendOptions, not a standalone shared legend
+# control. Preserve only the released chart-local fields and do not invent an
+# interactive legend element that the source does not contain.
+def apply_qs_legend!(element, inner, title, warnings)
+  return unless element
+  supported = %w[bar-chart line-chart area-chart combo-chart waterfall-chart
+                 scatter-chart pie-chart donut-chart region-map point-map]
+  return unless supported.include?(element['kind'])
+
+  source = (inner['ChartConfiguration'] || {})['Legend']
+  return unless source.is_a?(Hash)
+  legend = {}
+  visibility = source['Visibility'].to_s.upcase
+  legend['visibility'] = 'hidden' if visibility == 'HIDDEN'
+  legend['visibility'] = 'shown' if visibility == 'VISIBLE'
+  position = source['Position'].to_s.downcase
+  legend['position'] = position if %w[top bottom left right].include?(position)
+  element['legend'] = legend unless legend.empty?
+
+  unsupported = source.keys - %w[Visibility Position]
+  unless unsupported.empty?
+    warnings << { 'visual' => title, 'type' => 'LegendStyle',
+                  'reason' => "QuickSight legend fields #{unsupported.join(', ')} have no grounded Sigma mapping; visibility/position were preserved and the rest omitted" }
+  end
+end
+
 def field_role(f)
   if (mf = f['NumericalMeasureField'])
     [:meas, mf['Column']['ColumnName'], (mf.dig('AggregationFunction', 'SimpleNumericalAggregation') || 'SUM')]
@@ -398,7 +425,7 @@ def field_id(f)
    f['CategoricalDimensionField'] || f['DateDimensionField'] || {})['FieldId']
 end
 
-# ---- QS SortConfiguration -> Sigma sort (beads-sigma-xvjl) -------------------
+# ---- QS SortConfiguration -> Sigma sort ([bead]) -------------------
 # QuickSight sorts live under ChartConfiguration.SortConfiguration, e.g.
 #   { "CategorySort": [ { "FieldSort":  { "FieldId": "...", "Direction": "DESC" } },
 #                       { "ColumnSort": { "SortBy": { "Column": { "ColumnName": ... } },
@@ -619,13 +646,13 @@ end
 #
 # Sigma's REAL workbook chart kinds (confirmed against the public OpenAPI element
 # union — /v2/workbooks/spec): kpi-chart, bar-chart, line-chart, area-chart,
-# pie-chart, donut-chart, scatter-chart, combo-chart, table, pivot-table, AND the
-# three geographic kinds point-map / region-map / geography-map. There is NO native
-# histogram, heat-map, treemap, waterfall, box-plot, radar, sankey, or word-cloud
-# kind (verified: those names do not appear anywhere in the element union).
+# pie-chart, donut-chart, scatter-chart, combo-chart, waterfall-chart, progress,
+# table, pivot-table, AND the three geographic kinds point-map / region-map /
+# geography-map. There is NO native histogram, heat-map, treemap, box-plot,
+# radar, sankey, or word-cloud kind.
 #
-# Approximations (no native kind, mirror the PBI builder, beads-sigma-1zh9):
-#   gauge -> kpi-chart (single value); funnel/treemap -> bar-chart (category+measure).
+# Approximations (no native kind, mirror the PBI builder, [bead]):
+#   funnel/treemap -> bar-chart (category+measure).
 # Geographic (NEW — region-map shape verified to round-trip via live POST+readback
 # + MCP query parity on the D17 DM, 2026-06-06): QuickSight FilledMapVisual and
 # GeospatialMapVisual both map to Sigma region-map when their geo field is a region
@@ -635,9 +662,9 @@ end
 # KIND / QS_FALLBACK / QS_UNSUPPORTED are DERIVED from refs/catalogs/viz-kind.json
 # (loaded above as VIZ_CAT), so this dispatch and refs/quicksight-coverage.md cannot
 # drift from a single cited source. Row classes (see the catalog's `description`):
-#   * NATIVE (no `unsupported_reason`)      -> KIND[type] = Sigma kind. Gauge/Funnel/
-#     TreeMap are native-dispatch approximations (Sigma has no gauge/funnel/treemap
-#     element) and carry a `notes` rationale in the catalog.
+#   * NATIVE (no `unsupported_reason`)      -> KIND[type] = Sigma kind. Gauge maps to
+#     native progress; Funnel/TreeMap are native-dispatch approximations because Sigma
+#     has no corresponding element and carry a `notes` rationale in the catalog.
 #   * FALLBACK (`fallback:true`+reason)     -> QS_FALLBACK[type] = the approximation kind
 #     (bar/table) AND QS_UNSUPPORTED[type] = reason. Sigma has NO native equivalent, so
 #     the visual is DATA-MIGRATED from its underlying dims+measures with a loud warning
@@ -668,6 +695,7 @@ build_warnings = []
 # collapses every point to one x. The scatter must instead bind to a hidden grouped
 # source whose groupBy is the point dimension.
 scatter_sources = []
+repeat_sources = []
 
 master_cols = {}   # colname(raw or calc) -> {id, formula, name}  (PRIMARY master's columns)
 
@@ -744,7 +772,7 @@ qs_insight_text = lambda do |inner|
   "<p style=\"text-align: #{align}\"><span style=\"font-size: 16px\">#{prefix} #{value}</span></p>"
 end
 
-# number-format (beads-sigma-kvza): a Sigma number format may ONLY come from a real
+# number-format ([bead]): a Sigma number format may ONLY come from a real
 # QuickSight FormatConfiguration — NEVER guessed from the column NAME. The old body was
 # the disease: a column-NAME regex matcher that assigned a currency format to any name
 # containing revenue/profit/cost/etc, a percent format to margin/pct/etc, and a hardcoded
@@ -827,6 +855,103 @@ def master_ref(colname, calc, master_cols, dmel)
     formula = "[#{dmel}/#{disp(colname)}]"; nm = disp(colname)
   end
   master_cols[colname] = { 'id' => did('m', 'master', dmel, colname), 'formula' => formula, 'name' => nm }
+end
+
+# QuickSight ColumnHierarchies are explicit source evidence for drill. Emit a
+# native drill control only when every ordered hierarchy level resolves on the
+# visual's routed master. DateTimeHierarchy carries no columns in the analysis
+# definition and therefore remains a loud gap instead of guessed year/month/day
+# levels.
+def build_qs_drill_control(element, inner, calc, master_cols, dmel, master_name, master_labels, warnings)
+  hierarchies = inner['ColumnHierarchies']
+  return nil unless hierarchies.is_a?(Array) && !hierarchies.empty?
+  unless element && element.dig('xAxis', 'columnId') && element.dig('source', 'elementId')
+    warnings << { 'visual' => element && element['name'] || inner['VisualId'],
+                  'type' => 'DrillHierarchy',
+                  'reason' => 'QuickSight exported ColumnHierarchies, but this Sigma element has no categorical xAxis; native drill control not emitted' }
+    return nil
+  end
+
+  active_id = element.dig('xAxis', 'columnId')
+  active_col = Array(element['columns']).find { |column| column['id'] == active_id }
+  active_name = active_col && active_col['name']
+  candidate = hierarchies.filter_map do |wrapper|
+    hierarchy = wrapper['ExplicitHierarchy'] || wrapper['PredefinedHierarchy']
+    next unless hierarchy.is_a?(Hash)
+    names = Array(hierarchy['Columns']).map { |column| column['ColumnName'] }.compact
+    [hierarchy, names] if names.length > 1
+  end.find { |_hierarchy, names| active_name && names.any? { |name| disp(name) == active_name || name == active_name } }
+  candidate ||= hierarchies.filter_map do |wrapper|
+    hierarchy = wrapper['ExplicitHierarchy'] || wrapper['PredefinedHierarchy']
+    names = hierarchy.is_a?(Hash) ? Array(hierarchy['Columns']).map { |column| column['ColumnName'] }.compact : []
+    [hierarchy, names] if names.length > 1
+  end.first
+
+  unless candidate
+    warnings << { 'visual' => element['name'], 'type' => 'DrillHierarchy',
+                  'reason' => 'QuickSight hierarchy has no exported ordered Columns (for example DateTimeHierarchy); native drill control not emitted' }
+    return nil
+  end
+
+  hierarchy, names = candidate
+  source_ids = []
+  target_ids = []
+  missing = []
+  names.each_with_index do |raw_name, index|
+    unless master_labels.include?(disp(raw_name))
+      missing << raw_name
+      next
+    end
+    ref = master_ref(raw_name, calc, master_cols, dmel)
+    unless ref
+      missing << raw_name
+      next
+    end
+    source_ids << ref['id']
+    if ref['name'] == active_name
+      target_ids << active_id
+    else
+      target_id = did('drill', element['id'], raw_name)
+      element['columns'] << {
+        'id' => target_id,
+        'name' => ref['name'],
+        'formula' => "[#{master_name}/#{ref['name']}]",
+        'hidden' => true
+      }
+      target_ids << target_id
+    end
+  end
+  unless missing.empty? && source_ids.length == names.length
+    warnings << { 'visual' => element['name'], 'type' => 'DrillHierarchy',
+                  'reason' => "QuickSight drill hierarchy #{names.join(' > ')} could not resolve every master column (missing: #{missing.join(', ')}); native drill control suppressed" }
+    return nil
+  end
+
+  active_index = names.index { |name| disp(name) == active_name || name == active_name } || 0
+  control_id = "Drill#{Digest::SHA1.hexdigest(inner['VisualId'].to_s)[0, 10]}"
+  {
+    'id' => did('ctl-drill', inner['VisualId']),
+    'kind' => 'control',
+    'name' => "#{element['name']} Drill",
+    'controlId' => control_id,
+    'controlType' => 'drill',
+    'source' => {
+      'kind' => 'source',
+      'source' => { 'kind' => 'table', 'elementId' => element.dig('source', 'elementId') },
+      'columnId' => source_ids[active_index]
+    },
+    'categories' => source_ids.map { |column_id| { 'columnId' => column_id } },
+    'targets' => [{
+      'source' => { 'kind' => 'table', 'elementId' => element['id'] },
+      'columnIds' => target_ids
+    }],
+    'value' => source_ids[active_index],
+    'filters' => [{
+      'source' => { 'kind' => 'table', 'elementId' => element['id'] },
+      'columnId' => target_ids[active_index]
+    }],
+    'controlScope' => [element['id']]
+  }
 end
 
 def dim_col(role, calc, mc, dmel, m)
@@ -1233,6 +1358,7 @@ sheet_pages = []   # [{ "pageId"=>, "name"=>, "sheetIndex"=>, "elements"=>[...] 
 vis_map = {}       # QS VisualId -> Sigma element id (globally unique within an analysis)
 defn['Sheets'].each_with_index do |sh, sheet_idx|
   elements = []
+  page_repeaters = []
   (sh['Visuals'] || []).each do |v|
     vtype, inner = v.first
     title = qs_visual_title(inner, vtype)
@@ -1288,6 +1414,27 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
     el = nil
 
     case kind
+    when 'progress'
+      vals = rol.('Values')
+      if vals.empty?
+        build_warnings << { 'visual' => title, 'type' => 'GaugeProgress',
+                            'reason' => 'QuickSight gauge has no Values field; native progress not emitted' }
+        next
+      end
+      value_col, = meas_col(vals[0], calc, mc_, dmel_, m_)
+      range = inner.dig('ChartConfiguration', 'GaugeChartOptions', 'ArcAxis', 'Range') || {}
+      el = {
+        'id' => eid, 'kind' => 'progress', 'name' => title,
+        'mode' => 'value', 'shape' => 'ring',
+        'value' => value_col['formula'],
+        'min' => (range.key?('Min') ? range['Min'] : 0).to_s
+      }
+      if range.key?('Max')
+        el['max'] = range['Max'].to_s
+      else
+        build_warnings << { 'visual' => title, 'type' => 'GaugeProgress',
+                            'reason' => 'QuickSight GaugeChartOptions.ArcAxis.Range.Max is absent; native progress emitted without a guessed maximum — review the ring scale' }
+      end
     when 'kpi-chart'
       # KPI + Gauge both surface a single value. STYLE for QuickSight fidelity: QS renders
       # KPIs as prominent big-number tiles, so give the value a larger font and center it
@@ -1298,10 +1445,14 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
       el = base.merge('columns' => [c.merge('name' => title).merge(kpi_number_format(c))],
                       'value' => { 'columnId' => cid, 'fontSize' => 24 },
                       'layout' => { 'anchor' => 'middle' })
-    when 'bar-chart', 'line-chart', 'area-chart'
+    when 'bar-chart', 'line-chart', 'area-chart', 'waterfall-chart'
       # funnel/treemap land here too: their dim is in Category/Groups, measure in Values/Sizes
-      if is_fallback
-        # D18 waterfall/histogram -> bar. Use the generic flattener (non-standard wells).
+      if kind == 'waterfall-chart'
+        dims = rol.('Categories')
+        vals = rol.('Values')
+      elsif is_fallback
+        # D18 non-native fallbacks (for example histogram) use the generic
+        # flattener for their non-standard wells. Waterfall is native above.
         fdims, fmeas = all_field_roles(w)
         dims = fdims; vals = fmeas
       else
@@ -1343,6 +1494,20 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
         qs_orient = (inner['ChartConfiguration'] || {})['Orientation']
         el['orientation'] = 'horizontal' if qs_orient.to_s.upcase == 'HORIZONTAL'
         el['stacking'] = qs_bars_stacking(inner)   # CLUSTERED -> unstacked (Sigma defaults to stacked)
+      end
+      if kind == 'waterfall-chart'
+        breakdowns = rol.('Breakdowns')
+        if breakdowns.any?
+          split_col, split_id = dim_col(breakdowns[0], calc, mc_, dmel_, m_)
+          el['columns'] << split_col
+          el['splitBy'] = { 'id' => split_id }
+        end
+        el['waterfallShape'] = { 'calculation' => 'sum', 'connectorLine' => 'shown' }
+        el['startPoint'] = {
+          'value' => { 'type' => 'constant', 'value' => 0 },
+          'visibility' => 'hidden'
+        }
+        el['grouping'] = 'stacked'
       end
       # B-gap COLOR: by-measure (ColorScale dup column) / by-dimension (Colors well).
       cclr = qs_color(inner, w, el, [did], ycids, calc, mc_, dmel_, m_)
@@ -1517,6 +1682,9 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
                         'region' => { 'id' => did, 'regionType' => region_type_for(geo[0][1]) })
       end
     end
+    # Released chart-local legend visibility/position, only when QuickSight
+    # exported an explicit LegendOptions object.
+    apply_qs_legend!(el, inner, title, build_warnings) if el
     # QuickSight "Small multiples" field well + SmallMultiplesOptions -> Sigma native
     # element trellis (detection-gated: no SmallMultiples well -> byte-identical build).
     # Runs after the case built el+columns and BEFORE sorts/filters, so the facet joins a
@@ -1526,7 +1694,11 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
     apply_qs_sorts(el, inner, kind, title, build_warnings) if el
     # RCA #1 / bead 3goo.1: apply this visual's scoped QS FilterGroups as element filters
     apply_visual_filters(el, inner['VisualId'], calc, mc_, dmel_, m_) if el
-    elements << el if el
+    if el
+      elements << el
+      drill = build_qs_drill_control(el, inner, calc, mc_, dmel_, m_, mr[:labels], build_warnings)
+      elements << drill if drill
+    end
   end
   # C-gap: QuickSight sheet-level FilterControls + ParameterControls -> Sigma list
   # controls. QS selections are GLOBAL on the sheet (and FilterGroups can scope AllSheets),
@@ -1552,10 +1724,100 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
     vis_map[tb['TextBoxId']] = tid if tb['TextBoxId']
     n_textboxes += 1
   end
+  if defn['Sheets'].length > 1
+    page_labels = defn['Sheets'].each_with_index.each_with_object({}) do |(source_sheet, index), labels|
+      target_page = index.zero? ? 'page-dash' : "page-sheet-#{index}"
+      labels[target_page] = source_sheet['Name'] || "Sheet #{index + 1}"
+    end
+    elements.unshift(
+      'id' => did('nav', sh['SheetId'] || sheet_idx),
+      'kind' => 'navigation',
+      'mode' => 'auto',
+      'pageLabels' => page_labels
+    )
+  end
+
+  section_layout = (sh['Layouts'] || []).map { |layout| layout.dig('Configuration', 'SectionBasedLayout') }.compact.first
+  if section_layout
+    Array(section_layout['BodySections']).each do |section|
+      section_id = section['SectionId'] || did('section', sheet_idx, page_repeaters.length)
+      section_element_ids = Array(section.dig('Content', 'Layout', 'FreeFormLayout', 'Elements'))
+                            .map { |layout_element| vis_map[layout_element['ElementId']] }.compact
+      repeat_cfg = section['RepeatConfiguration']
+      if repeat_cfg.is_a?(Hash)
+        dimensions = Array(repeat_cfg['DimensionConfigurations']).filter_map do |dimension|
+          cfg = dimension['DynamicCategoryDimensionConfiguration'] ||
+                dimension['DynamicNumericDimensionConfiguration']
+          cfg && cfg.dig('Column', 'ColumnName')
+        end
+        non_repeating = Array(repeat_cfg['NonRepeatingVisuals']).filter_map { |source_id| vis_map[source_id] }
+        repeating_children = section_element_ids - non_repeating
+        target_master = dimensions.length == 1 &&
+                        MASTERS.values.find { |candidate| candidate[:labels].include?(disp(dimensions.first)) }
+        if target_master && repeating_children.any?
+          raw_name = dimensions.first
+          ref = master_ref(raw_name, calc, target_master[:cols], target_master[:dmel])
+          source_id = did('repeat-src', sh['SheetId'], section_id)
+          source_col_id = did('repeat-col', source_id, raw_name)
+          grouping_id = did('repeat-group', source_id)
+          repeat_sources << {
+            'id' => source_id,
+            'kind' => 'table',
+            'name' => "#{sh['Name'] || 'Sheet'} #{raw_name} Repeat Source",
+            'visibleAsSource' => false,
+            'source' => { 'kind' => 'table', 'elementId' => target_master[:sid] },
+            'columns' => [{
+              'id' => source_col_id,
+              'name' => ref['name'],
+              'formula' => "[#{target_master[:name]}/#{ref['name']}]"
+            }],
+            'groupings' => [{
+              'id' => grouping_id,
+              'groupBy' => [source_col_id],
+              'calculations' => []
+            }]
+          }
+          repeater_id = did('repeat', sh['SheetId'], section_id)
+          elements << {
+            'id' => repeater_id,
+            'kind' => 'repeated-container',
+            'source' => {
+              'kind' => 'table',
+              'elementId' => source_id,
+              'groupingId' => grouping_id
+            },
+            'arrangement' => 'list'
+          }
+          repeated_break = nil
+          if repeat_cfg.dig('PageBreakConfiguration', 'After', 'Status').to_s.upcase == 'ENABLED'
+            repeated_break = did('page-break-repeat', sh['SheetId'], section_id)
+            elements << { 'id' => repeated_break, 'kind' => 'page-break' }
+            repeating_children << repeated_break
+          end
+          page_repeaters << {
+            'containerId' => repeater_id,
+            'childIds' => repeating_children,
+            'sourceColumn' => raw_name,
+            'pageBreakId' => repeated_break
+          }
+        else
+          build_warnings << {
+            'visual' => sh['Name'] || "Sheet #{sheet_idx + 1}",
+            'type' => 'RepeatedSection',
+            'reason' => "QuickSight repeating section #{section_id.inspect} was not emitted: expected one resolvable repeat dimension and at least one repeating child (dimensions=#{dimensions.inspect}, children=#{repeating_children.size})"
+          }
+        end
+      end
+      if section.dig('PageBreakConfiguration', 'After', 'Status').to_s.upcase == 'ENABLED'
+        elements << { 'id' => did('page-break', sh['SheetId'], section_id), 'kind' => 'page-break' }
+      end
+    end
+  end
   # one Sigma page per QS sheet (skip a sheet that produced zero elements)
   pid = sheet_idx.zero? ? 'page-dash' : "page-sheet-#{sheet_idx}"
   sheet_pages << { 'pageId' => pid, 'name' => (sh['Name'] || "Sheet #{sheet_idx + 1}"),
-                   'sheetIndex' => sheet_idx, 'elements' => elements }
+                   'sheetIndex' => sheet_idx, 'elements' => elements,
+                   'repeaters' => page_repeaters }
 end
 
 # Record a (c)-tail warning for any what-if PARAMETER inlined as a constant (the
@@ -1576,7 +1838,7 @@ master = { 'id' => 'master', 'name' => M, 'kind' => 'table', 'visibleAsSource' =
            'source' => { 'dataModelId' => dm_id, 'elementId' => dm_el, 'kind' => 'data-model' },
            'columns' => master_cols.values }
 
-# ---- apply surfaced dataset filter(s) (beads-sigma-23xu FilterOperation) ----
+# ---- apply surfaced dataset filter(s) ([bead] FilterOperation) ----
 # convert-model writes the QS predicate(s) to dm-filters.json. We translate a simple
 # {COL}='VALUE' equality predicate into a Sigma element-level list filter on the
 # master, so every downstream aggregate honors it. The filtered column is added to
@@ -1636,11 +1898,77 @@ end
 # Scatter charts emit a hidden GROUPED source table (one row per point dim). Park
 # them on the Data page next to the master (visibleAsSource:false, so they need no
 # layout slot) — they're sourced by the scatter element via {elementId, groupingId}.
-data_elements = [master] + secondary_masters + scatter_sources
+data_elements = [master] + secondary_masters + scatter_sources + repeat_sources
 
-spec = { 'name' => (an['Name'] || 'QuickSight Migration') + ' (from QuickSight)',
-         'schemaVersion' => 1,
-         'pages' => [{ 'id' => 'page-data', 'name' => 'Data', 'elements' => data_elements }] + dash_pages }
+# The released workbook code representation is not the data-model shape:
+# workbook pages are metadata only, elements are document-global, and layout is
+# the sole authority for page membership. Emit a complete deterministic layout
+# on the initial create so a missing/failed later fidelity pass can never leave
+# the workbook with invisible or ambiguously-owned elements.
+row_span = lambda do |element|
+  case element['kind']
+  when 'page-break' then 1
+  when 'control', 'text', 'navigation', 'progress' then 3
+  when 'kpi-chart' then 6
+  when 'table', 'pivot-table' then 12
+  else 10
+  end
+end
+layout_pages = []
+layout_pages << SigmaLayout.page_xml(
+  'page-data',
+  data_elements.each_with_index.map { |element, i| SigmaLayout.le(element['id'], 1, 25, i * 12 + 1, i * 12 + 11) }.join("\n")
+)
+dash_pages.each do |page|
+  row = 1
+  repeaters = (sheet_pages.find { |record| record['pageId'] == page['id'] } || {})['repeaters'] || []
+  repeated_child_ids = repeaters.flat_map { |record| record['childIds'] }.to_set
+  repeaters_by_id = repeaters.each_with_object({}) { |record, index| index[record['containerId']] = record }
+  children = (page['elements'] || []).filter_map do |element|
+    next if repeated_child_ids.include?(element['id'])
+    if (repeater = repeaters_by_id[element['id']])
+      inner_row = 1
+      inner = repeater['childIds'].filter_map do |child_id|
+        child = (page['elements'] || []).find { |candidate| candidate['id'] == child_id }
+        next unless child
+        height = row_span.call(child)
+        xml = SigmaLayout.le(child_id, 1, 13, inner_row, inner_row + height)
+        inner_row += height
+        xml
+      end
+      height = [inner_row, 4].max
+      xml = SigmaLayout.gc(element['id'], 1, 25, row, row + height, inner.join("\n"))
+      row += height
+      next xml
+    end
+    height = row_span.call(element)
+    xml = SigmaLayout.le(element['id'], 1, 25, row, row + height)
+    row += height
+    xml
+  end
+  layout_pages << SigmaLayout.page_xml(page['id'], children.join("\n"))
+end
+
+document = {
+  'schemaVersion' => 1,
+  'kind' => 'workbook',
+  'pages' => [{ 'id' => 'page-data', 'name' => 'Data', 'visibility' => 'hidden' }] +
+             dash_pages.map { |page| page.reject { |key, _| key == 'elements' } },
+  'elements' => data_elements + dash_pages.flat_map { |page| page['elements'] || [] },
+  'layout' => SigmaLayout.assemble(*layout_pages),
+  'panels' => [],
+  'overlays' => []
+}
+if defn['Sheets'].length > 1
+  document['settings'] = {
+    'navigation' => { 'pageTabsInViewMode' => 'shown' }
+  }
+end
+
+spec = {
+  'name' => (an['Name'] || 'QuickSight Migration') + ' (from QuickSight)',
+  'document' => document
+}
 spec['folderId'] = opts[:folder] if opts[:folder]
 # THEME -> workbook themeOverrides. Two fidelity moves:
 #  (1) categoricalScheme: the ONLY spec path to pie/donut slice colors (per-element
@@ -1650,13 +1978,31 @@ spec['folderId'] = opts[:folder] if opts[:folder]
 #      border is skipped on a dark QS theme, which also flips the base to Sigma "Dark").
 unless THEME_COLORS.empty?
   ov = { 'categoricalScheme' => THEME_COLORS, 'hasCards' => 'shown', 'borderRadius' => 'round' }
-  if THEME && THEME['isDark']
-    spec['themeName'] = 'Dark'
+  dark = THEME && THEME['isDark']
+  if dark
+    theme_name = 'Dark'
   else
     ov['elementBorder'] = { 'color' => '#E2E8F0', 'width' => 1 }
   end
-  spec['themeOverrides'] = ov
-  STDERR.puts "  theme: applied QuickSight palette (#{THEME_COLORS.size} colors) + card chrome via themeOverrides#{THEME['isDark'] ? ' + themeName:Dark' : ''}"
+  # Live since 2026-08: themeName/themeOverrides moved to
+  # document.settings.theme.{name,overrides} (shared/lib/code_rep.rb
+  # DOC_KEYS) — a flat top-level themeName/themeOverrides is invalid on
+  # write and gets silently dropped by the code-rep wrapper.
+  theme = { 'overrides' => ov }
+  theme['name'] = theme_name if theme_name
+  document['settings'] = (document['settings'] || {}).merge('theme' => theme)
+  STDERR.puts "  theme: applied QuickSight palette (#{THEME_COLORS.size} colors) + card chrome via settings.theme.overrides#{dark ? ' + settings.theme.name:Dark' : ''}"
+end
+
+placed_ids = document['layout'].scan(/\belementId="([^"]+)"/).flatten
+element_ids = document['elements'].map { |element| element['id'] }
+duplicate_placements = placed_ids.tally.select { |_id, count| count > 1 }.keys
+duplicate_elements = element_ids.tally.select { |_id, count| count > 1 }.keys
+missing = element_ids - placed_ids
+unknown = placed_ids - element_ids
+unless duplicate_placements.empty? && duplicate_elements.empty? && missing.empty? && unknown.empty?
+  abort "FATAL invalid authoritative workbook layout: duplicate placements=#{duplicate_placements.inspect}; " \
+        "duplicate element ids=#{duplicate_elements.inspect}; unplaced=#{missing.inspect}; unknown=#{unknown.inspect}"
 end
 
 File.write(opts[:out], JSON.pretty_generate(spec))
@@ -1692,12 +2038,22 @@ end
 File.write(map_out, JSON.pretty_generate(
   'dashPageId' => (sheet_pages.first && sheet_pages.first['pageId']) || 'page-dash',
   'masterElementId' => 'master',
+  'dataElementIds' => data_elements.map { |element| element['id'] },
   'sheetPages' => sheet_pages.map { |sp| { 'pageId' => sp['pageId'], 'name' => sp['name'], 'sheetIndex' => sp['sheetIndex'] } },
+  'pageElementIds' => dash_pages.each_with_object({}) do |page, out|
+    out[page['id']] = (page['elements'] || []).map { |element| element['id'] }
+  end,
+  'pageBreakElementIds' => dash_pages.flat_map { |page| page['elements'] || [] }
+                                     .select { |element| element['kind'] == 'page-break' }
+                                     .map { |element| element['id'] },
+  'repeatedContainers' => sheet_pages.each_with_object({}) do |sheet_page, out|
+    out[sheet_page['pageId']] = sheet_page['repeaters'] unless Array(sheet_page['repeaters']).empty?
+  end,
   'controlElementIds' => control_eids_by_page,
   'visualToElement' => vis_map))
 
 # Persist a machine-readable per-visual warning manifest for any QuickSight visual
-# Sigma can't recreate (sankey/radar/box-plot/waterfall/word-cloud/histogram/heat-map/
+# Sigma can't recreate (sankey/radar/box-plot/word-cloud/histogram/heat-map/
 # layer-map/insight-ML/custom-content/plugin). This is the (c)-tail record — a clear
 # "dropped, here's why" rather than a silent omission.
 # Fold in the loud de-silencing notes raised by the top-level `def` classifiers
@@ -1714,7 +2070,7 @@ File.write(warn_out, JSON.pretty_generate('warnings' => build_warnings))
 # <workdir>/control-scope.json automatically; we write it next to the spec (= the workdir).
 # sourceFilterSignals > 0 with zero spec controls FAILS gate 7 — the silently-dropped class
 # this change exists to kill.
-CTL_QUERYABLE = %w[table pivot-table bar-chart line-chart pie-chart donut-chart
+CTL_QUERYABLE = %w[table pivot-table bar-chart waterfall-chart line-chart pie-chart donut-chart
                    area-chart scatter-chart combo-chart kpi-chart region-map point-map].to_set
 must_reach = dash_pages.flat_map { |pg| pg['elements'] }
                        .select { |e| CTL_QUERYABLE.include?(e['kind']) }

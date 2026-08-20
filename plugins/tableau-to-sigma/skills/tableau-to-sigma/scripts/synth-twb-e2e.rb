@@ -51,6 +51,7 @@ $LOAD_PATH.unshift HERE
 $LOAD_PATH.unshift File.join(HERE, 'lib')
 require File.join(HERE, 'mechanical-specs.rb')
 require 'sigma_rest'
+require 'workbook_code'
 
 opts = { render: true }
 OptionParser.new do |p|
@@ -314,7 +315,7 @@ wbs = ['ruby', File.join(HERE, 'build-workbook-spec.rb'),
 wbs += ['--dm-element-name', fact['name']] unless fact['name'].to_s.strip.empty?
 run!(wbs, allow_fail: true)
 
-wbspec = JSON.parse(File.read(wb_spec_path))
+wbspec = WorkbookCode.legacy_view(JSON.parse(File.read(wb_spec_path)))
 # Sigma page ids must match /^[a-zA-Z0-9_-]{1,64}$/; the slug can contain invalid
 # chars (e.g. '+' from a dashboard caption). Sanitize before POST.
 (wbspec['pages'] || []).each { |pg| pg['id'] = pg['id'].gsub(/[^a-zA-Z0-9_-]/, '-')[0, 64] if pg['id'] }
@@ -338,6 +339,7 @@ dropped_viz = 0
   end
 end
 puts "viz prune: dropped #{dropped_viz} element(s) referencing untranslated calcs/params"
+wbspec = WorkbookCode.canonicalize(wbspec)
 File.write(wb_spec_path, JSON.pretty_generate(wbspec))
 
 # ---------------------------------------------------------------------------
@@ -363,7 +365,7 @@ puts "→ #{File.join(WORK, 'migration-notes.md')}"
 if opts[:render]
   wb = (JSON.parse(File.read(wb_ids_path)) rescue nil)
   wb_id = wb && (wb['workbookId'] || wb['id'])
-  page_id = (wbspec['pages'] || []).map { |pg| pg['id'] }.compact.first
+  page_id = WorkbookCode.pages(wbspec).map { |pg| pg['id'] }.compact.first
   if wb_id && page_id
     puts "\n== 8. render PNG =="
     run!([*PyResolve.argv, PyResolve.winpath(File.join(HERE, 'sigma-export-png.py')), '--workbook', wb_id,

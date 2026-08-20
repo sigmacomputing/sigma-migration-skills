@@ -18,6 +18,14 @@ eq(display_name('project_id'), 'Project Id', 'project_id → Project Id')
 eq(display_name('FY2024'),     'FY 2024',    'letter/digit boundary')
 eq(display_name('HTMLParser'), 'HTML Parser','acronym boundary')
 eq(display_name(display_name('order_date')), 'Order Date', 'idempotent (case-safe sibling refs)')
+# bead xo56 — a DOT is not a split boundary, so a dotted column stays one token.
+# String#capitalize would lowercase its remainder ('Account.Billing' ->
+# 'Account.billing'), emitting a formula reference Sigma cannot resolve and
+# 400ing the whole data-model POST. Live-found on the 36-card cold run.
+eq(display_name('Account.BillingState'), 'Account Billing State', 'dot is a word separator — no dot survives (xo56)')
+eq(display_name('Account.BillingCountry'), 'Account Billing Country', 'second dotted camelCase column')
+eq(display_name('Account.Name'), 'Account Name', 'dotted single-word column loses its dot too')
+eq(display_name('IsWon'), 'Is Won', 'plain camelCase still splits (Sigma does too)')
 
 puts "== build_element =="
 ds = { 'id' => 'ds-1', 'name' => 'Orders',

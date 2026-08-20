@@ -33,6 +33,7 @@ require 'net/http'
 require 'uri'
 require 'optparse'
 require_relative 'lib/datasource_filter_check'
+require_relative 'lib/code_rep'
 
 opts = {}
 OptionParser.new do |p|
@@ -100,7 +101,7 @@ unless res.is_a?(Net::HTTPSuccess)
   puts "[SKIP] datasource-filter gate: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{res.code} — cannot verify"
   exit 0
 end
-spec =
+raw_spec =
   begin
     JSON.parse(res.body)
   rescue JSON::ParserError
@@ -108,6 +109,11 @@ spec =
     require 'date'
     YAML.safe_load(res.body, permitted_classes: [Date, Time]) || {}
   end
+# Workbook code-rep GETs nest pages/elements under `document` (live since
+# 2026-08); DatasourceFilterCheck.violations expects a flat `spec['pages']`
+# (its contract stays "give me a plain document" per the shared lint-lib
+# decision — unwrap at the caller, not in the lib).
+spec = Sigma::CodeRep.document(raw_spec)
 
 filter_shelf = []
 pr = File.join(work, 'png-read.json')

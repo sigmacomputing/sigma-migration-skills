@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Grounding regression for the Sisense->Sigma dashboard classifier (beads-sigma-kvza).
+"""Grounding regression for the Sisense->Sigma dashboard classifier ([bead]).
 
 Proves convert.py / jaql_expr.py are documentation-grounded and loud-on-unmapped:
-  1. CATALOGS      — all four refs/catalogs/*.json load, are cited (source doc +
+  1. CATALOGS      — all five refs/catalogs/*.json load, are cited (source doc +
      per-row doc URL), have unique sources, and are stamped sigma_verified=n
      (LIVE query-verification is deferred this pass).
   2. NO INLINE MAP — the viz/format/aggregation/control maps are DERIVED from the
@@ -30,7 +30,8 @@ FIX = os.path.join(SKILL, "fixtures")
 sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
 
-DIMS = {"viz-kind", "number-format", "aggregation", "control"}
+DIMS = {"viz-kind", "number-format", "aggregation", "control",
+        "workbook-feature"}
 
 
 def test_catalogs_valid():
@@ -51,7 +52,7 @@ def test_catalogs_valid():
             # sigma_verified is 'n' for EVERY row this pass (no false 'y' claims)
             assert (r.get("sigma_verified") or {}).get("status") == "n", \
                 (name, r["source"], "sigma_verified must be 'n' this pass")
-    print("[ok] catalogs: 4 dimensions load, cited, unique sources, all sigma_verified=n")
+    print("[ok] catalogs: 5 dimensions load, cited, unique sources, all sigma_verified=n")
 
 
 def test_no_inline_maps():
@@ -108,7 +109,7 @@ def test_loud_unknown_widget():
     d["widgets"].append(ghost)
     dm_info = {"dataModelId": "dm-x", "factElementId": "fact-x", "factName": "Commerce"}
     spec, flags = C.convert_dashboard([d], model, dm_info)
-    names = [e.get("name") for e in spec["pages"][1]["elements"]]
+    names = [e.get("name") for e in C.code_rep.workbook_elements(spec)]
     assert "Weird BloX" not in names, "unmapped widget silently emitted an element"
     assert any(isinstance(f, dict) and f.get("type") == "bloxwidget" for f in flags), flags
     print("[ok] loud viz-kind: unknown widget 'bloxwidget' flagged, no element emitted")

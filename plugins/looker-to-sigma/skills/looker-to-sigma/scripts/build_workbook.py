@@ -54,8 +54,9 @@ DEFAULT_TIMEFRAMES = ["raw", "time", "date", "week", "month", "quarter", "year"]
 # these catalogs (grep-enforced by tests/test_grounding.py). The human-readable
 # coverage matrix in refs/looker-coverage.md is GENERATED from these files.
 # Loader: shared/lib/coverage_catalog.py (synced to scripts/lib/). Design mirrors
-# the beads-sigma-93ps contract: catalog = data, code = thin resolver/predicates.
+# the [bead] contract: catalog = data, code = thin resolver/predicates.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import code_rep                 # noqa: E402  workbook document/envelope adapter
 import coverage_catalog as _cc  # noqa: E402
 import trellis_emit as _te      # noqa: E402  shared native-trellis emitter (supported-kind gate + fallbacks)
 _CAT_DIR = _cc.default_catalog_dir(__file__)
@@ -63,6 +64,7 @@ VIZ_CAT  = _cc.load(_CAT_DIR, "viz-kind")        # Looker vis type   -> Sigma el
 FMT_CAT  = _cc.load(_CAT_DIR, "number-format")   # value_format_name -> Sigma number format (D3)
 AGG_CAT  = _cc.load(_CAT_DIR, "aggregation")     # measure type      -> Sigma aggregate fn (+ *If)
 CTRL_CAT = _cc.load(_CAT_DIR, "control")         # dashboard filter  -> Sigma control kind
+FEATURE_CAT = _cc.load(_CAT_DIR, "workbook-feature")  # released workbook feature audit
 
 # Back-compat dict views derived from the catalogs. These carry the SAME keys and
 # values the old inline literals did (locked by tests/golden/); the loud fallback
@@ -377,14 +379,65 @@ def main():
                    + glob.glob(os.path.join(a.views, "..", "*.model.lkml")))
     aliases = parse_join_aliases(model_files)
     warnings = []
+    source_tabs = [t for t in (dash.get("tabs") or [])
+                   if isinstance(t, dict) and t.get("name")]
+    if source_tabs:
+        content_pages = [
+            {"id": f"page-tab-{i}", "name": t.get("label") or t["name"],
+             "sourceName": t["name"]}
+            for i, t in enumerate(source_tabs, 1)
+        ]
+    else:
+        content_pages = [{"id": "page-dash", "name": dash["title"], "sourceName": None}]
+    page_by_tab = {p["sourceName"]: p for p in content_pages if p.get("sourceName")}
+    element_page = {}
+
+    def page_for_tile(el):
+        tab_name = el.get("tabName")
+        if tab_name and tab_name in page_by_tab:
+            return page_by_tab[tab_name]["id"]
+        if tab_name and source_tabs:
+            warnings.append(
+                f"tile '{el.get('name')}' names unknown dashboard tab '{tab_name}' — "
+                f"placed on '{content_pages[0]['name']}'")
+        return content_pages[0]["id"]
+
+    def place_on_page(element_id, page_id):
+        element_page[element_id] = page_id
+
+    def literal_style(style, context):
+        """Keep released literal style fields; reject dynamic/Liquid values."""
+        if not isinstance(style, dict):
+            return None
+        color = style.get("backgroundColor")
+        if not isinstance(color, str) or not color.strip():
+            return None
+        if re.search(r"\{\{|\{%|\$\{", color):
+            warnings.append(f"{context}: dynamic background_color '{color}' not emitted — "
+                            "Sigma workbook style requires a resolved literal color")
+            return None
+        return {"backgroundColor": color.strip()}
     # Native-trellis round-trip sidecar records (element_id/kind/name/axis/columnId).
     # Populated by emit_native_trellis; written to native-trellis-emitted.json ONLY
     # when a trellis was actually emitted — a dashboard with no small-multiples tile
     # stays byte-identical (no file). Sigma silently STRIPS an unsupported trellis on
     # readback, so verify-trellis-survived.rb re-reads the posted spec and asserts each.
     trellis_records = []
+    view_paths = sorted(glob.glob(os.path.join(a.views, "*.view.lkml")))
     measures, dims, view_pk, formats, yesno_dims, dim_groups, dim_labels = build_field_index(
-        sorted(glob.glob(os.path.join(a.views, "*.view.lkml"))), aliases, warnings)
+        view_paths, aliases, warnings)
+    drill_signals = []
+    for view_path in view_paths:
+        text = open(view_path, encoding="utf-8").read()
+        for match in re.finditer(r"\bdrill_fields\s*:\s*(\[[^\]]*\]|[^\n#]+)", text):
+            drill_signals.append(
+                f"{os.path.basename(view_path)}:{match.group(1).strip()}")
+    if drill_signals:
+        warnings.append(
+            "⚠ LookML drill_fields detected ("
+            + "; ".join(drill_signals[:4])
+            + ") — released Sigma drill controls expose no grounded authorable "
+              "source/category/target binding, so no dead drill UI was emitted")
 
     # Fold Looker's authoritative categories into the local indexes so a Look's
     # ad-hoc/custom measures (dynamic_fields) — or a run with NO --views — classify
@@ -823,7 +876,7 @@ def main():
     # halves every tile's height — and Sigma SUPPRESSES x-axis category labels (and
     # most y gridline labels) when the chart band is that short, so migrated bar
     # charts rendered with NO category names (same short-band suppression seen on
-    # tableau, beads-sigma-tkkv). Scale rows 2x so tile heights land near their
+    # tableau, [bead]). Scale rows 2x so tile heights land near their
     # Looker pixel heights and axis labels render.
     ROW_SCALE = 2
     elements, layout_items = [], []
@@ -991,7 +1044,12 @@ def main():
             if bodytxt:
                 parts.append(bodytxt)
             body = "\n\n".join(parts) if parts else (el.get("name") or title or "")
-            elements.append({"id": eid, "kind": "text", "body": body})
+            text_el = {"id": eid, "kind": "text", "body": body}
+            style = literal_style(el.get("style"), f"tile '{el.get('name')}'")
+            if style:
+                text_el["style"] = style
+            elements.append(text_el)
+            place_on_page(eid, page_for_tile(el))
             L = _layout_of(el); c0 = L["col"] + 1; c1 = L["col"] + 1 + L["width"]
             r0 = L["row"] * ROW_SCALE + 1; r1 = r0 + L["height"] * ROW_SCALE
             layout_items.append((eid, c0, c1, r0, r1, "text"))
@@ -1025,6 +1083,27 @@ def main():
         ex = el["explore"]
         ms = [f for f in el["fields"] if is_measure(f)]
         ds = [f for f in el["fields"] if not is_measure(f)]
+
+        # Released native waterfall is grounded for Looker's documented
+        # dimension + measure form. The measure-only form has no row category
+        # field to bind to xAxis, so do not fabricate one from measure labels.
+        if kind == "waterfall-chart" and not (ds and ms):
+            warnings.append(
+                f"⚠⚠ tile '{el['name']}': measure-only looker_waterfall cannot be "
+                "authoritatively mapped to Sigma waterfall-chart (no category field) — skipped")
+            continue
+
+        # A Looker single-value progress comparison is value / comparison value.
+        # Emit native progress only when both formulas are present; otherwise
+        # retain the ordinary KPI and flag the missing target.
+        if (kind == "kpi-chart" and el.get("showComparison")
+                and el.get("comparisonType") in ("progress", "progress_percentage")):
+            if len(ms) >= 2:
+                kind = "progress"
+            else:
+                warnings.append(
+                    f"⚠ tile '{el['name']}': comparison_type={el.get('comparisonType')} "
+                    "has no second measure target — retained as KPI; progress not emitted")
 
         # ── pivoted table → real Sigma pivot-table (cross-tab) ────────────────
         # A Looker grid/table WITH pivots is a cross-tab: row dims on the row shelf,
@@ -1061,6 +1140,7 @@ def main():
                           "source": {"elementId": master_of(ex)["id"], "kind": "table"},
                           "columns": [col], "value": {"columnId": cid}}
                 elements.append(kpi_el)
+                place_on_page(kid, page_for_tile(el))
                 el.setdefault("_emitted", []).append(kpi_el)   # control-targeting (listen:)
                 c0 = int(round(L["col"] + slot * w)) + 1
                 c1 = int(round(L["col"] + (slot + 1) * w)) + 1
@@ -1073,6 +1153,7 @@ def main():
                     "equivalent — keep the numeric metric and apply a Sigma column format."
                     for f in texts)
                 elements.append({"id": tid, "kind": "text", "body": body})
+                place_on_page(tid, page_for_tile(el))
                 c0 = int(round(L["col"] + slot * w)) + 1
                 c1 = int(round(L["col"] + (slot + 1) * w)) + 1
                 layout_items.append((tid, c0, c1, r0, r1, "text"))
@@ -1083,10 +1164,20 @@ def main():
                             + (f" + {len(texts)} warning text tile(s)" if texts else ""))
             continue
         eid = sid()
-        base = {"id": eid, "kind": kind, "name": el["name"], "source": {"elementId": master_of(ex)["id"], "kind": "table"}}
+        base = {"id": eid, "kind": kind, "name": el["name"]}
+        if kind != "progress":
+            base["source"] = {"elementId": master_of(ex)["id"], "kind": "table"}
         field2cid = {}   # "view.field" -> tile column id (for sorts: resolution)
 
-        if kind == "kpi-chart":
+        if kind == "progress":
+            base["mode"] = "value"
+            base["shape"] = "bar"
+            base["value"] = formula_for(ms[0], ex)
+            base["min"] = "0"
+            base["max"] = formula_for(ms[1], ex)
+            _warn_count(ms[0], el)
+            _warn_count(ms[1], el)
+        elif kind == "kpi-chart":
             vf = formula_for(ms[0], ex) if ms else "Count()"
             cid = sid("v")
             col = {"id": cid, "formula": vf, "name": el["name"]}
@@ -1165,7 +1256,7 @@ def main():
                 for mf in (ms[:2] or []): _warn_count(mf, el)
             rm = looker_refmarks(el)
             if rm: base["refMarks"] = rm
-        elif kind in ("bar-chart", "area-chart", "line-chart"):
+        elif kind in ("bar-chart", "area-chart", "line-chart", "waterfall-chart"):
             cols, ymids = [], []
             xid = sid("x"); xf = ds[0] if ds else (el["fields"][0] if el["fields"] else None)
             cols.append({"id": xid, "formula": formula_for(xf, ex) if xf else "Count()",
@@ -1181,6 +1272,13 @@ def main():
                 yid = sid("y"); cols.append({"id": yid, "formula": "Count()", "name": "Count"}); ymids.append(yid)
             base["columns"] = cols
             base["xAxis"] = {"columnId": xid}; base["yAxis"] = {"columnIds": ymids}
+            if kind == "waterfall-chart":
+                base["waterfallShape"] = {"calculation": "sum", "connectorLine": "shown"}
+                base["startPoint"] = {
+                    "value": {"type": "constant", "value": 0},
+                    "visibility": "hidden",
+                }
+                base["grouping"] = "stacked"
             # Looker `looker_bar` renders HORIZONTAL bars, `looker_column` vertical —
             # both map to a Sigma bar-chart, so carry the orientation through (Sigma's
             # default is vertical, so only set it for looker_bar; omit otherwise).
@@ -1194,13 +1292,16 @@ def main():
                 pf = el["pivots"][0]
                 pcid = sid("clr")
                 cols.append({"id": pcid, "formula": formula_for(pf, ex), "name": col_display(pf, ex)})
-                base["color"] = {"by": "category", "column": pcid}
+                if kind == "waterfall-chart":
+                    base["splitBy"] = {"id": pcid}
+                else:
+                    base["color"] = {"by": "category", "column": pcid}
                 pal = looker_cat_palette(el.get("color"))
                 if pal:
                     base["color"]["colors"] = pal
                 if len(el["pivots"]) > 1:
                     warnings.append(f"tile '{el['name']}': multiple pivots {el['pivots']} — only first set as series; add the rest in Sigma UI")
-            elif ms and (el.get("color") or {}).get("colorApplication"):
+            elif kind != "waterfall-chart" and ms and (el.get("color") or {}).get("colorApplication"):
                 # No pivot dimension but Looker colors the bars by VALUE (a
                 # continuous color_application on the measure). A column can't be on
                 # both yAxis and color, so DUPLICATE the (first) measure column and
@@ -1342,6 +1443,12 @@ def main():
 
         # tile-level hard filters → element filters (string values; date/numeric → warn)
         for fld, val in (el.get("filters") or {}).items():
+            if kind == "progress":
+                warnings.append(
+                    f"tile '{el['name']}': tile-level filter {fld}={val} cannot be "
+                    "attached to a source-less native progress element — add it to the "
+                    "upstream scope table in Sigma")
+                continue
             d = col_display(fld, ex)
             if "date" in leaf(fld).lower() or isinstance(val, (int, float)):
                 warnings.append(f"tile '{el['name']}': filter {fld}={val} (date/numeric) — add manually in Sigma")
@@ -1372,7 +1479,8 @@ def main():
             if not cid:
                 warnings.append(f"tile '{el['name']}': sort field '{sf}' not among the tile's columns — sort skipped")
                 continue
-            if kind in ("bar-chart", "area-chart", "line-chart", "scatter-chart"):
+            if kind in ("bar-chart", "area-chart", "line-chart", "scatter-chart",
+                        "waterfall-chart"):
                 if si == 0: base.setdefault("xAxis", {})["sort"] = {"by": cid, "direction": direction}
             elif kind in ("pie-chart", "donut-chart"):
                 if si == 0: base.setdefault("color", {})["sort"] = {"by": cid, "direction": direction}
@@ -1441,6 +1549,11 @@ def main():
                 # and emitted through the normal field path. Skip here so it doesn't
                 # also append an empty-formula duplicate column.
                 continue
+            if kind == "progress":
+                warnings.append(
+                    f"tile '{el['name']}': table calc '{dyn.get('label') or dyn.get('table_calculation') or 'Calc'}' "
+                    "cannot be attached to native progress — skipped")
+                continue
             label = dyn.get("label") or dyn.get("table_calculation") or "Calc"
             def _subfield(m):
                 f = m.group(1)
@@ -1465,7 +1578,23 @@ def main():
         # Native small multiples: a looker_donut_multiples tile → ONE donut element
         # with Sigma's `trellis` facet (no-op / byte-identical when no signal).
         emit_native_trellis(base, el, ex, ds, ms)
+        legend = el.get("legend")
+        if isinstance(legend, dict):
+            unmapped_position = legend.get("_unmappedPosition")
+            if unmapped_position:
+                warnings.append(
+                    f"tile '{el['name']}': Looker legend_position={unmapped_position} "
+                    "is alignment, not a Sigma legend position — preserved Sigma default")
+            mapped_legend = {k: v for k, v in legend.items() if not k.startswith("_")}
+            if mapped_legend and kind in (
+                    "bar-chart", "area-chart", "line-chart", "waterfall-chart",
+                    "scatter-chart", "pie-chart", "donut-chart"):
+                base["legend"] = mapped_legend
+        style = literal_style(el.get("style"), f"tile '{el.get('name')}'")
+        if style:
+            base["style"] = style
         elements.append(base)
+        place_on_page(eid, page_for_tile(el))
         el.setdefault("_emitted", []).append(base)   # control-targeting (listen:)
 
         # newspaper -> 24-col grid (rows scaled — see ROW_SCALE above)
@@ -1537,10 +1666,15 @@ def main():
         for el in tiles:
             el["_scope"] = sc
             for sp in el["_emitted"]:
-                sp["source"] = {"kind": "table", "elementId": sc["id"]}
+                if sp.get("kind") != "progress":
+                    sp["source"] = {"kind": "table", "elementId": sc["id"]}
                 for c in sp.get("columns", []):
                     if isinstance(c.get("formula"), str):
                         c["formula"] = c["formula"].replace(f"[{mname}/", f"[{sc['name']}/")
+                if sp.get("kind") == "progress":
+                    for key in ("value", "min", "max"):
+                        if isinstance(sp.get(key), str):
+                            sp[key] = sp[key].replace(f"[{mname}/", f"[{sc['name']}/")
 
     controls, control_scope, dropped_controls = [], [], []
     for flt in dash["filters"]:
@@ -1622,117 +1756,29 @@ def main():
             ctrl["mode"] = "between"
         entry["status"] = "emitted"
         controls.append(ctrl)
+        place_on_page(ctrl["id"], content_pages[0]["id"])
         control_scope.append(entry)
 
-    # ── layout finalize: container bands (layout-playbook.md, 2026-06-10) ──
-    # The raw newspaper→grid math (above) honors Looker's pixel positions; the
-    # final layout groups everything into full-width band CONTAINERS instead of
-    # a flat LayoutElement list (flat layouts produce dead zones / detached
-    # controls). Spec side: one `kind: container` placeholder element per band
-    # plus a header text; layout side: <GridContainer> (NOT <LayoutElement
-    # type="grid">, which silently drops children) whose child <LayoutElement>s
-    # use CONTAINER-RELATIVE coordinates (rows restart at 1). Band order:
-    #   1. header band — dark, full-width, dashboard title (rows 1-3)
-    #   2. control band — dashboard filters side-by-side (Looker shows them top)
-    #   3. KPI band — full-width strip of equal TALL tiles (>= 6 rows so the
-    #      title renders; see memory feedback_sigma_kpi_label_height.md)
-    #   4. chart row bands — newspaper rows clustered by row overlap, original
-    #      columns/heights preserved inside each band
+    # ── flat elements + authoritative required layout ───────────────────────
+    # Workbook pages are metadata only. Every element is declared exactly once
+    # in document.elements and assigned to a page exclusively through one
+    # elementId occurrence in the required layout. Data-model specs deliberately
+    # keep their independent pages[].elements representation.
     GRID = 24
-    HDR_H = 3                  # header band height (grid rows)
-    CTRL_H = 3                 # control-band height (grid rows)
-    KPI_H = 6                  # KPI tile height — >= 5 so the title renders
+    HDR_H = 3
+    NAV_H = 2
+    CTRL_H = 3
+    KPI_H = 6
     HEADER_STYLE = {"backgroundColor": "#0F172A", "borderRadius": "round"}
-    page_id = "page-dash"
 
     def _le(eid, c0, c1, r0, r1):
-        return f'  <LayoutElement elementId="{eid}" gridColumn="{c0} / {c1}" gridRow="{r0} / {r1}"/>'
+        return f'  <Element elementId="{eid}" gridColumn="{c0} / {c1}" gridRow="{r0} / {r1}"/>'
 
     def _gc(cid, r0, r1, inner):
-        return (f'<GridContainer elementId="{cid}" type="grid" gridColumn="1 / 25" '
+        return (f'<Container elementId="{cid}" type="grid" gridColumn="1 / 25" '
                 f'gridRow="{r0} / {r1}" gridTemplateColumns="repeat(24, 1fr)" '
-                f'gridTemplateRows="auto">\n{inner}\n</GridContainer>')
+                f'gridTemplateRows="auto">\n{inner}\n</Container>')
 
-    band_els, band_xml = [], []   # spec placeholder elements / page-level XML
-    page_row = 1
-
-    # (1) header band
-    band_els.append({"id": "band-hdr", "kind": "container", "style": dict(HEADER_STYLE)})
-    band_els.append({"id": "band-hdrtext", "kind": "text",
-                     "body": f'# <span style="color: #FFFFFF">{dash["title"]}</span>'})
-    band_xml.append(_gc("band-hdr", page_row, page_row + HDR_H,
-                        _le("band-hdrtext", 1, GRID + 1, 1, 1 + HDR_H)))
-    page_row += HDR_H
-
-    # (2) control band: dashboard-global filters side-by-side in one container
-    if controls:
-        n = len(controls)
-        cw = max(1, GRID // n)
-        x, inner = 1, []
-        for i, c in enumerate(controls):
-            c1 = (x + cw) if i < n - 1 else (GRID + 1)   # last fills to the edge
-            inner.append(_le(c["id"], x, c1, 1, 1 + CTRL_H))
-            x = c1
-        band_els.append({"id": "band-ctl", "kind": "container"})
-        band_xml.append(_gc("band-ctl", page_row, page_row + CTRL_H, "\n".join(inner)))
-        page_row += CTRL_H
-
-    # (3) KPI band: pull every KPI out of its Looker position into one strip of
-    #     equal, TALL tiles — the only reliable way to keep their titles visible.
-    kpi_ids = [e for (e, *_rest, k) in layout_items if k == "kpi-chart"]
-    other_items = [it for it in layout_items if it[5] != "kpi-chart"]
-    if kpi_ids:
-        n = len(kpi_ids)
-        kw = max(1, GRID // n)
-        x, inner = 1, []
-        for i, e in enumerate(kpi_ids):
-            c1 = (x + kw) if i < n - 1 else (GRID + 1)   # last fills to the edge
-            inner.append(_le(e, x, c1, 1, 1 + KPI_H))
-            x = c1
-        band_els.append({"id": "band-kpi", "kind": "container"})
-        band_xml.append(_gc("band-kpi", page_row, page_row + KPI_H, "\n".join(inner)))
-        page_row += KPI_H
-
-    # (4) chart row bands: cluster the remaining newspaper tiles into horizontal
-    #     bands by row overlap; one container per band, children relative.
-    bands = []
-    for it in sorted(other_items, key=lambda i: (i[3], i[1])):
-        if bands and it[3] < bands[-1]["r1"]:
-            bands[-1]["items"].append(it)
-            bands[-1]["r1"] = max(bands[-1]["r1"], it[4])
-        else:
-            bands.append({"r0": it[3], "r1": it[4], "items": [it]})
-    TABLE_MAX_H = 12   # table tiles sized to content, not the Looker tile box —
-                       # an over-tall table band renders as a giant dead tile
-                       # (layout-playbook.md rule 4)
-    for bi, b in enumerate(bands, 1):
-        cid = f"band-row-{bi}"
-        band_els.append({"id": cid, "kind": "container"})
-        h = b["r1"] - b["r0"]
-        if all(k == "table" for (*_g, k) in b["items"]) and h > TABLE_MAX_H:
-            h = TABLE_MAX_H
-        inner = "\n".join(_le(e, c0, c1, min(r0 - b["r0"], h - 1) + 1, min(r1 - b["r0"], h) + 1)
-                          for (e, c0, c1, r0, r1, _k) in b["items"])
-        band_xml.append(_gc(cid, page_row, page_row + h, inner))
-        page_row += h
-
-    # ── layout XML (single top-level field; 24-col grid) ──
-    layout_xml = ('<?xml version="1.0" encoding="utf-8"?>\n'
-                  f'<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="{page_id}">\n'
-                  + "\n".join(band_xml) + '\n</Page>')
-
-    spec = {
-        "name": f"{dash['title']} (from Looker)", "folderId": a.folder_id, "schemaVersion": 1,
-        "layout": layout_xml,
-        "pages": [
-            {"id": "page-data", "name": "Data", "elements": []},  # filled below
-            # tiles BEFORE controls: controls now target tile columns directly
-            # (per-tile listen: scope) and Sigma resolves spec dependencies in
-            # array order — a control referencing a later element 400s with
-            # "Dependency not found".
-            {"id": page_id, "name": dash["title"], "elements": elements + controls + band_els},
-        ],
-    }
     master_elements = [{
         "id": m["id"], "name": m["name"], "kind": "table",
         "source": {"dataModelId": a.dm_id, "elementId": m["dm_el"]["id"], "kind": "data-model"},
@@ -1749,10 +1795,176 @@ def main():
                      "formula": f"[{master_of(ex)['name']}/{d}]"}
                     for d in master_of(ex)["needed"]],
     } for (ex, _lset), sc in scope_tables.items()]
-    # scatter grouped sources (one row per point dim) live on the Data page next
-    # to the masters — visibleAsSource:False, so they need no layout slot.
-    spec["pages"][0]["elements"] = master_elements + scope_elements + scatter_srcs + merge_srcs
+    data_elements = master_elements + scope_elements + scatter_srcs + merge_srcs
 
+    # Tabs are source pages, not tabbed-container regions. Native auto
+    # navigation mirrors the source tab strip and remains page-aware.
+    nav_elements = []
+    if len(content_pages) > 1:
+        for page in content_pages:
+            nav = {"id": f"{page['id']}-navigation", "kind": "navigation", "mode": "auto"}
+            nav_elements.append(nav)
+            place_on_page(nav["id"], page["id"])
+        if controls:
+            warnings.append(
+                "tabbed dashboard filters are placed on the first Sigma page only; "
+                "the controls still filter their intended flat source tables, but "
+                "duplicate cross-page control chrome is not authorable without "
+                "reusing an element in required layout")
+
+    def build_content_page(page):
+        page_id = page["id"]
+        suffix = page_id.replace("page-", "")
+        page_items = [it for it in layout_items if element_page.get(it[0]) == page_id]
+        page_controls = [c for c in controls if element_page.get(c["id"]) == page_id]
+        page_nav = [n for n in nav_elements if element_page.get(n["id"]) == page_id]
+        band_els, band_xml = [], []
+        page_row = 1
+
+        def add_band_element(el):
+            band_els.append(el)
+            place_on_page(el["id"], page_id)
+
+        hdr_id, hdr_text_id = f"band-{suffix}-hdr", f"band-{suffix}-hdrtext"
+        add_band_element({"id": hdr_id, "kind": "container", "style": dict(HEADER_STYLE)})
+        add_band_element({
+            "id": hdr_text_id, "kind": "text",
+            "body": f'# <span style="color: #FFFFFF">{page["name"]}</span>',
+        })
+        band_xml.append(_gc(
+            hdr_id, page_row, page_row + HDR_H,
+            _le(hdr_text_id, 1, GRID + 1, 1, 1 + HDR_H),
+        ))
+        page_row += HDR_H
+
+        if page_nav:
+            nav_band = f"band-{suffix}-nav"
+            add_band_element({"id": nav_band, "kind": "container"})
+            band_xml.append(_gc(
+                nav_band, page_row, page_row + NAV_H,
+                _le(page_nav[0]["id"], 1, GRID + 1, 1, 1 + NAV_H),
+            ))
+            page_row += NAV_H
+
+        if page_controls:
+            n = len(page_controls)
+            width = max(1, GRID // n)
+            x, inner = 1, []
+            for i, control in enumerate(page_controls):
+                x1 = x + width if i < n - 1 else GRID + 1
+                inner.append(_le(control["id"], x, x1, 1, 1 + CTRL_H))
+                x = x1
+            ctl_band = f"band-{suffix}-ctl"
+            add_band_element({"id": ctl_band, "kind": "container"})
+            band_xml.append(_gc(
+                ctl_band, page_row, page_row + CTRL_H, "\n".join(inner)))
+            page_row += CTRL_H
+
+        # KPIs and progress indicators need a tall, even strip for labels.
+        summary_ids = [it[0] for it in page_items if it[5] in ("kpi-chart", "progress")]
+        other_items = [it for it in page_items if it[5] not in ("kpi-chart", "progress")]
+        if summary_ids:
+            n = len(summary_ids)
+            width = max(1, GRID // n)
+            x, inner = 1, []
+            for i, element_id in enumerate(summary_ids):
+                x1 = x + width if i < n - 1 else GRID + 1
+                inner.append(_le(element_id, x, x1, 1, 1 + KPI_H))
+                x = x1
+            summary_band = f"band-{suffix}-summary"
+            add_band_element({"id": summary_band, "kind": "container"})
+            band_xml.append(_gc(
+                summary_band, page_row, page_row + KPI_H, "\n".join(inner)))
+            page_row += KPI_H
+
+        bands = []
+        for item in sorted(other_items, key=lambda i: (i[3], i[1])):
+            if bands and item[3] < bands[-1]["r1"]:
+                bands[-1]["items"].append(item)
+                bands[-1]["r1"] = max(bands[-1]["r1"], item[4])
+            else:
+                bands.append({"r0": item[3], "r1": item[4], "items": [item]})
+        for bi, band in enumerate(bands, 1):
+            band_id = f"band-{suffix}-row-{bi}"
+            add_band_element({"id": band_id, "kind": "container"})
+            height = band["r1"] - band["r0"]
+            if all(k in ("table", "pivot-table") for (*_g, k) in band["items"]):
+                height = min(height, 12)
+            inner = "\n".join(
+                _le(e, c0, c1, min(r0 - band["r0"], height - 1) + 1,
+                    min(r1 - band["r0"], height) + 1)
+                for (e, c0, c1, r0, r1, _kind) in band["items"]
+            )
+            band_xml.append(_gc(
+                band_id, page_row, page_row + height, inner))
+            page_row += height
+
+        xml = (
+            f'<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+            f'gridTemplateRows="auto" id="{page_id}">\n'
+            + "\n".join(band_xml) + "\n</Page>"
+        )
+        return band_els, xml
+
+    data_children = "\n".join(
+        _le(el["id"], 1, GRID + 1, i * 10 + 1, i * 10 + 11)
+        for i, el in enumerate(data_elements)
+    )
+    data_page_xml = (
+        '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+        'gridTemplateRows="auto" id="page-data">\n'
+        + data_children + "\n</Page>"
+    )
+    all_band_elements, content_xml = [], []
+    for page in content_pages:
+        page_bands, page_xml = build_content_page(page)
+        all_band_elements.extend(page_bands)
+        content_xml.append(page_xml)
+
+    layout_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        + "\n".join([data_page_xml] + content_xml)
+    )
+    flat_elements = (
+        data_elements + elements + controls + nav_elements + all_band_elements
+    )
+    declared_ids = [el.get("id") for el in flat_elements if el.get("id")]
+    placed_ids = re.findall(r'\belementId="([^"]+)"', layout_xml)
+    if sorted(declared_ids) != sorted(placed_ids) or len(placed_ids) != len(set(placed_ids)):
+        raise SystemExit(
+            "workbook layout mismatch: every flat element must be placed exactly once; "
+            f"declared={declared_ids}, placed={placed_ids}")
+
+    doc = {
+        "schemaVersion": 1,
+        "kind": "workbook",
+        "pages": [{"id": "page-data", "name": "Data", "visibility": "hidden"}]
+                 + [{"id": p["id"], "name": p["name"]} for p in content_pages],
+        "elements": flat_elements,
+        "layout": layout_xml,
+    }
+    dashboard_style = literal_style(dash.get("style"), "dashboard")
+    if dashboard_style:
+        code_rep.set_theme(
+            doc, name="Light",
+            overrides={"colorOverrides": {
+                "backgroundCanvas": dashboard_style["backgroundColor"],
+            }},
+        )
+    doc.setdefault("settings", {}).setdefault("navigation", {})[
+        "pageTabsInViewMode"
+    ] = "shown" if len(content_pages) > 1 else "hidden"
+    panel = dash.get("filterPanel") or {}
+    if panel.get("location") == "sidebar":
+        warnings.append(
+            "⚠ dashboard filters_location_top:false requests a sidebar filter panel; "
+            "Sigma document.panels has no grounded control-binding mapping here — "
+            "controls remain in-canvas and the panel is an explicit gap")
+
+    spec = code_rep.wrap(
+        doc,
+        {"name": f"{dash['title']} (from Looker)", "folderId": a.folder_id},
+    )
     open(a.out, "w").write(json.dumps(spec, indent=2))
     # native-trellis-emitted.json — round-trip guard sidecar. Written ONLY when a
     # native trellis was actually emitted (a dashboard with no small-multiples tile

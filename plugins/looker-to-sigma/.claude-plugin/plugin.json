@@ -1,11 +1,20 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "looker-to-sigma",
-  "displayName": "Looker → Sigma",
-  "version": "1.2.1",
-  "description": "Migrate Looker (LookML semantic model + dashboards) to Sigma — discovery via the Looker REST API 4.0 / Looker MCP (or offline .lkml), LookML→data-model conversion via convert_lookml_to_sigma, dashboard→workbook build from the Looker Dashboard API JSON (UDD or LookML dashboards), build via the Sigma REST API, and 3-way parity verification (Looker vs Sigma vs warehouse).",
-  "author": { "name": "Sigma Computing" },
+  "displayName": "Looker \u2192 Sigma",
+  "version": "1.2.20",
+  "description": "Migrate Looker (LookML semantic model + dashboards) to Sigma \u2014 discovery via the Looker REST API 4.0 / Looker MCP (or offline .lkml), LookML\u2192data-model conversion via convert_lookml_to_sigma, dashboard\u2192workbook build from the Looker Dashboard API JSON (UDD or LookML dashboards), build via the Sigma REST API, and 3-way parity verification (Looker vs Sigma vs warehouse).",
+  "author": {
+    "name": "Sigma Computing"
+  },
   "license": "Apache-2.0",
-  "keywords": ["looker", "lookml", "sigma", "migration", "bi", "converter"],
+  "keywords": [
+    "looker",
+    "lookml",
+    "sigma",
+    "migration",
+    "bi",
+    "converter"
+  ],
   "skills": "./skills/"
 }

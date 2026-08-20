@@ -54,6 +54,18 @@ Corp network MITM-inspects `api.fabric.microsoft.com` → Python raises `CERTIFI
 - `GET /v1/workspaces/{ws}/semanticModels` → model ids.
 - `POST /v1/workspaces/{ws}/semanticModels/{id}/getDefinition?format=TMSL` → **202 LRO**: poll `Location` (respect `Retry-After`) until `Succeeded`, GET `Location/result` → `definition.parts[]`; base64-decode the `model.bim` part = TMSL/TOM JSON for the MCP.
 
+## Non-warehouse sources — read what the model can (and can't) give you
+`getDefinition` returns the semantic model only. If a table's data lives in a
+**Fabric Dataflow / Lakehouse / OneLake / Dataverse / file** (its M source is
+`PowerPlatform.Dataflows`, `Lakehouse.Contents`, `CommonDataService`,
+`Excel.Workbook`, …), the connection reads the model fine, but the **data is not
+in a warehouse Sigma can query** and the dataflow's transform steps are **not in
+the model** (so the converter can't translate them). The converter flags these
+(`stats.nonWarehouseSourcedTables`); land the data with the
+`powerbi-import-to-snowflake` skill, then repoint via `convert-model.rb
+--table-map`. For **Import-mode** models this is seamless — `executeQueries`
+reads the already-materialized rows regardless of the upstream connector.
+
 ## Surprises worth remembering
 - **getDefinition works on a model in *My workspace*** — no capacity move needed for the read.
 - **Device-code is NOT Conditional-Access-blocked** in this tenant.

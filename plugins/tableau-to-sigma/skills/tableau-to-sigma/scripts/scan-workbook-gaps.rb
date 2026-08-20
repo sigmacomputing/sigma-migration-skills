@@ -44,6 +44,10 @@ INVENTORY = [
   # AUTO — fully translated end-to-end, no manual step needed
   { name: 'Bar / line / area / pie / scatter chart',  pat: /<mark class='(Bar|Line|Area|Pie|Circle|Shape)'/,
     status: :auto, blurb: 'Translated to Sigma bar/line/area/pie/scatter chart with the right marker.' },
+  { name: 'Waterfall (GanttBar + running total)',      pat: /<mark class='GanttBar'/,
+    status: :hint, blurb: 'A GanttBar worksheet whose calculated fields contain RUNNING_SUM is emitted as native Sigma waterfall-chart. Other GanttBar uses (timeline/gantt/candlestick) remain manual; verify the emitted waterfall y-series is the per-category delta, not an already-cumulative export.' },
+  { name: 'Box plot / box-and-whisker',                pat: /box[-_ ]?(?:plot|and[-_ ]whisker)|boxplot/i,
+    status: :manual, blurb: 'Sigma box-chart is not published in the workbook spec. Keep this as an explicit fallback: re-author from quartile/reference-mark components or use a table; never emit kind:box-chart.' },
   { name: 'Region / filled map',                       pat: /<mark class='(Multipolygon|Polygon|Filled|Map)'/,
     status: :auto, blurb: 'Translated to Sigma region-map.' },
   { name: 'Point / symbol map',                        pat: /<column[^>]+caption='Latitude'/i,
@@ -63,7 +67,7 @@ INVENTORY = [
   { name: 'Dual-axis (synchronized) combo charts',     pat: /synchronized='true'/,
     status: :auto, blurb: 'Synchronized-axis worksheets emit Sigma combo-chart with two yAxis groups.' },
   { name: 'Custom SQL data source',                    pat: /<relation\s[^>]*\btype='text'/,
-    status: :auto, blurb: 'Custom SQL becomes a Sigma data-model element with source.kind="sql".' },
+    status: :auto, blurb: 'Inventory the SQL; prefer equivalent warehouse-table elements and use source.kind="sql" only as the semantics-preserving fallback.' },
   { name: 'Hyper / Tableau extract',                   pat: /<connection\s[^>]*\bclass='hyper'|<extract\s/,
     status: :hint, blurb: 'Workbook has a .hyper extract — Sigma uses live warehouse data. Phase 6 runs in --extract-mode (structural compare) instead of strict-value.' },
   { name: 'Cross-extract drift (live warehouse newer than extract)', pat: /<connection\s[^>]*\bclass='hyper'|<extract\s/,
@@ -76,6 +80,8 @@ INVENTORY = [
     status: :auto, blurb: 'Per-axis log scale and fixed min/max translate to Sigma xAxis/yAxis format.scale (type / domain).' },
   { name: 'Show Mark Labels worksheet toggle',         pat: /<format\s+attr='mark-labels-show'\s+value='true'/,
     status: :auto, blurb: "Worksheet-level Show Mark Labels toggle emits Sigma dataLabel:{labels:shown}." },
+  { name: 'Explicit color legend zone',                pat: /type-v2='color'/,
+    status: :auto, blurb: 'When the legend can be attributed to one worksheet, its nearest source edge maps to native chart legend.position. Ambiguous shared/free-floating legends remain a visual-verification item.' },
   { name: 'FIXED LOD calc (incl. nested)',             pat: /\{\s*FIXED\b/i,
     status: :auto, blurb: 'Auto-translated when plotted. Single-level {FIXED dims : AGG(m)}: hidden two-level grouped helper element (visibleAsSource:false; inner grouping = FIXED dims computing the LOD aggregate, outer = chart dims computing the 2nd-stage aggregate; chart Max()es the outer calc). Nested {FIXED ... {FIXED ...}}: auto-decomposed into a helper-element chain (innermost first; outer levels source the inner WITH groupingId) via build-charts-from-signals.rb → -lod-chains.json sidecar. ⚠ single-level helper is exact iff carried chart dims are functionally dependent on the FIXED dims — the build emits a per-chart verify warning. Never SumOver/CountOver in master/DM calc columns (silent error).' },
 
@@ -89,21 +95,21 @@ INVENTORY = [
   { name: 'INCLUDE/EXCLUDE LOD',                       pat: /\{\s*(INCLUDE|EXCLUDE)\b/i,
     status: :manual, blurb: 'Needs the chart-grouping context: INCLUDE = add the dim to the chart grouping and use the plain aggregate; EXCLUDE = remove it (or OVER(PARTITION BY view-dims-minus-excluded) via Custom SQL). The skill surfaces the formula + suggestion; customer wires it post-publish.' },
   { name: 'Reference lines / bands / trendlines',      pat: /<(reference-line|reference-band|reference-distribution|trendline-model)\b/,
-    status: :hint, blurb: 'WARN per chart; agent adds Sigma referenceMarks manually post-publish (see beads-sigma-7ak).' },
+    status: :hint, blurb: 'WARN per chart; agent adds Sigma referenceMarks manually post-publish (see [bead]).' },
   { name: 'Color encoding on measure',                 pat: /<encoding attr='color'[^>]+field-type='quantitative'/,
-    status: :hint, blurb: 'WARN; agent adds Sigma colorBy on chart with palette manually (see beads-sigma-0b5).' },
+    status: :hint, blurb: 'WARN; agent adds Sigma colorBy on chart with palette manually (see [bead]).' },
 
   # MANUAL — non-translatable today; needs customer to do post-publish work
   { name: 'Dashboard filter / highlight / nav actions', pat: /command='tsc:tsl-(filter|highlight|navigate|set-action|parameter-action|url)'/,
-    status: :manual, blurb: 'tsl-filter → Sigma cross-element filter. FAITHFUL but ~80% automatable (verified 2026-07-10): the CONTROL half is spec-authorable — emit a list control whose filters bind {source:{kind:table,elementId},columnId} to the target element(s); elements sourcing the filtered element inherit it. The click-to-trigger is UI-ONLY (no action/setControlValue node in the workbook spec) — configured post-publish via the element Actions tab. GOTCHA: list-control values are STRINGS, so a NUMERIC filter column (period/year/id) 400s ("Expecting string") then 500s at query time — cast the numeric dim to text (Text([…])) in the control value-source column; text columns work as-is. Skill still writes actions.md for the click bindings. See sigma-workbooks controls.md "Cross-element filters".' },
+    status: :manual, blurb: 'tsl-filter → Sigma cross-element filter. FAITHFUL but ~80% automatable (verified 2026-07-10): the CONTROL half is spec-authorable — emit a list control whose filters bind {source:{kind:table,elementId},columnId} to the target element(s); elements sourcing the filtered element inherit it. The click-to-trigger IS spec-authorable as of 2026-08: an on-select action with a set-control-value effect on the source element, verified live (mark click sets the control, whose filters[] then filter the target: 911 rows -> 319). Filter actions are not yet auto-wired by this converter — see the emitted-actions ledger for what was. GOTCHA: list-control values are STRINGS, so a NUMERIC filter column (period/year/id) 400s ("Expecting string") then 500s at query time — cast the numeric dim to text (Text([…])) in the control value-source column; text columns work as-is. Skill still writes actions.md for the click bindings. See sigma-workbooks controls.md "Cross-element filters".' },
   { name: 'Dashboard buttons (navigate / export / show-hide)', pat: /type-v2='dashboard-object'/,
     status: :hint, blurb: 'v5.0-P2: NAVIGATE buttons auto-emit (dashboard targets = Sigma pages; text-pill link, placeholder URL rewritten to the live page by put-layout.rb; native kind:button is workspace-gated). EXPORT buttons = recoverable residue (Sigma has a built-in export menu). SHOW/HIDE container toggles = named residue (no spec-authorable visibility toggle) — coverage.json dedupes them per (dashboard, tooltip/icon).' },
   { name: 'Forecast / trendline model',                pat: /<forecast\b/,
-    status: :manual, blurb: 'No Sigma forecast primitive; agent emits a note + Custom SQL option (beads-sigma-yi0).' },
+    status: :manual, blurb: 'No Sigma forecast primitive; agent emits a note + Custom SQL option ([bead]).' },
   { name: 'Story points (sequential narrative)',       pat: /<story\b/,
-    status: :hint, blurb: 'Each story point becomes a separate Sigma page: parse-twb-layout.rb writes story-plan.json, then scripts/build-story-pages.rb emits caption-named pages with the annotation atop (refs/story-points.md, beads-sigma-y6b).' },
+    status: :hint, blurb: 'Each story point becomes a separate Sigma page: parse-twb-layout.rb writes story-plan.json, then scripts/build-story-pages.rb emits caption-named pages plus a native in-canvas navigation element and annotation (refs/story-points.md).' },
   { name: 'Drill hierarchies',                         pat: /<drill-paths>|<drill-path /,
-    status: :manual, blurb: 'Hierarchies map to pivot rowsBy OR a segmented drill-level control (beads-sigma-jbw).' },
+    status: :manual, blurb: 'Sigma now publishes controlType:drill (ordered categories + per-target columnIds). Tableau drill paths are detected, but target-column alignment is not safe to infer yet; map them to native drill controls or pivot rowsBy and verify each target.' },
 
   # UNHANDLED — feature actively used in real workbooks but not surfaced yet
   # (numeric-range param moved to auto in commit 1d3445d — scout discovered the
@@ -129,7 +135,7 @@ INVENTORY = [
   # multiples → native trellis, 1-D strip/jitter plots C1) are detected in
   # parse-twb-layout.rb (Phase 1) — a raw-text regex can't reliably spot them.
   { name: 'Container background tint / colored header band', pat: /<format\s+attr='background-color'\s+value='#(?!(?:fff(?:fff)?|FFF(?:FFF)?)')/,
-    status: :hint, blurb: 'Gap B2: a dashboard zone/container has a non-white background fill (region-card tints, colored title bands). NOT yet auto-emitted — parse-twb-layout should surface the fill and build-charts should emit container.style.backgroundColor + borderRadius (+ a header-bar element). Until then, recreate the tint manually.' },
+    status: :auto, blurb: 'Dashboard zone fills, borders, and rounded corners are surfaced by parse-twb-layout and emitted on native container.style; full-canvas images map to page backgroundImage. Verify alpha colors and complex per-side border differences visually.' },
   { name: 'Custom categorical color palette (discrete)', pat: /<encoding[^>]+(?:class|attr)='color'[\s\S]{0,400}?<map>/,
     status: :auto, blurb: "Gap D1 (auto since PR-12): a color encoding carries an explicit value→color map. parse-twb-layout extracts it (series_colors) and build-charts pins per-chart color.scheme + themeOverrides.categoricalScheme ORDERED ascending by member (Sigma applies schemes positionally in category-sort order). Verify via formats-emitted.json series_color_maps." },
   { name: 'Viz-in-tooltip (embedded chart in tooltip)', pat: /visual-tooltip|show-viz-in-tooltip/i,
@@ -209,7 +215,7 @@ def detect_point_map_geo_role_gaps(content)
   }]
 end
 
-# ---- Data-blend detection (beads-sigma-iq8) --------------------------------
+# ---- Data-blend detection ([bead]) --------------------------------
 # A worksheet BLENDS (vs joins) when it pulls fields from 2+ real datasources:
 # the worksheet's <view> lists multiple <datasource> refs and carries a
 # <datasource-dependencies datasource='<secondary>'> block naming the fields it
@@ -335,7 +341,7 @@ def detect_blends(xml)
       name:   "Data blending (#{route})",
       status: route == 'same-warehouse-repoint' ? :hint : :manual,
       count:  rs.length,
-      blurb:  "#{ROUTE_BLURB[route]}. Worksheets: #{rs.map { |b| b['worksheet'] }.uniq.join(', ')}. "               'Full linking-field report in blend-plan.json; decision tree in refs/blending.md (beads-sigma-iq8).',
+      blurb:  "#{ROUTE_BLURB[route]}. Worksheets: #{rs.map { |b| b['worksheet'] }.uniq.join(', ')}. "               'Full linking-field report in blend-plan.json; decision tree in refs/blending.md ([bead]).',
       worksheets: rs.map { |b| b['worksheet'].to_s }.uniq.sort # E9.6/A2 scope attribution
     }
   end

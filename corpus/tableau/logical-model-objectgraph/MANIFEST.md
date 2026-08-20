@@ -32,7 +32,7 @@ dashboard structure Tableau actually produced are otherwise byte-for-byte
 untouched. Real environment specifics (which account, which connection ID,
 which live-verified evidence) are not repeated in this file for the same
 reason; they were reported to the requester directly and are recorded on
-`beads-sigma-tzly`'s note.
+`[bead]`'s note.
 
 ### What changed from the hand-authored version, and why (live finding)
 
@@ -149,7 +149,7 @@ probe against the real warehouse. Unrounded, as measured.
 `discover-columns.rb` against the real 64-column warehouse table backing
 `LMOG_FACT_WIDE` initially returned **50 of 64 columns** — silently truncated,
 missing `CUSTOMER_KEY`/`PRODUCT_KEY`/`STORE_KEY`/`REGION_KEY` entirely. This
-is exactly the bug class bead `beads-sigma-tzly` was originally filed for and
+is exactly the bug class bead `[bead]` was originally filed for and
 PR #565 (merged, tableau-to-sigma 1.3.5) was believed to have fixed
 end-to-end. It hadn't, for this specific endpoint:
 
@@ -170,7 +170,7 @@ the fix "worked" by every existing offline test (which stub the assumed
 shape) while remaining silently broken live.
 
 **Fixed** (this branch, plugin-local — see `scripts/lib/
-warehouse_columns_pagination.rb`; bead reopened as `beads-sigma-tzly`, back
+warehouse_columns_pagination.rb`; bead reopened as `[bead]`, back
 to P0). Re-verified live after the fix: `discover-columns.rb` against the
 same real table now returns **all 64 columns**, with the four join keys at
 their correct 0-based indices **54, 57, 62, 63**. Full plugin test suite
@@ -255,7 +255,7 @@ ruby scripts/probe-join-keys.rb --workdir <W> --resolve 3 --how preaggregated \
   live: 5 rows/5 keys, unique — confirmed before recording this resolution."
 ```
 
-`scripts/lib/join_plan_resolutions.rb` (PR #590 / bead `beads-sigma-zjkw`, not
+`scripts/lib/join_plan_resolutions.rb` (PR #590 / bead `[bead]`, not
 yet merged to `main` at the time of this fixture — cherry-picked onto this
 branch to exercise it) then correctly surfaces that resolution. Running
 `migrate-tableau.rb`'s exact end-of-run block (reproduced standalone here

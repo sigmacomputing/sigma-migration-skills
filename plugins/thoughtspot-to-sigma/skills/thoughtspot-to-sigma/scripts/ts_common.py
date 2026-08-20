@@ -13,7 +13,7 @@ derives it from the model TML itself, so it works for ANY model.
 import json, re, secrets, string
 import os, sys
 
-# ── documentation-grounded mapping catalogs (beads-sigma-kvza) ────────────────
+# ── documentation-grounded mapping catalogs ([bead]) ────────────────
 # The tile/format/aggregation/control classifiers below are DATA-driven: every
 # enumerable ThoughtSpot->Sigma map is loaded from refs/catalogs/<dim>.json (the
 # single source of truth), with a LOUD fallback on anything unmapped. NO inline
@@ -58,7 +58,7 @@ def _resolve_agg(token, context=""):
     SUM as the SOURCE token before lookup (data-grounded, per
     docs.thoughtspot.com/cloud/latest/data-modeling-aggreg-additive). A token that
     is PRESENT but NOT in the catalog WARNS loudly and falls back to 'Sum'
-    EXPLICITLY — never a silent wrong Sum default (beads-sigma-kvza)."""
+    EXPLICITLY — never a silent wrong Sum default ([bead])."""
     tok = token or "SUM"
     row = _resolve_or_warn(AGG_CAT, tok, context=context)
     return row["sigma"] if (row and row.get("sigma")) else "Sum"
@@ -277,6 +277,13 @@ def parse_ts_viz(v, resolver=None):
     xs = [d for d in (ax.get("x") or []) if d in dims]
     if xs:
         dims = xs + [d for d in dims if d not in xs]
+    if len(xs) > 1:
+        # TML documents axis_configs.x only as the columns assigned to the
+        # x-axis; it does not persist a drill hierarchy or target binding.
+        # Sigma's released controlType:"drill" likewise exposes only the
+        # generic control identity fields. Do not invent undocumented
+        # categories/targets wiring from a multi-column axis.
+        flagged.append({"name": a.get("name", ""), "fn": "multi-level axis drill"})
     color = next((d for d in (ax.get("color") or []) if d in dims), None)
     if color:
         dims = [d for d in dims if d != color] + [color]    # color dim LAST
@@ -319,6 +326,7 @@ def parse_ts_viz(v, resolver=None):
             "refmarks": parse_refmarks(a, measures, dims),
             "measure_color": parse_measure_color(a, measures),
             "series_colors": parse_series_colors(a, measures, color),
+            "legend": parse_legend(a),
             "af_names": sorted(af.keys())}
 
 # ── Reference / threshold lines (gap A) ──────────────────────────────────────
@@ -344,6 +352,39 @@ def _client_states(a):
             except (ValueError, TypeError):
                 continue
     return out
+
+
+def parse_legend(a):
+    """Map ThoughtSpot client-state legend visibility/position to Sigma.
+
+    TML keeps visualization-format settings in the opaque chart client state.
+    Accept the documented UI concepts across the observed v1/v2 spellings and
+    emit only Sigma's published legend fields. Unknown positions are omitted
+    instead of guessed.
+    """
+    positions = {
+        "TOP": "top", "BOTTOM": "bottom", "LEFT": "left", "RIGHT": "right",
+        "AUTO": "auto", "TOP_LEFT": "top-left", "TOP_RIGHT": "top-right",
+        "BOTTOM_LEFT": "bottom-left", "BOTTOM_RIGHT": "bottom-right",
+    }
+    for cs in _client_states(a):
+        if not isinstance(cs, dict):
+            continue
+        cfg = cs.get("legend") or cs.get("legendConfig") or cs.get("legendProperties") or {}
+        cfg = cfg if isinstance(cfg, dict) else {}
+        visible = cfg.get("visible", cfg.get("show", cfg.get("isVisible", cs.get("showLegend"))))
+        if visible is False:
+            return {"visibility": "hidden"}
+        out = {}
+        pos = cfg.get("position") or cfg.get("legendPosition") or cs.get("legendPosition")
+        if pos is not None and str(pos).upper().replace("-", "_") in positions:
+            out["position"] = positions[str(pos).upper().replace("-", "_")]
+        show_title = cfg.get("showTitle", cfg.get("titleVisible"))
+        if show_title is False:
+            out["header"] = "hidden"
+        if out or visible is True:
+            return out or {"position": "auto"}
+    return None
 
 def _num(v):
     try:
@@ -729,7 +770,10 @@ def ts_refmarks(refmark_specs):
 
 # Charts that take an x/y axis (refMarks apply) vs the donut/pie/table/kpi kinds
 # where a reference line has no axis to hang on.
-_AXIS_KINDS = {"bar-chart", "line-chart", "area-chart", "combo-chart", "scatter-chart"}
+_AXIS_KINDS = {
+    "bar-chart", "line-chart", "area-chart", "combo-chart", "scatter-chart",
+    "waterfall-chart",
+}
 
 def _apply_measure_color(el, spec, resolver):
     """gap B — by-measure color scale → color:{by:scale} on a DUPLICATE measure
@@ -772,6 +816,13 @@ def _apply_refmarks(el, spec):
     rm = ts_refmarks(spec.get("refmarks"))
     if rm:
         el["refMarks"] = rm
+
+
+def _apply_legend(el, spec):
+    """Carry source legend visibility/placement on chart kinds that expose it."""
+    legend = spec.get("legend")
+    if legend and el.get("kind") in (_AXIS_KINDS | {"pie-chart", "donut-chart", "region-map"}):
+        el["legend"] = dict(legend)
 
 def sigma_element(spec, resolver, master="OFV"):
     """Build the element, then apply any ThoughtSpot search-query filters as
@@ -836,6 +887,7 @@ def sigma_element(spec, resolver, master="OFV"):
     _apply_measure_color(el, spec, resolver)   # gap B: by-measure color scale
     _apply_series_colors(el, spec)             # gap D: per-viz solid color + geo gradient
     _apply_refmarks(el, spec)                  # gap A: reference / threshold lines
+    _apply_legend(el, spec)                    # source legend visibility / placement
     return el
 
 def _apply_sorts(el, spec):
@@ -853,7 +905,8 @@ def _apply_sorts(el, spec):
         if not col:
             continue
         d = s["direction"]; k = el.get("kind")
-        if k in ("bar-chart", "line-chart", "area-chart", "scatter-chart", "combo-chart"):
+        if k in ("bar-chart", "line-chart", "area-chart", "scatter-chart",
+                 "combo-chart", "waterfall-chart"):
             if si == 0 and "xAxis" in el:
                 el["xAxis"]["sort"] = {"by": col["id"], "direction": d}
         elif k in ("pie-chart", "donut-chart"):
@@ -1033,7 +1086,7 @@ def _element_core(spec, resolver, master="OFV"):
         return {"id": nid(), "kind": "region-map", "name": name, "source": src, "columns": cols,
                 "region": {"id": gid, "regionType": _region_type(dims[0])}}
     # ThoughtSpot chart types with NO faithful Sigma equivalent (Sigma has no
-    # treemap/gauge/waterfall/funnel/sankey/histogram/candlestick/radar — verified
+    # treemap/gauge/funnel/sankey/histogram/candlestick/radar/box plot — verified
     # against sigma-workbooks/reference/specification/charts.md). Silently coercing
     # them to a bar-chart MISREPRESENTS the data (a funnel/gauge/sankey is not a
     # bar), so down-convert to a TABLE (data preserved + readable) and FLAG it in
@@ -1045,12 +1098,12 @@ def _element_core(spec, resolver, master="OFV"):
                   "format": mfmt(m)} for m in meas]
         return {"id": nid(), "kind": "table", "source": src, "columns": cols,
                 "name": f"{name} [{chart} → table: no Sigma chart equivalent]"}
-    # Generic axis-chart branch: COLUMN/BAR/LINE/AREA (+ stacked) map via KIND.
+    # Generic axis-chart branch: COLUMN/BAR/LINE/AREA/WATERFALL (+ stacked) map via KIND.
     # A chart string that reached here yet is NOT in the viz-kind catalog is a
     # GENUINELY UNKNOWN ThoughtSpot type (known-unsupported types were caught by
     # _NO_SIGMA_EQUIV above). Silently coercing it to a bar-chart MISREPRESENTS the
     # data, so warn LOUDLY + degrade to a flagged table — same posture as the
-    # _NO_SIGMA_EQUIV path — never a silent bar (beads-sigma-kvza).
+    # _NO_SIGMA_EQUIV path — never a silent bar ([bead]).
     kind = KIND.get(chart)
     if kind is None:
         _resolve_or_warn(VIZ_CAT, chart, context=name)
@@ -1060,6 +1113,11 @@ def _element_core(spec, resolver, master="OFV"):
         return {"id": nid(), "kind": "table", "source": src, "columns": cols,
                 "name": f"{name} [{chart} → table: unknown ThoughtSpot chart type, no Sigma mapping]"}
     x = nid("x"); cols = [{"id": x, "formula": dref(dims[0]), "name": dims[0]}]; ymids = []
+    # Preserve deeper x-axis dimensions as declared columns so their data is not
+    # dropped. Only the first level can occupy Sigma's xAxis; parse_ts_viz marks
+    # the ungrounded multi-level drill behavior as a loud fidelity gap.
+    for d in dims[1:]:
+        cols.append({"id": nid("x"), "formula": dref(d), "name": d})
     for m in meas:
         y = nid("y"); cols.append({"id": y, "formula": mref(m), "name": m, "format": mfmt(m)}); ymids.append(y)
     el = {"id": nid(), "kind": kind, "name": name, "source": src,
@@ -1067,6 +1125,10 @@ def _element_core(spec, resolver, master="OFV"):
     if color_dim:
         cc = nid("c"); cols.append({"id": cc, "formula": dref(color_dim), "name": color_dim})
         el["color"] = {"by": "category", "column": cc}
+    if chart in ("BAR", "STACKED_BAR"):
+        el["orientation"] = "horizontal"
+    if chart in ("STACKED_COLUMN", "STACKED_BAR", "STACKED_AREA"):
+        el["stacking"] = "stacked"
     return el
 
 # ── Liveboard filters → interactive Sigma list controls (gap C) ──────────────
@@ -1113,7 +1175,7 @@ def parse_liveboard_filters(lb):
             vals = [vals]
         is_date = bool(re.search(r"date|month|year|quarter|week|day|time", col, re.I))
         # Resolve the operator via the control catalog; an UNKNOWN op WARNS loudly
-        # and falls back to include EXPLICITLY (never a silent include; beads-sigma-kvza).
+        # and falls back to include EXPLICITLY (never a silent include; [bead]).
         oprow = _resolve_or_warn(CTRL_CAT, op, context=col)
         mode = oprow["sigma"] if (oprow and oprow.get("sigma")) else "include"
         out.append({"col": col, "mode": mode,
@@ -1162,6 +1224,7 @@ def liveboard_controls(lb_filters, resolver, master_el, master="OFV", denorm_nam
                                   "columnId": cid}})
         controls.append(el)
     return controls
+
 
 def master_element(specs, resolver, dm_id, denorm_elem, denorm_name="Order Fact View"):
     """Master table fed by the DM denorm view. Plain columns pass through; the

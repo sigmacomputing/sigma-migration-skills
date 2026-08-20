@@ -16,7 +16,7 @@
 #
 # Live-verified value (demo-warehouse testbed, 2026-06-28): the chain renders the bucket
 # at the de-fanned warehouse total (116,557.3); a chart-direct grouped source
-# fanned it to 82,172,896.5 (×705 base rows). See beads-sigma-y9rd.13.
+# fanned it to 82,172,896.5 (×705 base rows). See [bead].13.
 #
 # Usage:  ruby scripts/test-aggregate-dimension.rb
 require 'json'

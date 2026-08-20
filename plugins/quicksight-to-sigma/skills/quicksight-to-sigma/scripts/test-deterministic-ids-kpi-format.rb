@@ -109,24 +109,28 @@ def build(dir, tag)
 end
 
 # Every id in the spec, paired with what it belongs to, in document order.
+def workbook_elements(spec)
+  spec.dig('document', 'elements') ||
+    (spec['pages'] || []).flat_map { |page| page['elements'] || [] }
+end
+
 def id_space(spec)
   out = []
-  (spec['pages'] || []).each do |pg|
+  (spec.dig('document', 'pages') || spec['pages'] || []).each do |pg|
     out << ['page', pg['id']]
-    (pg['elements'] || []).each do |e|
-      out << ['element', e['id'], e['kind']]
-      (e['columns'] || []).each { |c| out << ['column', e['id'], c['id']] }
-      (e['filters'] || []).each { |f| out << ['filter', e['id'], f['id']] }
-      (e['groupings'] || []).each { |g| out << ['grouping', e['id'], g['id']] }
-    end
+  end
+  workbook_elements(spec).each do |e|
+    out << ['element', e['id'], e['kind']]
+    (e['columns'] || []).each { |c| out << ['column', e['id'], c['id']] }
+    (e['filters'] || []).each { |f| out << ['filter', e['id'], f['id']] }
+    (e['groupings'] || []).each { |g| out << ['grouping', e['id'], g['id']] }
   end
   out
 end
 
 def kpi_cols(spec)
-  (spec['pages'] || []).flat_map { |pg| pg['elements'] || [] }
-                       .select { |e| e['kind'] == 'kpi-chart' }
-                       .map { |e| [e['name'], e['columns'].first] }.to_h
+  workbook_elements(spec).select { |e| e['kind'] == 'kpi-chart' }
+                         .map { |e| [e['name'], e['columns'].first] }.to_h
 end
 
 Dir.mktmpdir do |dir|
@@ -151,18 +155,16 @@ Dir.mktmpdir do |dir|
     ids.any? && bad.empty?
   end
   ok('element ids are keyed to the QuickSight VisualId (5 visuals -> 5 chart elements)') do
-    kinds = (a['pages'] || []).flat_map { |pg| pg['elements'] || [] }
-                              .reject { |e| %w[control table].include?(e['kind']) }
+    kinds = workbook_elements(a).reject { |e| %w[control table].include?(e['kind']) }
     kinds.size == 5
   end
   ok('the control element id is stable across builds') do
-    ctl = ->(s) { (s['pages'] || []).flat_map { |pg| pg['elements'] || [] }.select { |e| e['kind'] == 'control' }.map { |e| e['id'] } }
+    ctl = ->(s) { workbook_elements(s).select { |e| e['kind'] == 'control' }.map { |e| e['id'] } }
     ctl.(a) == ctl.(b) && !ctl.(a).empty?
   end
   ok('two charts sharing one dimension still get DISTINCT column ids (uniqueness kept)') do
-    cols = (a['pages'] || []).flat_map { |pg| pg['elements'] || [] }
-                             .reject { |e| e['kind'] == 'control' }
-                             .flat_map { |e| (e['columns'] || []).map { |c| c['id'] } }
+    cols = workbook_elements(a).reject { |e| e['kind'] == 'control' }
+                               .flat_map { |e| (e['columns'] || []).map { |c| c['id'] } }
     cols.size == cols.uniq.size
   end
   ok('a visualId -> element map is emitted and matches the spec ids') do
@@ -192,10 +194,9 @@ Dir.mktmpdir do |dir|
     rc && rc['formula'].to_s.strip.casecmp('Null').zero? && rc['format'].nil?
   end
   ok('non-KPI chart measures are NOT given a format (QS abbreviated labels preserved)') do
-    (a['pages'] || []).flat_map { |pg| pg['elements'] || [] }
-                      .select { |e| %w[bar-chart line-chart].include?(e['kind']) }
-                      .flat_map { |e| e['columns'] || [] }
-                      .none? { |c| c['format'] }
+    workbook_elements(a).select { |e| %w[bar-chart line-chart].include?(e['kind']) }
+                        .flat_map { |e| e['columns'] || [] }
+                        .none? { |c| c['format'] }
   end
 end
 

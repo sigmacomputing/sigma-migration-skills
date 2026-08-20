@@ -62,6 +62,7 @@ require 'time'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sigma_rest'
 require 'export_pool'
+require 'code_rep'
 
 RUN_TAG       = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
 CONNECTION_ID = ENV.fetch('SIGMA_TEST_CONNECTION_ID', '362d859b-f432-4657-8e58-efc8535aa354')
@@ -118,7 +119,8 @@ def reference_schema_version
     wid = w['workbookId'] || w['id']
     next unless wid
     spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
-    return spec['schemaVersion'] if spec.is_a?(Hash) && spec['schemaVersion']
+    doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
+    return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
@@ -166,16 +168,7 @@ def build_spec(home, schema_version, master_formula_fn)
     { 'id' => "dt-#{a}", 'name' => DISPLAY[a], 'formula' => "[#{MASTER_SRC_NAME}/#{DISPLAY[a]}]" }
   end
 
-  {
-    'name' => "WS3 master-detail interactivity — E2E proof (#{RUN_TAG})",
-    'folderId' => home,
-    'schemaVersion' => schema_version,
-    'description' => 'Live proof: control-driven master/detail filter is spec-authorable. Throwaway test artifact.',
-    'pages' => [
-      {
-        'id' => PAGE_ID,
-        'name' => 'WS3 Master-Detail E2E',
-        'elements' => [
+  elements = [
           {
             'id' => MASTER_SRC_ID, 'kind' => 'table', 'name' => MASTER_SRC_NAME,
             'source' => { 'kind' => 'sql', 'connectionId' => CONNECTION_ID, 'statement' => DEMO_SQL },
@@ -210,10 +203,25 @@ def build_spec(home, schema_version, master_formula_fn)
             'source' => { 'kind' => 'table', 'elementId' => MASTER_SRC_ID },
             'columns' => detail_cols,
           },
-        ],
-      },
-    ],
+  ]
+  doc = {
+    'schemaVersion' => schema_version,
+    'pages' => [{ 'id' => PAGE_ID, 'name' => 'WS3 Master-Detail E2E' }],
+    'elements' => elements,
+    'layout' => <<~XML,
+      <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="#{PAGE_ID}">
+        <Element elementId="#{MASTER_SRC_ID}" gridColumn="1 / 25" gridRow="1 / 9"/>
+        <Element elementId="#{MASTER_CHART_ID}" gridColumn="1 / 13" gridRow="9 / 21"/>
+        <Element elementId="#{CONTROL_EL_ID}" gridColumn="13 / 25" gridRow="9 / 12"/>
+        <Element elementId="#{DETAIL_ID}" gridColumn="13 / 25" gridRow="12 / 21"/>
+      </Page>
+    XML
   }
+  Sigma::CodeRep.wrap(doc, extra: {
+    'name' => "WS3 master-detail interactivity — E2E proof (#{RUN_TAG})",
+    'folderId' => home,
+    'description' => 'Live proof: control-driven master/detail filter is spec-authorable. Throwaway test artifact.'
+  })
 end
 
 # ---------------------------------------------------------------------------

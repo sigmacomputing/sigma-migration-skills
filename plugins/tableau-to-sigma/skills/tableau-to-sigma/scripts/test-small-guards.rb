@@ -56,14 +56,23 @@ end
 
 puts 'preflight lint I1 — If-only bare predicate'
 require_relative 'lib/preflight_lint'
-spec = { 'pages' => [{ 'elements' => [
+elements = [
   { 'id' => 'e1', 'kind' => 'bar-chart', 'name' => 'tile', 'columns' => [
     { 'id' => 'c-sort', 'name' => 'SORT_ORD',
       'formula' => 'Switch([Master/Preset Room Used], "A", 1, "B", 2, 3)' },
     { 'id' => 'c-if', 'name' => 'Flag', 'formula' => 'If([Master/Bit], "y", "n")' },
     { 'id' => 'c-ok', 'name' => 'Cmp', 'formula' => 'If([Master/Bit] = 1, "y", "n")' }
   ] }
-] }] }
+]
+spec = {
+  'document' => {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => 'p1', 'name' => 'Dashboard' }],
+    'elements' => elements,
+    'layout' => '<Page id="p1"><Element elementId="e1"/></Page>'
+  }
+}
 warns = lint_warnings(spec)
 i1 = warns.select { |w| w.start_with?('I1') }
 check(i1.none? { |w| w.include?('SORT_ORD') },

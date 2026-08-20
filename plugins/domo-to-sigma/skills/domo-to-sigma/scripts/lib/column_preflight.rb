@@ -86,6 +86,26 @@ module ColumnPreflight
     NUMERIC_TYPES.include?(col['type'].to_s.upcase)
   end
 
+  # Sigma's SERVER auto-names a raw warehouse table column (as returned by
+  # fetch_warehouse_columns / /v2/connections/tables/<inodeId>/columns —
+  # e.g. an unquoted Snowflake identifier, all-caps with underscores) by
+  # Title-Casing every underscore-separated word UNCONDITIONALLY:
+  # ORDER_DATE_KEY -> "Order Date Key", TAX_AMOUNT -> "Tax Amount". Confirmed
+  # LIVE against ~28 real columns on one warehouse table, 2026-08-03.
+  #
+  # This is DELIBERATELY separate from DomoSigma.display_name
+  # (domo_sigma_util.rb), which preserves an all-caps word-segment as-is
+  # (e.g. an "ID"/"URL" acronym) — the right rule for DOMO'S OWN
+  # dataset/calc-field names, but NOT for a raw warehouse identifier Sigma
+  # is auto-labeling fresh, where there is no way to distinguish "a real
+  # acronym" from "just an all-caps word" — Sigma doesn't try, so this
+  # helper doesn't either. Do not merge these two functions: same input
+  # shape, two different correct answers depending on which naming
+  # pipeline produced the name.
+  def warehouse_column_display_name(raw)
+    raw.to_s.split('_').map { |w| w.empty? ? w : w.capitalize }.join(' ')
+  end
+
   # The one derivation pattern shipped in this PR (see design doc — the
   # registry is shaped so a second pattern is additive, but only one exists
   # today; YAGNI). Triggers when a missing column's Domo type is DATE/DATETIME
@@ -108,11 +128,15 @@ module ColumnPreflight
     end
     return nil unless candidates.size == 1
     source = candidates.first['name']
+    # The formula reference must be the column's SIGMA-ASSIGNED display label
+    # (what Sigma auto-names the raw warehouse column), not the raw warehouse
+    # identifier itself — see warehouse_column_display_name above.
+    display = warehouse_column_display_name(source)
     {
       'pattern' => 'yyyymmdd_integer_key',
       'candidate_source_column' => source,
       'suggested_formula' =>
-        "MakeDate(Floor([#{source}]/10000), Floor(Mod([#{source}],10000)/100), Mod([#{source}],100))",
+        "MakeDate(Floor([#{display}]/10000), Floor(Mod([#{display}],10000)/100), Mod([#{display}],100))",
     }
   end
 

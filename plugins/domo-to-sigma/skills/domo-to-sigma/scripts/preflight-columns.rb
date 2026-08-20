@@ -16,10 +16,16 @@
 # Requires SIGMA_BASE_URL + a Sigma bearer token (SIGMA_API_TOKEN, or
 # SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET for scripts/lib/sigma_rest.rb to
 # self-mint) — same credential story as put-layout.rb and post-and-readback.rb.
-# Skips (does not attempt a live call for) any dataset whose dataset-map.json
-# entry isn't fully resolved yet (no connectionId/table, or a
-# domo-stream-config-query-only / domo-landed-data _source) — build-dm.rb's
-# own existing warnings already cover those.
+# Does not attempt a live call for any dataset whose dataset-map.json entry
+# isn't fully resolved yet (no connectionId/table, or a domo-stream-config-
+# query-only / domo-landed-data _source) — build-dm.rb's own existing
+# warnings already cover those. That dataset is still RECORDED in the report
+# as 'skipped' (never dropped) — see run_preflight below; a dataset that
+# cannot be checked (no dataset-map.json entry, no datasets.json schema, or a
+# live fetch/lookup error) is recorded as 'error' and forces exit 1, so a
+# report can never again look "clean" while having covered almost nothing
+# (bead m655 post-mortem: a live run's report had one key out of ten used
+# datasets and still printed "clean").
 
 require 'json'
 require 'fileutils'
@@ -123,10 +129,25 @@ end
 #           discovered dataset if cards.json is empty/absent — mirrors
 #           build-dm.rb's own `used` derivation).
 #
-# Returns [report, any_missing] — report is the exact discovery/
-# column-preflight.json shape (Hash keyed by dataset id, only datasets that
-# were actually checked or errored); any_missing is a Boolean (true if any
-# checked dataset still has an unresolved column, or a fetch error occurred).
+# Returns [report, any_missing]. report is keyed by EVERY id in `used` — no
+# id is ever dropped, on pain of repeating the exact false-clean this
+# function exists to prevent (bead m655 post-mortem: a real cold run's
+# report.json ended up with exactly ONE key out of 10 used datasets, all 9
+# silently `next`-ed past, yet the run printed "clean"). Every entry has
+# EXACTLY ONE of:
+#   'missing'/'resolved_by_exclude'/'resolved_by_override'/'suggested_overrides'
+#                 — actually diffed against a live warehouse-column fetch.
+#   'skipped'     — legitimately not checkable yet (a SENTINEL_SOURCES entry,
+#                   or connectionId/table not yet filled in) — NOT a failure;
+#                   build-dm.rb's own "needs human review" warning covers it,
+#                   and this key is deliberately NOT 'error' so build-dm.rb's
+#                   preflight-report gate (`v['error']`) does not block on it.
+#   'error'       — could not be checked at all (no dataset-map.json entry,
+#                   no datasets.json schema for this id, a malformed schema,
+#                   or a live fetch failure) — this DOES set any_missing, so
+#                   an unchecked dataset can never be reported clean.
+# any_missing is a Boolean (true if any dataset has an 'error', or a checked
+# dataset still has a non-empty 'missing').
 def run_preflight(datasets, ds_map, used, fetcher: method(:fetch_warehouse_columns))
   ds_by_id = datasets.each_with_object({}) { |d, h| h[d['id']] = d }
   report = {}
@@ -134,11 +155,36 @@ def run_preflight(datasets, ds_map, used, fetcher: method(:fetch_warehouse_colum
   used.each do |id|
     entry = ds_map[id]
     ds = ds_by_id[id]
-    next unless entry && ds
-    next if entry['connectionId'].to_s.strip.empty? || entry['table'].to_s.strip.empty? ||
-            ColumnPreflight::SENTINEL_SOURCES.include?(entry['_source'])
+    if entry.nil?
+      report[id] = { 'error' => 'no discovery/dataset-map.json entry for this dataset id — ' \
+                                 'cannot be checked' }
+      any_missing = true
+      next
+    end
+    if ds.nil?
+      report[id] = { 'table' => entry['table'], 'error' => 'no discovery/datasets.json entry (missing ' \
+                                 'schema) for this dataset id — cannot be checked; re-run ' \
+                                 'domo-discover.rb' }
+      any_missing = true
+      next
+    end
+    if ColumnPreflight::SENTINEL_SOURCES.include?(entry['_source'])
+      report[id] = { 'table' => entry['table'],
+                      'skipped' => "_source is #{entry['_source']} — no warehouse table to check yet" }
+      next
+    end
+    if entry['connectionId'].to_s.strip.empty? || entry['table'].to_s.strip.empty?
+      report[id] = { 'table' => entry['table'],
+                      'skipped' => 'connectionId/table not yet resolved in dataset-map.json' }
+      next
+    end
     schema_cols = ds.dig('schema', 'columns')
-    next unless schema_cols.is_a?(Array) # build-dm.rb's own ArgumentError already covers this
+    unless schema_cols.is_a?(Array) # build-dm.rb's own ArgumentError already covers this too
+      report[id] = { 'table' => entry['table'], 'error' => 'datasets.json has no schema.columns array ' \
+                                 'for this dataset id — cannot be checked' }
+      any_missing = true
+      next
+    end
 
     path = [entry['database'], entry['schema'], entry['table']].compact
     fetched = fetcher.call(entry['connectionId'], path)
@@ -157,6 +203,21 @@ def run_preflight(datasets, ds_map, used, fetcher: method(:fetch_warehouse_colum
   [report, any_missing]
 end
 
+# Turns a report Hash (run_preflight's first return value) into honest counts
+# for the summary line — so "clean" can never again mean "checked almost
+# nothing" (the exact vacuous-pass bead m655 post-mortem found: a report with
+# one key printed "clean — every used dataset's Domo columns are covered").
+# Every report value has exactly one of 'missing' (a checked entry, key
+# always present even when the diff found nothing), 'skipped', or 'error' —
+# see run_preflight — so these three counts always add up to report.size.
+def summarize_report(report)
+  {
+    'checked' => report.values.count { |v| v.key?('missing') },
+    'skipped' => report.values.count { |v| v.key?('skipped') },
+    'errored' => report.values.count { |v| v.key?('error') },
+  }
+end
+
 if $PROGRAM_NAME == __FILE__
   datasets = JSON.parse(File.read(File.join(OUT, 'datasets.json'))) rescue []
   map_path = File.join(OUT, 'dataset-map.json')
@@ -170,17 +231,23 @@ if $PROGRAM_NAME == __FILE__
   used = datasets.map { |d| d['id'] }.compact if used.empty?
 
   report, any_missing = run_preflight(datasets, ds_map, used)
+  counts = summarize_report(report)
+  summary = "#{counts['checked']} checked, #{counts['skipped']} skipped, #{counts['errored']} errored " \
+            "(#{used.size} used dataset(s) total)"
 
   FileUtils.mkdir_p(OUT)
   File.write(File.join(OUT, 'column-preflight.json'), JSON.pretty_generate(report))
   if any_missing
-    warn "\n  preflight-columns.rb: unresolved column(s) or fetch error(s) — see " \
+    warn "\n  preflight-columns.rb: unresolved column(s) or fetch/lookup error(s) — #{summary}. See " \
          'discovery/column-preflight.json for names + any auto-suggested columnOverrides. ' \
          'Resolve via excludeColumns/columnOverrides in dataset-map.json (or fix the named ' \
          'connection/table issue), then re-run.'
     exit 1
   else
-    warn "  preflight-columns.rb: clean — every used dataset's Domo columns are covered."
+    skip_note = counts['skipped'].positive? ? " (#{counts['skipped']} skipped dataset(s) were NOT " \
+                                               'checked — see discovery/column-preflight.json)' : ''
+    warn "  preflight-columns.rb: clean — #{summary}. Every CHECKED dataset's Domo columns are " \
+         "covered#{skip_note}."
     exit 0
   end
 end

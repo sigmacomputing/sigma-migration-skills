@@ -1,0 +1,86 @@
+{
+  "dimension": "viz-kind",
+  "source_tool": "hex",
+  "authoritative_doc": "https://static.hex.site/hex-file-schema.json",
+  "sigma_target_doc": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+  "on_unmapped_default": "warn+skip (never guess a chart kind)",
+  "description": "Hex EXPLORE chartConfig.series[].type to the released Sigma workbook element kind. convert_workbook.py loads this file as its single source of truth. Direct rows are emitted; gap/gated rows produce loud per-cell warnings and no fake element. The source tokens are grounded in Hex's public export schema. Sigma targets are grounded in the public workbook OpenAPI and the cited local release reference.",
+  "rows": [
+    {
+      "source": "bar",
+      "sigma": "bar-chart",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "y", "date": "2026-07-30"}
+    },
+    {
+      "source": "line",
+      "sigma": "line-chart",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "n"}
+    },
+    {
+      "source": "area",
+      "sigma": "area-chart",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "n"}
+    },
+    {
+      "source": "scatter",
+      "sigma": "scatter-chart",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "n"},
+      "notes": "Shape mapping is released, but each migrated scatter still requires grouped-source/render parity validation."
+    },
+    {
+      "source": "pie",
+      "sigma": "pie-chart",
+      "status": "direct",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "y", "date": "2026-07-30"}
+    },
+    {
+      "source": "waterfall",
+      "sigma": null,
+      "status": "not-in-source",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/charts.md",
+      "sigma_verified": {"status": "y", "date": "2026-08-04"},
+      "gap": "Sigma now has a released native waterfall-chart, but Hex's current public export schema has no waterfall series token; do not claim a source mapping until a grounded Hex artifact exists"
+    },
+    {
+      "source": "boxplot",
+      "sigma": null,
+      "status": "gated",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/content-elements.md#plugin-2026-06-18-release",
+      "sigma_verified": {"status": "n"},
+      "gap": "the released workbook OpenAPI has no native box/box-plot kind; recreation requires a workspace plugin discovered from GET /v2/plugins plus that plugin's verified config, so emission stays gated"
+    },
+    {
+      "source": "box",
+      "sigma": null,
+      "status": "gated",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_target_ref": "../../../../sigma-authoring/skills/sigma-workbooks/reference/specification/content-elements.md#plugin-2026-06-18-release",
+      "sigma_verified": {"status": "n"},
+      "gap": "box is treated as a defensive alias only; plugin id/config must be discovered and verified before authoring"
+    },
+    {
+      "source": "histogram",
+      "sigma": null,
+      "status": "gap",
+      "doc_ref": "https://static.hex.site/hex-file-schema.json",
+      "sigma_verified": {"status": "n"},
+      "gap": "no faithful native histogram element mapping is implemented"
+    }
+  ]
+}

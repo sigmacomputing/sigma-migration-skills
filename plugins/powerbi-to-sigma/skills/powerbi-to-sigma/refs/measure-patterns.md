@@ -43,7 +43,7 @@ A chart splits into one series per category **iff** it carries a `color` block:
   table stay flat). See `docs/sigma-trellis-chart-support.md` +
   `docs/trellis-cross-converter-plan.md`.
 - Removing the `color` block collapses the chart to a **single series**.
-- **Line builder default = single series** (`beads-sigma-c07`): a line chart
+- **Line builder default = single series** (`[bead]`): a line chart
   should NOT emit `color` unless the source PBI visual has a Legend/Series
   binding. Per-year, per-region etc. coloring is the exception, opted into
   explicitly — never the default.
@@ -57,34 +57,30 @@ color split. Don't keep a 2-series chart just to get a per-year reset.
 
 ---
 
-## 1b. DM metrics are NOT referenceable as `[Master/Metric]` in a workbook column formula (`beads-sigma-2tf`)
+## 1b. Reference DM metrics as `[Metrics/<name>]`, never `[Master/Metric]`
 
-> Sigma platform limitation, not a converter bug. Confirmed on the KitchenSink
-> migration (2026-05-31).
+> Live-verified reference contract. The failed `[Master/Metric]` probe tested a
+> column namespace, not Sigma's reserved metric namespace.
 
 A data-model **metric** (e.g. `Absence Hours Per Head`) flows through to a
 workbook master and shows up in the master's AVAILABLE METRICS (`describe`) and
-in the Sigma UI measure picker — **but it cannot be referenced in a workbook
-column formula** via `[MasterName/Metric Name]`. `POST/PUT /v2/workbooks/spec`
-rejects it with `400 dependency not found: formula reference master/<metric>`.
-(The mcp-v2 `metric('<id>', t)` call also fails to resolve when the metric
-depends on a constant-key `m:m` relationship — "Could not resolve metric
-column".)
+in the Sigma UI measure picker. Reference it in a workbook formula as
+`[Metrics/<metric name>]`, using the metric's display name rather than its ID.
+`[MasterName/Metric Name]` is a column lookup, so `POST/PUT /v2/workbooks/spec`
+rejects that invalid form with `400 dependency not found` even when the metric
+exists. The error does not establish that the metric is unavailable.
 
-**What to do instead (both validated unattended):**
-- **Inline the aggregate formula** in the workbook column. The KitchenSink build
-  re-expresses each DM measure as an inline column formula on the chart element
-  (`Sum([ABS/Hours])`, `CumulativeSum(Sum([ABS/Hours]))`,
-  `Rank(Sum([EMP/Annual Salary]), "desc")`, `PercentOfTotal(Sum([ABS/Hours]),
-  "grand_total")`, …) — this is what `build-workbook-from-pbir.rb` + the
-  `master-map.json` `agg`/`agg_args`/`?`-placeholder do. **0 error columns.**
-- **Or add the measure in the UI** (drag the DM metric into the chart's value
-  shelf) for the genuinely cross-element aggregates that can't be inlined
-  (see §2 — the constant-key denominator case).
+`build-workbook-from-pbir.rb` receives the data-model readback metric census and
+uses `[Metrics/<name>]` when an emitted aggregate is formula-equivalent to a
+referenceable metric. It keeps the aggregate inline when no metric matches or a
+column/metric name collision caused the metric to disappear from readback.
 
 Practical rule for the builder: never emit a workbook column whose formula is a
-bare `[Master/<DM metric name>]`. Always emit the *body* (an aggregate over a
-master *column* ref), or surface the metric via the UI / `metric()`.
+bare `[Master/<DM metric name>]`. Emit `[Metrics/<metric name>]` only from the
+readback-confirmed census; otherwise emit the aggregate body over master column
+references. The separate mcp-v2 `metric('<id>', t)` query path can still fail
+when a metric depends on a constant-key `m:m` relationship; that query caveat
+does not change the workbook formula namespace.
 
 ---
 
@@ -106,12 +102,14 @@ in a *different* element. Three ways it goes wrong and the workarounds:
 1. **Constant denominator** (cheapest, when the denominator is a known scalar):
    `Sum([ABS/Hours]) / 363`. Used for `p-perhead` in the KitchenSink. Exact, but
    hardcodes the headcount — re-derive if the population changes.
-2. **DM metric that's UI-only-referenceable** (`beads-sigma-2tf`): define the
+2. **Relationship-backed DM metric**: define the
    ratio as a DM **metric** with a constant-key join to ALL employees, e.g.
    `Sum([Hours]) / CountDistinct([ABSENCE_RECORDS/Absence -> All Employees/Employee Id])`.
-   The metric resolves correctly *in the workbook UI / via the metric() function*
-   but is not freely composable as a plain column ref in every context — treat it
-   as a metric, surface it via `metric('<id>', t)`, don't inline its body.
+   Reference a readback-confirmed metric in workbook formulas through
+   `[Metrics/<metric name>]`; do not treat it as a plain master column or inline
+   a relationship-dependent body at the wrong grain. Verify the metric separately
+   through the workbook because the mcp-v2 `metric('<id>', t)` query path can fail
+   to resolve this constant-key relationship shape.
 3. **Constant-key join element**: add a relationship from the fact to a
    single-row "all employees count" element so the denominator travels with every
    fact row. Heaviest, but fully dynamic.
@@ -381,5 +379,5 @@ verified via `/v2/workbooks/{id}/spec` PUT round-trip 2026-06-02.)
   `trellis` facet, both of which ARE persisted). NOTE
   `feedback_sigma_trellis_ui_only` is STALE — the `rowsBy`/`columnsBy` trellis is
   spec-authored now (small multiples → `TrellisEmit.apply`; see above).
-- Beads: `c07` (line default single series), `2tf` (UI-only-referenceable DM
-  metric for the cross-element ratio), `tkd` (post fixups).
+- Beads: `c07` (line default single series), `2tf` (invalid Master/metric probe
+  for the cross-element ratio), `tkd` (post fixups).

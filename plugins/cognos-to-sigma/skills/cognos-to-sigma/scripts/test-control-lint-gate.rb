@@ -26,32 +26,34 @@ def lint(spec)
   end
 end
 
-good = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
-      { 'id' => 'base', 'kind' => 'table', 'name' => 'Report',
-        'columns' => [{ 'id' => 'c_dim', 'formula' => '[Dim]' }] },
-      { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total',
-        'source' => { 'kind' => 'source', 'source' => { 'elementId' => 'base' } } },
-      { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'dim', 'controlType' => 'list',
-        'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_dim' }] }
-    ]
-  }]
-}
+def workbook(elements)
+  ids = elements.map { |e| %(<Element elementId="#{e.fetch('id')}"/>) }.join
+  {
+    'name' => 'Control lint fixture',
+    'document' => {
+      'pages' => [{ 'name' => 'P1', 'id' => 'pg1' }],
+      'elements' => elements,
+      'layout' => %(<Page id="pg1">#{ids}</Page>)
+    }
+  }
+end
 
-partial = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
-      { 'id' => 'base', 'kind' => 'table', 'name' => 'Report',
-        'columns' => [{ 'id' => 'c_dim', 'formula' => '[Dim]' }] },
-      { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total' }, # NOT sourced from base
-      { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'dim', 'controlType' => 'list',
-        'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_dim' }] }
-    ]
-  }]
-}
+good = workbook([
+  { 'id' => 'base', 'kind' => 'table', 'name' => 'Report',
+    'columns' => [{ 'id' => 'c_dim', 'formula' => '[Dim]' }] },
+  { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total',
+    'source' => { 'kind' => 'source', 'source' => { 'elementId' => 'base' } } },
+  { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'dim', 'controlType' => 'list',
+    'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_dim' }] }
+])
+
+partial = workbook([
+  { 'id' => 'base', 'kind' => 'table', 'name' => 'Report',
+    'columns' => [{ 'id' => 'c_dim', 'formula' => '[Dim]' }] },
+  { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total' }, # NOT sourced from base
+  { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'dim', 'controlType' => 'list',
+    'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_dim' }] }
+])
 
 check(File.exist?(CL), 'control_lint.rb is vendored into cognos scripts/lib')
 check(lint(good) == 0, 'correctly-wired control (reaches KPI via source) -> gate PASSES (exit 0)')

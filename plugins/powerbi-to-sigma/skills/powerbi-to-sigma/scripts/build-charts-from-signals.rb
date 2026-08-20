@@ -650,7 +650,7 @@ end
 # single measure and no dimensions — translate to a Sigma kpi-chart element.
 # Without this, the chart_kind=kpi worksheet would fall through to the
 # CSV-driven flat-table flow and quietly produce nothing usable.
-# See beads-sigma-bw3.
+# See [bead].
 def build_kpi_element(z, meta, mmap, opts, warnings)
   cap = z['caption']
   el_id = "el-kpi-#{cap.downcase.gsub(/\W+/, '-')[0..38]}".sub(/-$/, '')
@@ -756,7 +756,7 @@ layout.each do |dash|
     # KPI fast path: Tableau scorecards (chart_kind=kpi) emit a Sigma kpi-chart
     # with a single measure as value. Without this, the worksheet would fall
     # into the CSV-driven 2-column flow which requires headers.length >= 2 and
-    # silently drops single-measure tiles. beads-sigma-bw3.
+    # silently drops single-measure tiles. [bead].
     if z['chart_kind'] == 'kpi'
       kpi_el = build_kpi_element(z, meta, mmap, opts, warnings)
       if kpi_el
@@ -995,7 +995,7 @@ layout.each do |dash|
       if !ref_skip.empty?
         skip_counts = ref_skip.each_with_object(Hash.new(0)) { |r, h| h[r['kind']] += 1 }
         skip_kinds = skip_counts.map { |k, n| "#{n}× #{k}" }.join(', ')
-        warnings << "'#{cap}' has #{ref_skip.size} Tableau reference mark(s) not auto-emitted (#{skip_kinds}) — bands/distributions need manual review (beads-sigma-7ak)"
+        warnings << "'#{cap}' has #{ref_skip.size} Tableau reference mark(s) not auto-emitted (#{skip_kinds}) — bands/distributions need manual review ([bead])"
       end
       if !ref_emit.empty?
         warnings << "'#{cap}' auto-emitted #{ref_emit.size} Sigma refMarks from Tableau reference marks — verify visual fidelity"
@@ -1279,7 +1279,7 @@ if opts[:auto_controls]
       spec['value'] = p['default_value']
     elsif p['param_domain'] == 'range' && %w[integer real].include?(p['datatype'])
       # Numeric range parameter → Sigma `number-range` control (discovered by
-      # gap-scout 2026-05-20, beads-sigma-ebw). Two-handle slider; the single-
+      # gap-scout 2026-05-20, [bead]). Two-handle slider; the single-
       # value Tableau parameter is rendered as a range with handles initially
       # collapsed to the default. `mode` and `values` don't round-trip on
       # readback but the workbook renders correctly (known Sigma quirk).

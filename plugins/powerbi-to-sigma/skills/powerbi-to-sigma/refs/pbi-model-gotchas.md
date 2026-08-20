@@ -16,15 +16,16 @@ lowercase, mostly-ungranted multi-schema, 100s of tables, heavy `CALCULATE`.
 ## VERIFIED gaps (grepped; beaded)
 | Gap | Stage | Bead |
 |---|---|---|
-| M-parser misses whole warehouse families: SQL-family flat `[Schema=,Item=]`, the common `Sql.Databases()` two-tier (Kind db step **then** flat Schema/Item), Databricks shape-B `{[Item=,Schema=,Catalog=]}`, native-query (`Value.NativeQuery`/`[Query=SELECT…]`), BigQuery Name-only 3-tier | convert | `beads-sigma-lanq.9` (P1) |
-| Field parameters (`NAMEOF` calc tables) → phantom warehouse table; should be a control-driven `Switch([ctl],…)` picker | convert | `beads-sigma-lanq.10` (P2) |
-| Multi-partition tables + incremental-refresh `refreshPolicy.sourceExpression` + Direct Lake/`entity` partitions (only `partitions[0]` read) | convert | `beads-sigma-lanq.11` (P2) |
-| Relationship fidelity: many-to-many + bidirectional `crossFilteringBehavior` not inspected (fan-out / wrong subtotals) | convert | `beads-sigma-lanq.12` (P2) |
-| Metadata cluster: `sortByColumn` (alpha sort), KPI measure sub-object (target/status/trend), hierarchies `levels[]`, `column.summarizeBy` default agg, nested `displayFolder` | convert | `beads-sigma-lanq.13` (P3) |
+| M-parser warehouse families: SQL-family flat `[Schema=,Item=]`, `Sql.Databases()` two-tier, Databricks shape-B, BigQuery Name-only 3-tier | convert | `[bead].9` (path families remain regression targets; do not lose them during re-vendor) |
+| Field parameters (`NAMEOF` calc tables) → phantom warehouse table; should be a control-driven `Switch([ctl],…)` picker | convert | `[bead].10` (P2) |
+| Multi-partition tables + incremental-refresh `refreshPolicy.sourceExpression` + Direct Lake/`entity` partitions (only `partitions[0]` read) | convert | `[bead].11` (P2) |
+| Relationship fidelity: many-to-many + bidirectional `crossFilteringBehavior` not inspected (fan-out / wrong subtotals) | convert | `[bead].12` (P2) |
+| Metadata cluster: `sortByColumn` (alpha sort), KPI measure sub-object (target/status/trend), hierarchies `levels[]`, `column.summarizeBy` default agg, nested `displayFolder` | convert | `[bead].13` (P3) |
 | Report filters (`filterConfig` Where-tree, In/Not/Between/Comparison, ComparisonKind, TopN, RelativeDate, `howCreated` Auto/Drill noise, inverted selection, Passthrough) never extracted | extract-pbir + build-workbook | Track 3a (extract) + 3b (apply: list/number-range/top-n → element/master filters; measure/multi-col/date-range → coverage) SHIPPED; date-range-control emission is the fast-follow |
-| Friendly table name ≠ physical view: element-name/formula-prefix reconciliation | build-DM | `beads-sigma-2xap` (SHIPPED #401) |
-| Cross-table measure referencing a dim column dropped (should translate via the relationship) | convert | `beads-sigma-lanq.8` (P2) |
-| Time-intel date grain hardcoded to month (ignores active hierarchy level) | dax/build | `beads-sigma-wpoz` (P3) |
+| Friendly table name ≠ physical view: element-name/formula-prefix reconciliation | build-DM | `[bead]` (SHIPPED #401) |
+| Sigma connection `friendlyName:false`: title-cased converter refs (for example `Order Id`) must be grounded to exact catalog names (`ORDER_ID`) while retaining explicit display names | build-DM | SHIPPED 1.8.31; `lib/warehouse_column_refs.rb` reads connection metadata + paginated table columns before validation/POST |
+| Cross-table measure referencing a dim column dropped (should translate via the relationship) | convert | `[bead].8` (P2) |
+| Time-intel date grain hardcoded to month (ignores active hierarchy level) | dax/build | `[bead]` (P3) |
 
 **Correction to the research:** VAR/RETURN decomposition IS handled (17 hits in the
 converter) — the critic's "completely absent" was wrong. Don't bead it.
@@ -32,7 +33,10 @@ converter) — the critic's "completely absent" was wrong. Don't bead it.
 ## Already-handled (don't re-flag)
 Kind-chain nav (Snowflake/Databricks-A/BigQuery-with-Kind/Athena), Redshift 2-level
 Name-nav, calculated tables (CALENDAR/GENERATESERIES → SQL spine; else loud
-placeholder), calc groups (excluded as source + loud item stubs), RLS/OLS
+placeholder), native-query partitions (`Value.NativeQuery` / connector `Query=`
+preserved as complete named Custom SQL by `lib/pbi_native_query.rb`; post-query M
+steps gate), calc groups (excluded as source + loud item stubs; array-valued item
+expressions normalized before conversion), RLS/OLS
 (makeRlsSecurity/makeClsSecurity, surfaced not injected), USERELATIONSHIP (activated
 as named alt join), inactive rels (only emitted if a measure uses them), rowNumber/
 isGenerated skipped, calc columns (window/EARLIER → SQL helpers), binary skipped,

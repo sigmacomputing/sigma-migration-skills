@@ -405,7 +405,15 @@ The script tries two paths:
 1. **Metadata GraphQL API** for `CustomSQLTable` nodes downstream of the workbook (works for both published-datasource Custom SQL and embedded Custom SQL).
 2. **`.twb` XML fallback** for embedded `<relation type='text'>` blocks (covers cases the Metadata API hasn't crawled yet).
 
-Output is a JSON array, one entry per Custom SQL block, with `query` (the raw SQL text), `connectionType`, and downstream workbook/datasource pointers. If the array is non-empty, build the DM in Phase 3 with **Custom SQL elements** (`kind: "sql"`) sourcing the actual SQL — not warehouse-table references.
+Output is a JSON array, one entry per Custom SQL block, with `query` (the raw
+SQL text), `connectionType`, and downstream workbook/datasource pointers. Treat
+a non-empty result as an inventory to analyze, not a mandate to copy opaque SQL.
+In Phase 3, prefer warehouse-table elements plus relationships, filters, and
+calc columns when they reproduce every query semantic and the resulting grain;
+record a passing equivalence probe in `semantic-edits.json`. Preserve the query
+as `kind: "sql"` when decomposition would change semantics or equivalence cannot
+be proved. Never drop joins, predicates, aggregation, unions, CTEs, or window
+logic merely to obtain a tables-only model.
 
 > **MCP-mode caveat.** This script needs PAT-mode env vars (`TABLEAU_AUTH_TOKEN`, etc.). If you only have MCP available, you cannot pull custom SQL — that's a real gap; switch to PAT mode for any workbook the customer says uses custom SQL.
 

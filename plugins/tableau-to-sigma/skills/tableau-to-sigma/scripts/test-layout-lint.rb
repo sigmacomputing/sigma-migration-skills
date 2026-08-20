@@ -25,7 +25,22 @@ def check(name)
 end
 
 def lint(spec)
-  LayoutLint.lint(spec)
+  # Keep the scenario declarations compact while exercising the released
+  # workbook contract: metadata-only pages, flat document.elements, and the
+  # canonical Element/Container layout tags.
+  pages = Array(spec['pages'])
+  elements = pages.flat_map { |page| Array(page['elements']) }
+  document = {
+    'schemaVersion' => 2,
+    'kind' => 'workbook',
+    'pages' => pages.map { |page| page.reject { |key, _| key == 'elements' } },
+    'elements' => elements,
+    'layout' => spec['layout'].to_s
+                              .gsub('<GridContainer', '<Container')
+                              .gsub('</GridContainer>', '</Container>')
+                              .gsub('<LayoutElement', '<Element')
+  }
+  LayoutLint.lint('document' => document)
 end
 
 def has?(viol, frag)
@@ -36,16 +51,16 @@ end
 rail = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <GridContainer elementId="hero" type="grid" gridColumn="1 / 25" gridRow="1 / 5" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
-      </GridContainer>
-      <GridContainer elementId="rail" type="grid" gridColumn="1 / 6" gridRow="5 / 30" gridTemplateColumns="repeat(1, 1fr)">
-        <LayoutElement elementId="ctlA" gridColumn="1 / 2" gridRow="1 / 6"/>
-        <LayoutElement elementId="ctlB" gridColumn="1 / 2" gridRow="6 / 11"/>
-      </GridContainer>
-      <GridContainer elementId="content" type="grid" gridColumn="6 / 25" gridRow="5 / 30" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="t1" gridColumn="1 / 25" gridRow="1 / 25"/>
-      </GridContainer>
+      <Container elementId="hero" type="grid" gridColumn="1 / 25" gridRow="1 / 5" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="title" gridColumn="1 / 25" gridRow="1 / 5"/>
+      </Container>
+      <Container elementId="rail" type="grid" gridColumn="1 / 6" gridRow="5 / 30" gridTemplateColumns="repeat(1, 1fr)">
+        <Element elementId="ctlA" gridColumn="1 / 2" gridRow="1 / 6"/>
+        <Element elementId="ctlB" gridColumn="1 / 2" gridRow="6 / 11"/>
+      </Container>
+      <Container elementId="content" type="grid" gridColumn="6 / 25" gridRow="5 / 30" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="t1" gridColumn="1 / 25" gridRow="1 / 25"/>
+      </Container>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'Partner Summary', 'elements' => [
@@ -62,13 +77,13 @@ check('vertical rail (repeat(1,1fr)) lints clean') { rv.empty? }
 bad = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <GridContainer elementId="hdr" type="grid" gridColumn="1 / 25" gridRow="1 / 3" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="hdrtext" gridColumn="1 / 25" gridRow="1 / 3"/>
-      </GridContainer>
-      <GridContainer elementId="band1" type="grid" gridColumn="1 / 25" gridRow="3 / 9" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="smallbar" gridColumn="1 / 6" gridRow="1 / 6"/>
-      </GridContainer>
-      <LayoutElement elementId="loosectl" gridColumn="1 / 5" gridRow="20 / 22"/>
+      <Container elementId="hdr" type="grid" gridColumn="1 / 25" gridRow="1 / 3" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="hdrtext" gridColumn="1 / 25" gridRow="1 / 3"/>
+      </Container>
+      <Container elementId="band1" type="grid" gridColumn="1 / 25" gridRow="3 / 9" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="smallbar" gridColumn="1 / 6" gridRow="1 / 6"/>
+      </Container>
+      <Element elementId="loosectl" gridColumn="1 / 5" gridRow="20 / 22"/>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'Partner Summary', 'elements' => [
@@ -91,12 +106,12 @@ check('dead zone flagged')                   { has?(bv, 'dead zone') }
 ctl_above = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <LayoutElement elementId="title" gridColumn="1 / 25" gridRow="1 / 3"/>
-      <LayoutElement elementId="region" gridColumn="1 / 7" gridRow="3 / 6"/>
-      <GridContainer elementId="c-band" type="grid" gridColumn="1 / 9" gridRow="6 / 8" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="band" gridColumn="1 / 25" gridRow="1 / 3"/>
-      </GridContainer>
-      <LayoutElement elementId="chart" gridColumn="1 / 9" gridRow="8 / 19"/>
+      <Element elementId="title" gridColumn="1 / 25" gridRow="1 / 3"/>
+      <Element elementId="region" gridColumn="1 / 7" gridRow="3 / 6"/>
+      <Container elementId="c-band" type="grid" gridColumn="1 / 9" gridRow="6 / 8" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="band" gridColumn="1 / 25" gridRow="1 / 3"/>
+      </Container>
+      <Element elementId="chart" gridColumn="1 / 9" gridRow="8 / 19"/>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'Indicators', 'elements' => [
@@ -112,11 +127,11 @@ check('control above first band NOT orphaned') { !has?(lint(ctl_above), 'orphan 
 three = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <GridContainer elementId="b" type="grid" gridColumn="1 / 25" gridRow="1 / 6" gridTemplateColumns="1fr 1fr 1fr">
-        <LayoutElement elementId="x" gridColumn="1 / 2" gridRow="1 / 6"/>
-        <LayoutElement elementId="y" gridColumn="2 / 3" gridRow="1 / 6"/>
-        <LayoutElement elementId="z" gridColumn="3 / 4" gridRow="1 / 6"/>
-      </GridContainer>
+      <Container elementId="b" type="grid" gridColumn="1 / 25" gridRow="1 / 6" gridTemplateColumns="1fr 1fr 1fr">
+        <Element elementId="x" gridColumn="1 / 2" gridRow="1 / 6"/>
+        <Element elementId="y" gridColumn="2 / 3" gridRow="1 / 6"/>
+        <Element elementId="z" gridColumn="3 / 4" gridRow="1 / 6"/>
+      </Container>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'P', 'elements' => [
@@ -134,13 +149,13 @@ check('explicit 3-track band (all filled) lints clean') { lint(three).none? { |x
 short = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <GridContainer elementId="band" type="grid" gridColumn="1 / 25" gridRow="1 / 30" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="kpi1" gridColumn="1 / 13" gridRow="1 / 3"/>
-        <LayoutElement elementId="bar1" gridColumn="13 / 25" gridRow="1 / 6"/>
-        <LayoutElement elementId="tbl1" gridColumn="1 / 25" gridRow="6 / 12"/>
-        <LayoutElement elementId="ok1"  gridColumn="1 / 25" gridRow="12 / 29"/>
-      </GridContainer>
-      <LayoutElement elementId="txt1" gridColumn="1 / 25" gridRow="30 / 31"/>
+      <Container elementId="band" type="grid" gridColumn="1 / 25" gridRow="1 / 30" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="kpi1" gridColumn="1 / 13" gridRow="1 / 3"/>
+        <Element elementId="bar1" gridColumn="13 / 25" gridRow="1 / 6"/>
+        <Element elementId="tbl1" gridColumn="1 / 25" gridRow="6 / 12"/>
+        <Element elementId="ok1"  gridColumn="1 / 25" gridRow="12 / 29"/>
+      </Container>
+      <Element elementId="txt1" gridColumn="1 / 25" gridRow="30 / 31"/>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'P', 'elements' => [
@@ -161,10 +176,10 @@ check('1-row text flagged (floor 2)')    { sv.any? { |x| x.include?('txt1') && x
 tall = {
   'layout' => <<~XML,
     <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" id="p1">
-      <GridContainer elementId="band" type="grid" gridColumn="1 / 25" gridRow="1 / 13" gridTemplateColumns="repeat(24, 1fr)">
-        <LayoutElement elementId="kpi1" gridColumn="1 / 13" gridRow="1 / 5"/>
-        <LayoutElement elementId="bar1" gridColumn="13 / 25" gridRow="1 / 13"/>
-      </GridContainer>
+      <Container elementId="band" type="grid" gridColumn="1 / 25" gridRow="1 / 13" gridTemplateColumns="repeat(24, 1fr)">
+        <Element elementId="kpi1" gridColumn="1 / 13" gridRow="1 / 5"/>
+        <Element elementId="bar1" gridColumn="13 / 25" gridRow="1 / 13"/>
+      </Container>
     </Page>
   XML
   'pages' => [{ 'id' => 'p1', 'name' => 'P', 'elements' => [

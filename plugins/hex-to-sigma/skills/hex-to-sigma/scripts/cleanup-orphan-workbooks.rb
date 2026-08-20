@@ -5,7 +5,7 @@
 # and deletes everything older via DELETE /v2/files/{id} (per
 # feedback_sigma_workbook_delete_endpoint memory — NOT /v2/workbooks/{id}).
 #
-# The regression motivating this script: a customer
+# See [bead] for the regression motivating this script: a customer
 # migration on 2026-05-28 created three workbooks (one final + two orphans
 # from iterative POSTs) and the agent declared done without cleaning up.
 #

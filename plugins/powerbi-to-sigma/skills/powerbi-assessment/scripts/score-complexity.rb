@@ -82,6 +82,7 @@ complexity = {}
     'rls_role_count'    => rls,
     'directquery_tables' => dq,
     'warehouse_sources' => model['warehouse_sources'] || [],
+    'nonwarehouse_sources' => model['nonwarehouse_sources'] || [],
     'dax_buckets'    => { 'a' => a, 'b' => b, 'c' => c },
     'twb_size_kb'    => 0, # n/a for PBI; kept for renderer compat
     'n_features'     => n_auto + n_hint + n_manual + n_unhandled,

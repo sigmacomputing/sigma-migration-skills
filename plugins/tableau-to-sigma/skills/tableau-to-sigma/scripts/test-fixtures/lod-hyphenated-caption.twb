@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for issue #693 (FIXED-LOD raw-SQL helper emits
+     unquoted hyphenated output aliases) — invented, neutral names; no
+     customer data. The warehouse table DEAL_FACTS carries two HYPHENATED
+     physical column names ("Sub-Category", "Ship-Mode" — the exact shape of
+     the live failure: a real Snowflake column literally named with a
+     hyphen, sourced from a Tableau caption of the same form) plus one plain
+     measure ("Deal Value"). Calculation_1 is a two-dim FIXED LOD grouping by
+     BOTH hyphenated columns, forcing the converter to emit a GROUP-BY SQL
+     helper whose SELECT list must alias each hyphenated physical column —
+     `<phys> AS <alias>` — and, per #693, previously left that alias
+     unquoted (`"Sub-Category" AS SUB-CATEGORY`), which Snowflake rejects
+     (bare `-` parses as a minus operator). -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Pipeline Deals' name='federated.deals1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh.example.snowflakecomputing.com' name='snowflake.conn1'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='wh.example.snowflakecomputing.com' warehouse='COMPUTE_WH' />
+          </named-connection>
+        </named-connections>
+        <!-- Wrapped as a `type='collection'` relation (one child) rather than a
+             bare `type='table'` relation: the live #693 workbook is a
+             multi-relation object-model datasource, which routes column
+             construction through the metadata-record `caption` path
+             (verbatim — preserves a hyphen) rather than the single-relation
+             fallback path (which runs the name through sigmaDisplayName and
+             would turn "Sub-Category" into "Sub Category", losing the exact
+             bug shape). Matching that structure here is what makes this
+             fixture reproduce the real failure instead of a look-alike. -->
+        <relation type='collection'>
+          <relation connection='snowflake.conn1' name='DEAL_FACTS' table='[SALES].[DEAL_FACTS]' type='table'>
+            <columns>
+              <column name='Sub-Category' datatype='string' />
+              <column name='Ship-Mode' datatype='string' />
+              <column name='Deal Value' datatype='real' />
+            </columns>
+          </relation>
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>Sub-Category</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Sub-Category]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Sub-Category</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Ship-Mode</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[Ship-Mode]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Ship-Mode</remote-alias>
+            <local-type>string</local-type>
+          </metadata-record>
+          <metadata-record class='measure'>
+            <remote-name>Deal Value</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Deal Value]</local-name>
+            <parent-name>[DEAL_FACTS]</parent-name>
+            <remote-alias>Deal Value</remote-alias>
+            <local-type>real</local-type>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Sub-Category' datatype='string' name='[Sub-Category]' role='dimension' type='nominal' />
+      <column caption='Ship-Mode' datatype='string' name='[Ship-Mode]' role='dimension' type='nominal' />
+      <column caption='Deal Value' datatype='real' name='[Deal Value]' role='measure' type='quantitative' />
+      <column caption='Sub-Category Ship-Mode Total' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [Sub-Category], [Ship-Mode] : SUM([Deal Value]) }' />
+      </column>
+      <!-- Window-helper sibling (same #693 lowering path, per _windowInnerToSql
+           sharing _tableauExprToSql with the FIXED-LOD path above): a
+           WINDOW_SUM partitioned by the SAME hyphenated dimension, so
+           _finalizeWindowHelpers2's GROUP-BY SELECT hits the identical
+           unquoted-alias shape. WINDOW_SUM (not RUNNING_SUM) deliberately —
+           it needs no ORDER-BY date dimension, keeping this fixture's
+           worksheet shelf minimal. -->
+      <column caption='Sub-Category Window Total' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='WINDOW_SUM(SUM([Deal Value]))' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Deals by Sub-Category and Ship-Mode'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.deals1'>
+            <column caption='Sub-Category' datatype='string' name='[Sub-Category]' role='dimension' type='nominal' />
+            <column caption='Sub-Category Ship-Mode Total' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{ FIXED [Sub-Category], [Ship-Mode] : SUM([Deal Value]) }' />
+            </column>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.deals1].[none:Sub-Category:nk]</rows>
+        <cols>[federated.deals1].[usr:Calculation_1:qk]</cols>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Window Total by Sub-Category'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.deals1'>
+            <column caption='Sub-Category' datatype='string' name='[Sub-Category]' role='dimension' type='nominal' />
+            <column caption='Sub-Category Window Total' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='WINDOW_SUM(SUM([Deal Value]))' />
+            </column>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.deals1].[none:Sub-Category:nk]</rows>
+        <cols>[federated.deals1].[usr:Calculation_2:qk]</cols>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

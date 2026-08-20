@@ -33,6 +33,13 @@ Nothing is a new format. Every file is a verbatim slice of the spec, so all exis
 documentation applies unchanged to a single element file. A 20-element workbook becomes twenty
 ~600-byte files instead of one 20KB document; an edit touches exactly one of them.
 
+The rep's on-disk files intentionally stay in the pre-2026-08 flat shape
+(`schemaVersion`/`pages`/`layout` as plain top-level keys) even though the live
+API wire body now nests those same fields under a `document` key (verified live
+2026-08; see `sigma-workbooks`'s `reference/specification/schema.md`). The rep
+tooling wraps/unwraps at the GET/POST/PUT boundary so this is invisible from the
+file tree.
+
 ## The loop
 
 ```
@@ -127,7 +134,7 @@ build inherits it.
 
 ## Where it lives
 
-`sigma-workbooks/` — `scripts/wb-rep.rb`,
+`sigmacomputing/sigma-skills` → `sigma-workbooks/` — `scripts/wb-rep.rb`,
 `reference/workflows/element-rep.md` (workflow), `reference/specification/styling.md`
 (verified-behavior catalog). Built and proven on live workbooks: byte-exact round-trips,
 from-scratch multi-page creates, and design iterations driven entirely by the render loop.

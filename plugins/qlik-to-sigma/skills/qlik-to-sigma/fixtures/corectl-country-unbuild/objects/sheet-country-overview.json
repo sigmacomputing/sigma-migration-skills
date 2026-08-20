@@ -1,0 +1,107 @@
+{
+  "qProperty": {
+    "qInfo": {
+      "qId": "sheet-country",
+      "qType": "sheet"
+    },
+    "qMetaDef": {
+      "title": "Country Overview"
+    },
+    "rank": 0,
+    "columns": 24,
+    "rows": 12,
+    "cells": [
+      {
+        "name": "kpi-sales",
+        "type": "kpi",
+        "col": 0,
+        "row": 0,
+        "colspan": 8,
+        "rowspan": 3
+      },
+      {
+        "name": "bar-region",
+        "type": "barchart",
+        "col": 0,
+        "row": 3,
+        "colspan": 24,
+        "rowspan": 9
+      }
+    ]
+  },
+  "qChildren": [
+    {
+      "qProperty": {
+        "qInfo": {
+          "qId": "kpi-sales",
+          "qType": "kpi"
+        },
+        "qMetaDef": {
+          "title": "Total Sales"
+        },
+        "visualization": "kpi",
+        "qHyperCubeDef": {
+          "qDimensions": [],
+          "qMeasures": [
+            {
+              "qDef": {
+                "qDef": "Sum(SALES)",
+                "qLabel": "Total Sales",
+                "qNumFormat": {
+                  "qFmt": "$#,##0"
+                }
+              }
+            }
+          ],
+          "qInterColumnSortOrder": [0]
+        }
+      },
+      "qChildren": []
+    },
+    {
+      "qProperty": {
+        "qInfo": {
+          "qId": "bar-region",
+          "qType": "barchart"
+        },
+        "qMetaDef": {
+          "title": "Sales by Region Group"
+        },
+        "visualization": "barchart",
+        "qHyperCubeDef": {
+          "qDimensions": [
+            {
+              "qDef": {
+                "qFieldDefs": [
+                  "REGION_GROUP"
+                ],
+                "qFieldLabels": [
+                  "Region Group"
+                ],
+                "qSortCriterias": [
+                  {
+                    "qSortByAscii": 1
+                  }
+                ]
+              },
+              "qNullSuppression": true
+            }
+          ],
+          "qMeasures": [
+            {
+              "qDef": {
+                "qDef": "Sum(SALES)",
+                "qLabel": "Sales",
+                "qNumFormat": {
+                  "qFmt": "$#,##0"
+                }
+              }
+            }
+          ],
+          "qInterColumnSortOrder": [0, 1]
+        }
+      },
+      "qChildren": []
+    }
+  ]
+}

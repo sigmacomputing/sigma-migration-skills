@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Grounding regression for convert.py (beads-sigma-kvza / microstrategy).
+"""Grounding regression for convert.py ([bead] / microstrategy).
 
 Proves the MicroStrategy dossier classifier is documentation-grounded and
 loud-on-unmapped:
@@ -36,7 +36,8 @@ COVERAGE = os.path.join(SKILL, "refs", "microstrategy-coverage.md")
 sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
 
-WIRED_DIMS = {"number-format", "aggregation", "control"}
+WIRED_DIMS = {"number-format", "aggregation", "control", "viz-kind",
+              "workbook-feature"}
 
 
 def _new_bundle():
@@ -54,7 +55,7 @@ def _new_bundle():
 def test_catalogs_valid():
     import coverage_catalog as cc
     cats = cc.load_all(CATDIR)
-    assert set(cats) == {"viz-kind", "number-format", "aggregation", "control"}, sorted(cats)
+    assert set(cats) == WIRED_DIMS, sorted(cats)
     for name, cat in cats.items():
         assert cat.rows, name
         assert cat.source_tool == "microstrategy", (name, cat.source_tool)
@@ -65,15 +66,16 @@ def test_catalogs_valid():
             assert key not in seen, "duplicate source in %s: %s" % (name, key)
             seen.add(key)
             assert r.get("doc_ref", "").startswith("http"), (name, r["source"])
-            assert r.get("sigma") is not None, (name, r["source"])
+            assert r.get("sigma") is not None or r.get("no_sigma_equiv") is True, \
+                (name, r["source"])
             sv = r.get("sigma_verified") or {}
             assert sv.get("status") in ("y", "n"), (name, r["source"], sv.get("status"))
             assert sv.get("status") != "y" or sv.get("date"), \
                 ("live-verified rows must carry a date: %s/%s" % (name, r["source"]))
-    # viz-kind is now WIRED into convert.py (grid->table; bar/line/area emit charts)
+    # viz-kind is WIRED (bar/line validated; area wired but unverified).
     raw = json.load(open(os.path.join(CATDIR, "viz-kind.json")))
     assert raw.get("wired") is True, "viz-kind.json must be flagged wired:true"
-    print("[ok] catalogs: 4 dimensions load, cited, unique sources, valid sigma_verified")
+    print("[ok] catalogs: 5 dimensions load, cited, unique sources, valid sigma_verified")
 
 
 def test_no_inline_maps():
@@ -86,8 +88,12 @@ def test_no_inline_maps():
     assert "CTRL_CAT.resolve_or_warn(" in src, "control kind not resolved via catalog"
     # viz-kind is now WIRED: loaded + resolved per chapter (chart emission)
     assert '_cc.load(_CAT_DIR, "viz-kind")' in src, "viz-kind must be loaded (now wired)"
+    assert '_cc.load(_CAT_DIR, "workbook-feature")' in src, \
+        "released workbook features must be cataloged"
     assert "VIZ_CAT.resolve(" in src and "CHART_KINDS" in src, \
         "chapter viz kind must be resolved via VIZ_CAT into chart/table emission"
+    assert "FEATURE_CAT.resolve" in src, \
+        "released workbook features must resolve through the grounded catalog"
     # the named silent defaults must be GONE (precise code patterns, not prose)
     assert '"Sum": "SUM"' not in src, "inline FN literal still present"
     assert "FN.get(fname, fname.upper())" not in src, "silent aggregate passthrough still present"
@@ -209,6 +215,22 @@ def test_e2e_offline_fixture():
         dm = open(os.path.join(d, "dm.json")).read()
         assert "formatString" not in wb and "formatString" not in dm, \
             "a guessed number format survived the disease cure"
+        wb_obj = json.loads(wb)
+        assert set(wb_obj) >= {"name", "folderId", "document"}, wb_obj.keys()
+        doc = wb_obj["document"]
+        assert doc.get("kind") == "workbook"
+        assert doc.get("layout") and "<Page " in doc["layout"]
+        assert "<Element " in doc["layout"] and "<Container " in doc["layout"]
+        assert "<LayoutElement" not in doc["layout"]
+        assert "<GridContainer" not in doc["layout"]
+        assert doc.get("elements") and all("elements" not in p for p in doc["pages"])
+        assert doc.get("panels") == [] and doc.get("overlays") == []
+        ids = [element["id"] for element in doc["elements"]]
+        placed = re.findall(r'\belementId="([^"]+)"', doc["layout"])
+        assert sorted(ids) == sorted(placed) and len(placed) == len(set(placed))
+        # Data-model code representation deliberately keeps page nesting.
+        dm_obj = json.loads(dm)
+        assert dm_obj["pages"][0].get("elements") and "document" not in dm_obj
     print("[ok] e2e: fixture builds; metrics ship unformatted + loud; no guessed format")
 
 
@@ -230,10 +252,9 @@ def test_chart_emission():
         assert r.returncode == 0, r.stderr
         wb = json.load(open(os.path.join(d, "wb.json")))
         kinds = {}
-        for p in wb.get("pages", []):
-            for e in p.get("elements", []):
-                if e.get("kind") in ("bar-chart", "line-chart", "area-chart", "table") and e.get("name"):
-                    kinds[e["name"]] = e
+        for e in wb["document"]["elements"]:
+            if e.get("kind") in ("bar-chart", "line-chart", "area-chart", "table") and e.get("name"):
+                kinds[e["name"]] = e
         assert kinds.get("Channel Performance", {}).get("kind") == "bar-chart", kinds
         assert kinds.get("Monthly Revenue Trend", {}).get("kind") == "line-chart", kinds
         assert kinds.get("Revenue by Region and Category", {}).get("kind") == "table", kinds
@@ -246,6 +267,134 @@ def test_chart_emission():
     print("[ok] chart emission: bar_chart/line_chart -> Sigma chart (dim x, metrics y); grid -> table")
 
 
+def test_released_workbook_features():
+    """Released surfaces emit only from explicit source evidence; box stays gated."""
+    import convert
+    raw = json.load(open(BUNDLE_CHARTS))
+    chapters = raw["dossier"]["chapters"]
+
+    # Waterfall + chart legend + allowlisted literal styling.
+    first_viz = chapters[0]["pages"][0]["visualizations"][0]
+    first_viz.update({
+        "visualizationType": "waterfall",
+        "legend": {"visible": True, "position": "bottom"},
+        "style": {"backgroundColor": "#112233"},
+    })
+    chapters[0]["filters"] = []  # keep waterfall chartable (no list-source table needed)
+    # Only explicit print intent -> one-row page-break.
+    chapters[0]["pages"][0]["pageBreakAfter"] = True
+    # Explicit panel stack with concrete visualizations -> tabbed container.
+    chapters[0]["pages"][0]["panelStacks"] = [{
+        "key": "stack-1",
+        "panels": [
+            {"key": "panel-1", "name": "Summary", "visualizations": [
+                {"key": "panel-viz-1", "name": "Panel Summary",
+                 "visualizationType": "grid"}]},
+            {"key": "panel-2", "name": "Detail", "visualizations": [
+                {"key": "panel-viz-2", "name": "Panel Detail",
+                 "visualizationType": "line_chart"}]},
+        ],
+    }]
+    # Selector labels alone do NOT ground released legend/drill controls.
+    chapters[1]["pages"][0]["selectors"] = [{
+        "key": "legend-selector",
+        "name": "Year",
+        "selectorType": "legend_selector",
+        "source": {"id": "C025482DAE4C4BFDA72E8297D981ABAC"},
+        "targets": [{"key": "K121"}],
+    }]
+    chapters[2]["pages"][0]["selectors"] = [{
+        "key": "drill-selector",
+        "name": "Order Channel",
+        "selectorType": "drill_selector",
+        "source": {"id": "E951AA8437BF46BB860E98F0DB349617"},
+        "targets": [{"key": "K159"}],
+    }]
+    chapters[2]["pages"][0]["visualizations"][0]["repeater"] = {
+        "field": "Order Channel"}
+
+    with tempfile.TemporaryDirectory() as d:
+        bundle = os.path.join(d, "features.json")
+        json.dump(raw, open(bundle, "w"))
+        wb_path = os.path.join(d, "wb.json")
+        gaps_path = os.path.join(d, "gaps.json")
+        r = subprocess.run(
+            [sys.executable, CONV, "--bundle", bundle,
+             "--connection-id", "conn-x", "--database", "DEMO_DB",
+             "--folder-id", "fld-x", "--out-wb", wb_path,
+             "--feature-gaps-out", gaps_path],
+            capture_output=True, text=True, cwd=d)
+        assert r.returncode == 0, r.stderr
+        wb = json.load(open(wb_path))
+        doc = wb["document"]
+        elements = doc["elements"]
+        by_kind = {}
+        for e in elements:
+            by_kind.setdefault(e.get("kind"), []).append(e)
+        assert by_kind["waterfall-chart"][0]["legend"] == {
+            "visibility": "shown", "position": "bottom"}
+        assert by_kind["waterfall-chart"][0]["style"]["backgroundColor"] == "#112233"
+        assert by_kind["navigation"] and len(by_kind["navigation"]) == len(doc["pages"])
+        page_break = by_kind["page-break"][0]
+        match = re.search(
+            r'elementId="%s"[^>]*gridRow="(\d+) / (\d+)"' %
+            re.escape(page_break["id"]), doc["layout"])
+        assert match and int(match.group(2)) - int(match.group(1)) == 1
+        assert by_kind["tabbed-container"][0]["tabs"] == [
+            {"name": "Summary"}, {"name": "Detail"}]
+        assert "<TabbedContainer " in doc["layout"]
+        assert by_kind["repeated-container"]
+        assert any("repeated container/Order Channel" in e.get("body", "")
+                   for e in by_kind["text"])
+        controls = {e["controlType"] for e in by_kind.get("control", [])}
+        assert "legend" not in controls and "drill" not in controls, controls
+        ids = [element["id"] for element in elements]
+        placed = re.findall(r'\belementId="([^"]+)"', doc["layout"])
+        assert sorted(ids) == sorted(placed) and len(placed) == len(set(placed))
+        gaps = json.load(open(gaps_path))["gaps"]
+        assert any("legend-selector" in gap for gap in gaps), gaps
+        assert any("drill-selector" in gap for gap in gaps), gaps
+
+    # Type-only gauge is not enough to invent a value; explicit semantics are.
+    assert convert._progress_payload({"visualizationType": "gauge"}) is None
+    assert convert._progress_payload({
+        "progress": {"value": 72, "min": 0, "max": 100, "mode": "value",
+                     "shape": "ring"}}) == {
+                         "value": "72", "min": "0", "max": "100",
+                         "mode": "value", "shape": "ring"}
+    assert convert._progress_payload({"progress": {"value": 72}}) is None
+
+    gauge_raw = json.load(open(BUNDLE_CHARTS))
+    gauge_chapter = gauge_raw["dossier"]["chapters"][0]
+    gauge_chapter["filters"] = []
+    gauge_chapter["pages"][0]["visualizations"][0].update({
+        "visualizationType": "gauge",
+        "progress": {"value": "Sum([Orders/Total Net Revenue])",
+                     "min": 0, "max": 100000, "mode": "value",
+                     "shape": "ring"},
+    })
+    with tempfile.TemporaryDirectory() as d:
+        bundle = os.path.join(d, "gauge.json")
+        wb_path = os.path.join(d, "gauge-wb.json")
+        json.dump(gauge_raw, open(bundle, "w"))
+        r = subprocess.run(
+            [sys.executable, CONV, "--bundle", bundle,
+             "--connection-id", "conn-x", "--database", "DEMO_DB",
+             "--folder-id", "fld-x", "--out-wb", wb_path],
+            capture_output=True, text=True, cwd=d)
+        assert r.returncode == 0, r.stderr
+        gauge_elements = json.load(open(wb_path))["document"]["elements"]
+        progress = next(e for e in gauge_elements if e.get("kind") == "progress")
+        assert progress["value"] == "Sum([Orders/Total Net Revenue])"
+        assert progress["min"] == "0" and progress["max"] == "100000"
+
+    # No native box claim without an explicit operator gate.
+    row = convert.VIZ_CAT.resolve("box_plot")
+    assert row["build"] == "capability-gated"
+    print("[ok] released features: waterfall/legend/drill/navigation/tabs/"
+          "page-break/progress/panels/styling/repeaters; box gated")
+
+
 if __name__ == "__main__":
     test_catalogs_valid()
     test_no_inline_maps()
@@ -253,6 +402,7 @@ if __name__ == "__main__":
     test_loud_unknown_format()
     test_control_catalog()
     test_chart_emission()
+    test_released_workbook_features()
     test_coverage_matrix_fresh()
     test_e2e_offline_fixture()
     print("ALL PASS")

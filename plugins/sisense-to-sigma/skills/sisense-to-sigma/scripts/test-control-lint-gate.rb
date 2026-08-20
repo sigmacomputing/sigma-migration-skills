@@ -26,32 +26,46 @@ def lint(spec)
   end
 end
 
-good = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
+def workbook(elements)
+  {
+    'name' => 'Control lint fixture',
+    'document' => {
+      'schemaVersion' => 1,
+      'kind' => 'workbook',
+      'pages' => [{ 'name' => 'P1', 'id' => 'pg1' }],
+      'elements' => elements,
+      'layout' => <<~XML.strip
+        <?xml version="1.0" encoding="utf-8"?>
+        <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="pg1">
+          <Element elementId="base" gridColumn="1 / 25" gridRow="1 / 8"/>
+          <Element elementId="kpi1" gridColumn="1 / 13" gridRow="8 / 12"/>
+          <Element elementId="ctl1" gridColumn="13 / 25" gridRow="8 / 12"/>
+        </Page>
+      XML
+    }
+  }
+end
+
+good = workbook(
+  [
       { 'id' => 'base', 'kind' => 'table', 'name' => 'Orders',
         'columns' => [{ 'id' => 'c_cat', 'formula' => '[Category]' }] },
       { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total',
         'source' => { 'kind' => 'source', 'source' => { 'elementId' => 'base' } } },
       { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'cat', 'controlType' => 'list',
         'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_cat' }] }
-    ]
-  }]
-}
+  ]
+)
 
-partial = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
+partial = workbook(
+  [
       { 'id' => 'base', 'kind' => 'table', 'name' => 'Orders',
         'columns' => [{ 'id' => 'c_cat', 'formula' => '[Category]' }] },
       { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total' }, # NOT sourced from base
       { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'cat', 'controlType' => 'list',
         'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_cat' }] }
-    ]
-  }]
-}
+  ]
+)
 
 check(File.exist?(CL), 'control_lint.rb is vendored into sisense scripts/lib')
 check(lint(good) == 0, 'correctly-wired control (reaches KPI via source) -> gate PASSES (exit 0)')

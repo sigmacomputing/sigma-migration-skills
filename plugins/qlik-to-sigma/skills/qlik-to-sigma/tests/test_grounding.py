@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Grounding regression for build-sigma-workbook.py (beads-sigma-kvza).
+"""Grounding regression for build-sigma-workbook.py ([bead]).
 
   1. GOLDEN LOCK   — the fixture builds byte-identical to the committed golden
      (build-sigma-workbook.py uses a deterministic id counter, no randomness).
-  2. CATALOGS      — all four refs/catalogs/*.json load, cited, unique rows.
+  2. CATALOGS      — every refs/catalogs/*.json loads, cited, unique rows.
   3. NO INLINE MAP — viz/aggregation/control maps LOADED from the catalogs; the
      name-substring currency guess + silent ,.0f default are gone.
   4. FORMAT PARSER — sigma_fmt() reproduces every pinned qNumFormat example in
@@ -50,6 +50,9 @@ def _build(charts=None, denorm=None):
 
 def test_golden():
     spec, _ = _build()
+    layout = spec["document"]["layout"]
+    assert "<Element " in layout and "<Container " in layout
+    assert "<LayoutElement" not in layout and "<GridContainer" not in layout
     got = json.dumps(spec, indent=2)
     want = open(GOLDEN).read()
     assert got == want, "GOLDEN DRIFT — build-sigma-workbook output changed on the fixture."
@@ -59,7 +62,9 @@ def test_golden():
 def test_catalogs_valid():
     import coverage_catalog as cc
     cats = cc.load_all(CATDIR)
-    assert set(cats) == {"viz-kind", "number-format", "aggregation", "control"}, sorted(cats)
+    assert set(cats) == {
+        "viz-kind", "number-format", "aggregation", "control", "workbook-feature"
+    }, sorted(cats)
     for name, cat in cats.items():
         assert cat.rows and cat.source_tool == "qlik", name
         seen = set()
@@ -67,7 +72,7 @@ def test_catalogs_valid():
             k = str(r["source"]).lower()
             assert k not in seen, ("dup source in %s: %s" % (name, k)); seen.add(k)
             assert r.get("doc_ref", "").startswith("http"), (name, r["source"])
-    print("[ok] catalogs: 4 dimensions load, cited, unique sources")
+    print("[ok] catalogs: 5 dimensions load, cited, unique sources")
 
 
 def test_no_inline_maps():

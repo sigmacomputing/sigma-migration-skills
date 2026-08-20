@@ -77,6 +77,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import scout_gate
+import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
 from build_workbook import build_field_index, parse_join_aliases, disp, leaf
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -88,10 +89,10 @@ VENDORED_CONVERTER = os.path.join(HERE, "..", "converter", "lookml.mjs")
 def resolve_converter():
     """Converter resolution (issue #227). The pinned VENDORED bundle is the
     DEFAULT so a developer machine and a customer machine produce identical
-    output for the same input. A local sigma-data-model-mcp checkout/build is
+    output for the same input. A local converter-source checkout/build is
     used ONLY when EXPLICITLY opted in via CONVERTER_SRC (src/lookml.ts, run via
     tsx) or CONVERTER_PATH (build/lookml.js) — there is NO silent auto-discovery
-    of ~/sigma-data-model-mcp or ~/Desktop/sigma-data-model-mcp checkouts (that
+    of ~/converter-source or ~/converter-source checkouts (that
     was the "works in my demo, differs for the customer" footgun).
 
     Returns (kind, path, desc) where kind is one of "src", "build", "vendored",
@@ -960,7 +961,9 @@ console.error('stats:', JSON.stringify(res.stats));
     # ── Phase 4b — Build + POST the workbook (layout XML inline) ─────────────
     hdr(4, TOTAL, "Build workbook (4b)")
     wb_spec_path = os.path.join(wd, "wb-spec.json")
-    # Full element catalog (id+name) → one master per explore for multi-explore
+    # Full DATA-MODEL element catalog (id+name) → one master per explore for
+    # multi-explore dashboards. Data-model specs intentionally retain
+    # pages[].elements; the workbook-only flat-element rule does not apply here.
     # dashboards (each explore matched to its DM element by normalized name).
     dm_els_path = os.path.join(wd, "dm-elements.json")
     # Attach each element's REFERENCEABLE DM metrics (name + formula) so build_workbook can
@@ -1002,7 +1005,11 @@ console.error('stats:', JSON.stringify(res.stats));
     wspec = json.load(open(wb_spec_path))
     wspec["name"] = f"{prefix}{dash['title']} (from Looker)"
     try:
-        resp = sigma("POST", "/v2/workbooks/spec", wspec)   # responds in YAML
+        # Builder output is already a current workbook envelope. Re-wrapping via
+        # CodeRep is deliberate: it tolerates legacy local artifacts while
+        # preserving outer metadata and the full current document collections.
+        post_body = code_rep.wrap(code_rep.document(wspec), code_rep.metadata(wspec))
+        resp = sigma("POST", "/v2/workbooks/spec", post_body)   # responds in YAML
     except RuntimeError as e:
         msg = str(e)
         dep = re.search(r"Dependency not found: '([^']+)'", msg)
@@ -1030,7 +1037,7 @@ console.error('stats:', JSON.stringify(res.stats));
     for c in errs[:6]:
         print(f"     [{c.get('elementId')}] {c.get('label')}: {c.get('formula')}")
 
-    # RUN-EACH-TIME GAP-SCOUT GATE (bead beads-sigma-5l5e). Looker's converter
+    # RUN-EACH-TIME GAP-SCOUT GATE (). Looker's converter
     # passes calc expressions through optimistically (no convert-time degrade
     # signal); a calc that has no Sigma equivalent surfaces HERE as a type=error
     # column at readback. Each such column is scout-eligible — the gap-scout must
@@ -1081,7 +1088,8 @@ console.error('stats:', JSON.stringify(res.stats));
     hdr(4, TOTAL, "Visual QA (4c)")
     vqa = os.path.join(wd, "visual-qa")
     os.makedirs(vqa, exist_ok=True)
-    content_pages = [pg for pg in (wspec.get("pages") or [])
+    workbook_doc = code_rep.document(wspec)
+    content_pages = [pg for pg in (workbook_doc.get("pages") or [])
                      if "data" not in str(pg.get("id")).lower()]
     rendered = 0
     render_png = None  # first successful page PNG — wired to gate 8 (--sigma-render)

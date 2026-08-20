@@ -193,6 +193,16 @@ jobs:
         # each skill's SKILL.md by tools/gen-agent-variants.rb. Fail if a
         # committed variant drifted, so EVERY coding agent reads the same steps.
         run: ruby tools/check-agent-variants.rb
+      - name: Lint skill paths for marketplace-unsafe / stale refs
+        # Ban legacy sigma-skills/ paths and deep ../../../../docs/ relatives that
+        # break when a plugin is installed alone. See docs/agent-entry.md.
+        run: |
+          ruby tools/lint-skill-paths.rb
+          bash tools/test-lint-skill-paths.sh
+      - name: new-skill.rb registry stamp self-test
+        # Scaffolds a throwaway plugin, asserts marketplace/AGENTS/plugin.json
+        # were stamped, then deletes it. Creds-free.
+        run: bash tools/test-new-skill-registry.sh
       - name: Cognos vendored bundle is fresh vs converter/*.ts
         # cognos ships its converter as in-skill TS bundled into converter/cli.mjs
         # (production runs the bundle). Fail if a converter/*.ts edit shipped without
@@ -276,8 +286,14 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-warehouse.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-parity-plan.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-element-match.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-native-query.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-composite-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-convert-model-reprefix.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-warehouse-column-refs.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-materialization-schedules.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-timeintel-route.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-drop-unresolved-columns.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-table-map-manifest.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-scout-ledger-integrity.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-trellis-emit.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-trellis.rb
@@ -296,6 +312,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-offramp.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-offramp-attribution.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-flip-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-control-flip-coderep-unwrap.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-suite-registration.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-anchors.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-kind-catalog.rb
@@ -309,8 +326,10 @@ jobs:
             shared/lib/test_metric_binding.rb
             shared/lib/test_phase_metrics.rb
             shared/scripts/test-intake-triage.rb
+            shared/scripts/test-assert-phase6.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-triage.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-cleanup.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-wrap.rb
             # shared/scripts/test-validate-sigma-formula-cleanup.rb is INTENTIONALLY not listed: standalone it
             # self-SKIPs; its coverage is the shared-manifest drift gate pinning it byte-identical to the
             # quicksight twin above (PR #509 review R9 — the manifest entry is the coverage mechanism).
@@ -322,6 +341,9 @@ jobs:
             shared/lib/test_coverage_catalog.rb
             shared/lib/test_kpi_card.rb
             shared/lib/test_richness.rb
+            shared/lib/test_enhance_options.rb
+            shared/scripts/test-enhance-select.rb
+            shared/scripts/test-enhance-app-plan.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-comparison-wiring.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-kpi-comparison-emit.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-build-dm.rb
@@ -331,11 +353,24 @@ jobs:
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-geometry-discover.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-doctor-gate.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-e2e.rb
+            plugins/domo-to-sigma/skills/domo-to-sigma/test/test-domo-warehouse-column-refs.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-pdp-detect.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-reuse-check.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-green-gates.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-assert-phase6.rb
             plugins/domo-to-sigma/skills/domo-to-sigma/test/test-verify-parity.rb
+            plugins/domo-to-sigma/skills/domo-import-to-snowflake/test/test-snowflake-ddl.rb
+            plugins/domo-to-sigma/skills/domo-import-to-snowflake/test/test-landing-manifest.rb
+            plugins/domo-to-sigma/skills/domo-import-to-snowflake/test/test-domo-extract.rb
+            plugins/domo-to-sigma/skills/domo-import-to-snowflake/test/test-snowflake-load.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-mode-rest.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-mode-chart-map.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-discover.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-build-dm.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-post-dm.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-build-workbook.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-verify-parity.rb
+            plugins/mode-to-sigma/skills/mode-to-sigma/test/test-migrate-mode.rb
           )
           fail=0
           for t in "${tests[@]}"; do
@@ -385,9 +420,12 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_rest.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_pick_destination.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_scout_ledger_integrity.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_warehouse_column_refs.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/test_scout_ledger_integrity.py
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/test_scout_ledger_integrity.py
+            plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/test_warehouse_column_refs.py
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_metric_reference.py
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_chart_mappings.py
             plugins/gooddata-to-sigma/skills/gooddata-to-sigma/tests/test_metric_reference.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_metric_reference.py
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/tests/test_metric_reference.py
@@ -414,6 +452,7 @@ jobs:
           tests=(
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-scout-ledger-integrity.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-metric-reference.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-warehouse-column-refs.mjs
           )
           fail=0
           for t in "${tests[@]}"; do
@@ -470,6 +509,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-coverage-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-complete.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-grounding.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-workbook-code-release.rb
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-flip-gate.rb
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-verify-complete.rb
             plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/test-verify-guards.rb

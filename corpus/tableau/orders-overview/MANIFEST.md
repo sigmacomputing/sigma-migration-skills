@@ -35,7 +35,7 @@ NOTE: this artifact (~204 KB) exceeds the hosted MCP server's request body
 limit (HTTP 413). The golden is generated from the VENDORED bundle the skill
 ships (the shipped truth, including its recorded local patches — see
 `plugins/tableau-to-sigma/skills/tableau-to-sigma/converter/PROVENANCE.json`);
-last regenerated on the wave-3 R3-1 role-play batch (role-played DATE_DIM
+last regenerated on the a later wave R3-1 role-play batch (role-played DATE_DIM
 instances get deterministic role-suffixed element + relationship names —
 "DATE_DIM (Return Date)" / "DATE_DIM (Ship Date)" — and the derived-view
 [Base/REL/Field] refs resolve per instance instead of round-robin; prior

@@ -145,7 +145,7 @@ end
 
 # gridRow="r0 / r1" -> span (r1 - r0), the row count Sigma actually renders.
 def row_span(xml_doc, element_id)
-  le = xml_doc && xml_doc.elements.to_a("//LayoutElement[@elementId='#{element_id}']").first
+  le = xml_doc && xml_doc.elements.to_a("//Element[@elementId='#{element_id}']").first
   return nil unless le
   m = le.attributes['gridRow'].to_s.match(/(\d+)\s*\/\s*(\d+)/)
   m && (m[2].to_i - m[1].to_i)

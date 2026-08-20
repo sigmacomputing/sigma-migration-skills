@@ -185,5 +185,5 @@ the current vendored `converter/tableau.mjs` (§2). Escalate only residual
 gaps in the native merge (wrong rename/rewrite, dropped controls/parameters,
 a shape it misclassifies): file via `scripts/escalate-gap.py` with
 `--category converter` (routes to `sigma-data-model-manager` +
-`sigma-data-model-mcp`). Dry-run first — the script defaults to a draft and
+`converter-source`). Dry-run first — the script defaults to a draft and
 files NOTHING without `--yes`; filing is always user-opt-in.

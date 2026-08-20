@@ -29,7 +29,7 @@ Usage:
 Idempotent: re-running overwrites signals.json; a fetch only re-downloads when
 --workspace/--report are given (otherwise it parses whatever is on disk).
 """
-import argparse, base64, json, os, sys, time
+import argparse, base64, json, os, re, sys, time
 import importlib.util
 
 CLIENT_ID = "ea0616ba-638b-4df5-95b9-636659ae5121"  # Power BI Desktop public client
@@ -72,7 +72,7 @@ HBAR_TYPES = {"barChart", "clusteredBarChart", "stackedBarChart",
 # Stacking: PBI clustered -> Sigma "none" (side-by-side), stacked -> "stacked",
 # 100% -> "normalized". The Sigma `stacking` enum is none|stacked|normalized
 # (OpenAPI BarChart.stacking; "normalized" = "stack scaled to 100%"). "100" is
-# NOT valid — the API rejects it as "Invalid value: string" (beads-sigma-pi8v).
+# NOT valid — the API rejects it as "Invalid value: string" ([bead]).
 # IMPORTANT: emit "none" explicitly — a multi-series Sigma bar defaults to
 # STACKED, so a clustered PBI chart comes out stacked otherwise.
 STACKED_TYPES = {"stackedBarChart", "stackedColumnChart", "stackedAreaChart",
@@ -130,6 +130,41 @@ def _role_bindings(query_state):
     return out
 
 
+def _drill_signal(query_state):
+    """Preserve a chart hierarchy when PBIR proves one exists.
+
+    The normal bindings keep only the active projection so the chart initially
+    renders at Power BI's saved drill level.  A Sigma drill control needs the
+    complete ordered hierarchy as well, so carry it separately.  Multiple
+    measures in one role are not a hierarchy: require either an explicit
+    projection ``active`` marker or date/hierarchy-shaped level names.
+    """
+    for role, blk in (query_state or {}).items():
+        projs = [p for p in (blk or {}).get("projections", []) if isinstance(p, dict)]
+        levels = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
+        levels = [r for r in levels if r]
+        if len(levels) < 2:
+            continue
+        active = [
+            p.get("queryRef") or p.get("nativeQueryRef")
+            for p in projs if p.get("active") is True
+        ]
+        active = [r for r in active if r]
+        hierarchy_named = all(
+            re.search(r"(variation|hierarchy|(?:^|\.)(?:year|quarter|month|week|day|date)$)",
+                      str(ref), re.I)
+            for ref in levels
+        )
+        if not active and not hierarchy_named:
+            continue
+        return {
+            "role": role,
+            "levels": levels,
+            "active": active[0] if active else levels[0],
+        }
+    return None
+
+
 def _obj_flag(visual, key):
     """objects.<key>[0].properties.show.expr.Literal.Value -> True/False/None.
 
@@ -148,9 +183,24 @@ def _textbox_body(visual):
     objs = visual.get("objects", {})
     for key in ("general", "text"):
         for item in objs.get(key, []):
-            t = item.get("properties", {}).get("text", {}).get("expr", {}).get("Literal", {}).get("Value")
+            props = item.get("properties", {})
+            t = props.get("text", {}).get("expr", {}).get("Literal", {}).get("Value")
             if t:
                 return t.strip("'")
+            # Modern PBIR textboxes store rich text as paragraphs[].textRuns[]
+            # instead of a scalar properties.text literal. Preserve paragraph
+            # boundaries so the builder can promote a title + subtitle together.
+            lines = []
+            for paragraph in props.get("paragraphs", []):
+                line = "".join(
+                    run.get("value", "")
+                    for run in paragraph.get("textRuns", [])
+                    if isinstance(run, dict)
+                ).strip()
+                if line:
+                    lines.append(line)
+            if lines:
+                return "\n".join(lines)
     return None
 
 
@@ -265,6 +315,36 @@ def _color_literal(prop):
         return direct
     solid = (prop.get("solid") or {}).get("color")
     return _color_literal(solid) if solid else None
+
+
+def _background_style(owner):
+    """Power BI visual/page background -> released Sigma style fields.
+
+    PBIR has used both `background` and `general` object buckets. Preserve a
+    visible solid fill and map 100% transparency to Sigma's transparent token;
+    dynamic/theme expressions without a literal remain unset rather than being
+    guessed.
+    """
+    objects = (owner or {}).get("objects", {}) or {}
+    for key in ("background", "general"):
+        for item in objects.get(key, []) or []:
+            props = (item or {}).get("properties", {}) or {}
+            show = _literal(props.get("show", {}))
+            if str(show).lower() == "false":
+                continue
+            color = (_color_literal(props.get("color", {})) or
+                     _color_literal(props.get("fill", {})) or
+                     _color_literal(props.get("background", {})))
+            transparency = _literal(props.get("transparency", {}))
+            if transparency is not None:
+                try:
+                    if float(transparency) >= 100:
+                        color = "transparent"
+                except (TypeError, ValueError):
+                    pass
+            if color:
+                return {"backgroundColor": color}
+    return None
 
 
 # bead (A) reference lines: PBI analytics-pane lines live in the visual's
@@ -672,6 +752,9 @@ def extract(pbir_dir):
                 "z": pos.get("z", 0),
                 "parent_group": v.get("parentGroupName"),
                 "bindings": _role_bindings(qs),
+                # Full ordered hierarchy for native Sigma controlType:drill.
+                # bindings above intentionally keeps only the active level.
+                "drill": _drill_signal(qs),
                 # bead f972: visual sort ({queryRef, direction asc|desc}) or None
                 "sort": _sort_signal(visual),
                 "formats": formats,
@@ -702,10 +785,12 @@ def extract(pbir_dir):
                 # style fidelity §6: PBI card callout alignment -> KPI layout.anchor
                 # (None = centered default).
                 "value_align": _card_alignment(visual),
+                # released element style surface: preserve literal PBI fills.
+                "style": _background_style(visual),
                 # table/matrix conditional formatting (background/font color-scales,
                 # rules, field-value measures, data bars) -> Sigma conditionalFormats.
                 "conditional_formats": _conditional_formats(visual, vtype),
-                # visual-level Filters-pane filters -> Sigma element filters (beads-sigma-3tx6)
+                # visual-level Filters-pane filters -> Sigma element filters ([bead])
                 "filters": _filter_signals(v, "visual"),
             }
             if rec["sigma_kind"] == "text":
@@ -727,9 +812,10 @@ def extract(pbir_dir):
             "page_title": page.get("displayName", pname),
             "page_w": page.get("width", 1280),
             "page_h": page.get("height", 720),
+            "style": _background_style(page),
             "visuals": visuals,
             "interactions": interactions,
-            # page-level Filters-pane filters -> Sigma page/master filters (beads-sigma-3tx6)
+            # page-level Filters-pane filters -> Sigma page/master filters ([bead])
             "filters": _filter_signals(page, "page"),
         })
     # report-level filters (definition/report.json filterConfig)
@@ -741,13 +827,13 @@ def extract(pbir_dir):
         except Exception:
             report_json = {}
     return {"source": "pbir", "pbir_dir": pbir_dir,
-            # style fidelity: report base-theme name -> Sigma themeOverrides palette
+            # style fidelity: report base-theme name -> Sigma settings.theme.overrides palette
             "theme": _report_theme(defn),
             "filters": _filter_signals(report_json, "report"),
             "pages": out_pages}
 
 
-# ── Report/page/visual FILTER extraction (beads-sigma-3tx6) ────────────────────
+# ── Report/page/visual FILTER extraction ([bead]) ────────────────────
 # Power BI stores real Filters-pane filters the extractor never read before, so
 # migrated elements shipped UNFILTERED (over-broad data). Parse them here into
 # normalized signals; the builder applies them (page/report -> master filter,

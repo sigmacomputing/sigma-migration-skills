@@ -5,9 +5,11 @@ Sigma user attributes are FULLY API-supported (confirmed live 2026-06-10):
   - GET  /v2/user-attributes            list (reuse-first)
   - POST /v2/user-attributes            create
   - POST /v2/user-attributes/{id}/users assign a value to a member
-And the Sigma RLS row-filter is fully spec-expressible (NOT UI-only): a boolean
-calc column `CurrentUserAttributeText("<attr>") = [<Field>]` on the base element
-plus an element `filters` entry `{kind:list, mode:include, values:[true]}`.
+And the Sigma RLS row-filter is fully spec-expressible (NOT UI-only): a
+Text-cast keep column `Text(CurrentUserAttributeText("<attr>") = [<Field>])`
+on the base element plus an element `filters` entry
+`{kind:list, mode:include, values:["true"]}` (S11/K20 — boolean-typed list
+filter targets blank the tile; /export still returns rows).
 
 This script does the whole flow, REUSE-FIRST and SAFE-BY-DEFAULT:
   1. attribute   GET /v2/user-attributes → print a match if one already exists
@@ -127,20 +129,20 @@ def list_attributes():
 
 # --- 3. RLS spec snippet --------------------------------------------------
 def rls_spec_snippet(attr, field, element_id):
-    """The verified row-filter shape: a boolean calc column + an element list filter showing only True."""
+    """S11/K20 row-filter shape: Text()-cast keep column + string list values."""
     col_id = _short_id("rlscol")
     filt_id = _short_id("rlsf")
     calc = {
         "id": col_id,
         "name": f"RLS {attr}",
-        "formula": f'CurrentUserAttributeText("{attr}") = [{field}]',
+        "formula": f'Text(CurrentUserAttributeText("{attr}") = [{field}])',
     }
     filt = {
         "id": filt_id,
         "columnId": col_id,
         "kind": "list",
         "mode": "include",
-        "values": [True],
+        "values": ["true"],
     }
     return {
         "elementId": element_id,
@@ -148,9 +150,10 @@ def rls_spec_snippet(attr, field, element_id):
         "filter": filt,
         "_note": (
             f'Add calcColumn to element "{element_id}" columns, and `filter` to that '
-            f"element's filters[]. CurrentUserAttributeText(\"{attr}\") = [{field}] is the "
-            "user-attribute mode; team mode = CurrentUserInTeam([...]); email mode = "
-            "[Email] = CurrentUserEmail()."
+            f"element's filters[]. Text(CurrentUserAttributeText(\"{attr}\") = [{field}]) "
+            "with values:[\"true\"] is required — a boolean column + JSON true blanks the "
+            "tile (S11/K20). Team mode = Text(CurrentUserInTeam([...])); email mode = "
+            "Text([Email] = CurrentUserEmail())."
         ),
     }
 
@@ -418,10 +421,10 @@ def main():
     if a.field:
         if not a.element_id:
             print("\nNOTE: --field given without --element-id; printing the formula only.")
-            print(f'  calc column formula: CurrentUserAttributeText("{a.attr}") = [{a.field}]')
+            print(f'  calc column formula: Text(CurrentUserAttributeText("{a.attr}") = [{a.field}])')
         else:
             snip = rls_spec_snippet(a.attr, a.field, a.element_id)
-            print("\nRLS spec snippet (verified shape — boolean calc col + element list filter on True):")
+            print("\nRLS spec snippet (S11/K20 — Text()-cast keep col + values:[\"true\"]):")
             print(json.dumps(snip, indent=2))
             if a.apply:
                 if not a.dm_id:

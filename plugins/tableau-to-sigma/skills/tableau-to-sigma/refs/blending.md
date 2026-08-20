@@ -1,7 +1,7 @@
 # Tableau data blending → Sigma
 
 **Disposition: documented decision tree + scripted detection
-(beads-sigma-iq8).** Tableau *blending* joins two published/embedded
+([bead]).** Tableau *blending* joins two published/embedded
 datasources at query time on same-named "linking fields". Sigma's equivalent
 is a data model with both sources as elements plus a relationship — but only
 when both sources are reachable from ONE Sigma connection. The router below

@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# test-element-filter-id.rb — REGRESSION PIN for beads-sigma-zjkw's M4 claim
+# test-element-filter-id.rb — REGRESSION PIN for [bead]'s M4 claim
 # ("element-filter id omitted at 4 emission sites: null-dim exclusion, 2x
 # native top-n, keep-list"). Re-verification on 2026-07-31 found the claim is
 # FALSE on current code: commit 147e09b4 (2026-06-08, 7 weeks before the bead
@@ -176,6 +176,13 @@ check(!null_excl_el.nil?, 'null-dim-exclusion tile built', fails)
 nef = filter_ids_valid_and_unique?(null_excl_el, fails, 'null-dim-exclusion tile')
 check(nef.any? { |f| f['columnId'].to_s.start_with?('nn-') },
       "null-dim-exclusion path actually fired (expected an nn-* IsNotNull filter, got #{nef.inspect})", fails)
+# S11/K20: must be Text(IsNotNull(...)) + values:["true"], not boolean [true].
+nn_col = (null_excl_el && (null_excl_el['columns'] || []).find { |c| c['id'].to_s.start_with?('nn-') })
+nn_f = nef.find { |f| f['columnId'].to_s.start_with?('nn-') }
+check(nn_col && nn_col['formula'].to_s.start_with?('Text(IsNotNull('),
+      "null-dim helper is Text(IsNotNull(...)) (got #{nn_col && nn_col['formula'].inspect})", fails)
+check(nn_f && nn_f['values'] == ['true'],
+      "null-dim filter values are string ['true'] (got #{nn_f && nn_f['values'].inspect})", fails)
 
 # ---- Path 2: plain categorical list quick-filter ---------------------------
 list_el = find_el(els, 'List Filter Chart')

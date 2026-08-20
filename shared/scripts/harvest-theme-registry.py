@@ -2,8 +2,9 @@
 """harvest-theme-registry.py — build a persistent per-org theme registry.
 
 Themes have no list API (unlike plugins, which now have GET /v2/plugins). The
-only place a theme id appears is a workbook spec's top-level `themeName`. So we
-harvest: list every workbook, GET each spec, collect the distinct `themeName`
+only place a theme id appears is a workbook spec's `document.settings.theme.name`
+(live since 2026-08; the old top-level `themeName` no longer appears on GET). So
+we harvest: list every workbook, GET each spec, collect the distinct theme name
 values (built-in names + org-theme UUIDs) and how many workbooks use each.
 
 Persists to ~/.sigma-migration/theme-registry.yaml keyed by org host, so the
@@ -90,7 +91,9 @@ def list_workbooks(base, tok, cap=None):
 def theme_of(base, tok, wb):
     try:
         spec = api(base, tok, f"/v2/workbooks/{wb}/spec")
-        return spec.get("themeName")  # None if no theme set
+        # Live GET nests under `document`; tolerate a legacy flat artifact too.
+        doc = spec.get("document", spec) if isinstance(spec, dict) else {}
+        return (doc.get("settings") or {}).get("theme", {}).get("name")  # None if no theme set
     except Exception as e:
         return ("__error__", str(e)[:40])
 

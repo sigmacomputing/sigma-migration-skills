@@ -33,14 +33,24 @@ def run(*args, dir: nil)
   Open3.capture3('ruby', File.join(HERE, *args[0, 1]), *args[1..])
 end
 
+def workbook_document(elements, page_id: 'p', page_name: 'Dashboard')
+  {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [{ 'id' => page_id, 'name' => page_name }],
+    'elements' => elements,
+    'layout' => "<Page id=\"#{page_id}\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+  }
+end
+
 puts 'test-w4-redteam-bypasses:'
 
 # --- (A) source-anchor post-hoc edit is refused -----------------------------
 Dir.mktmpdir do |d|
-  File.write(File.join(d, 'wb-readback.json'), JSON.generate(
-    'pages' => [{ 'id' => 'p', 'elements' => [
-      { 'id' => 'el-a', 'kind' => 'chart', 'name' => 'A', 'source' => { 'elementId' => 'tbl' } },
-      { 'id' => 'tbl', 'kind' => 'table', 'name' => 'T' }] }]))
+  File.write(File.join(d, 'wb-readback.json'), JSON.generate(workbook_document([
+    { 'id' => 'el-a', 'kind' => 'chart', 'name' => 'A', 'source' => { 'elementId' => 'tbl' } },
+    { 'id' => 'tbl', 'kind' => 'table', 'name' => 'T' }
+  ])))
   exdir = File.join(d, 'exports'); Dir.mkdir(exdir)
   File.write(File.join(exdir, 'el-a.csv'), "x,y\n1,100\n")     # tile has data
   File.write(File.join(exdir, 'tbl.csv'), "v\n999\n")
@@ -142,8 +152,9 @@ end
 # (review-caught: a byte hash tripped on a pretty-print / key reorder of identical anchors)
 Dir.mktmpdir do |d|
   Dir.mkdir(File.join(d, 'exports'))
-  File.write(File.join(d, 'wb.json'), JSON.generate('pages' => [{ 'id' => 'p', 'elements' => [
-    { 'id' => 'tbl', 'kind' => 'table', 'name' => 'T' }] }]))
+  File.write(File.join(d, 'wb.json'), JSON.generate(workbook_document([
+    { 'id' => 'tbl', 'kind' => 'table', 'name' => 'T' }
+  ])))
   File.write(File.join(d, 'exports', 'tbl.csv'), "v\n100\n999\n")
   anchors = (1..5).map { |i| { 'id' => "a#{i}", 'raw' => (i.even? ? '999' : '100'), 'kind' => 'number', 'label' => "L#{i}" } }
   File.write(File.join(d, 'source-anchors.json'), JSON.generate('anchors' => anchors))
@@ -163,10 +174,11 @@ end
 Dir.mktmpdir do |d|
   Dir.mkdir(File.join(d, 'exports'))
   # el-src is a CHART that el-derived sources from (dual role); el-src is EMPTY.
-  spec = { 'pages' => [{ 'id' => 'dash', 'elements' => [
+  spec = workbook_document([
     { 'id' => 'el-src', 'kind' => 'chart', 'name' => 'Source Chart' },
     { 'id' => 'el-derived', 'kind' => 'chart', 'name' => 'Derived', 'source' => { 'elementId' => 'el-src' } },
-    { 'id' => 'base', 'kind' => 'table', 'name' => 'Base' } ] }] }
+    { 'id' => 'base', 'kind' => 'table', 'name' => 'Base' }
+  ], page_id: 'dash')
   File.write(File.join(d, 'wb.json'), JSON.generate(spec))
   File.write(File.join(d, 'exports', 'el-src.csv'), "x,y\n")        # EMPTY dual-role chart
   File.write(File.join(d, 'exports', 'el-derived.csv'), "x,y\n1,2\n")

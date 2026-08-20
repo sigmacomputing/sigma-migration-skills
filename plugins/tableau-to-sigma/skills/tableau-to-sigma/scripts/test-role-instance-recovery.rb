@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Role-instanced computed-key recovery suite (wave-3 R3-1 parity killer).
+# Role-instanced computed-key recovery suite (a later wave R3-1 parity killer).
 #
 # The defect: a role-played date dimension (one physical date view, N date
 # roles) had its recovered "order-date"-class join attached to ANOTHER role's

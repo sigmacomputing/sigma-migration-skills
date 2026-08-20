@@ -6,6 +6,15 @@
 # emitted SQL referenced CUSTOMER_SFDC_ID unquoted while the actual Snowflake
 # column is "Customer SFDC ID" — a compile error that only surfaced at POST).
 #
+# ALSO checks (#693) that every emitted `AS <alias>` is itself LEGAL SQL —
+# independent of any catalog. A FIXED-LOD/window-helper alias built from a
+# hyphenated Tableau caption ("Sub-Category") reused the caption's physical
+# name unquoted, emitting `AS SUB-CATEGORY`; Snowflake reads the bare `-` as
+# a minus operator. The SOURCE side of that statement resolved fine, so the
+# catalog check above printed a clean "identifiers resolve" for the very
+# element that then failed compilation — this alias-legality check closes
+# that gap and fails the element locally instead.
+#
 # Offline + pure: reads the spec and the column JSONs you already fetched
 # (scripts/discover-columns.rb output, or any {"columns":[{"name":...}]} /
 # ["NAME", ...] file). No network, no creds.
@@ -105,6 +114,11 @@ sql_els.each do |el|
   bad_total += res[:unknown].size
   puts "FAIL #{el['name']} (page #{el['page']}, id #{el['id']}) — #{res[:unknown].size} unknown identifier(s):"
   res[:unknown].each do |u|
+    if u[:illegal_alias]
+      detail = u[:suggestion] ? "quote it: #{u[:suggestion]}" : "cannot be safely quoted (#{u[:reason]})"
+      puts "  AS #{u[:identifier]} → illegal/unquoted SQL alias — #{detail}"
+      next
+    end
     shown = u[:quoted] ? %("#{u[:identifier]}") : u[:identifier]
     fix = u[:suggestion] ? " → #{u[:suggestion]}" : ' → no catalog match (typo? wrong table? missing --columns?)'
     scope = u[:table] ? " [#{u[:table]}]" : ''

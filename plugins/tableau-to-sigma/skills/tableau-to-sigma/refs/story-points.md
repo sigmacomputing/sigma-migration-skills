@@ -1,6 +1,6 @@
 # Tableau story points → Sigma pages
 
-**Disposition: scripted pattern (beads-sigma-y6b).** Tableau stories are
+**Disposition: scripted pattern ([bead]).** Tableau stories are
 sequential slide decks — each `<story-point>` captures a dashboard or
 worksheet plus a navigator caption. Sigma has no story primitive; the
 translation is **one Sigma page per story point, in story order**, with the
@@ -54,19 +54,19 @@ ruby scripts/build-story-pages.rb \
 ```
 
 Per point: page named by the caption (truncated to ~58 chars, deduped with
-`(2)` suffixes), an annotation text element
-(`sp<N>-story-annotation`: caption + "Story point i of n · ◀ prev | next ▶"
-navigation strip), and clones of the captured page's elements with fresh ids
-(`sp<N>-` prefix). Cloned **controls get suffixed `controlId`s and every
-cloned calc formula referencing them is rewritten** — the same discipline as
-`build-charts-from-signals.rb --page-per-worksheet`. Cloned charts keep their
-`source.elementId` (the Data-page master), so story pages share the master's
-queries. `--replace-source-pages` drops the captured originals for a
-story-only workbook.
+`(2)` suffixes), an annotation text element, a native manual `navigation`
+element listing all story points, and clones of the captured page's elements
+with fresh ids (`sp<N>-` prefix). Cloned **controls get suffixed `controlId`s
+and every serialized `[controlId]` reference is rewritten recursively** —
+including formulas, dynamic text, filters, actions, progress values, and
+titles. Cloned charts keep their `source.elementId` (the Data-page master), so
+story pages share the master's queries. `--replace-source-pages` drops the
+captured originals for a story-only workbook.
 
 **Pass 2 — layout (after `post-and-readback.rb`).** Banded layout per story
 page: annotation in the dark header band (`lib/layout.rb#banded_page`
-`header_el:`), charts tiled 2-per-row and reflowed:
+`header_el:`), native navigation immediately below it, and charts tiled
+2-per-row and reflowed:
 
 ```bash
 ruby scripts/build-story-pages.rb \
@@ -82,9 +82,6 @@ workbook's other page layouts before `put-layout.rb`) plus
 
 ## What does NOT translate
 
-- **Tableau's prev/next flipboard navigation** — Sigma's page tab bar IS the
-  navigation; the annotation strip names the neighbors. There is no
-  spec-level "go to page" button.
 - **Per-point filter/highlight state divergence** (a story point that captures
   the same sheet twice with different filters): clone the page twice (the
   script does) and bake the per-point filter states by hand — or use

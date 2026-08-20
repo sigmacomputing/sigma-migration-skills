@@ -14,7 +14,7 @@ These are **symlinks** to `../../tableau-to-sigma/scripts/`, not copies — they
 | `verify-parity.rb` | as-is | Comparison engine; called by `phase6-parity-pbi.rb` |
 | `phase6-parity.rb` | reference | Tableau two-pass parity flow; PBI uses `phase6-parity-pbi.rb` instead |
 
-**Migration path:** when `sigma-conversion-core` (`beads-sigma-6k9`) is extracted, repoint these symlinks at the shared core package instead of `tableau-to-sigma`.
+**Migration path:** when `sigma-conversion-core` (`[bead]`) is extracted, repoint these symlinks at the shared core package instead of `tableau-to-sigma`.
 
 **Distribution:** these symlinks are DRY for repo work but break in a standalone download. Always ship via `../package.sh`, which dereferences them into real files (`dist/powerbi-to-sigma/` = 0 symlinks, self-contained).
 

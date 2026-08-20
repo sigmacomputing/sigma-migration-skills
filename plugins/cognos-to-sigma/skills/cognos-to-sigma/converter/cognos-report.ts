@@ -29,6 +29,9 @@ import { XMLParser } from 'fast-xml-parser';
 import { resetIds, sigmaShortId, sigmaDisplayName } from './sigma-ids.js';
 import { translateCognosExpr, type CognosQuerySubject } from './cognos.js';
 import { metricRefOrInline, type BindMetric } from './metric-binding.js';
+import { VIZ_GATED, VIZ_KIND, VIZ_NO_ANALOG, workbookGap } from './workbook-features.js';
+// @ts-expect-error The vendored runtime adapter is plain ESM; esbuild bundles it.
+import * as CodeRep from '../scripts/lib/code_rep.mjs';
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false, attributeNamePrefix: '@_', trimValues: true,
@@ -47,7 +50,7 @@ interface WbControl {
   source?: Record<string, any>; value?: string | null;                                     // segmented (parameter)
 }
 interface WbElement {
-  id: string; kind: string; name: string; source: Record<string, any>;
+  id: string; kind: string; name?: string; source?: Record<string, any>;
   columns?: WbColumn[]; order?: string[]; filters?: any[];
   groupings?: Array<{ id: string; groupBy: string[]; calculations: string[] }>;            // grouped table
   rowsBy?: Array<{ id: string }>; columnsBy?: Array<{ id: string }>; values?: string[];   // pivot
@@ -60,6 +63,13 @@ interface WbElement {
   visibleAsSource?: boolean;                                                                // hidden grouped source (scatter)
   refMarks?: WbRefMark[];                                                                    // reference / baseline lines
   dataLabel?: { labels: string };                                                            // value labels (bar)
+  legend?: { visibility?: 'shown' | 'hidden'; position?: 'top' | 'bottom' | 'left' | 'right' };
+  style?: Record<string, any>;
+  body?: string;
+  mode?: string; options?: any[]; pageLabels?: Record<string, string>;
+  tabs?: Array<{ name: string }>;
+  min?: string; max?: string; shape?: string;
+  arrangement?: string; cardSize?: string; cardStyle?: Record<string, any>; noDataText?: string;
 }
 // A Sigma reference line. `value` MUST be the wrapped {type:formula,formula:"…"}
 // form — a bare number 400s at POST. label.visibility must be 'shown' (not
@@ -71,9 +81,17 @@ interface WbRefMark {
   line?: { color?: string; width?: number };
   label?: { visibility: 'shown'; text: string };
 }
-interface WbPage { id: string; name: string; elements: WbElement[]; }
+interface WbPage { id: string; name: string; visibility?: 'shown' | 'hidden'; }
 export interface CognosReportResult {
-  workbook: { name: string; schemaVersion: number; pages: WbPage[]; controls?: WbControl[] };
+  workbook: {
+    name: string;
+    document: {
+      schemaVersion: number; kind: 'workbook'; pages: WbPage[];
+      elements: Array<WbElement | WbControl>; layout: string;
+      panels?: Array<Record<string, any>>;
+      settings?: Record<string, any>;
+    };
+  };
   warnings: string[];
   stats: Record<string, number>;
 }
@@ -100,6 +118,78 @@ function findAll(node: any, tag: string, out: any[] = []): any[] {
     }
   }
   return out;
+}
+
+const xmlEsc = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * The current workbook representation has a flat document.elements collection.
+ * Page ownership exists only in the authoritative document.layout XML, so every
+ * emitted element (including hidden source tables and containers) is placed
+ * exactly once. Pages themselves remain metadata-only.
+ */
+function buildAuthoritativeLayout(
+  pages: WbPage[],
+  byPage: Map<string, Array<WbElement | WbControl>>,
+  containerChildren: Map<string, string[]>,
+): string {
+  const blocks = pages.map((page) => {
+    const elements = byPage.get(page.id) || [];
+    const nested = new Set([...containerChildren.values()].flat());
+    const lines: string[] = [];
+    let row = 1;
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i] as WbElement;
+      if (nested.has(element.id)) continue;
+      const children = containerChildren.get(element.id);
+      if (children?.length) {
+        const height = Math.max(6, children.length * 11);
+        const inner = children.map((id, n) =>
+          `    <Element elementId="${xmlEsc(id)}" gridColumn="1 / 25" gridRow="${1 + n * 11} / ${1 + (n + 1) * 11}"/>`,
+        ).join('\n');
+        lines.push(`  <Container elementId="${xmlEsc(element.id)}" type="grid" gridColumn="1 / 25" gridRow="${row} / ${row + height}" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">\n${inner}\n  </Container>`);
+        row += height;
+        continue;
+      }
+      if (element.kind === 'page-break') {
+        lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 25" gridRow="${row} / ${row + 1}"/>`);
+        row += 1;
+        continue;
+      }
+      if (element.kind === 'kpi-chart') {
+        const run: WbElement[] = [];
+        let j = i;
+        while (j < elements.length && !nested.has((elements[j] as WbElement).id)
+          && (elements[j] as WbElement).kind === 'kpi-chart' && run.length < 4) {
+          run.push(elements[j] as WbElement); j++;
+        }
+        const span = Math.floor(24 / run.length);
+        run.forEach((kpi, n) => {
+          const c0 = 1 + n * span;
+          const c1 = n === run.length - 1 ? 25 : c0 + span;
+          lines.push(`  <Element elementId="${xmlEsc(kpi.id)}" gridColumn="${c0} / ${c1}" gridRow="${row} / ${row + 6}"/>`);
+        });
+        row += 6; i = j - 1;
+        continue;
+      }
+      const next = elements[i + 1] as WbElement | undefined;
+      const isChart = element.kind.endsWith('-chart') && element.kind !== 'kpi-chart';
+      const nextIsChart = !!next && !nested.has(next.id) && next.kind.endsWith('-chart') && next.kind !== 'kpi-chart';
+      if (isChart && nextIsChart) {
+        lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 13" gridRow="${row} / ${row + 11}"/>`);
+        lines.push(`  <Element elementId="${xmlEsc(next.id)}" gridColumn="13 / 25" gridRow="${row} / ${row + 11}"/>`);
+        row += 11; i += 1;
+        continue;
+      }
+      const height = element.kind === 'control' || element.kind === 'navigation' || element.kind === 'text'
+        ? 3 : element.visibleAsSource === false ? 1 : 12;
+      lines.push(`  <Element elementId="${xmlEsc(element.id)}" gridColumn="1 / 25" gridRow="${row} / ${row + height}"/>`);
+      row += height;
+    }
+    return `<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="${xmlEsc(page.id)}">\n${lines.join('\n')}\n</Page>`;
+  });
+  return `<?xml version="1.0" encoding="utf-8"?>\n${blocks.join('\n')}`;
 }
 
 // ── convert ─────────────────────────────────────────────────────────────────
@@ -162,7 +252,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
   // Prompts → Sigma SEGMENTED controls (parameters). Wired by controlId — element
   // formulas reference `[<promptName>]`, which Sigma resolves against `controlId`
   // (NOT the display name). A bare `list` control with no value source is unusable
-  // as a scalar (beads-sigma-fh4u) — segmented + explicit manual values is the
+  // as a scalar ([bead]) — segmented + explicit manual values is the
   // verified working shape.
   const controls = new Map<string, WbControl>();
   const registerPrompt = (p: string) => {
@@ -283,10 +373,40 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     return undefined;
   };
 
-  const pages: WbPage[] = [];
   const reportPages = findAll(report.layouts || report, 'reportPage').concat(findAll(report.layouts || report, 'page'));
+  const pageNodes = reportPages.length ? reportPages : [{ '@_name': 'Report' }];
+  const pages: WbPage[] = pageNodes.map((p) => ({
+    id: sigmaShortId(),
+    name: p['@_name'] || 'Report',
+  }));
+  const pageIdBySourceNode = new WeakMap<object, string>();
+  pageNodes.forEach((pageNode, i) => {
+    if (!pageNode || typeof pageNode !== 'object') return;
+    for (const tag of ['singleton', 'list', 'crosstab', 'vizControl', 'pageBreak', 'repeater', 'repeaterTable', 'block']) {
+      for (const node of findAll(pageNode, tag)) {
+        if (node && typeof node === 'object') pageIdBySourceNode.set(node, pages[i].id);
+      }
+    }
+  });
+  const elementsByPage = new Map<string, Array<WbElement | WbControl>>(pages.map((p) => [p.id, []]));
+  const elementsBySourceNode = new WeakMap<object, WbElement[]>();
+  const containerChildren = new Map<string, string[]>();
   const lists = findAll(report, 'list');
   const pageEls: WbElement[] = [];
+  const addToPage = (pageId: string, element: WbElement | WbControl) => {
+    elementsByPage.get(pageId)!.push(element);
+    if ((element as WbElement).kind !== 'control') pageEls.push(element as WbElement);
+  };
+  const addElement = (sourceNode: any, element: WbElement) => {
+    const pageId = sourceNode && typeof sourceNode === 'object'
+      ? pageIdBySourceNode.get(sourceNode) || pages[0].id : pages[0].id;
+    addToPage(pageId, element);
+    if (sourceNode && typeof sourceNode === 'object') {
+      const current = elementsBySourceNode.get(sourceNode) || [];
+      current.push(element);
+      elementsBySourceNode.set(sourceNode, current);
+    }
+  };
 
   // Every element sources the migrated DM element. The converter emits the query
   // SUBJECT display name as the elementId placeholder — remap-wb-to-dm-ids.mjs
@@ -363,7 +483,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     }
   };
 
-  // 2a) singletons → kpi-chart elements (beads-sigma-ir3z: these are the KPI panel —
+  // 2a) singletons → kpi-chart elements ([bead]: these are the KPI panel —
   // never drop them). Each <singleton refQuery><dataItemValue refDataItem> becomes a
   // Sigma kpi-chart whose value column is the dataItem's translated formula
   // (Sum-wrapped when row-level); sibling dataItems it references ([CYQRev]-[PYQRev])
@@ -412,7 +532,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       columns: cols, order: cols.map((c) => c.id), value: { columnId: valId },
     };
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(sg, el);
   }
 
   for (const L of lists) {
@@ -425,7 +545,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     const AGG: Record<string, string> = { total: 'Sum', summary: 'Sum', aggregate: 'Sum', calculated: 'Sum', average: 'Avg', count: 'Count', maximum: 'Max', minimum: 'Min' };
     // Cognos lists auto-group: non-aggregate dataItems are the grain, aggregate
     // ('total'/'calculated'/…) dataItems are rolled up per group. Mirror that with a
-    // Sigma grouped table (beads-sigma-0xlz): dims → groupBy, measures (Agg-wrapped)
+    // Sigma grouped table ([bead]): dims → groupBy, measures (Agg-wrapped)
     // → grouping calculations.
     const isMeasureItem = (d: DataItem) => !!d.aggregate && d.aggregate !== 'none';
     const grouped = refs.some((r) => { const d = q.items.get(r); return d && isMeasureItem(d); })
@@ -449,7 +569,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       warns.forEach((w) => warnings.push(`"${qName}.${r}": ${w}`));
       const id = sigmaShortId();
       if (grouped && isMeasureItem(di)) {
-        // beads-sigma-kvza: an unmapped Cognos aggregate must be LOUD, not a silent Sum.
+        // [bead]: an unmapped Cognos aggregate must be LOUD, not a silent Sum.
         const _aggk = di.aggregate!.toLowerCase();
         if (!AGG[_aggk]) warnings.push(`list measure "${di.name}" (query "${qName}"): unmapped Cognos aggregate '${di.aggregate}' — defaulted to Sum (degraded); verify parity or add the mapping (refs/cognos-coverage.md).`);
         const fn = AGG[_aggk] || 'Sum';
@@ -479,7 +599,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       el.groupings = [{ id: sigmaShortId(), groupBy: dimIds, calculations: measureIds }];
     }
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(L, el);
   }
 
   // 2b) crosstabs → pivot-table elements (rows edge → rowsBy, columns edge → columnsBy, measure → values)
@@ -512,7 +632,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       columns: cols, order: cols.map((c) => c.id), rowsBy, columnsBy, values,
     };
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(X, el);
   }
 
   // 2c) charts (RAVE2 <vizControl>) → Sigma chart elements
@@ -524,21 +644,8 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     if (nm && rq) dsToQuery.set(nm, rq);
   }
   const ROLLUP_AGG: Record<string, string> = { total: 'Sum', sum: 'Sum', average: 'Avg', avg: 'Avg', count: 'Count', countdistinct: 'CountDistinct', maximum: 'Max', minimum: 'Min' };
-  // Cognos vizControl type → Sigma chart kind (only types with a clean native analog)
-  const VIZ_KIND: Record<string, string> = {
-    'com.ibm.vis.clusteredbar': 'bar-chart', 'com.ibm.vis.stackedbar': 'bar-chart',
-    'com.ibm.vis.clusteredcolumn': 'bar-chart', 'com.ibm.vis.stackedcolumn': 'bar-chart',
-    'com.ibm.vis.line': 'line-chart', 'com.ibm.vis.spline': 'line-chart',
-    'com.ibm.vis.area': 'area-chart', 'com.ibm.vis.stackedarea': 'area-chart',
-    'com.ibm.vis.pie': 'pie-chart', 'com.ibm.vis.donut': 'donut-chart',
-    'com.ibm.vis.clusteredcombination': 'combo-chart', 'com.ibm.vis.stackedcombination': 'combo-chart',
-    'com.ibm.vis.bubble': 'scatter-chart', 'com.ibm.vis.scatter': 'scatter-chart',
-  };
-  // types Sigma has no native element for — emit the data as a table + a loud flag (don't fake the viz)
-  const VIZ_NOANALOG: Record<string, string> = {
-    'com.ibm.vis.network': 'network diagram', 'com.ibm.vis.wordcloud': 'word cloud',
-    'com.ibm.vis.packedbubble': 'packed bubble', 'com.ibm.vis.treemap': 'treemap',
-  };
+  // Enumerated chart mappings and gated/no-analog fallbacks live in the
+  // grounded workbook feature catalog (`workbook-features.ts`).
   const isMapViz = (t: string) => /tiledmap|choropleth|\bmap\b/.test(t);
   const chartSource = dmSource;
 
@@ -586,6 +693,36 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     const pal = (findAll(V, 'vcSlotData').map((s: any) => s['@_refPaletteDefinition'] || s['@_refPalette']).find(Boolean))
       || V['@_refPaletteDefinition'] || V['@_refPalette'];
     return pal ? String(pal) : undefined;
+  };
+
+  const legendFromViz = (V: any): WbElement['legend'] | undefined => {
+    let seen = false;
+    let visibility: 'shown' | 'hidden' | undefined;
+    let position: 'top' | 'bottom' | 'left' | 'right' | undefined;
+    for (const tag of ['vizPropertyBooleanValue', 'vizPropertyEnumValue', 'vizPropertyStringValue']) {
+      for (const prop of findAll(V, tag)) {
+        const name = String(prop['@_name'] || '');
+        if (!/legend/i.test(name)) continue;
+        seen = true;
+        const value = String(prop['@_value'] ?? txt(prop)).toLowerCase();
+        if (/visible|show|display/i.test(name)) visibility = /^(false|hidden|none|off|0)$/.test(value) ? 'hidden' : 'shown';
+        if (/position|placement|location/i.test(name)) {
+          const side = (['top', 'bottom', 'left', 'right'] as const).find((x) => value.includes(x));
+          if (side) position = side;
+        }
+      }
+    }
+    return seen ? { ...(visibility ? { visibility } : {}), ...(position ? { position } : {}) } : undefined;
+  };
+
+  const styleFromNode = (node: any): Record<string, any> | undefined => {
+    const css = findAll(node, 'CSS').map((x: any) => String(x['@_value'] || txt(x))).join(';');
+    const style: Record<string, any> = {};
+    const background = css.match(/background(?:-color)?\s*:\s*(#[0-9a-f]{3,8})/i)?.[1];
+    if (background) style.backgroundColor = background;
+    const radius = css.match(/border-radius\s*:\s*([^;]+)/i)?.[1]?.trim();
+    if (radius && radius !== '0' && radius !== '0px') style.borderRadius = 'round';
+    return Object.keys(style).length ? style : undefined;
   };
 
   // RAVE2 reference lines / baselines → Sigma refMarks. Cognos expresses these as
@@ -659,7 +796,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       // renders as a continuous axis in Sigma — cast to Text so it binds categorically.
       if (categorical && !measure && (di.dataType === '1' || di.dataType === '2')) formula = `Text(${formula})`;
       const id = sigmaShortId();
-      // beads-sigma-kvza: warn on an unmapped Cognos rollup (empty rollup -> Sum is the
+      // [bead]: warn on an unmapped Cognos rollup (empty rollup -> Sum is the
       // documented default and is NOT a miss). Degraded Sum stays but is now loud.
       let fn = '';
       if (measure) {
@@ -677,6 +814,36 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     const sizes = slot('size'), xs = slot('x'), ys = slot('y'), colorSlot = slot('color');
     const kind = VIZ_KIND[vizType];
 
+    // Progress/bullet/gauge visuals now have a native workbook-code element.
+    // It has no source/columns of its own, so retain a hidden aggregate source
+    // table and bind the progress formula to that table's display name.
+    if (/progress|bullet|gauge/.test(vizType)) {
+      const valueEntry = vals[0] || sizes[0] || ys[0];
+      const valueId = addCol(valueEntry, true);
+      const valueCol = cols.find((c) => c.id === valueId);
+      if (!valueCol) {
+        warnings.push(workbookGap('progress', `chart "${vizName}" had no resolvable value measure; no progress element was emitted.`));
+        continue;
+      }
+      const sourceName = `${vizName} (progress source)`;
+      const source: WbElement = {
+        id: sigmaShortId(), kind: 'table', name: sourceName, source: chartSource(q),
+        columns: cols, order: cols.map((c) => c.id), visibleAsSource: false,
+      };
+      const percent = valueEntry?.format?.formatString?.includes('%');
+      const progress: WbElement = {
+        id: sigmaShortId(), kind: 'progress', name: vizName,
+        min: '0', max: percent ? '1' : '100',
+        value: { columnId: valueId },
+        mode: percent ? 'percent' : 'value', shape: /ring|radial|gauge/.test(vizType) ? 'ring' : 'bar',
+      };
+      // The progress schema's value is a formula string, not a column pointer.
+      (progress as any).value = `[${sourceName}/${valueCol.name}]`;
+      addElement(V, source);
+      addElement(V, progress);
+      continue;
+    }
+
     // maps: Cognos tiledmap → Sigma point-map (lat/long slots) or region-map (named-location slots)
     if (isMapViz(vizType)) {
       const lat = slot('latlonglocations.latitude')[0] || slot('latitude')[0];
@@ -687,6 +854,7 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
         const sizeId = addCol(slot('latlongsize')[0] || sizes[0], true);
         const colorId = addCol(slot('latlongcolor')[0] || colorSlot[0], true);
         const el: WbElement = { id: sigmaShortId(), kind: 'point-map', name: vizName, source: chartSource(q), columns: cols, order: [] };
+        const legend = legendFromViz(V); if (legend) el.legend = legend;
         if (latId) el.latitude = { id: latId };
         if (lonId) el.longitude = { id: lonId };
         if (sizeId) el.size = { id: sizeId };
@@ -694,41 +862,53 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
         el.order = cols.map((c) => c.id);
         if (!cols.length) { warnings.push(`<vizControl> map "${vizName}" had no resolvable lat/long columns — skipped.`); continue; }
         applyQueryFilters(el, q);
-        pageEls.push(el);
+        addElement(V, el);
       } else if (region) {
         const regId = addCol(region, false);
         const colorId = addCol(slot('locationcolor')[0] || colorSlot[0] || slot('locationheight')[0], true);
         if (!regId) { warnings.push(`<vizControl> map "${vizName}" had no resolvable location column — skipped.`); continue; }
         const el: WbElement = { id: sigmaShortId(), kind: 'region-map', name: vizName, source: chartSource(q), columns: cols, order: cols.map((c) => c.id), region: { id: regId, regionType: 'country' } };
+        const legend = legendFromViz(V); if (legend) el.legend = legend;
         if (colorId) el.color = { by: 'scale', column: colorId };
         warnings.push(`chart "${vizName}" → region-map: defaulted regionType to "country" — set it to match your data (country / us-state / us-county / us-zipcode / us-cbsa / us-postal-place / ca-province).`);
         applyQueryFilters(el, q);
-        pageEls.push(el);
+        addElement(V, el);
       } else {
         // a map with neither coordinate nor named-location slots → table fallback
         for (const c of findAll(V, 'vcSlotDsColumn')) if (c['@_refDsColumn']) addCol({ ref: c['@_refDsColumn'], rollup: c['@_rollupMethod'] }, !!c['@_rollupMethod']);
         if (!cols.length) { warnings.push(`<vizControl> map "${vizName}" (${vizType}) had no resolvable columns — skipped.`); continue; }
         warnings.push(`chart "${vizName}" is a Cognos map (${vizType}) with no lat/long or named-location slot — emitted its data as a table; add geographic columns + a map in the workbook.`);
         const fb: WbElement = { id: sigmaShortId(), kind: 'table', name: `${vizName} (was map)`, source: chartSource(q), columns: cols, order: cols.map((c) => c.id) };
+        const measures = cols.filter((c) => /^\s*(Sum|Avg|Min|Max|Count|CountDistinct)\s*\(/.test(c.formula)).map((c) => c.id);
+        const dimensions = cols.filter((c) => !measures.includes(c.id)).map((c) => c.id);
+        if (measures.length && dimensions.length) fb.groupings = [{ id: sigmaShortId(), groupBy: dimensions, calculations: measures }];
         applyQueryFilters(fb, q);
-        pageEls.push(fb);
+        addElement(V, fb);
       }
       continue;
     }
 
     if (!kind) {
       // no native Sigma chart → table fallback + flag (collect every slot column, incl. map latlong/etc.)
-      const label = VIZ_NOANALOG[vizType] || vizType.replace('com.ibm.vis.', '');
+      const gated = VIZ_GATED[vizType];
+      const label = gated || VIZ_NO_ANALOG[vizType] || vizType.replace('com.ibm.vis.', '');
       for (const c of findAll(V, 'vcSlotDsColumn')) if (c['@_refDsColumn']) addCol({ ref: c['@_refDsColumn'], rollup: c['@_rollupMethod'] }, !!c['@_rollupMethod']);
       if (!cols.length) { warnings.push(`<vizControl> "${vizName}" (${vizType}) had no resolvable columns — skipped.`); continue; }
-      warnings.push(`chart "${vizName}" is a Cognos ${label} (${vizType}) — Sigma has no native equivalent; emitted its data as a table. Re-pick a Sigma chart in the workbook.`);
+      warnings.push(workbookGap(gated ? 'box-chart (workspace gated)' : `visual ${vizType}`,
+        gated
+          ? `chart "${vizName}" is a Cognos ${label}; Sigma box-chart is workspace-gated, so the converter preserved its data as a table instead of risking a masked entitlement failure. Enable and verify box-chart before replacing it.`
+          : `chart "${vizName}" is a Cognos ${label}; no grounded Sigma mapping is cataloged. Its data was preserved as a table.`));
       const fb: WbElement = { id: sigmaShortId(), kind: 'table', name: `${vizName} (was ${label})`, source: chartSource(q), columns: cols, order: cols.map((c) => c.id) };
+      const measures = cols.filter((c) => /^\s*(Sum|Avg|Min|Max|Count|CountDistinct)\s*\(/.test(c.formula)).map((c) => c.id);
+      const dimensions = cols.filter((c) => !measures.includes(c.id)).map((c) => c.id);
+      if (measures.length && dimensions.length) fb.groupings = [{ id: sigmaShortId(), groupBy: dimensions, calculations: measures }];
       applyQueryFilters(fb, q);
-      pageEls.push(fb);
+      addElement(V, fb);
       continue;
     }
 
     const el: WbElement = { id: sigmaShortId(), kind, name: vizName, source: chartSource(q), columns: [], order: [] };
+    const legend = legendFromViz(V); if (legend) el.legend = legend;
 
     if (kind === 'pie-chart' || kind === 'donut-chart') {
       const colorId = addCol(cats[0] || colorSlot[0], false);
@@ -775,8 +955,8 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
         el.columns = scols; el.order = scols.map((c) => c.id);
         const sRefMarks = buildRefMarks(V, q, vizName);   // e.g. a target line at y=<value>
         if (sRefMarks.length) el.refMarks = sRefMarks;
-        pageEls.push(src);
-        pageEls.push(el);
+        addElement(V, src);
+        addElement(V, el);
         continue;   // self-contained: skip the shared el.columns=cols assignment below
       }
       // <2 measures or no category dim: fall back to a plain ungrouped scatter.
@@ -786,9 +966,11 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
       const sRefMarks = buildRefMarks(V, q, vizName);
       if (sRefMarks.length) el.refMarks = sRefMarks;
     } else {
-      // cartesian: bar / line / area / combo
+      // cartesian: bar / line / area / combo. The released waterfall schema
+      // deliberately has no xAxis property; retain its category columns while
+      // binding only the required yAxis.
       const xId = addCol(cats[0], false, true);
-      if (xId) {
+      if (xId && kind !== 'waterfall-chart') {
         el.xAxis = { columnId: xId };
         if (cats[0]?.sort) el.xAxis.sort = { by: xId, direction: /desc/i.test(cats[0].sort) ? 'descending' : 'ascending' };
       }
@@ -825,17 +1007,126 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
         if (/\bbar\b/.test(vizType) && !/column/.test(vizType)) el.orientation = 'horizontal'; // Cognos "bar" = horizontal
       }
       if (kind === 'combo-chart' && yIds.length > 1) warnings.push(`chart "${vizName}" → combo-chart: all measures placed on the primary axis as the same mark — set per-series shape / secondary axis in the workbook.`);
+      if (kind === 'waterfall-chart' && cats.length > 1) {
+        warnings.push(workbookGap('waterfall category hierarchy',
+          `chart "${vizName}" has ${cats.length} Cognos category levels, but released waterfall-chart code exposes no xAxis hierarchy. All category columns were retained; verify the rendered step labels.`));
+      }
     }
 
     el.columns = cols; el.order = cols.map((c) => c.id);
     if (!cols.length) { warnings.push(`<vizControl> "${vizName}" (${vizType}) had no resolvable slot columns — skipped.`); continue; }
     applyQueryFilters(el, q);
-    pageEls.push(el);
+    addElement(V, el);
   }
 
-  // attach controls as page-level elements too
+  // Released non-chart workbook features.
+  for (const pageBreak of findAll(report, 'pageBreak')) {
+    addElement(pageBreak, { id: sigmaShortId(), kind: 'page-break' });
+  }
+
+  for (const drill of findAll(report, 'drillBehavior')) {
+    if (!drill || typeof drill !== 'object' || Object.keys(drill).length === 0) continue;
+    const id = sigmaShortId();
+    addToPage(pages[0].id, {
+      id, kind: 'control', controlId: `drill-${id}`, name: 'Drill',
+      controlType: 'drill',
+    } as WbControl);
+  }
+  for (const reportDrill of findAll(report, 'reportDrill')) {
+    const name = reportDrill['@_name'] || 'unnamed report drill';
+    const path = findAll(reportDrill, 'reportPath')[0]?.['@_path'];
+    warnings.push(workbookGap('cross-report drill-through',
+      `"${name}" targets ${path || 'another Cognos report'}. The released Sigma drill control is hierarchy drill, not cross-document navigation; wire a converted target page/document explicitly.`));
+  }
+
+  // Cognos repeaters become first-class repeated containers. The binding name
+  // uses the data-model source element's display name, matching Sigma's derived
+  // "<source name> repeated container" namespace.
+  for (const repeater of [...findAll(report, 'repeater'), ...findAll(report, 'repeaterTable')]) {
+    const qName = repeater['@_refQuery'];
+    const q = queries.get(qName);
+    if (!q) {
+      warnings.push(workbookGap('repeater', `refQuery="${qName || '(missing)'}" has no matching query; repeater was not emitted.`));
+      continue;
+    }
+    const refs = [...new Set(findAll(repeater, 'dataItemValue').map((x: any) => x['@_refDataItem']).filter(Boolean))] as string[];
+    const sourceName = `${repeater['@_name'] || qName} source`;
+    const sourceColumns: WbColumn[] = refs.flatMap((ref) => {
+      const di = q.items.get(ref);
+      if (!di) return [];
+      const translated = translate(di.expression, q);
+      translated.warns.forEach((w) => warnings.push(`"${qName}.${ref}": ${w}`));
+      return [{ id: sigmaShortId(), name: sigmaDisplayName(di.name), formula: translated.formula }];
+    });
+    const source: WbElement = {
+      id: sigmaShortId(), kind: 'table', name: sourceName, source: dmSource(q),
+      columns: sourceColumns, order: sourceColumns.map((c) => c.id), visibleAsSource: false,
+    };
+    addElement(repeater, source);
+    const rc: WbElement = {
+      id: sigmaShortId(), kind: 'repeated-container', name: repeater['@_name'] || `${qName} repeater`,
+      source: { kind: 'table', elementId: source.id }, arrangement: 'list', cardSize: 'small',
+      noDataText: 'No rows', cardStyle: styleFromNode(repeater),
+    };
+    addElement(repeater, rc);
+    const children: string[] = [];
+    for (const ref of refs) {
+      const di = q.items.get(ref);
+      if (!di) continue;
+      const child: WbElement = {
+        id: sigmaShortId(), kind: 'text',
+        body: `{{[${sourceName} repeated container/${sigmaDisplayName(di.name)}]}}`,
+      };
+      addElement(repeater, child);
+      children.push(child.id);
+    }
+    if (children.length) containerChildren.set(rc.id, children);
+    else warnings.push(workbookGap('repeater content',
+      `"${rc.name}" had no resolvable dataItemValue children. The repeated-container shell was preserved, but its card content must be authored.`));
+  }
+
+  // Named Cognos blocks are semantic panels. Preserve panels that actually own
+  // converted visual children; unnamed layout-only blocks remain structural
+  // noise and are not emitted.
+  const claimedPanelChildren = new Set<string>();
+  for (const block of findAll(report, 'block')) {
+    if (!block['@_name']) continue;
+    const children: string[] = [];
+    for (const tag of ['singleton', 'list', 'crosstab', 'vizControl', 'repeater', 'repeaterTable']) {
+      for (const node of findAll(block, tag)) {
+        for (const element of elementsBySourceNode.get(node) || []) {
+          if (!claimedPanelChildren.has(element.id)) {
+            children.push(element.id);
+            claimedPanelChildren.add(element.id);
+          }
+        }
+      }
+    }
+    if (!children.length) continue;
+    const panel: WbElement = {
+      id: sigmaShortId(), kind: 'container', name: sigmaDisplayName(block['@_name']),
+      ...(styleFromNode(block) ? { style: styleFromNode(block) } : {}),
+    };
+    addElement(block, panel);
+    containerChildren.set(panel.id, children);
+  }
+
+  // attach parameter controls to the first page. Controls remain ordinary flat
+  // document elements; the layout is their sole page-membership authority.
   const controlEls = [...controls.values()];
-  pages.push({ id: sigmaShortId(), name: reportPages[0]?.['@_name'] || 'Report', elements: [...controlEls as any, ...pageEls] });
+  controlEls.forEach((control) => addToPage(pages[0].id, control));
+
+  // Cognos' report-page tab mode maps directly to Sigma's released auto
+  // navigation element. Place one at the start of every page.
+  if (pages.length > 1 && report['@_viewPagesAsTabs']) {
+    const pageLabels = Object.fromEntries(pages.map((p) => [p.id, p.name]));
+    for (const page of pages) {
+      const nav: WbElement = {
+        id: sigmaShortId(), kind: 'navigation', mode: 'auto', pageLabels,
+      };
+      elementsByPage.get(page.id)!.unshift(nav);
+    }
+  }
 
   // detail filters are converted per element (applyQueryFilters); summary filters
   // (post-aggregation HAVING-style) still surface as warnings to re-create.
@@ -843,6 +1134,29 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     const fexpr = txt(fnode.filterExpression || fnode.expression);
     if (fexpr) warnings.push(`summary filter: "${fexpr.slice(0, 80)}" — post-aggregation filter; re-create as a Sigma filter on the aggregated column.`);
   }
+
+  // Page headers are now first-class document.panels definitions. Cognos page
+  // footers do not map to the workbook panel union (header/sidebar only), so
+  // they stay loud rather than being mislabeled as a sidebar.
+  const panels: Array<Record<string, any>> = [];
+  pageNodes.forEach((pageNode, i) => {
+    const header = findAll(pageNode, 'pageHeader')[0];
+    if (header) {
+      const style = styleFromNode(header);
+      panels.push({
+        id: sigmaShortId(), type: 'header', title: `${pages[i].name} header`,
+        pages: [pages[i].id],
+        config: {
+          scroll: 'none', borderStyle: 'none',
+          ...(style?.backgroundColor ? { backgroundColor: style.backgroundColor } : {}),
+        },
+      });
+    }
+    if (findAll(pageNode, 'pageFooter').length) {
+      warnings.push(workbookGap('page footer panel',
+        `page "${pages[i].name}" has a Cognos pageFooter, but released workbook panels support header/sidebar only. Preserve footer content as ordinary page elements or a page-break print section.`));
+    }
+  });
 
   const stats = {
     queries: queries.size,
@@ -856,9 +1170,24 @@ export function convertCognosReportToSigma(xml: string, options: CognosReportOpt
     controls: controls.size,
     refMarks: pageEls.reduce((n, e) => n + (e.refMarks?.length || 0), 0),
     scaleColors: pageEls.filter((e) => e.color?.by === 'scale').length,
+    pages: pages.length,
+    progress: pageEls.filter((e) => e.kind === 'progress').length,
+    repeaters: pageEls.filter((e) => e.kind === 'repeated-container').length,
+    panels: pageEls.filter((e) => e.kind === 'container').length,
+    pagePanels: panels.length,
+    pageBreaks: pageEls.filter((e) => e.kind === 'page-break').length,
+  };
+  const elements = pages.flatMap((page) => elementsByPage.get(page.id) || []);
+  const document = {
+    schemaVersion: 1,
+    kind: 'workbook' as const,
+    pages,
+    elements,
+    layout: buildAuthoritativeLayout(pages, elementsByPage, containerChildren),
+    ...(panels.length ? { panels } : {}),
   };
   return {
-    workbook: { name: reportName, schemaVersion: 1, pages, controls: controlEls },
+    workbook: CodeRep.wrap(document, { name: reportName }) as CognosReportResult['workbook'],
     warnings, stats,
   };
 }

@@ -25,6 +25,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
 BUILDER = os.path.join(SKILL, "scripts", "build_workbook.py")
 FIXTURE = os.path.join(SKILL, "fixtures", "test_workspace_orders.json")
+sys.path.insert(0, os.path.join(SKILL, "scripts", "lib"))
+import code_rep  # noqa: E402
 
 # a bar chart over one plain-Sum measure (m_gross_revenue = SELECT SUM({fact/gross_revenue}))
 # and one category dim, injected into the (otherwise viz-empty) fixture.
@@ -60,13 +62,12 @@ def build(dm_spec=None):
         spec = json.load(open(out))
         # the injected chart element (NOT the Data-page master detail table, which
         # also carries a "Gross Revenue" column)
-        for pg in spec["pages"]:
-            for el in pg["elements"]:
-                if el.get("id") != INSIGHT["id"]:
-                    continue
-                for c in el.get("columns", []):
-                    if c.get("name") == "Gross Revenue":
-                        return c["formula"]
+        for el in code_rep.workbook_elements(spec):
+            if el.get("id") != INSIGHT["id"]:
+                continue
+            for c in el.get("columns", []):
+                if c.get("name") == "Gross Revenue":
+                    return c["formula"]
         raise AssertionError("Gross Revenue measure column not found: " + json.dumps(spec))
 
 

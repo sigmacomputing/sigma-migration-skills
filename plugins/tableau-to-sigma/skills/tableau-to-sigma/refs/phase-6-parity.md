@@ -6,7 +6,7 @@
 
 > ⚠️ **VDS is NOT a valid oracle for tiles fed by fan-out joins** (Twin-B e2e, 2026-07-19). VDS queries through Tableau's logical layer, which culls relationship joins per-viz — it returns **relationship-culled (un-fanned) data**, so a tile fed by a fan-out join gets a VDS answer that can *agree* with a Sigma build that silently dropped the join (false green; that run's tiles diverged 3–23×). `derive-ground-truth.rb` therefore demotes a tile's `vds` classification to `anchor-only` while the workdir's `join-plan.json` (gate 16's ledger) carries a join for that datasource not proven `unique` — run `probe-join-keys.rb` first to keep VDS coverage on proven-safe tiles. Never hand-pick VDS as the value oracle for such a tile. Details: `refs/ground-truth-oracle.md`.
 
-> **A conversion is not complete until `scripts/assert-phase6-ran.rb` exits 0.** This is a *hard gate*, not a guideline. `phase6-parity.rb --finalize` writes `<WORK>/parity-final.json` as a sentinel; `assert-phase6-ran.rb` reads it and exits non-zero if Phase 6 was skipped, ran in extract-mode without permission, or failed parity. Subagent flows (cluster followers via `tableau-assessment`) MUST run the assertion as their final step before writing the result line — without it, an agent can silently skip Phase 6 entirely and self-report `charts_pass: 0, charts_total: 0` to slip past the GREEN check. See `beads-sigma-4pm` for the regression that motivated the gate.
+> **A conversion is not complete until `scripts/assert-phase6-ran.rb` exits 0.** This is a *hard gate*, not a guideline. `phase6-parity.rb --finalize` writes `<WORK>/parity-final.json` as a sentinel; `assert-phase6-ran.rb` reads it and exits non-zero if Phase 6 was skipped, ran in extract-mode without permission, or failed parity. Subagent flows (cluster followers via `tableau-assessment`) MUST run the assertion as their final step before writing the result line — without it, an agent can silently skip Phase 6 entirely and self-report `charts_pass: 0, charts_total: 0` to slip past the GREEN check. See `[bead]` for the regression that motivated the gate.
 
 > **PUT returning `success: true` is not verification.** It only proves the spec parsed. Two recent customer-visible bugs reached the customer because Phase 6 was skipped: a window-function calc compiling silently as `error` and a pie chart wired to the wrong dimension. Compile-clean from `verify-workbook.rb` is also not parity verification — that only confirms each formula resolves, not that the numbers match.
 
@@ -86,8 +86,9 @@ The gate checks five independent things and rejects on any failure:
    was introduced by a later PUT (layout update, spec edit during error
    recovery).
 4. **Layout applied** — fetches `/v2/workbooks/{id}/spec` and rejects
-   when the top-level `layout` field is empty or has fewer than 2
-   `<LayoutElement>` tags. Catches the CoCo regression where the agent
+   when the `layout` field (`document.layout` in the current wrapped spec
+   shape) is empty or has fewer than 2
+   `<Element>` tags. Catches the CoCo regression where the agent
    forgot to PUT a layout and Sigma rendered every tile as a
    single-column stack instead of the dashboard grid.
 5. **Tile census** — reads `tile_census` from `parity-final.json`
@@ -103,7 +104,7 @@ The gate checks five independent things and rejects on any failure:
 Exit 0 means the conversion is allowed to declare GREEN. Any other exit
 code means downgrade to YELLOW (parity skipped or incomplete, orphans
 left, runtime errors visible, layout missing) or RED (parity failed).
-See beads-sigma-4pm, beads-sigma-38a, beads-sigma-bw3.
+See [bead], [bead], [bead].
 
 > **POST vs PUT for spec updates.** `POST /v2/workbooks/spec` is
 > create-only. After the first successful POST returns a workbook ID,
@@ -162,7 +163,7 @@ mcp__sigma-mcp-v2__query  type="workbook"  workbookId="<wbId>"
 
 The plan file pre-populates `sql_template` and `workbookId` on each chart — just run the SQL and paste the resulting rows under `"actual": { "rows": [...] }`.
 
-> **DO NOT try to fetch actuals via REST.** `POST /v2/workbooks/{wb}/query` does not exist (returns `errorcause: UnmatchedHandler` with empty body — silent failure). The MCP path is canonical. An earlier version of `auto-parity-plan.rb` tried this REST endpoint with a silent-rescue clause; that was a bug, removed in beads-sigma-s04.
+> **DO NOT try to fetch actuals via REST.** `POST /v2/workbooks/{wb}/query` does not exist (returns `errorcause: UnmatchedHandler` with empty body — silent failure). The MCP path is canonical. An earlier version of `auto-parity-plan.rb` tried this REST endpoint with a silent-rescue clause; that was a bug, removed in [bead].
 
 > **A chart element's SQL view exposes only that chart's own columns.** A `WHERE "m-order-date-key" BETWEEN ...` against `el-rev-by-region` fails with `Unresolved column`. Two ways to handle:
 > - Query the master table directly (`FROM "workbook"."master"`) and aggregate in SQL.
@@ -233,7 +234,7 @@ After workbook PUT and before declaring GREEN you MUST:
 
 > **Visual QA is a mandatory gate — never skip, never declare done on HTTP 200.** A workbook that POSTs cleanly and passes CSV parity can still be visually broken (overlapping tiles, clipped titles, dead zones, floating filters; Sigma's grid has no z-order). After `export-chart-png.rb` renders the pages/elements:
 > 1. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls placed in-band, no clipped titles, even heights, right chart kind/format). Pair with the Tableau MCP `get-view-image` for source-vs-target.
-> 2. Fix any failure in the spec — for multi-page workbooks use `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-read**.
+> 2. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
 > 3. Loop until the render passes inspection.
 
 ```bash

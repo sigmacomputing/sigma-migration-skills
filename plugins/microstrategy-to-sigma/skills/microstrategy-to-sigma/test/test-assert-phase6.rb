@@ -129,7 +129,7 @@ scenario('parity-final.json status=FAIL -> exit 2', 2) do |dir|
   write_json(dir, 'parity-final.json', 'charts_total' => 3, 'charts_pass' => 2, 'status' => 'FAIL', 'mode' => 'live')
 end
 
-puts '== gate 2 (orphan workbooks, beads-sigma-38a) =='
+puts '== gate 2 (orphan workbooks, [bead]) =='
 scenario('2 workbooks POSTed, no cleanup-marker.json -> exit 4', 4) do |dir|
   File.write(File.join(dir, 'posted-workbooks.jsonl'),
              [{ 'id' => 'wb-1' }, { 'id' => 'wb-2' }].map { |h| JSON.generate(h) }.join("\n") + "\n")
@@ -285,8 +285,17 @@ puts '== gate 21 (chart-kind parity, PR-10) =='
 scenario('verified source kind (line) disagrees with the live readback (bar) -> exit 28', 28) do |dir|
   write_json(dir, 'png-read.json', 'verified' => true, 'tiles' => [{ 'title' => 'Sales by Region', 'kind' => 'line' }])
   write_json(dir, 'wb-readback.json',
-             'pages' => [{ 'elements' => [{ 'name' => 'Sales by Region', 'kind' => 'bar-chart',
-                                             'visibleAsSource' => true }] }])
+             'document' => {
+               'schemaVersion' => 1,
+               'kind' => 'workbook',
+               'pages' => [{ 'id' => 'overview', 'name' => 'Overview' }],
+               'elements' => [{ 'id' => 'sales-by-region', 'name' => 'Sales by Region',
+                                'kind' => 'bar-chart', 'visibleAsSource' => true }],
+               'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" ' \
+                           'gridTemplateRows="auto" id="overview">' \
+                           '<Element elementId="sales-by-region" gridColumn="1 / 25" ' \
+                           'gridRow="1 / 13"/></Page>'
+             })
 end
 
 puts '== waiver budget (exit 19; checked LAST, after every other gate passes) =='

@@ -34,8 +34,8 @@ def check(cond, msg, fails)
 end
 
 # A workdir that satisfies every default gate: passing parity, a valid render
-# PNG, and a recorded vision-capable visual verdict backed by a hash-bound blind
-# grade (PR-9).
+# PNG, and a recorded vision-capable visual verdict backed by a hash-bound
+# blind grade (PR-9).
 def base_workdir(dir, parity_extra: {}, blind: true)
   parity = { 'workbook_id' => 'wb-test', 'mode' => 'strict', 'status' => 'PASS',
              'charts_total' => 2, 'charts_pass' => 2, 'charts_fail' => 0,
@@ -186,9 +186,14 @@ end
 Dir.mktmpdir do |dir|
   base_workdir(dir, blind: false)
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(
-               'pages' => [{ 'elements' => [{ 'id' => 'e1', 'kind' => 'kpi-chart' },
-                                            { 'id' => 'e2', 'kind' => 'bar-chart' },
-                                            { 'id' => 'e3', 'kind' => 'bar-chart' }] }]))
+               'document' => {
+                 'kind' => 'workbook',
+                 'pages' => [{ 'id' => 'p1', 'name' => 'Overview' }],
+                 'elements' => [{ 'id' => 'e1', 'kind' => 'kpi-chart' },
+                                { 'id' => 'e2', 'kind' => 'bar-chart' },
+                                { 'id' => 'e3', 'kind' => 'bar-chart' }],
+                 'layout' => '<Page id="p1"><Element elementId="e1"/><Element elementId="e2"/><Element elementId="e3"/></Page>'
+               }))
   BlindFixture.install(dir, per_tile: [
                          { 'position' => 'r1c1', 'source_family' => 'kpi', 'target_family' => 'kpi' },
                          { 'position' => 'r2c1', 'source_family' => 'line', 'target_family' => 'line' },
@@ -204,9 +209,14 @@ end
 Dir.mktmpdir do |dir|
   base_workdir(dir, blind: false)
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(
-               'pages' => [{ 'elements' => [{ 'id' => 'e1', 'kind' => 'kpi-chart' },
-                                            { 'id' => 'e2', 'kind' => 'bar-chart' },
-                                            { 'id' => 'e3', 'kind' => 'bar-chart' }] }]))
+               'document' => {
+                 'kind' => 'workbook',
+                 'pages' => [{ 'id' => 'p1', 'name' => 'Overview' }],
+                 'elements' => [{ 'id' => 'e1', 'kind' => 'kpi-chart' },
+                                { 'id' => 'e2', 'kind' => 'bar-chart' },
+                                { 'id' => 'e3', 'kind' => 'bar-chart' }],
+                 'layout' => '<Page id="p1"><Element elementId="e1"/><Element elementId="e2"/><Element elementId="e3"/></Page>'
+               }))
   BlindFixture.install(dir, per_tile: [
                          { 'position' => 'r1c1', 'source_family' => 'kpi', 'target_family' => 'kpi' },
                          { 'position' => 'r2c1', 'source_family' => 'bar', 'target_family' => 'bar' },
@@ -870,7 +880,14 @@ def kp_png(tiles, extra = {})
 end
 
 def kp_rb(els)
-  { 'pages' => [{ 'elements' => els }] }
+  {
+    'document' => {
+      'kind' => 'workbook',
+      'pages' => [{ 'id' => 'p1', 'name' => 'Overview' }],
+      'elements' => els,
+      'layout' => "<Page id=\"p1\">#{els.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
+    }
+  }
 end
 
 KP_TILES = [{ 'title' => 'KPI', 'kind' => 'kpi-chart' },
@@ -1445,17 +1462,24 @@ end
 # regardless of the waiver budget; the success marker records the verdict.
 # =============================================================================
 
-# clean baseline → VERDICT: GREEN, empty ledger written, verdict stamped.
+# clean OFFLINE baseline → VERDICT: YELLOW, never GREEN (ruzs): this harness
+# resolves no workbook id, so gate 3/7's live column audit auto-skips — and a
+# workbook whose live columns were never audited must not claim GREEN. The
+# skip is recorded (column-scan.json → exactly one quality-waiver ledger
+# entry). GREEN-with-a-completed-audit is pinned by the canonical
+# test-assert-phase6.rb stub-server scenario, not here.
 Dir.mktmpdir do |dir|
   base_workdir(dir)
   out, _err, st = run_gate(dir)
-  check(st.success? && out.include?('VERDICT: GREEN'), 'clean run → VERDICT: GREEN on the final line', fails)
+  check(st.success? && out.include?('VERDICT: YELLOW'),
+        'clean offline run → VERDICT: YELLOW (unaudited live columns forfeit GREEN)', fails)
   led = JSON.parse(File.read(File.join(dir, 'degradation-ledger.json')))
-  check(led['entries'] == [], 'clean run writes an EMPTY degradation-ledger.json (presence proves derivation ran)', fails)
+  check(led['entries'].length == 1 && led['entries'].first['item'] == 'gate-3-column-scan',
+        'the ONLY ledger entry is the recorded gate-3 auto-skip (quality-waiver)', fails)
   succ = JSON.parse(File.read(File.join(dir, 'phase6-success.json')))
-  check(succ['verdict'] == 'GREEN', 'the DONE marker records the GREEN verdict string', fails)
+  check(succ['verdict'] == 'YELLOW', 'the DONE marker records the YELLOW verdict string', fails)
   pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
-  check(pf['verdict'] == 'GREEN', 'parity-final.json carries the verdict beside the census', fails)
+  check(pf['verdict'] == 'YELLOW', 'parity-final.json carries the verdict beside the census', fails)
 end
 
 # 1 within-budget quality waiver → gates pass, but GREEN is forfeited: YELLOW.
@@ -1485,8 +1509,10 @@ Dir.mktmpdir do |dir|
         'the ledger is written even on the budget-fail path', fails)
 end
 
-# 1 dropped tile (coverage.json) + 0 waivers → PARTIAL: a scope cut caps the
-# verdict even on a run that spends NO waiver budget.
+# 1 dropped tile (coverage.json) + 0 waivers → PARTIAL+YELLOW on this offline
+# harness: the scope cut caps at PARTIAL even with NO waiver budget spent, and
+# the recorded gate-3 auto-skip (unaudited live columns, ruzs) notes YELLOW
+# beside it. PARTIAL stays the dominant verdict.
 Dir.mktmpdir do |dir|
   base_workdir(dir)
   File.write(File.join(dir, 'coverage.json'), JSON.pretty_generate(
@@ -1494,13 +1520,13 @@ Dir.mktmpdir do |dir|
     'unresolved' => [{ 'visual' => 'Region Map', 'severity' => 'dropped', 'detail' => 'no basemap support' }]))
   out, _err, st = run_gate(dir)
   check(st.success?, "dropped tile with 0 waivers still passes the gates (got #{st.exitstatus})", fails)
-  check(out.include?('VERDICT: PARTIAL') && !out.include?('VERDICT: PARTIAL+YELLOW'),
-        '1 dropped tile + 0 waivers → VERDICT: PARTIAL (not YELLOW)', fails)
+  check(out.include?('VERDICT: PARTIAL+YELLOW'),
+        '1 dropped tile + unaudited columns → VERDICT: PARTIAL+YELLOW (scope cut dominant)', fails)
   check(out.include?('[scope-cut]') && out.include?('Region Map'),
         'the scope cut prints inline, named', fails)
   check(out.include?('SUBSET of the source'), 'PARTIAL explains the scope-cut meaning', fails)
   succ = JSON.parse(File.read(File.join(dir, 'phase6-success.json')))
-  check(succ['verdict'] == 'PARTIAL', 'the DONE marker records PARTIAL', fails)
+  check(succ['verdict'] == 'PARTIAL+YELLOW', 'the DONE marker records PARTIAL+YELLOW', fails)
 end
 
 # scope cut + within-budget waiver → both co-occur: PARTIAL+YELLOW, exit 0.

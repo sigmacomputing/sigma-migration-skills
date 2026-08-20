@@ -125,38 +125,46 @@ end
 twb_path = ENV['TEST_RELATIONSHIP_DERIVATION_TWB'] || TWB
 abort "fixture missing: #{twb_path}" unless File.exist?(twb_path)
 
-doc = nil
-Dir.mktmpdir('relationship-derivation') do |dir|
-  shim = File.join(dir, '_convert_tableau.mjs')
-  out_path = File.join(dir, 'out.json')
-  # Node ESM on Windows rejects a bare drive-letter specifier
-  # (ERR_UNSUPPORTED_ESM_URL_SCHEME, protocol 'c:') — absolute paths must be
-  # file:// URLs there. Same guard as mechanical-specs.rb's run_converter.
-  import_specifier =
-    if Gem.win_platform? && CONVERTER.match?(/\A[A-Za-z]:/)
-      'file:///' + CONVERTER.gsub('\\', '/')
-    else
-      CONVERTER
-    end
-  File.write(shim, <<~JS)
-    import { readFileSync, writeFileSync } from 'node:fs';
-    import { convertTableauToSigma } from #{import_specifier.to_json};
-    const xml = readFileSync(#{twb_path.to_json}, 'utf8');
-    const out = convertTableauToSigma(xml, {
-      connectionId: 'test-conn', database: 'TESTDB', schema: 'TESTSCHEMA', tableMapping: {},
-    });
-    const bare = out.model || out.sigmaDataModel || out;
-    writeFileSync(#{out_path.to_json}, JSON.stringify({
-      model: bare,
-      relationshipCoverage: out.relationshipCoverage || null,
-      warnings: out.warnings || []
-    }, null, 2));
-  JS
-  o, e, st = Open3.capture3('node', shim)
-  warn e unless e.empty?
-  abort "converter failed (exit #{st.exitstatus}):\n#{e}#{o}" unless st.success?
-  doc = JSON.parse(File.read(out_path))
+# Run the vendored converter over a .twb and capture model + coverage. Same
+# shim mechanics as before, factored out so the deny-list scenarios below can
+# convert surgically-modified fixture variants.
+def run_converter_capture(twb)
+  doc = nil
+  Dir.mktmpdir('relationship-derivation') do |dir|
+    shim = File.join(dir, '_convert_tableau.mjs')
+    out_path = File.join(dir, 'out.json')
+    # Node ESM on Windows rejects a bare drive-letter specifier
+    # (ERR_UNSUPPORTED_ESM_URL_SCHEME, protocol 'c:') — absolute paths must be
+    # file:// URLs there. Same guard as mechanical-specs.rb's run_converter.
+    import_specifier =
+      if Gem.win_platform? && CONVERTER.match?(/\A[A-Za-z]:/)
+        'file:///' + CONVERTER.gsub('\\', '/')
+      else
+        CONVERTER
+      end
+    File.write(shim, <<~JS)
+      import { readFileSync, writeFileSync } from 'node:fs';
+      import { convertTableauToSigma } from #{import_specifier.to_json};
+      const xml = readFileSync(#{twb.to_json}, 'utf8');
+      const out = convertTableauToSigma(xml, {
+        connectionId: 'test-conn', database: 'TESTDB', schema: 'TESTSCHEMA', tableMapping: {},
+      });
+      const bare = out.model || out.sigmaDataModel || out;
+      writeFileSync(#{out_path.to_json}, JSON.stringify({
+        model: bare,
+        relationshipCoverage: out.relationshipCoverage || null,
+        warnings: out.warnings || []
+      }, null, 2));
+    JS
+    o, e, st = Open3.capture3('node', shim)
+    warn e unless e.empty?
+    abort "converter failed (exit #{st.exitstatus}):\n#{e}#{o}" unless st.success?
+    doc = JSON.parse(File.read(out_path))
+  end
+  doc
 end
+
+doc = run_converter_capture(twb_path)
 
 puts 'test-relationship-derivation.rb — object-graph key derivation'
 
@@ -301,7 +309,7 @@ check(store_jp && store_jp['probe_keys'] == ['STORE_KEY'],
       "recovered entry's probe_keys resolve to the physical inferred key (got #{(store_jp || {})['probe_keys'].inspect})",
       fails)
 
-# 8. COMPOSITION (wave/2-integration merge of #569 + W2-OM): the derivation
+# 8. COMPOSITION (an internal integration branch merge of #569 + W2-OM): the derivation
 #    ladder decides WHICH keys wire; the object-model passes decide HOW edges
 #    attach (evidence-ranked fact election, pass-2 orientation). These are two
 #    independently-authored rewrites of the same loop, so pin their composed
@@ -333,6 +341,48 @@ check(!rels_on_fact.empty? && rels_on_fact.all? { |r| %w[serialized name-inferen
       'composition: every relationship attached in pass 2 carries a known derivedVia', fails)
 check((doc['warnings'] || []).any? { |w| w.include?('fact election') && w.include?('"LMOG_FACT_WIDE"') },
       'composition: evidence-ranked fact election ran and announced LMOG_FACT_WIDE', fails)
+
+# ── deny-list: unique-on-right NON-keys never inferred as join keys ─────────
+# TJ handoff §3+§6d (disclosed residual hole): EXTERNAL_ID / ROW_ID / GUID /
+# HASH_KEY are key-shaped by suffix and often unique on the right — but they
+# are lineage/tech columns, not the relationship key. Gate 16's probe proves
+# UNIQUENESS, not CORRECTNESS, so a wired one silently returns wrong rows.
+# Two directions pinned on surgically-modified fixture variants:
+#   (a) deny blocks the wrong wire: the ONLY shared key-shaped name on the
+#       store pair (the fixture's sole name-inference case) is EXTERNAL_ID →
+#       unwired, reason names the deny-list;
+#   (b) deny rescues a right wire: EXTERNAL_ID beside the genuine STORE_KEY
+#       previously made 2 key-shaped candidates (ambiguous → refuse); denied
+#       from candidacy, the genuine key wires alone.
+puts ''
+puts 'deny-list: unique-on-right non-keys'
+raw_twb = File.read(TWB, encoding: 'utf-8')
+
+Dir.mktmpdir('deny-a') do |dir|
+  variant = raw_twb.gsub('store_key', 'external_id').gsub('Store Key', 'External Id')
+  vp = File.join(dir, 'variant-a.twb')
+  File.write(vp, variant)
+  vdoc = run_converter_capture(vp)
+  vcust = ((vdoc['relationshipCoverage'] || {})['entries'] || []).find { |e| e['right'] == 'LMOG_DIM_STORE' } || {}
+  check(vcust['derivedVia'] == 'unwired',
+        "sole shared key-shaped name EXTERNAL_ID → unwired, never guessed (got #{vcust['derivedVia'].inspect})", fails)
+  check(vcust['reason'].to_s =~ /deny/i && vcust['reason'].to_s.include?('EXTERNAL_ID'),
+        "unwired reason names the deny-list and the denied column (got #{vcust['reason'].inspect})", fails)
+end
+
+Dir.mktmpdir('deny-b') do |dir|
+  # Twin every customer_key metadata-record (both parents) as external_id, so
+  # BOTH sides share customer_key AND external_id.
+  variant = raw_twb.gsub(/<metadata-record class='column'>\s*<remote-name>store_key<\/remote-name>.*?<\/metadata-record>/m) do |block|
+    block + "\n" + block.gsub('store_key', 'external_id').gsub('Store Key', 'External Id')
+  end
+  vp = File.join(dir, 'variant-b.twb')
+  File.write(vp, variant)
+  vdoc = run_converter_capture(vp)
+  vcust = ((vdoc['relationshipCoverage'] || {})['entries'] || []).find { |e| e['right'] == 'LMOG_DIM_STORE' } || {}
+  check(vcust['derivedVia'] == 'name-inference',
+        "genuine STORE_KEY beside denied EXTERNAL_ID still wires (no false ambiguity; got #{vcust['derivedVia'].inspect})", fails)
+end
 
 puts ''
 if fails.empty?

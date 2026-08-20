@@ -106,8 +106,16 @@ Dir.mktmpdir do |dir|
   ok(st.exitstatus == 6, 'status exits 6 while a spec-fixable delta is unresolved')
 
   # dry-run apply-patch: merge a themeOverrides patch into a fake live spec
-  live = { 'pages' => [{ 'id' => 'PG', 'elements' => [{ 'elementId' => 'k1', 'kind' => 'kpi-chart' }] }],
-           'layout' => '<Page><LayoutElement/></Page>', 'themeName' => 'Light' }
+  live = {
+    'workbookId' => 'WB',
+    'document' => {
+      'schemaVersion' => 1, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'PG' }],
+      'elements' => [{ 'id' => 'k1', 'kind' => 'kpi-chart' }],
+      'layout' => '<Page id="PG"><Element elementId="k1"/></Page>',
+      'themeName' => 'Light'
+    }
+  }
   File.write(File.join(dir, 'live.json'), JSON.generate(live))
   File.write(File.join(dir, 'patch.json'),
              JSON.generate({ 'themeOverrides' => { 'categoricalScheme' => ['#0e7c7b'] } }))
@@ -116,9 +124,11 @@ Dir.mktmpdir do |dir|
                 '--out', File.join(dir, 'merged.json'), '--resolves', 'e0', dir: dir)
   ok(st.exitstatus.zero?, 'dry-run apply-patch exits 0')
   merged = JSON.parse(File.read(File.join(dir, 'merged.json')))
-  ok(merged['layout'] == live['layout'], 'layout preserved through the merge (PUT-wipes-layout trap avoided)')
-  ok(merged['themeOverrides']['categoricalScheme'] == ['#0e7c7b'], 'patch applied to merged spec')
-  ok(merged['pages'][0]['elements'][0]['elementId'] == 'k1', 'existing element retained')
+  merged_doc = merged['document']
+  ok(merged_doc['layout'] == live['document']['layout'], 'layout preserved through the merge (PUT-wipes-layout trap avoided)')
+  ok(merged_doc.dig('settings', 'theme', 'overrides', 'categoricalScheme') == ['#0e7c7b'],
+     'patch applied to canonical theme overrides')
+  ok(merged_doc['elements'][0]['id'] == 'k1', 'existing element retained')
 
   # after --resolves e0, status clears
   _, st = run('status', dir: dir)
@@ -130,6 +140,53 @@ Dir.mktmpdir do |dir|
               '--dry-run', '--live-spec', File.join(dir, 'nopages.json'),
               '--out', File.join(dir, 'x.json'), dir: dir)
   ok(st.exitstatus == 4, 'apply-patch refuses a live spec with no pages (exit 4)')
+
+  # Workbook code-rep GETs nest pages/layout/schemaVersion under `document`
+  # (live since 2026-08). A --live-spec fixture shaped like the LIVE response
+  # (workbookId/name at top level, pages/layout nested) must merge correctly
+  # instead of tripping the "no `pages`" guard (exit 4) on a workbook that
+  # actually has pages.
+  nested_live = {
+    'workbookId' => 'wb1', 'name' => 'Exec Overview',
+    'document' => {
+      'schemaVersion' => 5, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'PG' }],
+      'elements' => [{ 'id' => 'k1', 'kind' => 'kpi-chart' }],
+      'layout' => '<Page id="PG"><Element elementId="k1"/></Page>'
+    }
+  }
+  File.write(File.join(dir, 'nested-live.json'), JSON.generate(nested_live))
+  out, st = run('apply-patch', '--patch', File.join(dir, 'patch.json'),
+                '--dry-run', '--live-spec', File.join(dir, 'nested-live.json'),
+                '--out', File.join(dir, 'nested-merged.json'), dir: dir)
+  ok(st.exitstatus.zero?, 'apply-patch on a nested-document --live-spec exits 0 (not exit 4)')
+  nested_merged = (JSON.parse(File.read(File.join(dir, 'nested-merged.json'))) rescue nil)
+  nested_doc = nested_merged && nested_merged['document']
+  ok(nested_doc.is_a?(Hash) && nested_doc['pages'].is_a?(Array) && nested_doc['pages'].length == 1,
+     'nested `document.pages` retained in the canonical merged spec')
+  ok(nested_doc && nested_doc['layout'] == nested_live['document']['layout'],
+     'nested `document.layout` preserved through the merge')
+  ok(nested_doc && nested_doc.dig('settings', 'theme', 'overrides', 'categoricalScheme') == ['#0e7c7b'],
+     'patch still applies inside the canonical nested live spec')
+
+  # #698 / live RCF regression: workbook patches use flat document.elements.
+  # A partial element patch must merge into the complete flat record, never
+  # shadow it with an id/style-only record after a legacy pages[] conversion.
+  nested_live['document']['elements'] << { 'id' => 'k2', 'kind' => 'bar-chart' }
+  nested_live['document']['layout'] = '<Page id="PG"><Element elementId="k1"/><Element elementId="k2"/></Page>'
+  File.write(File.join(dir, 'nested-live.json'), JSON.generate(nested_live))
+  File.write(File.join(dir, 'element-patch.json'),
+             JSON.generate('elements' => [{ 'id' => 'k1', 'style' => { 'backgroundColor' => '#ffffff' } }]))
+  out, st = run('apply-patch', '--patch', File.join(dir, 'element-patch.json'),
+                '--dry-run', '--live-spec', File.join(dir, 'nested-live.json'),
+                '--out', File.join(dir, 'element-merged.json'), dir: dir)
+  element_doc = JSON.parse(File.read(File.join(dir, 'element-merged.json')))['document']
+  element_k1 = element_doc['elements'].find { |element| element['id'] == 'k1' }
+  ok(st.exitstatus.zero?, 'flat document.elements fidelity patch exits 0')
+  ok(element_k1['kind'] == 'kpi-chart' && element_k1.dig('style', 'backgroundColor') == '#ffffff',
+     'partial flat element patch preserves required kind and merges style')
+  ok(element_doc['elements'].any? { |element| element['id'] == 'k2' && element['kind'] == 'bar-chart' },
+     'partial flat element patch preserves unpatched sibling elements')
 end
 
 puts 'RCF page picking (#422):'
@@ -207,11 +264,27 @@ end
 puts 'apply-patch dual-write (#422):'
 Dir.mktmpdir do |dir|
   run('init', '--workbook-id', 'WB', '--page-id', 'PG', dir: dir)
-  wb_spec = { 'pages' => [{ 'id' => 'page-ov', 'elements' => [
-    { 'elementId' => 'k1', 'kind' => 'kpi-chart', 'style' => { 'x' => 1 } },
-    { 'elementId' => 'k2', 'kind' => 'bar-chart' }] }], 'themeName' => 'Light' }
+  wb_spec = {
+    'document' => {
+      'schemaVersion' => 1, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'page-ov' }],
+      'elements' => [
+        { 'id' => 'k1', 'kind' => 'kpi-chart', 'style' => { 'x' => 1 } },
+        { 'id' => 'k2', 'kind' => 'bar-chart' }
+      ],
+      'layout' => '<Page id="page-ov"><Element elementId="k1"/><Element elementId="k2"/></Page>',
+      'themeName' => 'Light'
+    }
+  }
   File.write(File.join(dir, 'wb-spec.json'), JSON.generate(wb_spec))
-  live = { 'pages' => [{ 'id' => 'PG', 'elements' => [{ 'elementId' => 'k1', 'kind' => 'kpi-chart' }] }] }
+  live = {
+    'document' => {
+      'schemaVersion' => 1, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'PG' }],
+      'elements' => [{ 'id' => 'k1', 'kind' => 'kpi-chart' }],
+      'layout' => '<Page id="PG"><Element elementId="k1"/></Page>'
+    }
+  }
   File.write(File.join(dir, 'live.json'), JSON.generate(live))
   File.write(File.join(dir, 'patch.json'),
              JSON.generate('themeOverrides' => { 'categoricalScheme' => ['#0e7c7b'] }))
@@ -222,7 +295,7 @@ Dir.mktmpdir do |dir|
   ws = JSON.parse(File.read(File.join(dir, 'wb-spec.json')))
   ok(ws['themeOverrides'] == { 'categoricalScheme' => ['#0e7c7b'] },
      'patch deep-merged into wb-spec.json (a re-entry full-spec PUT now carries the fix)')
-  ok(ws['pages'][0]['elements'].length == 2 && ws['themeName'] == 'Light',
+  ok(ws.dig('document', 'elements').length == 2 && ws.dig('document', 'settings', 'theme', 'name') == 'Light',
      'wb-spec.json untouched keys/elements preserved by the merge')
 
   # guard: unparseable wb-spec.json → warned, left untouched, apply still succeeds

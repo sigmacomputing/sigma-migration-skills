@@ -8,10 +8,16 @@ Consumes reconcile-columns.py output and auto-generates the Sigma data-model SQL
     pointing at real warehouse columns — the rename reconciliation)
   - infers LEFT JOINs: the fact (table named *FACT or with the most *_KEY fields) joined to
     each dim on a shared Qlik *_KEY field name (mapped to each side's real column)
+  - translates a conservative set of row-wise Qlik LOAD expressions (If/Match,
+    string/date helpers, arithmetic) to SQL; unsupported functions hard-fail
+    instead of silently dropping a workbook field
 Emits a ready-to-POST Sigma element `{kind:table, source:{kind:sql,connectionId,statement}, columns}`
 with `[Custom SQL/<RAW alias>]` formulas. Drops this into build-sigma-dm.py's element list.
 """
-import re, json, argparse, secrets, string, os
+import re, json, argparse, secrets, string, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from qlik_load_expr import translate as translate_load_expression
 
 # Sigma's own display-name derivation keeps small particles lowercase unless
 # first word: DAYS_TO_SHIP → "Days to Ship" (NOT "Days To Ship"). Verified
@@ -48,11 +54,31 @@ def main():
     real = lambda t, q: next(f["realColumn"] for f in t["fields"] if f["qlikField"] == q)
 
     select, joins, alias = [], [], {}
+    unsupported = []
+    def projection(table, field, table_alias):
+        if field["realColumn"] == "*":
+            return None
+        if not field.get("isExpression"):
+            return f'{table_alias}.{field["realColumn"]}'
+        warehouse_columns = dict(table.get("warehouseColumns") or {})
+        for base_field in table["fields"]:
+            if base_field.get("isExpression") or base_field["realColumn"] == "*":
+                continue
+            actual = warehouse_columns.get(base_field["realColumn"].upper(), base_field["realColumn"])
+            warehouse_columns[base_field["qlikField"].upper()] = actual
+            warehouse_columns[base_field["realColumn"].upper()] = actual
+        translated = translate_load_expression(
+            field.get("loadExpression") or field["realColumn"], table_alias, warehouse_columns)
+        if translated is None:
+            unsupported.append(
+                f'{table["qlikTable"]}.{field["qlikField"]} <- '
+                f'{field.get("loadExpression") or field["realColumn"]}')
+        return translated
     # fact columns (exclude raw keys we only use for joins? keep all non-key + measures; keep keys too is fine)
     for f in fact["fields"]:
-        if f.get("isExpression"): continue
-        if f["realColumn"] == "*": continue
-        select.append(f'f.{f["realColumn"]} AS {f["qlikField"]}')
+        value = projection(fact, f, "f")
+        if value is not None:
+            select.append(f'{value} AS {f["qlikField"]}')
     # build a safe dim-alias sequence that skips 'f' (reserved for the fact table)
     _dim_aliases = [c for c in 'abcdeghijklmnopqrstuvwxyz']
     a_i = 0
@@ -64,23 +90,35 @@ def main():
             joins.append(f'LEFT JOIN {wh(d)} {al} ON f.{real(fact, jk)} = {al}.{real(d, jk)}')
         # dim descriptive columns (skip its own key columns to avoid dup)
         for f in d["fields"]:
-            if f.get("isExpression") or f["realColumn"] == "*": continue
+            if f["realColumn"] == "*": continue
             if f["qlikField"].upper().endswith("_KEY"): continue
-            select.append(f'{al}.{f["realColumn"]} AS {f["qlikField"]}')
+            value = projection(d, f, al)
+            if value is not None and f.get("isExpression") and jk:
+                # The expression belongs to the Qlik dimension table. A missing
+                # LEFT JOIN has no dimension row, so its calculated fields must
+                # remain null rather than evaluating an ELSE branch on SQL nulls.
+                value = f"CASE WHEN {al}.{real(d, jk)} IS NULL THEN NULL ELSE {value} END"
+            if value is not None:
+                select.append(f'{value} AS {f["qlikField"]}')
+    if unsupported:
+        raise SystemExit(
+            "FATAL: unsupported Qlik LOAD expression(s); refusing to build a partial denorm:\n  - "
+            + "\n  - ".join(unsupported))
     sql = "SELECT\n  " + ",\n  ".join(select) + f"\nFROM {wh(fact)} f\n" + "\n".join(joins)
 
     # element columns: [Custom SQL/<ALIAS>] where ALIAS is the qlik field name (the SQL output col)
     cols, order = [], []
     seen = set()
     for line in select:
-        qn = line.split(" AS ")[-1].strip()
+        qn = line.rsplit(" AS ", 1)[-1].strip()
         if qn in seen: continue
         seen.add(qn)
         cidv = nid(); cols.append({"id": cidv, "name": disp(qn), "formula": f"[Custom SQL/{qn}]"}); order.append(cidv)
     element = {"id": nid(), "kind": "table",
                "source": {"connectionId": a.connection, "kind": "sql", "statement": sql},
                "columns": cols, "order": order}
-    json.dump({"element": element, "sql": sql}, open(a.out, "w"), indent=2)
+    expressions = [f["qlikField"] for t in tables for f in t["fields"] if f.get("isExpression")]
+    json.dump({"element": element, "sql": sql, "calculatedFields": expressions}, open(a.out, "w"), indent=2)
     print("fact:", fact["qlikTable"], "| dims:", [d["qlikTable"] for d in dims], "| columns:", len(cols))
     print("--- generated denorm SQL ---")
     print(sql)

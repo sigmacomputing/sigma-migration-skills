@@ -1,5 +1,13 @@
 {
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "powerbi.mjs",
-  "note": "Self-contained generated bundle; not source — do not hand-edit."
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
+  "local_patches": [
+    {
+      "commit": "23713065 (this repo, PR #385) \u2014 not yet landed in converter-source",
+      "summary": "Non-warehouse-source detection for Power BI tables sourced from a Fabric Dataflow / Lakehouse / OneLake / Dataverse / file connector (pbiDetectNonWarehouseSource, wired into the table-path-resolution fallback and exported). Applied by hand directly onto this bundle (source_commit 2f8c6cd) rather than via tools/vendor-converters.sh because upstream converter-source does not yet have this change (its source_commit predates this feature and there is no newer upstream commit to re-vendor from). Present ONLY in this vendored bundle: a naive re-vendor from any upstream commit before this lands there would silently DROP the \u26d4 nonWarehouseSourcedTables detection and stats field, breaking the migrate-powerbi.rb non_warehouse_source checkpoint decision and reopening the field-reported failure this PR fixes (a placeholder warehouse path shipped with no signal that it needs land-then-repoint). Port pbiDetectNonWarehouseSource (and its call site in convertPowerBIToSigma's table-path fallback) upstream to converter-source's src/powerbi.ts, then re-vendor and retire this entry.",
+      "upstream_pr": null
+    }
+  ],
+  "bundle_sha256": "8d9495da75474c6b19bc8d47b74d90205eb272237f5fa59b0b527224c7d76f3b"
 }

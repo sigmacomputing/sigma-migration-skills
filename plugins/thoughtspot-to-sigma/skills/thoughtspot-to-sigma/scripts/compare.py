@@ -10,14 +10,17 @@ Env: TS_HOST, TS_TOKEN, SIGMA_BASE_URL, SIGMA_API_TOKEN.
 """
 import argparse, base64, json, os, ssl, sys, time, urllib.request, urllib.error, html
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import yaml, ts_lib
+import code_rep  # workbook code-rep document-wrapper adapter (nested GET shape)
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
 SBASE = os.environ["SIGMA_BASE_URL"]; STOK = os.environ["SIGMA_API_TOKEN"]; _SSL = ts_lib.ssl_context()
 
 # TS chart type -> the Sigma element kind the migration produces (for the structural check)
 EXPECTED = {"KPI": "kpi-chart", "COLUMN": "bar-chart", "BAR": "bar-chart", "LINE": "line-chart",
             "PIE": "donut-chart", "DONUT": "donut-chart", "TABLE": "table", "ADVANCED_COLUMN": "table",
-            "PIVOT_TABLE": "pivot-table", "STACKED_COLUMN": "bar-chart"}
+            "PIVOT_TABLE": "pivot-table", "STACKED_COLUMN": "bar-chart",
+            "WATERFALL": "waterfall-chart", "WHISKER_SCATTER": "table"}
 
 import time
 def ts_png(lb_id, viz_guid):
@@ -68,12 +71,14 @@ def main():
         an = v.get("answer")
         if an: ts_vizzes.append({"name": an.get("name", v.get("id")), "guid": v.get("viz_guid") or v.get("id"),
                                  "type": (an.get("chart") or {}).get("type") or ("TABLE" if an.get("display_mode") == "TABLE_MODE" else "?")})
-    wbspec = yaml.safe_load(sigma("GET", f"/v2/workbooks/{a.workbook}/spec")[0])
+    raw_wbspec = yaml.safe_load(sigma("GET", f"/v2/workbooks/{a.workbook}/spec")[0])
+    # Workbook code-rep GETs nest pages under a top-level `document` key (live
+    # since 2026-08); a bare wbspec.get("pages", []) read here was always
+    # empty, so every viz silently reported as "not resolved" in the report.
     sig_els = {}
-    for pg in wbspec.get("pages", []):
-        for el in pg.get("elements", []):
-            if el.get("kind") != "table" or el.get("name") != "OFV":   # skip the master
-                sig_els[el.get("name")] = el
+    for el in code_rep.workbook_elements(raw_wbspec):
+        if el.get("kind") != "table" or el.get("name") != "OFV":   # skip the master
+            sig_els[el.get("name")] = el
     sig_els.pop("OFV", None)
 
     rows = []

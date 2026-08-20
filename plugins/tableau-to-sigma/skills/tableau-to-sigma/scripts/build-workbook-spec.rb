@@ -37,6 +37,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 require_relative 'lib/theme_derive'
+require_relative 'lib/workbook_code'
 require 'base64'
 
 opts = { mode: 'page-per-worksheet' }
@@ -168,9 +169,11 @@ warn "  Data page: + #{helper_elements.size} hidden helper element(s) [#{helper_
 visible_pages = []
 if specs.is_a?(Hash) && specs['pages']
   specs['pages'].each do |p|
-    slug = p['name'].to_s.downcase
-    %w[ / ( ) %].each { |ch| slug = slug.tr(ch, '-') }
-    slug = slug.tr(' ', '-').gsub(/-+/, '-').sub(/^-/, '').sub(/-$/, '')[0..40]
+    # K2: allow-list, not deny-list. The old hand-listed set (/ ( ) %) plus space
+    # left ? ! # & and every other punctuation mark in the id — a Tableau page
+    # "How many weeks?" became `page-how-many-weeks?`, which Sigma rejects.
+    slug = p['name'].to_s.downcase.gsub(/[^a-z0-9]+/, '-')
+                    .sub(/\A-/, '').sub(/-\z/, '')[0..40].to_s
     page = {
       'id'       => "page-#{slug}",
       'name'     => p['name'],
@@ -229,7 +232,7 @@ if opts[:ppm]
   warn "  per-page-masters (PR-17): #{ppm[:applied] ? "#{ppm[:masters]} master instance(s) across #{ppm[:pages]} page(s), #{ppm[:clones]} Data-page element(s)" : 'no split needed (<=1 page draws on the master)'}"
 end
 
-File.write(opts[:out], JSON.pretty_generate(wb))
+File.write(opts[:out], JSON.pretty_generate(WorkbookCode.canonicalize(wb)))
 warn "wrote #{opts[:out]}"
 warn "  mode: #{opts[:mode]}"
 warn "  Data page: master sourced from '#{dm_el_name}' (#{dm_el_id})  #{master_columns.size} columns"

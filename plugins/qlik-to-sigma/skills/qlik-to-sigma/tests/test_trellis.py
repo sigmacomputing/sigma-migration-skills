@@ -96,7 +96,9 @@ def build(charts):
         capture_output=True, text=True)
     assert r.returncode == 0, "builder failed:\n" + r.stderr
     spec = json.load(open(sp))
-    els = {e["id"]: e for p in spec["pages"] for e in p["elements"]}
+    doc = spec["document"]
+    assert all("elements" not in page for page in doc["pages"])
+    els = {e["id"]: e for e in doc["elements"]}
     return els, d, (r.stdout + r.stderr)
 
 
@@ -160,13 +162,17 @@ def main():
 
     # readback guard: GREEN against a faithful readback, RED against a stripped one
     if os.path.exists(VERIFY):
-        spec_ok = {"pages": [{"elements": [dict(els[i], id=i) for i in ids]}]}
+        spec_ok = {"document": {"pages": [{"id": "p", "name": "P"}],
+                               "elements": [dict(els[i], id=i) for i in ids],
+                               "layout": '<Page id="p"></Page>'}}
         rp = os.path.join(workdir, "readback-ok.json"); json.dump({"spec": spec_ok}, open(rp, "w"))
         g = subprocess.run(["ruby", VERIFY, "--emitted", os.path.join(workdir, "native-trellis-emitted.json"),
                             "--spec", rp], capture_output=True, text=True)
         ok("verify-trellis-survived PASSES on a faithful readback", g.returncode == 0)
         # strip every trellis on the readback -> must FAIL
-        spec_bad = {"pages": [{"elements": [{"id": i, "kind": els[i]["kind"]} for i in ids]}]}
+        spec_bad = {"document": {"pages": [{"id": "p", "name": "P"}],
+                                "elements": [{"id": i, "kind": els[i]["kind"]} for i in ids],
+                                "layout": '<Page id="p"></Page>'}}
         bp = os.path.join(workdir, "readback-stripped.json"); json.dump({"spec": spec_bad}, open(bp, "w"))
         b = subprocess.run(["ruby", VERIFY, "--emitted", os.path.join(workdir, "native-trellis-emitted.json"),
                             "--spec", bp], capture_output=True, text=True)

@@ -89,6 +89,18 @@ models.each { |m| (m['warehouse_sources'] || []).each { |s| wh[s] += 1 } }
 warehouse_table = wh.empty? ? '_No warehouse sources parsed from M (models may be pure-import with no live source)._' :
   md_table(['Warehouse source (from M)', 'Models'], wh.sort_by { |_, n| -n })
 
+# Non-warehouse sources (Fabric Dataflow / Lakehouse / OneLake / Dataverse / file)
+# — Sigma queries the warehouse, not these, so the data must be landed first.
+# Appended to the warehouse section (rendered via the {{warehouse_table}} slot).
+nonwh = Hash.new(0)
+models.each { |m| (m['nonwarehouse_sources'] || []).each { |s| nonwh["#{s['table']} (#{s['kind']})"] += 1 } }
+unless nonwh.empty?
+  warehouse_table += "\n\n> ⚠️ **#{nonwh.values.sum} table(s) sourced from Fabric Dataflows / Lakehouse / Dataverse / files** — " \
+    "Sigma reads from the warehouse, not from these. Land the data first (the `powerbi-import-to-snowflake` skill), " \
+    "then repoint the converted model via `convert-model.rb --table-map <manifest.json>`.\n\n" +
+    md_table(['Non-warehouse-sourced table (kind)', 'Tables'], nonwh.sort_by { |_, n| -n })
+end
+
 # Section 5 — refresh
 refresh_rows = []
 models.each do |m|

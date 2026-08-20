@@ -36,6 +36,8 @@ require 'uri'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'probe_registry'
+require 'code_rep'
+require 'workbook_code'
 
 def jget(path); Sigma.request(:get, path); end
 
@@ -99,8 +101,17 @@ scalar_types = %w[checkbox switch number text]
 entries.each do |w|
   wid = w['workbookId'] || w['id']
   next unless wid
-  spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue next)
-  next unless spec.is_a?(Hash) && spec['schemaVersion']
+  raw_spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue next)
+  next unless raw_spec.is_a?(Hash)
+  # Workbook code-rep GETs nest schemaVersion/pages under `document` (live
+  # since 2026-08) -- a bare spec['schemaVersion'] read here was always nil,
+  # so this guard fired on every workbook and the discovery loop never found
+  # a source (hard-abort below: "could not find a warehouse-table source").
+  # all_ctls/find_wh recurse through every hash value regardless of key name,
+  # so they already tolerate the nested shape unchanged -- only the
+  # schemaVersion check needed the unwrap.
+  spec = Sigma::CodeRep.metadata(raw_spec).merge(Sigma::CodeRep.document(raw_spec))
+  next unless spec['schemaVersion']
   schema_version ||= spec['schemaVersion']
   ctls = all_ctls(spec)
   scalar = ctls.find { |c| scalar_types.include?(c['controlType']) }
@@ -152,7 +163,10 @@ spec = {
   }],
 }
 
-resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec),
+# Workbook code-rep POSTs require the nested `document` envelope (verified
+# live 2026-08-03/04: a flat body 400s) -- wrap the throwaway probe spec.
+post_body = WorkbookCode.canonicalize(spec)
+resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body),
                      content_type: 'application/json', accept: 'application/json')
 wb = resp['workbookId'] || resp['id']
 abort "CREATE failed: #{resp.inspect}" unless wb

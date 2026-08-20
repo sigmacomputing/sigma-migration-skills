@@ -2,13 +2,14 @@
 # GET a workbook spec, replace per-page layouts with a single top-level layout
 # XML (provided), strip read-only fields, PUT back.
 #
-# Container layouts: a <GridContainer> in the layout XML must be paired with a
+# Container layouts: a <Container> in the layout XML must be paired with a
 # `kind: container` placeholder element in the spec (else it is silently
-# dropped — layout-playbook.md). Layout builders that emit GridContainers
+# dropped — layout-playbook.md). Layout builders that emit Containers
 # write a sidecar `<layout>.elements.json` ({pageId: [element, ...]}) next to
 # the layout XML; this script injects those elements (containers + header
-# text) into the matching pages before the PUT. Pass --elements to override
-# the sidecar path. Injection is idempotent (existing element ids are kept).
+# text) into the document-global `elements` collection before the PUT. Pages
+# are metadata-only; page membership comes from layout XML. Pass --elements
+# to override the sidecar path. Injection is idempotent by element id.
 #
 # Usage:
 #   ruby put-layout.rb --workbook <wbId> --layout <layout.xml> \
@@ -20,6 +21,8 @@ require 'json'
 require 'yaml'
 require 'date'
 require 'optparse'
+$LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'code_rep'
 
 opts = {}
 OptionParser.new do |p|
@@ -46,8 +49,12 @@ end
 xml = File.read(opts[:layout])
 abort "FATAL: empty elementId in layout XML" if xml.match?(/elementId=""/)
 
-spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec").body)
-spec['pages'].each { |p| p.delete('layout') }
+raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec").body)
+# Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
+# `document` key (live since 2026-08) and REJECTS the old flat body on PUT
+# with a 400 — unwrap the GET before any spec['pages'] access below; this
+# endpoint is workbook-only (data-model code-rep is confirmed unchanged).
+spec = Sigma::CodeRep.document(raw_spec)
 spec['layout'] = xml
 
 # Inject container/header-text spec elements (see header comment).
@@ -55,25 +62,27 @@ elements_path = opts[:elements] || "#{opts[:layout]}.elements.json"
 if File.exist?(elements_path)
   inject = JSON.parse(File.read(elements_path))
   injected = 0
+  spec['elements'] ||= []
+  existing = spec['elements'].filter_map { |e| e['id'] if e.is_a?(Hash) }
   inject.each do |page_id, els|
-    page = spec['pages'].find { |p| p['id'] == page_id }
-    unless page
+    unless Array(spec['pages']).any? { |p| p['id'] == page_id }
       warn "WARN: elements sidecar references unknown page #{page_id.inspect} — skipped"
       next
     end
-    page['elements'] ||= []
-    existing = page['elements'].map { |e| e['id'] }
     els.each do |el|
       next if existing.include?(el['id'])
-      page['elements'] << el
+      spec['elements'] << el
+      existing << el['id']
       injected += 1
     end
   end
   puts "injected #{injected} container/header element(s) from #{elements_path}"
 end
-%w[workbookId url ownerId createdBy updatedBy createdAt updatedAt latestDocumentVersion].each { |k| spec.delete(k) }
-
-resp = http(:put, "/v2/workbooks/#{opts[:wb]}/spec", JSON.pretty_generate(spec))
+# Preserve the complete document from GET (flat elements, overlays, panels,
+# settings, agents, and future document fields known to CodeRep); mutate only
+# layout plus optional injected elements. UpdateWorkbookSpec accepts only the
+# document envelope, so response metadata correctly stays out of the PUT.
+resp = http(:put, "/v2/workbooks/#{opts[:wb]}/spec", JSON.pretty_generate(Sigma::CodeRep.wrap(spec)))
 parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
 puts parsed['workbookId'] ? "PUT ok: workbookId=#{parsed['workbookId']}" : "ERROR: #{parsed.inspect}"
 exit(parsed['workbookId'] ? 0 : 1)

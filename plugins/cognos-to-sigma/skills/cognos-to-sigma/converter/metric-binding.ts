@@ -1,7 +1,7 @@
 // metric-binding.ts — bind a workbook measure to a governed DM metric.
 //
 // Cognos-local TypeScript port of the shared Python/Ruby binder
-// (shared/lib/metric_binding.{py,rb}; see beads-sigma-7bun). The shared helper is
+// (shared/lib/metric_binding.{py,rb}; see [bead]). The shared helper is
 // Python + Ruby only; cognos is the sole TS consumer, so this ports the same two
 // pure functions rather than vendoring a shared file. Keep the semantics in
 // lockstep with the shared copies.

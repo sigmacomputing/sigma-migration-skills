@@ -97,6 +97,7 @@ end.parse!
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'export_pool'
+require 'code_rep'
 
 # Default = ExportPool::DEFAULT_EXPORT_ROW_LIMIT, the ONE shared default with
 # verify-anchors.rb (A3, wave-1 review: rowLimit is part of the raw-export
@@ -149,7 +150,11 @@ if opts[:drift_warn_min].to_f.positive?
 end
 
 spec = JSON.parse(File.read(opts[:spec]))
-elements = (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
+# The --workbook-spec readback may be a flat artifact or a live response with
+# the released top-level `document` envelope. Preserve response metadata for
+# cache/version checks, while reading workbook-global elements through CodeRep.
+spec = Sigma::CodeRep.metadata(spec).merge(Sigma::CodeRep.document(spec))
+elements = Sigma::CodeRep.workbook_elements(spec)
 el_by_id = elements.each_with_object({}) { |e, h| h[e['id']] = e }
 
 # ── RAW export cache (#7a/#7d) + readback version check (#7b) ────────────────

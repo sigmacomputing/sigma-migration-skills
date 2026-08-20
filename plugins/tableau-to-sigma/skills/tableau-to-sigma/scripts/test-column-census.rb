@@ -27,9 +27,14 @@ def posted_spec(names_by_element)
 end
 
 # Readback: server REASSIGNS element ids (DM POST always does) — names survive.
-def readback_spec(el_names)
+def readback_spec(el_names, metrics_by_element: {})
   { 'pages' => [{ 'id' => 'srv-pg', 'name' => 'Model', 'elements' =>
-    el_names.map.with_index { |n, i| { 'id' => "srv-el-#{i}", 'kind' => 'table', 'name' => n } } }] }
+    el_names.map.with_index do |n, i|
+      { 'id' => "srv-el-#{i}", 'kind' => 'table', 'name' => n,
+        'metrics' => Array(metrics_by_element[n]).map.with_index do |metric, mi|
+          { 'id' => "srv-metric-#{mi}", 'name' => metric }
+        end }
+    end }] }
 end
 
 def entries_for(labels_by_server_id, error_labels: [])
@@ -97,13 +102,23 @@ problems = ColumnCensus.census(posted, rb, entries_for({ 'kept-id' => %w[Sales] 
 check(problems.empty?, 'nameless element matched by surviving id', fails)
 
 puts
-puts 'Part G — metrics counted alongside columns'
+puts 'Part G — metrics resolve only against readback metrics[]'
 posted = { 'pages' => [{ 'elements' => [{ 'id' => 'e1', 'name' => 'Fact', 'kind' => 'table',
                                           'columns' => [{ 'id' => 'c1', 'name' => 'Sales' }],
                                           'metrics' => [{ 'id' => 'm1', 'name' => 'Total Sales' }] }] }] }
-rb = readback_spec(['Fact'])
+rb = readback_spec(['Fact'], metrics_by_element: { 'Fact' => ['Total Sales'] })
 problems = ColumnCensus.census(posted, rb, entries_for({ 'srv-el-0' => ['Sales'] }))
-check(problems.size == 1 && problems.first['missing'] == ['Total Sales'], 'missing metric caught', fails)
+check(problems.empty?, 'metric present in readback metrics[] passes even though absent from /columns', fails)
+check(ColumnCensus.posted_column_count(posted) == 1, 'posted_column_count excludes metrics', fails)
+check(ColumnCensus.posted_metric_count(posted) == 1, 'posted_metric_count counts metrics separately', fails)
+
+rb = readback_spec(['Fact'])
+problems = ColumnCensus.census(posted, rb, entries_for({ 'srv-el-0' => ['Sales', 'Total Sales'] }))
+check(problems.size == 1 && problems.first['missing_metrics'] == ['Total Sales'],
+      'same-named /columns entry does not satisfy a posted metric', fails)
+check(problems.first['missing_columns'].empty?, 'metric miss is not reported as a column miss', fails)
+check(ColumnCensus.report_lines(problems).any? { |line| line.include?('missing metrics 1: Total Sales') },
+      'report clearly labels a missing metric', fails)
 
 puts
 if fails.empty?

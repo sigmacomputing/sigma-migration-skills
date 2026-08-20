@@ -19,14 +19,20 @@ Signature of a page that needs it (catch on the Phase 5b render): every tile the
 stacked in one column; >40% of the page empty; the title invisible; source viz missing.
 
 ## The composition recipe (verified to render on `/v2/workbooks/{id}/spec` PUT)
-1. **Workbook theme** — top-level `themeName: Light` + `themeOverrides`: `borderRadius: round`,
-   `hasCards: hidden` (so *you* control which elements get card chrome), and
-   `categoricalScheme: [...]` — the **only** spec path to donut/pie slice colors (per-element
+> The workbook spec is `document`-wrapped, not flat: `schemaVersion`/`pages`/`kind`/
+> `layout`/`settings`/`agents` all nest under a top-level `document` key (confirmed live
+> 2026-08-03, including on `/verify` 2026-08-04). The theme is workbook content, so it
+> travels inside `document` too — at `document.settings.theme`, not the request root.
+> Data-model specs are unaffected and stay flat.
+
+1. **Workbook theme** — `document.settings.theme: {name: Light, overrides: {...}}`, with `overrides.borderRadius: round`,
+   `overrides.hasCards: hidden` (so *you* control which elements get card chrome), and
+   `overrides.categoricalScheme: [...]` — the **only** spec path to donut/pie slice colors (per-element
    `color.scheme` is silently dropped on donut/pie).
 2. **Hero strip** — a full-width `kind: container` with `style.backgroundColor` holding the
    title text. This is the real full-width bar; a text element alone cannot make one (below).
 3. **Section panels** — one white `container` per source section, each opening with a **nested**
-   colored `container` header bar (nested `<GridContainer>` works).
+   colored `container` header bar (nested `<Container>` works).
 4. **Stat cards** — mirror the source card grouping. A source "2-value" card → one card container
    holding a label text + two `kpi-chart`s side-by-side, each with a grey subtitle. Set each
    KPI's value-column `name: ' '` (single space) so its own title doesn't duplicate the label.
@@ -36,7 +42,7 @@ Donut specifics: `holeValue:{id:<a column whose id ≠ value's>}` puts the **cen
 ring; `legend:{visibility:hidden}` on donuts that share a legend with a sibling (show it once).
 
 **Extract brand colors from the source file** (grep `<style>`/`format`/`run` for `#`-hex near the
-title worksheets and dashboard style); apply via `themeOverrides` + the hero/section bars. A generic
+title worksheets and dashboard style); apply via `settings.theme.overrides` + the hero/section bars. A generic
 blue reads as "close but not their brand." (`scan-customer-style.rb` can supply org-level defaults.)
 
 ## Value-fidelity — why migrated numbers come out wrong
@@ -96,7 +102,7 @@ Migrations commonly drop the interactive layer. Rebuild from the source's parame
   `<span style>` allows only `color`/`background-color`/`font-size`/`font-family`. Centre/right via
   `<p style="text-align: center|right">`; **`text-align: left` is rejected** (default) — use a plain
   span/heading. A full-width colored bar is only achievable via a `container` `style.backgroundColor`.
-- **Donut/pie:** `color.scheme` is silently stripped (use `themeOverrides.categoricalScheme`);
+- **Donut/pie:** `color.scheme` is silently stripped (use `settings.theme.overrides.categoricalScheme`);
   `holeValue.id == value.id` silently drops the element (use a distinct column).
 - **KPI title suppression:** only `name: ' '` (single space) works; omitting re-derives the title.
 - **Bar/line `color`** = `{by, column, scheme}`, not a bare `{scheme}`. Single-series charts omit it.
@@ -104,7 +110,7 @@ Migrations commonly drop the interactive layer. Rebuild from the source's parame
   so a rename throws `Dependency not found`. Rename only element-local pivot columns, or set friendly
   names at build time on freshly-created columns.
 - **Sigma auto-appends unplaced elements to the layout on save.** To delete an element, remove BOTH the
-  element AND its (possibly auto-added) `<LayoutElement>` ref, or the next PUT 400s on a dangling ref.
+  element AND its (possibly auto-added) `<Element>` ref, or the next PUT 400s on a dangling ref.
 - **API tokens are short-lived** — re-auth immediately before each GET/PUT/export.
 
 ## Wiring into the converter (the actual leverage)

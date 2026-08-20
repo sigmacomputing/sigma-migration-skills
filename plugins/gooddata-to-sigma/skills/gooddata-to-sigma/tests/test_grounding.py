@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Grounding regression for the GoodData->Sigma dashboard classifier (beads-sigma-kvza).
+"""Grounding regression for the GoodData->Sigma dashboard classifier ([bead]).
 
 Proves the insight/aggregation classifier is documentation-grounded and loud-on-unmapped:
-  1. CATALOGS      — all four refs/catalogs/*.json load, are cited (real http doc refs),
+  1. CATALOGS      — all five refs/catalogs/*.json load, are cited (real http doc refs),
      and have unique source keys. viz-kind FLAGGED rows (sigma:null) are allowed only
      when on_unmapped == "flag".
   2. NO INLINE MAP — the viz (CHART/FLAGGED) and aggregation (AGG) maps are LOADED from
@@ -26,10 +26,14 @@ CATDIR = os.path.join(SKILL, "refs", "catalogs")
 FIXTURE = os.path.join(SKILL, "fixtures", "test_workspace_orders.json")
 BUILDER = os.path.join(SCRIPTS, "build_workbook.py")
 MAQL = os.path.join(SCRIPTS, "maql.py")
+COVERAGE_HELPER = os.path.join(HERE, "gooddata_coverage.py")
 sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
 
-EXPECT_DIMS = {"viz-kind", "number-format", "aggregation", "control"}
+EXPECT_DIMS = {
+    "viz-kind", "number-format", "aggregation", "control",
+    "workbook-feature",
+}
 
 
 def _run_builder(workspace_path):
@@ -64,7 +68,7 @@ def test_catalogs_valid():
             # flag row (viz-kind types with no faithful Sigma equivalent).
             assert r.get("sigma") is not None or r.get("on_unmapped") == "flag", \
                 (name, r["source"], "null sigma without on_unmapped:flag")
-    print("[ok] catalogs: 4 dimensions load, cited (http), unique sources")
+    print("[ok] catalogs: 5 dimensions load, cited (http), unique sources")
 
 
 def test_no_inline_maps():
@@ -72,6 +76,8 @@ def test_no_inline_maps():
     mql = open(MAQL).read()
     # builders LOAD the catalogs
     assert "coverage_catalog" in src and "_cc.load(" in src, "build_workbook does not load catalogs"
+    assert '_cc.load(_CAT_DIR, "workbook-feature")' in src, \
+        "build_workbook does not load the released feature catalog"
     assert "coverage_catalog" in mql and "_cc.load(" in mql, "maql.py does not load the aggregation catalog"
     # the viz + agg maps are catalog-DERIVED, not inline literals
     assert "for r in VIZ_CAT.rows" in src, "CHART/FLAGGED not derived from viz-kind catalog"
@@ -118,12 +124,16 @@ def test_loud_flagged_and_unknown_viz():
 
 def test_coverage_matrix_fresh():
     """refs/gooddata-coverage.md must be regenerated from the catalogs (no drift)."""
+    coverage_path = os.path.join(SKILL, "refs", "gooddata-coverage.md")
     r = subprocess.run(
-        [sys.executable, os.path.join(SCRIPTS, "gen-coverage-matrix.py"),
-         "--catalogs", CATDIR, "--skill", "gooddata",
-         "--out", os.path.join(SKILL, "refs", "gooddata-coverage.md"), "--check"],
+        [sys.executable, COVERAGE_HELPER, "--catalogs", CATDIR,
+         "--out", coverage_path, "--check"],
         capture_output=True, text=True)
     assert r.returncode == 0, ("coverage matrix is stale — regenerate:\n" + r.stdout + r.stderr)
+    coverage = open(coverage_path).read()
+    assert "## Released workbook features" in coverage
+    assert coverage.index("## Control / filter") < \
+        coverage.index("## Released workbook features")
     print("[ok] coverage matrix: refs/gooddata-coverage.md matches the catalogs")
 
 

@@ -261,7 +261,7 @@ def agent_brief(sub, cluster, batch_results_path, leader_dm_id_path, out_dir, ov
        tiles. Read the .twb zone tree at `<out-dir>/twbs/<luid>.twb` or
        use `scripts/parse-twb-layout.rb` for per-tile `x_pct, y_pct,
        w_pct, h_pct` — translate those into 24-column / multi-row
-       `<LayoutElement>` positions. A 3-column × 2-row source dashboard
+       `<Element>` positions. A 3-column × 2-row source dashboard
        MUST become a 3-column × 2-row Sigma layout, NOT a single-column
        stack. Single-column layouts are the most common visual regression
        across audit batches — every chart at `gridColumn="1 / 13"` is
@@ -411,7 +411,7 @@ def agent_brief(sub, cluster, batch_results_path, leader_dm_id_path, out_dir, ov
     wrong aggregate, ungrouped table).
 
     Phase 6 (parity verification) is the single most commonly-skipped step
-    in subagent runs — beads-sigma-4pm. To prevent silent skips:
+    in subagent runs — [bead]. To prevent silent skips:
 
     1. Run `ruby scripts/phase6-parity.rb --tableau /tmp/<wb-dir> --workbook-id <id>`
        (Pass 1 builds the plan).
@@ -424,8 +424,8 @@ def agent_brief(sub, cluster, batch_results_path, leader_dm_id_path, out_dir, ov
        is create-only), run:
        `ruby scripts/cleanup-orphan-workbooks.rb --workdir /tmp/<wb-dir>`
        to delete the orphans. This MUST run before step 6 or the gate
-       will fail with exit 4. See beads-sigma-38a.
-    5. **Apply the layout** (MANDATORY — beads-sigma-bw3 — CoCo regression
+       will fail with exit 4. See [bead].
+    5. **Apply the layout** (MANDATORY — [bead] — CoCo regression
        where elements rendered as a single-column stack):
        `ruby scripts/build-dashboard-layout.rb --layout /tmp/<wb-dir>/dashboard-layout.json --wb-ids /tmp/<wb-dir>/wb-ids.json --out /tmp/<wb-dir>/layout.xml`
        `ruby scripts/put-layout.rb --workbook <id> --layout /tmp/<wb-dir>/layout.xml`

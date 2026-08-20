@@ -48,7 +48,7 @@ require_relative '../shared/lib/warehouse_transforms'
 sql = WarehouseTransforms.apply(raw_sql, warehouse)
 ```
 
-The converters apply these automatically when `--warehouse` is passed (or auto-detected from the Sigma connection). When calling into a skill's scripts directly, call `apply_transforms` after generating or extracting SQL, before writing it to the spec.
+The metabase-to-sigma converter applies these automatically when `--warehouse` is passed (or auto-detected from the Sigma connection). For other skills, call `apply_transforms` after generating or extracting SQL, before writing it to the spec.
 
 ## Other Warehouse Gotchas (not yet automated)
 

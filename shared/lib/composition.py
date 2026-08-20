@@ -20,7 +20,7 @@ def infer_role(kind):
     return _KIND_ROLE.get(str(kind), "supporting")
 
 def _le(eid, c0, c1, r0, r1):
-    return '  <LayoutElement elementId="%s" gridColumn="%d / %d" gridRow="%d / %d"/>' % (eid, c0, c1, r0, r1)
+    return '  <Element elementId="%s" gridColumn="%d / %d" gridRow="%d / %d"/>' % (eid, c0, c1, r0, r1)
 
 def _band(elements, r0, r1, page_cols):
     n = len(elements)
@@ -126,7 +126,7 @@ def compose(elements, pattern="exec", page_cols=24):
 
 # _indent: prepend one indent level (2 spaces, this file's per-level unit) to
 # every line of a multi-line XML fragment -- used to nest a tab's bare
-# <LayoutElement> lines (already 2-space indented by _le()) one level deeper
+# <Element> lines (already 2-space indented by _le()) one level deeper
 # inside a <Tab> (-> 4 spaces total, matching the verified shape).
 def _indent(text):
     return "\n".join("  " + line for line in str(text).split("\n"))
@@ -136,11 +136,11 @@ def _indent(text):
 # JSON element are LABELS ONLY (no children); the <Tab> children in the
 # layout map to tabs[] BY POSITION (1st <Tab> = 1st label).
 #
-# GOTCHA (verified): inside a <Tab>, callers pass BARE <LayoutElement>
-# children only -- a nested <GridContainer> inside a <Tab> scrambles tab
+# GOTCHA (verified): inside a <Tab>, callers pass BARE <Element>
+# children only -- a nested <Container> inside a <Tab> scrambles tab
 # render order. The <Tab> is itself a mini-grid (gridTemplateColumns /
 # gridTemplateRows), so elements position directly within it; no inner
-# GridContainer is needed.
+# Container is needed.
 def tabbed_container(id, tabs, grid_column, grid_row, tab_bar_alignment="start"):
     if not id:
         raise ValueError("tabbed_container: id required")

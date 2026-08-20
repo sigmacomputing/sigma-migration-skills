@@ -259,7 +259,12 @@ models.each do |m|
     kind = s.to_s.split(':').first
     file_sources << s if %w[Excel CSV File Folder Sheets Web SharePoint].include?(kind)
   end
+  # file-based tables now come from the converter-mirrored nonwarehouse detector.
+  (m['nonwarehouse_sources'] || []).each { |s| file_sources << "file:#{m['name']}/#{s['table']}" if s['kind'] == 'file' }
 end
+# non-warehouse-sourced tables (Fabric Dataflow / Lakehouse / OneLake / Dataverse
+# / file) — must be landed in the warehouse before migration.
+nonwh_items = models.flat_map { |m| (m['nonwarehouse_sources'] || []).map { |s| [m['name'], s['table'], s['kind']] } }
 if models.any?
   ds_stat_row = <<~ROW
     <div class="stat-row" style="grid-template-columns: repeat(4, 1fr);">
@@ -319,6 +324,13 @@ if models.any?
   ds_html = ds_stat_row + wh_table
   ds_html += %(<p class="note">Models on a cloud warehouse Sigma supports (Snowflake, BigQuery, Databricks, Redshift, Synapse, Postgres) are <strong>drop-in</strong> — Sigma reads the same tables directly. Import-mode models hide the warehouse behind a cached extract; the M source above is what the <code>powerbi-to-sigma</code> converter re-points to.</p>) if wh.any?
   ds_html += %(<div class="callout"><strong>#{file_sources.uniq.size} file-based source#{file_sources.uniq.size == 1 ? '' : 's'}</strong> (Excel / CSV / SharePoint) must be landed in your warehouse before migration — Sigma reads from the warehouse, not from local files.</div>) if file_sources.any?
+  if nonwh_items.any?
+    by_kind = nonwh_items.group_by { |_, _, k| k }.transform_values(&:size)
+    kind_summ = by_kind.sort_by { |_, n| -n }.map { |k, n| "#{n}&nbsp;#{h(k)}" }.join(' · ')
+    nw_rows = nonwh_items.sort.map { |mn, tb, k| %(<tr><td>#{h(mn)}</td><td><code>#{h(tb)}</code></td><td><span class="ds-bucket ds-embedded">#{h(k)}</span></td></tr>) }.join
+    ds_html += %(<div class="callout"><strong>#{nonwh_items.size} table(s) sourced from Fabric Dataflows / Lakehouse / Dataverse / files</strong> (#{kind_summ}) — Sigma reads from the warehouse, not from these, and any transformation logic in the dataflow/query is not in the semantic model. Land the data first (the <code>powerbi-import-to-snowflake</code> skill), then repoint the converted model via <code>convert-model.rb --table-map</code>.</div>)
+    ds_html += %(<table class="data"><thead><tr><th>Model</th><th>Table</th><th>Source kind</th></tr></thead><tbody>#{nw_rows}</tbody></table>)
+  end
 end
 
 # Section 05: Refresh insights

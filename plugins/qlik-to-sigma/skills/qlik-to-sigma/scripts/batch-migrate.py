@@ -10,11 +10,13 @@ Demonstrates tenant-scale migration. Reuses DM/denorm element (set below) since 
 share data; for distinct apps, discover per-app and build per-app specs.
 
 Includes `auto_layout()` — the reusable layout heuristic (header band + KPI band + chart
-rows, each a <GridContainer> band per layout-playbook.md) returning (24-col grid XML,
-container/header spec elements). The spec elements MUST be in the POSTed spec or the
-GridContainers are silently dropped.
+rows, each a canonical <Container> band per layout-playbook.md) returning (24-col grid
+XML, container/header spec elements). The spec elements MUST be in the POSTed spec or
+the containers are silently dropped.
 """
 import json, os, sys, urllib.request, subprocess, re, argparse
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
 
 BASE=os.environ["SIGMA_BASE_URL"]; TOK=os.environ["SIGMA_API_TOKEN"]
 # Reuse an existing Sigma data model: set these to YOUR ids (from the data-model build
@@ -29,12 +31,12 @@ N=lambda f:{"kind":"number","formatString":f}
 
 def auto_layout(page_id, elems, title="Overview"):
     """elems: ordered list of {id, kind}. Header band + KPI band + chart rows, each a
-    full-width GridContainer (children container-relative). Returns (xml, extra_spec_elements)."""
+    full-width Container (children container-relative). Returns (xml, extra_spec_elements)."""
     kpis=[e for e in elems if e["kind"]=="kpi-chart"]; charts=[e for e in elems if e["kind"]!="kpi-chart"]
-    def le(eid,c0,c1,r0,r1): return f'  <LayoutElement elementId="{eid}" gridColumn="{c0} / {c1}" gridRow="{r0} / {r1}"/>'
+    def le(eid,c0,c1,r0,r1): return f'  <Element elementId="{eid}" gridColumn="{c0} / {c1}" gridRow="{r0} / {r1}"/>'
     def gc(cid,r0,r1,inner):
-        return (f'<GridContainer elementId="{cid}" type="grid" gridColumn="1 / 25" gridRow="{r0} / {r1}" '
-                f'gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">\n{inner}\n</GridContainer>')
+        return (f'<Container elementId="{cid}" type="grid" gridColumn="1 / 25" gridRow="{r0} / {r1}" '
+                f'gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">\n{inner}\n</Container>')
     extra=[{"id":"band-hdr","kind":"container","style":{"backgroundColor":"#0F172A","borderRadius":"round"}},
            {"id":"band-hdrtext","kind":"text","body":f'# <span style="color: #FFFFFF">{title}</span>'}]
     bands=[gc("band-hdr",1,4,le("band-hdrtext",1,25,1,4))]
@@ -72,14 +74,25 @@ def build(app_name):
            ch(2,"line-chart","Net Revenue by Month",O("Month Number"),"Month","Sum(%s)"%O("Net Revenue")),
            ch(3,"bar-chart","Net Revenue by Region",O("Store Region"),"Region","Sum(%s)"%O("Net Revenue"))]
     xml,extra=auto_layout("pg-ov",[{"id":e["id"],"kind":e["kind"]} for e in elems],title=app_name)
-    spec={"name":f"{app_name} → Sigma","folderId":FOLDER,"schemaVersion":1,
-          "pages":[{"id":"pg-data","name":"Data","elements":[master]},{"id":"pg-ov","name":"Overview","elements":elems+extra}]}
-    res=post("/v2/workbooks/spec",spec)
+    data_xml=('<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" '
+              'gridTemplateRows="auto" id="pg-data">\n'
+              '  <Element elementId="m-ofv" gridColumn="1 / 25" gridRow="1 / 15"/>\n'
+              '</Page>')
+    full_xml='<?xml version="1.0" encoding="utf-8"?>\n'+data_xml+'\n'+xml.split("\n",1)[1]
+    # Canonical workbook-as-code shape: outer metadata plus a complete
+    # document. Pages carry metadata only; elements are flat; layout places
+    # every element exactly once. Data-model nesting is unrelated and unchanged.
+    doc={"schemaVersion":1,"kind":"workbook",
+         "pages":[{"id":"pg-data","name":"Data","visibility":"hidden"},
+                  {"id":"pg-ov","name":"Overview"}],
+         "elements":[master]+elems+extra,"layout":full_xml}
+    post_body=code_rep.wrap(doc,{"name":f"{app_name} → Sigma","folderId":FOLDER})
+    res=post("/v2/workbooks/spec",post_body)
     if not res: return None
     wb=re.search(r'workbookId:\s*(\S+)',res)
     wb=wb.group(1) if wb else None
     if wb:
-        lf="/tmp/_lay_%s.xml"%wb; open(lf,"w").write(xml)
+        lf="/tmp/_lay_%s.xml"%wb; open(lf,"w").write(full_xml)
         subprocess.run(["ruby",PUTLAYOUT,"--workbook",wb,"--layout",lf],capture_output=True)
     return wb
 

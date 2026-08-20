@@ -14,21 +14,22 @@ user-invocable: true
 
 # Domo → Sigma Conversion
 
-> **Status: private-API shapes LIVE-CONFIRMED (2026-07-30); end-to-end Sigma
-> parity still not claimed.** A first live Tier-A validation ran against a real
-> Domo instance (48 cards / 24 chart types / 81 Beast Modes, plus 15 purpose-built
-> cards). It answered all three former open questions and **disproved several
-> doc-inferred shapes** in `refs/connection.md` — card enumeration, the
-> summary-number path, and page-layout geometry were all wrong.
+> **Status: GOLD — live end-to-end validated (2026-08-10).** The gold acceptance
+> run migrated a purpose-built 16-card Domo executive dashboard to a live Sigma
+> workbook and passed **28/28 strict value-parity checks (100%) with zero
+> exclusions**, a fresh context-free **6/6 visual PASS**, clean live column/layout/
+> control lint, and `assert-phase6-ran.rb` exit 0 / GREEN with an empty degradation
+> ledger (no scope cuts, waivers, or residuals). The earlier Tier-A validation
+> remains part of the evidence base: 48 cards / 24 chart types / 81 Beast Modes,
+> plus the purpose-built cards, against a real Domo instance. It answered all
+> three former open questions and **disproved several doc-inferred shapes** in
+> `refs/connection.md` — card enumeration, the summary-number path, and
+> page-layout geometry were all wrong.
 > **Read `refs/live-validation-2026-07-30.md` before trusting any private-API
 > shape**; where it and `refs/connection.md` disagree, live-validation wins.
-> The public OAuth path is documented and stable.
-> **What remains live**: a full `migrate-domo.rb` run whose resulting Sigma
-> workbook passes numeric parity and the Phase-5e visual gate for a given
-> instance. That is NOT claimed here — consistent with this repo's rule of never
-> calling a conversion validated until it passes live parity for that instance.
-> Domo's own `query/execute` parity mechanism *was* verified to reconcile exactly
-> against the warehouse.
+> The public OAuth path is documented and stable. Gold proves the converter's
+> live baseline; each customer migration must still run its own Phase-6 value,
+> visual, layout, and security gates rather than inheriting the fixture's result.
 > **Compliance:** before a production run, confirm with the customer's Domo
 > account team that programmatic extraction for migration is acceptable — see
 > `refs/connection.md` "Compliance note".
@@ -63,7 +64,7 @@ like Power BI's DAX.
 > measurement on 81 real Beast Modes originally found 74% translating to
 > invalid Sigma: `CASE WHEN` (71% of formulas) wasn't converted to `If()` at
 > all, and `COUNT(DISTINCT x)` rendered `DISTINCT` as a column reference. Both
-> are fixed upstream (sigma-data-model-mcp PR #115), and a third defect this
+> are fixed upstream (converter-source PR #115), and a third defect this
 > fix surfaced — Domo's real ALL-CAPS backtick-quoted columns coming back
 > double-bracketed (`[[Net Revenue]]`) — is also fixed (PR #116). Re-measured
 > on the deduplicated **74-distinct-formula** corpus. Both columns below were
@@ -91,12 +92,19 @@ like Power BI's DAX.
 > untranslatable construct still needs the `formula-overrides.json` sidecar —
 > that mechanism is unchanged and still the right escape hatch, it is just no
 > longer load-bearing for CASE WHEN or COUNT(DISTINCT). One more thing to
-> budget for: `convert-beast-modes.rb`'s own `WEEKDAY` → `DAYOFWEEK`
-> normalization step is *counterproductive* — `WEEKDAY(...)` converts cleanly
-> on its own, but this step rewrites it to `DAYOFWEEK(...)` first, which is
-> **not** a real Sigma function (still open; see the note in
-> `scripts/convert-beast-modes.rb`). Full evidence and the exact
-> before/after outputs: `refs/live-validation-2026-07-30.md`.
+> budget for, now FIXED (2026-08-03):
+> `convert-beast-modes.rb` used to rewrite `WEEKDAY(...)` to `DAYOFWEEK(...)`
+> "for parity," which was *counterproductive* — `WEEKDAY(...)` converts
+> cleanly on its own (Sigma has `Weekday()` by that exact name), but
+> `Dayofweek(...)` is **not** a real Sigma function. That rewrite is gone;
+> `WEEKDAY(...)` now passes through unchanged. But a second, more serious
+> issue surfaced during that fix and is verified against both vendors'
+> docs: MySQL `WEEKDAY()` (0=Monday..6=Sunday) and Sigma `Weekday()`
+> (1=Sunday..7=Saturday) use genuinely different numbering, so a name-clean
+> translation can still be a silent VALUE mismatch. `normalize_bm` now flags
+> this with a warning naming the exact override — `Mod(Weekday([col])+5,7)`
+> — rather than auto-rewriting; see the note in `scripts/convert-beast-modes.rb`.
+> Full evidence and the exact before/after outputs: `refs/live-validation-2026-07-30.md`.
 
 The other work is *extraction* (card defs + Beast Mode text + layout out of Domo)
 and *layout/binding* (cards → Sigma elements on a 24-col grid; note Domo's own card
@@ -121,18 +129,21 @@ grid is only 6 wide, so widths scale ×4).
 | `scripts/preflight-columns.rb` | 2.9 | Check every mapped dataset's Domo columns against the REAL warehouse table schema (live Sigma catalog lookup); reports gaps + auto-suggests (never auto-applies) a derivation formula for a known pattern |
 | `scripts/build-dm.rb` | 3 | DataSet schema + projection calc columns → Sigma DM spec (clean display names); honors a Phase-2.5 reuse decision |
 | `post-and-readback.rb` *(vendored)* | 4 | POST DM/WB + capture server element IDs / column labels |
+| `scripts/derive-presentation-overrides.rb` | 5 (pre) | Source facts (discovery + early Domo card-data) → **layout-safe** styling sidecars (`kpi-format-overrides.json`, `chart-axis-overrides.json`, `category-order-overrides.json`) so Domo-faithful compact KPIs / axes / category order are automatic, not hand-authored. Preserves any operator-authored sidecar already on disk. |
 | `scripts/build-workbook.rb` | 5 | Cards → Sigma chart/table/KPI element specs (`chart-specs.json`) + controls |
 | `build-workbook-spec.rb` *(vendored)* | 5 | Assemble master + pages from `chart-specs.json` + `dm-ids.json` → POST-ready workbook spec |
 | `scripts/qa-check.rb` | 5e | Domo-specific spec gate: KPI-not-count-of-id, filter fan-out, no bar-as-table, text-wrap, gridlines-off |
 | `scripts/build-domo-layout.rb` | 5d | Domo card geometry → zone-schema `dashboard-layout.json` (relative-normalized) |
 | `build-dashboard-layout.rb` *(vendored)* | 5d | Zone JSON → 24-col grid XML |
 | `put-layout.rb` *(vendored)* | 5d | PUT layout to workbook |
-| `verify-parity.rb` *(vendored)* | 6 | Compare Domo `query/execute` aggregations vs Sigma `query` |
+| `verify-parity.rb` *(vendored)* | 6 | Compare Domo `query/execute` aggregations vs Sigma `query` → `parity-score.json` (`tiles_*`) |
+| `scripts/build-parity-exclusions.rb` | 6 | Derives `parity-plan-exclusions.json` from machine facts in `warnings.json` (today: refused date windows). Carries the originating warning as evidence; **aborts** rather than excluding a runaway share of the pool |
+| `scripts/phase6-parity-domo.rb` | 6 | **Finalizer.** Runs `verify-parity.rb`, derives the gate contract (`charts_*`/`status`) into `parity-final.json`, and refuses to emit one when the plan silently omits chartable tiles |
 | `assert-phase6-ran.rb` *(vendored)* | 6 | Hard gate before declaring GREEN (run with `--workdir`) |
 
 > The Domo-specific scripts — `convert-beast-modes.rb` (2), `find-or-pick-dm.rb`
 > integration (2.5), `build-dm.rb` (3), `build-workbook.rb` + `qa-check.rb` (5),
-> `build-domo-layout.rb` (5d), plus `get-domo-token.sh`, `lib/domo_rest.rb`,
+> `build-domo-layout.rb` (5d), `phase6-parity-domo.rb` + `build-parity-exclusions.rb` (6), plus `get-domo-token.sh`, `lib/domo_rest.rb`,
 > `lib/domo_sigma_util.rb`, `domo-discover.rb`, `domo-capture-visuals.rb` — ship
 > with unit + end-to-end tests under `test/`. A final live field-path check on
 > first instance contact is still recommended.
@@ -330,12 +341,14 @@ ruby scripts/convert-beast-modes.rb --convert  # vendored converter/sql.mjs fill
 ruby scripts/convert-beast-modes.rb --lint     # validate → discovery/formulas.json
 ```
 `--convert` resolves the converter via a 3-tier ladder: the vendored bundle
-(default, no MCP/network), a local `sigma-data-model-mcp` build via
+(default, no MCP/network), a local `converter-source` build via
 `--mcp-dir`/`DOMO_MCP_DIR` (explicit dev opt-in only), or — last resort, bundle
 or `node` absent — exit 10 with the manual `convert_sql_to_sigma_formula`
 + `--converter-out` fallback instructions. Applies the normalizations in
-`refs/beast-mode-to-sigma.md` FIRST (strip backticks, `WEEKDAY`→`DAYOFWEEK`,
-flag aggregate `CEILING`/`FLOOR`, reject unsupported `SQRT`/`CONVERT_TZ`).
+`refs/beast-mode-to-sigma.md` FIRST (strip backticks, flag the `WEEKDAY`
+day-numbering mismatch (MySQL vs. Sigma disagree — override to
+`Mod(Weekday([col])+5,7)`), flag aggregate `CEILING`/`FLOOR`, reject
+unsupported `SQRT`/`CONVERT_TZ`).
 Outputs `discovery/formulas.json` (Beast Mode id → Sigma formula).
 
 ---
@@ -406,6 +419,19 @@ server element IDs, verify zero error columns.
 
 ## Phase 5 — Workbook
 
+**Phase 5 (pre) — presentation overrides (automatic, runs before build-workbook).**
+`migrate-domo.rb` runs `scripts/derive-presentation-overrides.rb` first (live:
+after an early `collect-parity-expected.rb`, which reads Domo card-data only and
+needs no Sigma). It derives the **layout-safe** styling sidecars the builders
+consume — Domo-style compact KPI display, compact currency axes, and source
+category order — from source facts, so a customer run reproduces the gold-path
+styling without hand-authored files. It only writes sidecars that don't already
+exist (an operator's hand-authored sidecar always wins) and never fails the run.
+It deliberately does **not** auto-author `card-header-overrides.json` (that
+override adds `header-*` text elements the automated layout has no zone for; the
+source Summary Number is already surfaced by the companion-KPI mechanism). The
+`domo/orders-presentation` corpus case pins this derivation offline/creds-free.
+
 `ruby scripts/build-workbook.rb` → map each card to a Sigma element, following
 **`refs/card-to-element.md`** (the chart map). **Read the per-card PNG from
 `discovery/png/cards/` while mapping** — the image disambiguates chart kind and
@@ -434,6 +460,21 @@ Then translate the rest per the ref:
   (port **both** levels — see the ref's Filtering fidelity section)
 - **No liberties:** one card → one element; reproduce labels/formats/layout; every
   unsupported/dropped item → a Phase-5e warning, never a silent substitution
+
+**Workbook-as-code release contract:** read
+`refs/workbook-code-release-gaps.md` and the machine-readable
+`refs/catalogs/{viz-kind,workbook-feature}.json`. Workbook payloads are outer
+metadata plus `document:{schemaVersion,kind,pages,elements,layout,...}`;
+`document.pages` is metadata-only, `document.elements` is flat, and the required
+layout is the sole page-membership authority. Layout XML emitted by Domo uses
+the live `<Element>` / `<Container>` tags; the historical `LayoutElement` /
+`GridContainer` aliases are accepted only while reading old artifacts and are
+rejected if they escape an emission boundary. Data models are deliberately
+unchanged (`pages[].elements`). Released target capabilities are not permission
+to invent source intent: this converter emits grounded multi-page navigation,
+explicit v4 page breaks/headers, and bounded CURRENT/TARGET progress. Waterfall,
+legend/drill wiring, panels, tabbed/repeated containers, and ungrounded styling
+remain loud gaps; `box-chart` remains entitlement-gated.
 
 ### Phase 5d — Layout
 `ruby scripts/build-domo-layout.rb` turns `discovery/cards.json` geometry (from
@@ -520,6 +561,6 @@ All three former blockers were answered by live contact. Full evidence in
    per-card T-shirt `size` token, on a **6-column** Domo grid (so Domo→Sigma
    width scales ×4).
 
-What is still genuinely open: a full end-to-end `migrate-domo.rb` run that
-passes numeric parity and the Phase-5e visual gate against a live Sigma workbook.
-Treat that as the remaining bar for calling an instance's conversion validated.
+That former open bar is now closed by the 2026-08-10 gold acceptance run.
+Customer-specific source shapes remain subject to the same hard gates; do not
+generalize one fixture's pass to another tenant without rerunning them.

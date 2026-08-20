@@ -50,13 +50,14 @@ CLASSIFICATION = {
     '--skip-doctor-gate'         => :offramp, # records kind doctor-gate-waived
     '--skip-ref-check'           => :forwards, # → assert-wb-refs-resolve.rb --workdir
     '--skip-extract-landing'     => :offramp,
-    '--skip-postpublish-guide'   => :gate,     # → assert-phase6-ran census
+    '--skip-postpublish-guide'   => :gate,     # → assert-phase6-ran census AND → assert-action-gates.rb (Task 6; guide-residue check ONLY, never G1)
     '--skip-flip-test'           => :gate,     # → --skip-control-flip census
     '--skip-datasource-filters'  => :forwards, # → assert-datasource-filters.rb --workdir
     '--skip-anchors-gate'        => :gate,     # W2.10: → assert-phase6-ran gate 13 (waiver budget, REASON required)
     '--skip-sql-ident-gate'      => :offramp   # W2-OM: orchestrator logs kind skip-flag-waived before waiving check-sql-idents
   },
   'assert-datasource-filters.rb' => { '--skip-datasource-filters' => :offramp }, # records kind skip-flag-waived
+  'assert-action-gates.rb'       => { '--skip-postpublish-guide' => :offramp },  # waives the guide-residue check ONLY, never G1; records kind skip-flag-waived
   'intake.rb'                    => { '--skip-bootstrap-gate' => :offramp },     # records kind skip-flag-waived
   'assert-wb-refs-resolve.rb'    => { '--skip-ref-check' => :offramp },
   'assert-dashboard-read.rb'     => { '--skip-dashboard-read' => :offramp },
@@ -131,7 +132,8 @@ RUNTIME = [
                                  '--skip-ref-check', 'refs pre-validated'], '--skip-ref-check'],
   ['assert-dashboard-read.rb',  ['--skip-dashboard-read', 'no source PNG obtainable'], '--skip-dashboard-read'],
   ['assert-run-state.rb',       ['--skip-run-state', 'legacy workdir'], '--skip-run-state'],
-  ['assert-doctor-ran.rb',      ['--skip-doctor-gate', 'CI environment'], '--skip-doctor-gate']
+  ['assert-doctor-ran.rb',      ['--skip-doctor-gate', 'CI environment'], '--skip-doctor-gate'],
+  ['assert-action-gates.rb',    ['--skip-postpublish-guide', 'no source PNG obtainable'], '--skip-postpublish-guide']
 ].freeze
 
 RUNTIME.each do |script, args, flag|

@@ -43,7 +43,7 @@ export function sigmaInodeId(identifier: string): string {
  * directions. E.g. CY_Q1_REVENUE → "Cy Q 1 Revenue" (NOT "Cy Q1 Revenue"),
  * FY2024 → "Fy 2024", PY_Q4 → "Py Q 4". Raw-column formula refs
  * ([TABLE/Display Name]) must reproduce this exactly or the POST fails with
- * "dependency not found" (beads-sigma-c31q).
+ * "dependency not found" ([bead]).
  */
 export function sigmaDisplayName(s: string): string {
   // Insert underscores at camelCase + letter↔digit boundaries so OrderDate →
@@ -106,7 +106,7 @@ export function sigmaAggFormula(agg: string, identifier: string): string {
  * Map a source-tool numeric format mask (Excel/.NET style, e.g. "$#,0.00",
  * "0.0%", "#,##0") to a Sigma format object. The PRIMARY format signal when the
  * source carries one — far more reliable than guessing from the formula/name
- * (beads-sigma-4q7k). Returns null for masks we don't recognize (e.g. dates,
+ * ([bead]). Returns null for masks we don't recognize (e.g. dates,
  * "General Date") so the heuristic fallback still runs.
  */
 export function formatFromMask(mask?: string): Record<string, any> | null {

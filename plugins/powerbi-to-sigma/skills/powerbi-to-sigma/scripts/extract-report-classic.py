@@ -147,6 +147,37 @@ def _projections(sv, vt=None):
     return out
 
 
+def _drill_signal(sv, vt=None):
+    """Return the complete ordered chart hierarchy when classic metadata has it.
+
+    ``_projections`` keeps the saved active level for initial rendering.  The
+    original ``projections`` plus ``activeProjections`` provide enough evidence
+    to wire a native Sigma drill control without guessing target columns.
+    """
+    smap = _select_alias_map(sv)
+    active = sv.get("activeProjections", {}) or {}
+    for role, items in (sv.get("projections", {}) or {}).items():
+        levels = [smap.get(it["queryRef"], it["queryRef"]) for it in items
+                  if isinstance(it, dict) and it.get("queryRef")]
+        if len(levels) < 2:
+            continue
+        active_refs = [smap.get(it["queryRef"], it["queryRef"])
+                       for it in (active.get(role) or [])
+                       if isinstance(it, dict) and it.get("queryRef")]
+        # Category/Axis with multiple projections is Power BI's chart hierarchy
+        # even at its top level; an activeProjections entry is stronger evidence
+        # and also identifies the saved drill level.
+        if role not in ("Category", "Axis", "X") and not active_refs:
+            continue
+        mapped_role = ROLE_REMAP.get(role, role) if vt in MAP_TYPES else role
+        return {
+            "role": mapped_role,
+            "levels": levels,
+            "active": active_refs[0] if active_refs else levels[0],
+        }
+    return None
+
+
 def _title(sv):
     for it in sv.get("objects", {}).get("title", []):
         props = it.get("properties", {})
@@ -271,6 +302,9 @@ def extract(report):
                 "z": vc.get("z", 0),
                 "parent_group": None,
                 "bindings": _projections(sv, vt),
+                # Preserve the full hierarchy separately from the active-level
+                # binding so the workbook builder can emit controlType:drill.
+                "drill": _drill_signal(sv, vt),
                 # bead f972: visual sort ({queryRef, direction asc|desc}) or None
                 "sort": _sort_signal(sv),
                 "stacking": _stacking(vt) if vkind["builder_kind"] in ("bar", "area") else None,

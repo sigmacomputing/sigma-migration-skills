@@ -210,7 +210,7 @@ class WidePivotTest(unittest.TestCase):
 AGENT_TOOLS = [
     {"toolId": "t-log-note", "kind": "action", "name": "Log note", "description": "Insert a review note.",
      "steps": [{"kind": "effect", "effect": "insert-rows", "table": "annotations",
-                "value": {"type": "agent-input", "inputName": "note"}}]},
+                "values": {"an-note": {"type": "agent-input", "inputName": "note"}}}]},
 ]
 
 
@@ -230,6 +230,18 @@ class AgentTest(unittest.TestCase):
             {"kind": "table", "elementId": "src-a"}, {"kind": "table", "elementId": "src-b"},
         ])
 
+    def test_optional_name_and_data_source_arguments_emit_an_api_valid_minimal_entry(self):
+        self.assertEqual(richness.agent(id="ag-min", instructions=""), {
+            "id": "ag-min", "instructions": "", "dataSources": [],
+        })
+
+    def test_optional_description_and_greeting_pass_through(self):
+        greeting = {"mode": "static", "message": "Ready."}
+        el = richness.agent(id="ag-described", name="Assistant", instructions="", data_source_ids=[],
+                            description="A helper.", greeting=greeting)
+        self.assertEqual(el["description"], "A helper.")
+        self.assertEqual(el["greeting"], greeting)
+
     def test_non_empty_tools_is_added_verbatim(self):
         el = richness.agent(id="ag-2", name="Assistant", instructions="Act on my behalf.",
                              data_source_ids=["src"], tools=AGENT_TOOLS)
@@ -240,13 +252,13 @@ class AgentTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             richness.agent(id="", name="A", instructions="x", data_source_ids=["src"])
 
-    def test_name_required(self):
+    def test_instructions_must_be_present(self):
         with self.assertRaises(ValueError):
-            richness.agent(id="ag-1", name="", instructions="x", data_source_ids=["src"])
+            richness.agent(id="ag-1", name="A", instructions=None, data_source_ids=["src"])
 
-    def test_instructions_required(self):
+    def test_omitted_instructions_is_rejected(self):
         with self.assertRaises(ValueError):
-            richness.agent(id="ag-1", name="A", instructions="", data_source_ids=["src"])
+            richness.agent(id="ag-1", name="A", data_source_ids=["src"])
 
     def test_no_go_surface_returns_opt_in_marker(self):
         surfaces = dict(richness.SURFACES, agent=False)

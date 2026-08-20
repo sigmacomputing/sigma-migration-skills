@@ -77,15 +77,20 @@ strips with a `%` `width`; each column has `cells[]` stacked top-to-bottom; each
 cell has `subcells[]` placed left-to-right (each a `%` of the column); each
 subcell holds `elements[]` keyed by `widgetid` with a px `height`.
 
-**Sigma** (top-level `layout`, a single XML string): one `<Page type="grid"
+**Sigma** (`document.layout`, a required XML string — the workbook body is
+`document`-wrapped as of 2026-08-03; `schemaVersion`/metadata-only `pages`/
+flat `elements`/`kind`/`layout` all nest under `document`; DM specs retain
+`pages[].elements`): one `<Page type="grid"
 gridTemplateColumns="repeat(24, 1fr)">` per page; elements positioned by
-`<LayoutElement elementId gridColumn="start / end" gridRow="start / end"/>` where
-**`end` is exclusive** (full width = `1 / 25`). A `<GridContainer>` can group a
+`<Element elementId gridColumn="start / end" gridRow="start / end"/>` where
+**`end` is exclusive** (full width = `1 / 25`). A `<Container>` can group a
 sub-grid, but its `elementId` MUST reference a real container element in the
 spec — Sigma rejects a synthetic id ("not a valid container"), so we don't emit
 one; controls go flat instead (see below). Element IDs we choose are
-**preserved on workbook CREATE**, so the layout's `elementId` refs resolve
-without a readback.
+**preserved on workbook CREATE**, so the layout's `elementId` refs resolve.
+`_assert_authoritative_layout()` fails conversion unless every flat element is
+placed exactly once and every metadata page has one layout Page block; readback
+verification uses the same CodeRep document/element helpers.
 
 `build_layout()` in `convert.py` does the translation:
 - **Faithful** (`_faithful`) when the Sisense layout has real structure (>1
@@ -99,8 +104,8 @@ without a readback.
   verbatim is an ugly tall stack). Leading KPIs flow into rows of up to 4 cards,
   remaining charts go 2-up, and `WIDE_KINDS` (line/area trends, tables, pivots)
   span full width.
-- Dashboard-filter **controls** are placed as a flat row of `<LayoutElement>`s
-  at the top (one equal column-slice each) — never a `<GridContainer>`, which
+- Dashboard-filter **controls** are placed as a flat row of `<Element>`s
+  at the top (one equal column-slice each) — never a `<Container>`, which
   Sigma rejects without a backing container element (live-found 2026-06-22).
 - px height → grid rows via `PX_PER_ROW` (≈42px/row, so Sisense's 512 default ≈
   12 rows); KPIs are pinned to a short `KPI_ROWS` card regardless of px.

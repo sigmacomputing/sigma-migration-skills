@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ET
 # QlikView <GraphMode> -> Sigma vizType. Sigma's supported set (viz-kind catalog,
 # consumed by build-sigma-workbook.py): barchart linechart combochart piechart
 # scatterplot table pivot-table kpi map. QlikView has 13 chart types; ALL are mapped
-# here. The 5 with NO native Sigma equivalent (radar/grid/gauge/block/funnel/mekko)
+# here. Types with NO native Sigma equivalent (radar/grid/block/funnel/mekko)
 # map to the closest kind and are flagged `approx` -> a LOUD per-chart warning, so a
 # fidelity gap is never silent. Keys are NORMALIZED (GRAPH_MODE_ prefix stripped,
 # non-letters removed, uppercased) so constant-name variants still resolve.
@@ -42,7 +42,7 @@ GRAPHMODE_VIZ = {
     "SCATTER": ("scatterplot", False),
     "STRAIGHTTABLE": ("table", False),
     "PIVOTTABLE": ("pivot-table", False),
-    "GAUGE": ("kpi", True),        # single-value gauge -> KPI
+    "GAUGE": ("gauge", False),     # single-value gauge -> native progress
     "RADAR": ("linechart", True),  # polar line/area -> line
     "GRID": ("scatterplot", True), # 2-dim grid w/ size/colour -> scatter
     "BLOCK": ("barchart", True),   # block/treemap -> bar (Sigma set has no treemap)
@@ -56,7 +56,7 @@ _VIZ_KEYWORDS = [
     ("LINE", ("linechart", False)), ("PIE", ("piechart", False)),
     ("SCATTER", ("scatterplot", False)), ("XY", ("scatterplot", False)),
     ("RADAR", ("linechart", True)), ("GRID", ("scatterplot", True)),
-    ("GAUGE", ("kpi", True)), ("SPEED", ("kpi", True)), ("METER", ("kpi", True)),
+    ("GAUGE", ("gauge", False)), ("SPEED", ("gauge", False)), ("METER", ("gauge", False)),
     ("BLOCK", ("barchart", True)), ("FUNNEL", ("barchart", True)),
     ("MEKKO", ("barchart", True)), ("TABLE", ("table", False)),
 ]

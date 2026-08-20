@@ -16,7 +16,7 @@
 
 - **layout / containers** — same element set, same arrangement/reading order, banded (not a flat stack); no overlaps, no dead zones; nothing dropped or invented.
 - **typography / text** — header → section title → KPI value → label form a real scale; titles present and not clipped; alignment intentional (left for text, natural for numbers).
-- **palette / theme** — series/slice colors match the source brand (via `themeOverrides.categoricalScheme`); canvas + band tints match; accent reserved, not sprayed.
+- **palette / theme** — series/slice colors match the source brand (via `settings.theme.overrides.categoricalScheme`); canvas + band tints match; accent reserved, not sprayed.
 - **chart kinds + marks — SHAPE IDENTITY (hard fail, not a style point)** — every viz must be **recognizably the same visualization** as the source zone: same chart family, same encoding (bars/dots/cells/table), same per-row/per-column structure. A ranked **bar-table** (label + per-category bar columns + printed values) rebuilt as one grouped bar chart FAILS. An annotated strip panel rebuilt as generic bars FAILS. A categorical axis flattened to numeric codes FAILS. **Correct data rendered as a different viz is a fidelity failure, not an approximation** — the owner sees a different dashboard (field-caught: a run whose every value matched was judged "furthest from desired" because tile identities were substituted; gate 9b now requires a per-tile `shape_match` attestation). Marks/labels/reference lines carried; log scale present (mind the export-linear ceiling).
 - **labels / number formats** — `$`/`%`/compact suffixes, decimals, and date formats match the source exactly (`$473.0K` not `$473.0k`); data labels on where the source has them.
 

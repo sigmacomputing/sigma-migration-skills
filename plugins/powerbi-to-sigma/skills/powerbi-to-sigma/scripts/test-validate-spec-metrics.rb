@@ -23,20 +23,26 @@ end
 def spec_with(formula)
   {
     'name' => 'T',
-    'pages' => [
-      { 'id' => 'page-data', 'name' => 'Data', 'elements' => [
+    'document' => {
+      'schemaVersion' => 4,
+      'kind' => 'workbook',
+      'pages' => [
+        { 'id' => 'page-data', 'name' => 'Data' },
+        { 'id' => 'page-1', 'name' => 'P' }
+      ],
+      'elements' => [
         { 'id' => 'master-x', 'kind' => 'table', 'name' => 'X',
           'source' => { 'dataModelId' => 'dm', 'elementId' => 'el', 'kind' => 'data-model' },
           'columns' => [{ 'id' => 'c1', 'name' => 'Region', 'formula' => '[X/Region]' }],
-          'visibleAsSource' => false }
-      ] },
-      { 'id' => 'page-1', 'name' => 'P', 'elements' => [
+          'visibleAsSource' => false },
         { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Net Revenue',
           'source' => { 'elementId' => 'master-x', 'kind' => 'table' },
           'columns' => [{ 'id' => 'k1', 'name' => 'Net Revenue', 'formula' => formula }],
           'value' => { 'columnId' => 'k1' } }
-      ] }
-    ]
+      ],
+      'layout' => '<Page id="page-data"><Element elementId="master-x"/></Page>' \
+                  '<Page id="page-1"><Element elementId="kpi1"/></Page>'
+    }
   }
 end
 

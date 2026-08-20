@@ -1,6 +1,6 @@
 # Looker → Sigma Dashboard Layout Extraction (Spike)
 
-**Beads issue:** `beads-sigma-vgz`
+**Beads issue:** `[bead]`
 **Status:** Research / desk study (no live Looker access)
 **Recommendation:** **Partial — yes for `layout: newspaper` dashboards via the REST API, no for `layout: tile` / `layout: static` / `layout: grid` without a pixel→grid heuristic. Requires new MCP tooling that does not exist today.**
 
@@ -12,8 +12,12 @@ The `tableau-to-sigma` skill ships a Phase 3 layout pipeline that mirrors a Tabl
 
 1. POSTing a workbook spec (charts, KPIs, controls) without layout.
 2. GETing the spec back to learn server-assigned element IDs.
-3. Generating layout XML in Ruby — `<Page>`, `<GridContainer>`, `<LayoutElement>` — with `gridColumn="c0 / c1"` / `gridRow="r0 / r1"` span notation against `repeat(24, 1fr)` columns.
-4. PUTing the spec back with one **top-level** `layout` field (per-page `layout` is silently ignored).
+3. Generating layout XML — `<Page>`, `<Container>`, `<Element>` — with `gridColumn="c0 / c1"` / `gridRow="r0 / r1"` span notation against `repeat(24, 1fr)` columns. The legacy `GridContainer` / `LayoutElement` aliases are accepted only when reading old artifacts and must never be emitted.
+4. PUTing the spec back with one `layout` field on the spec's `document` object (per-page
+   `layout` is silently ignored). The workbook body is `document`-wrapped as of 2026-08-03
+   — `schemaVersion`/metadata-only `pages`/flat `elements`/`kind`/required `layout`
+   all nest under `document`; outer workbook metadata stays outside it. DM specs
+   stay flat and preserve `pages[].elements`.
 
 We want Phase 3 coverage for Looker dashboards — i.e. given a Looker dashboard, produce equivalent Sigma element specs and a layout XML string that places those tiles where the Looker original placed them.
 
@@ -106,17 +110,17 @@ gridRow    = "${row + 1} / ${row + 1 + height}"
 So a Looker tile at `row: 0, col: 2, width: 20, height: 13` becomes:
 
 ```xml
-<LayoutElement elementId="<sigma-id>" gridColumn="3 / 23" gridRow="1 / 14"/>
+<Element elementId="<sigma-id>" gridColumn="3 / 23" gridRow="1 / 14"/>
 ```
 
 That's a single arithmetic transform — no spatial heuristic required for newspaper. The Ruby helpers in `tableau-to-sigma/refs/workbook-layout.md` (`gc()`, `le()`, `page_xml()`) work as-is once Looker components are loaded into the same `(elementId, c0, c1, r0, r1)` shape.
 
 ### Container / sub-grouping
 Looker has no native container element analogous to Sigma's `container`. Tile groups in Looker are visual only (no parent ID), so the converter should:
-- emit each Looker element as a top-level `<LayoutElement>`,
+- emit each Looker element as a top-level `<Element>`,
 - **not** synthesize Sigma `container` elements automatically.
 
-KPI rows in Looker (`type: single_value`, `single_value` height typically 2–3 rows in newspaper) can optionally be wrapped in a Sigma `<GridContainer>` if the converter detects 3+ adjacent single-value tiles in the same row band — but this is a nice-to-have, not required.
+KPI rows in Looker (`type: single_value`, `single_value` height typically 2–3 rows in newspaper) can optionally be wrapped in a Sigma `<Container>` if the converter detects 3+ adjacent single-value tiles in the same row band — but this is a nice-to-have, not required.
 
 ### Row-height calibration
 Looker rows ≠ Sigma rows. Looker newspaper rows are ~50 px each and elements typically span 6 rows for a chart. Sigma rows are "auto" — driven by content. Empirical heuristic from `refs/workbook-layout.md` row-sizing guide:
@@ -261,12 +265,12 @@ This is the single biggest source of bugs in any LookML→anything converter. **
 | `looker_pie` | `pie-chart` | Direct. Beware `pie` vs `pie-chart` kind name — Sigma rejects `pie`. |
 | `looker_donut_multiples` | `donut-chart` (single ring) | Looker shows N donuts (one per dimension value); Sigma has one — emit a single donut and warn. |
 | `looker_grid`, `table` | `table` | Direct. |
-| `single_value` | `kpi-chart` | Direct. Use `value` field. |
+| `single_value` | `kpi-chart` or `progress` | Direct KPI; documented progress comparisons become native progress when value + target measures exist. |
 | `text` | `text` | Direct. Markdown body. Looker `subtitle_text` / `body_text` concatenate. |
 | `looker_map`, `looker_geo_coordinates`, `looker_geo_choropleth` | **None** — approximate as `bar-chart` of "Sales by State" sorted descending (Tableau pipeline does the same). |
 | `looker_funnel` | **None** — approximate as horizontal `bar-chart`. |
-| `looker_waterfall` | **None** — approximate as `combo-chart` with running-total line. |
-| `looker_boxplot` | **None** — drop and warn. |
+| `looker_waterfall` | `waterfall-chart` | Native for dimension + measure; measure-only form warns and skips. |
+| `looker_boxplot` | **Release-gated** — drop and warn until `box-chart` is published. |
 | `looker_wordcloud` | **None** — drop and warn. |
 | `looker_timeline` (Gantt) | **None** — drop and warn (same as Tableau pipeline). |
 | `looker_sankey` | **None** — drop and warn. |
@@ -360,11 +364,11 @@ After publishing, pull a chart's data from Sigma (already supported via `query`/
 1. **Discovery** — `fetch_looker_dashboard` (or `parse_lookml`) returns dashboard JSON.
 2. **Field resolution** — walk explore joins, resolve `view.field` prefixes, emit a Sigma data-model spec with one element per resolved view; POST it; GET the spec back to capture server-assigned IDs.
 3. **Workbook spec** — for each Looker `dashboard_element`, emit a Sigma element of the matching `kind`. Use the converter's tile-type table (§5e). Source from the master data-model element; column formulas use `[ElementName/Column]`. POST without layout; GET back to capture element IDs.
-4. **Layout XML** — generate via Ruby helpers in `tableau-to-sigma/refs/workbook-layout.md`, using `(col+1, col+1+width)` / `(row+1, row+1+height)` from the Looker components. Single top-level `layout`, no per-page `layout`.
+4. **Layout XML** — generate via Ruby helpers in `tableau-to-sigma/refs/workbook-layout.md`, using `(col+1, col+1+width)` / `(row+1, row+1+height)` from the Looker components. Single `document.layout`, no per-page `layout`.
 5. **PUT** the spec with layout. Strip read-only fields per `tableau-to-sigma/SKILL.md` Phase 5e.
 6. **Verify** — query each Sigma chart and compare to Looker tile data.
 
-The Tableau pipeline's invariants — element-name = formula prefix, `<GridContainer>` for containers, KPI inner-row span = container outer span, `kpi-chart` not `kpi`, `pie-chart` not `pie`, etc. — apply unchanged.
+The Tableau pipeline's invariants — element-name = formula prefix, `<Container>` for containers, KPI inner-row span = container outer span, `kpi-chart` not `kpi`, `pie-chart` not `pie`, etc. — apply unchanged.
 
 ---
 

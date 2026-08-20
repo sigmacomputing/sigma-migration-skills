@@ -127,6 +127,7 @@ def parse_explore_cell(cell: dict) -> dict:
         "fields": spec.get("fields") or [],
         "series": chart.get("series") or [],
         "series_groups": chart.get("seriesGroups") or [],
+        "settings": chart.get("settings") or {},
         "orientation": chart.get("orientation"),
         "view_type": spec.get("viewType"),
         "visualization_type": spec.get("visualizationType"),
@@ -161,7 +162,9 @@ def parse_cells(doc: dict) -> tuple[list[dict], list[str]]:
 def parse_app_layout(doc: dict) -> list[dict]:
     """appLayout.tabs[].rows[].columns[].{start,end,elements[]} on a 0-120
     scale (confirmed from a real export — NOT Metabase's 24-col grid).
-    Returns a list of tabs: [{name, rows: [{columns: [{start,end,cell_ids:[...]}]}]}]."""
+    Preserve per-cell height/explorable metadata so the workbook builder can
+    author authoritative layout and flag interaction gaps rather than silently
+    discarding them."""
     layout = doc.get("appLayout") or {}
     tabs = []
     for tab in layout.get("tabs") or []:
@@ -169,14 +172,24 @@ def parse_app_layout(doc: dict) -> list[dict]:
         for row in tab.get("rows") or []:
             cols = []
             for col in row.get("columns") or []:
-                cell_ids = [
-                    el["cellId"] for el in (col.get("elements") or [])
-                    if el.get("type") == "CELL" and el.get("cellId")
-                ]
+                cells = []
+                unsupported = []
+                for el in col.get("elements") or []:
+                    if el.get("type") == "CELL" and el.get("cellId"):
+                        cells.append({
+                            "cell_id": el["cellId"],
+                            "height": el.get("height"),
+                            "explorable": el.get("explorable"),
+                            "show_label": el.get("showLabel"),
+                        })
+                    elif el.get("type"):
+                        unsupported.append({"type": el["type"], "cell_id": el.get("cellId")})
                 cols.append({
                     "start": col.get("start", 0),
                     "end": col.get("end", 120),
-                    "cell_ids": cell_ids,
+                    "cell_ids": [cell["cell_id"] for cell in cells],
+                    "cells": cells,
+                    "unsupported": unsupported,
                 })
             rows.append({"columns": cols})
         tabs.append({"name": tab.get("name") or "Page 1", "rows": rows})

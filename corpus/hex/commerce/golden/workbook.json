@@ -1,221 +1,240 @@
 {
   "workbook": {
     "name": "Commerce Dashboard",
-    "schemaVersion": 1,
-    "pages": [
-      {
-        "id": "id0001",
-        "name": "Tab 1",
-        "elements": [
-          {
-            "id": "id0002",
-            "kind": "kpi-chart",
-            "name": "Total Revenue",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "columns": [
-              {
-                "id": "id0005",
-                "formula": "Sum([Custom SQL/Revenue])",
-                "format": {
-                  "kind": "number",
-                  "formatString": "$,.2f",
-                  "currencySymbol": "$"
-                }
+    "document": {
+      "schemaVersion": 1,
+      "kind": "workbook",
+      "pages": [
+        {
+          "id": "id0001",
+          "name": "Tab 1"
+        }
+      ],
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "kpi-chart",
+          "name": "Total Revenue",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "columns": [
+            {
+              "id": "id0005",
+              "formula": "Sum([Custom SQL/Revenue])",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.2f",
+                "currencySymbol": "$"
               }
-            ],
-            "value": {
-              "columnId": "id0005"
             }
-          },
-          {
-            "id": "id0006",
-            "kind": "kpi-chart",
-            "name": "Total Quantity",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "columns": [
-              {
-                "id": "id0007",
-                "formula": "Sum([Custom SQL/Quantity])",
-                "format": {
-                  "kind": "number",
-                  "formatString": ",.2f"
-                }
-              }
-            ],
-            "value": {
-              "columnId": "id0007"
-            }
-          },
-          {
-            "id": "id0008",
-            "kind": "bar-chart",
-            "name": "Revenue by Country - Top 10",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "xAxis": {
-              "columnId": "id0009",
-              "sort": {
-                "by": "id0010",
-                "direction": "descending"
-              }
-            },
-            "yAxis": {
-              "columnIds": [
-                "id0010"
-              ]
-            },
-            "orientation": "horizontal",
-            "columns": [
-              {
-                "id": "id0009",
-                "name": "Country",
-                "formula": "[Custom SQL/Country]"
-              },
-              {
-                "id": "id0010",
-                "name": "Revenue",
-                "formula": "Sum([Custom SQL/Revenue])"
-              }
-            ],
-            "filters": [
-              {
-                "id": "id0011",
-                "columnId": "id0010",
-                "kind": "top-n",
-                "rankingFunction": "rank",
-                "mode": "top-n",
-                "rowCount": 10,
-                "includeNulls": "when-no-value-is-selected"
-              }
-            ]
-          },
-          {
-            "id": "id0012",
-            "kind": "pie-chart",
-            "name": "Quantity by Category",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "color": {
-              "id": "id0013",
-              "sort": {
-                "by": "id0014",
-                "direction": "descending"
-              }
-            },
-            "value": {
-              "id": "id0014"
-            },
-            "columns": [
-              {
-                "id": "id0013",
-                "name": "Category",
-                "formula": "[Custom SQL/Category]"
-              },
-              {
-                "id": "id0014",
-                "name": "Quantity",
-                "formula": "Sum([Custom SQL/Quantity])"
-              }
-            ],
-            "filters": [
-              {
-                "id": "id0015",
-                "columnId": "id0014",
-                "kind": "top-n",
-                "rankingFunction": "rank",
-                "mode": "top-n",
-                "rowCount": 10,
-                "includeNulls": "when-no-value-is-selected"
-              }
-            ]
-          },
-          {
-            "id": "id0016",
-            "kind": "bar-chart",
-            "name": "Revenue by Category",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "xAxis": {
-              "columnId": "id0017",
-              "sort": {
-                "by": "id0018",
-                "direction": "descending"
-              }
-            },
-            "yAxis": {
-              "columnIds": [
-                "id0018"
-              ]
-            },
-            "orientation": "horizontal",
-            "columns": [
-              {
-                "id": "id0017",
-                "name": "Category",
-                "formula": "[Custom SQL/Category]"
-              },
-              {
-                "id": "id0018",
-                "name": "Revenue",
-                "formula": "Sum([Custom SQL/Revenue])"
-              }
-            ]
-          },
-          {
-            "id": "id0019",
-            "kind": "bar-chart",
-            "name": "Revenue by Year",
-            "source": {
-              "kind": "data-model",
-              "dataModelId": "id0003",
-              "elementId": "id0004"
-            },
-            "xAxis": {
-              "columnId": "id0020",
-              "sort": {
-                "by": "id0020",
-                "direction": "ascending"
-              }
-            },
-            "yAxis": {
-              "columnIds": [
-                "id0021"
-              ]
-            },
-            "columns": [
-              {
-                "id": "id0020",
-                "name": "Year",
-                "formula": "[Custom SQL/Year]"
-              },
-              {
-                "id": "id0021",
-                "name": "Revenue",
-                "formula": "Sum([Custom SQL/Revenue])"
-              }
-            ]
+          ],
+          "value": {
+            "columnId": "id0005"
           }
-        ]
-      }
-    ],
-    "layout": "<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"lIWWRpM6D1\">\n  <LayoutElement elementId=\"01MCoxRHN7\" gridColumn=\"1 / 7\" gridRow=\"1 / 9\"/>\n  <LayoutElement elementId=\"MblmujjMip\" gridColumn=\"1 / 7\" gridRow=\"9 / 17\"/>\n  <LayoutElement elementId=\"6z5S0vqaFW\" gridColumn=\"7 / 16\" gridRow=\"1 / 9\"/>\n  <LayoutElement elementId=\"IMg59kHAN5\" gridColumn=\"16 / 25\" gridRow=\"1 / 9\"/>\n  <LayoutElement elementId=\"T5pFgSdmEc\" gridColumn=\"1 / 14\" gridRow=\"17 / 25\"/>\n  <LayoutElement elementId=\"FCDniaNEBO\" gridColumn=\"14 / 25\" gridRow=\"17 / 25\"/>\n</Page>"
+        },
+        {
+          "id": "id0006",
+          "kind": "kpi-chart",
+          "name": "Total Quantity",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "columns": [
+            {
+              "id": "id0007",
+              "formula": "Sum([Custom SQL/Quantity])",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "value": {
+            "columnId": "id0007"
+          }
+        },
+        {
+          "id": "id0008",
+          "kind": "bar-chart",
+          "name": "Revenue by Country - Top 10",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "xAxis": {
+            "columnId": "id0009",
+            "sort": {
+              "by": "id0010",
+              "direction": "descending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "id0010"
+            ]
+          },
+          "orientation": "horizontal",
+          "legend": {
+            "position": "right"
+          },
+          "color": {
+            "by": "single",
+            "value": "#4C78A8"
+          },
+          "columns": [
+            {
+              "id": "id0009",
+              "name": "Country",
+              "formula": "[Custom SQL/Country]"
+            },
+            {
+              "id": "id0010",
+              "name": "Revenue",
+              "formula": "Sum([Custom SQL/Revenue])"
+            }
+          ],
+          "filters": [
+            {
+              "id": "id0011",
+              "columnId": "id0010",
+              "kind": "top-n",
+              "rankingFunction": "rank",
+              "mode": "top-n",
+              "rowCount": 10,
+              "includeNulls": "when-no-value-is-selected"
+            }
+          ]
+        },
+        {
+          "id": "id0012",
+          "kind": "pie-chart",
+          "name": "Quantity by Category",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "color": {
+            "id": "id0013",
+            "sort": {
+              "by": "id0014",
+              "direction": "descending"
+            }
+          },
+          "value": {
+            "id": "id0014"
+          },
+          "legend": {
+            "visibility": "hidden"
+          },
+          "columns": [
+            {
+              "id": "id0013",
+              "name": "Category",
+              "formula": "[Custom SQL/Category]"
+            },
+            {
+              "id": "id0014",
+              "name": "Quantity",
+              "formula": "Sum([Custom SQL/Quantity])"
+            }
+          ],
+          "filters": [
+            {
+              "id": "id0015",
+              "columnId": "id0014",
+              "kind": "top-n",
+              "rankingFunction": "rank",
+              "mode": "top-n",
+              "rowCount": 10,
+              "includeNulls": "when-no-value-is-selected"
+            }
+          ]
+        },
+        {
+          "id": "id0016",
+          "kind": "bar-chart",
+          "name": "Revenue by Category",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "xAxis": {
+            "columnId": "id0017",
+            "sort": {
+              "by": "id0018",
+              "direction": "descending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "id0018"
+            ]
+          },
+          "orientation": "horizontal",
+          "legend": {
+            "position": "right"
+          },
+          "columns": [
+            {
+              "id": "id0017",
+              "name": "Category",
+              "formula": "[Custom SQL/Category]"
+            },
+            {
+              "id": "id0018",
+              "name": "Revenue",
+              "formula": "Sum([Custom SQL/Revenue])"
+            }
+          ]
+        },
+        {
+          "id": "id0019",
+          "kind": "bar-chart",
+          "name": "Revenue by Year",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0003",
+            "elementId": "id0004"
+          },
+          "xAxis": {
+            "columnId": "id0020",
+            "sort": {
+              "by": "id0020",
+              "direction": "ascending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "id0021"
+            ]
+          },
+          "legend": {
+            "position": "right"
+          },
+          "columns": [
+            {
+              "id": "id0020",
+              "name": "Year",
+              "formula": "[Custom SQL/Year]"
+            },
+            {
+              "id": "id0021",
+              "name": "Revenue",
+              "formula": "Sum([Custom SQL/Revenue])"
+            }
+          ]
+        }
+      ],
+      "layout": "<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"id0001\">\n  <Element elementId=\"id0002\" gridColumn=\"1 / 7\" gridRow=\"1 / 9\"/>\n  <Element elementId=\"id0006\" gridColumn=\"1 / 7\" gridRow=\"9 / 13\"/>\n  <Element elementId=\"id0008\" gridColumn=\"7 / 16\" gridRow=\"1 / 9\"/>\n  <Element elementId=\"id0012\" gridColumn=\"16 / 25\" gridRow=\"1 / 9\"/>\n  <Element elementId=\"id0016\" gridColumn=\"1 / 14\" gridRow=\"13 / 23\"/>\n  <Element elementId=\"id0019\" gridColumn=\"14 / 25\" gridRow=\"13 / 23\"/>\n</Page>"
+    }
   },
   "warnings": [],
   "stats": {

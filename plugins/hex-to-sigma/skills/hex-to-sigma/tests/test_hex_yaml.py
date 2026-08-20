@@ -118,7 +118,11 @@ def test_parse_explore_cell_extracts_chart_config():
         "config": {"dataframe": "df1", "spec": {
             "fields": [{"channel": "base-axis", "value": "Region"}],
             "viewType": "CHART", "visualizationType": "explore",
-            "chartConfig": {"series": [{"type": "bar"}], "orientation": "horizontal"},
+            "chartConfig": {
+                "series": [{"type": "bar"}],
+                "orientation": "horizontal",
+                "settings": {"legend": {"position": "right"}},
+            },
         }},
     }
     parsed = hex_yaml.parse_explore_cell(cell)
@@ -126,6 +130,7 @@ def test_parse_explore_cell_extracts_chart_config():
     assert parsed["fields"] == [{"channel": "base-axis", "value": "Region"}]
     assert parsed["series"] == [{"type": "bar"}]
     assert parsed["orientation"] == "horizontal"
+    assert parsed["settings"] == {"legend": {"position": "right"}}
     # missing config/spec/chartConfig sub-keys degrade to [] / None, never KeyError
     empty = hex_yaml.parse_explore_cell({"cellId": "c2"})
     assert empty["fields"] == [] and empty["series"] == [] and empty["series_groups"] == []
@@ -151,7 +156,7 @@ def test_parse_app_layout_walks_tabs_rows_columns():
         {"name": "Overview", "rows": [
             {"columns": [
                 {"start": 0, "end": 60, "elements": [
-                    {"type": "CELL", "cellId": "c1"},
+                    {"type": "CELL", "cellId": "c1", "height": 240, "explorable": True},
                     {"type": "TEXT", "cellId": "c2"},  # not a CELL -> excluded
                     {"type": "CELL"},                   # CELL with no cellId -> excluded
                 ]},
@@ -165,6 +170,13 @@ def test_parse_app_layout_walks_tabs_rows_columns():
     assert tabs[0]["name"] == "Overview"
     col0, col1 = tabs[0]["rows"][0]["columns"]
     assert col0["start"] == 0 and col0["end"] == 60 and col0["cell_ids"] == ["c1"]
+    assert col0["cells"] == [{
+        "cell_id": "c1", "height": 240, "explorable": True, "show_label": None,
+    }]
+    assert col0["unsupported"] == [
+        {"type": "TEXT", "cell_id": "c2"},
+        {"type": "CELL", "cell_id": None},
+    ]
     assert col1["start"] == 0 and col1["end"] == 120 and col1["cell_ids"] == ["c3"]
     assert tabs[1]["name"] == "Page 1"
     assert hex_yaml.parse_app_layout({}) == []

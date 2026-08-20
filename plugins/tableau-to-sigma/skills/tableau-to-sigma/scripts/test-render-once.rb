@@ -23,6 +23,7 @@
 require 'json'
 require 'tmpdir'
 require 'fileutils'
+require_relative 'lib/workbook_code'
 
 DIR = __dir__
 SRC = File.read(File.join(DIR, 'migrate-tableau.rb'), encoding: 'UTF-8')
@@ -48,7 +49,13 @@ def seed(d, doc_version: 'v7', view_png: true, dash_png: false, sigma_png: true,
   File.write(File.join(d, 'dashboard-layout.json'), JSON.pretty_generate(
                layout ? [{ 'dashboard' => 'Alpha Overview', 'zones' => [] }] : []))
   File.write(File.join(d, 'wb-ids.json'), JSON.pretty_generate(
-               'pages' => [{ 'name' => 'Alpha Overview', 'id' => 'p1' }]))
+               'document' => {
+                 'schemaVersion' => 4,
+                 'kind' => 'workbook',
+                 'pages' => [{ 'name' => 'Alpha Overview', 'id' => 'p1' }],
+                 'elements' => [],
+                 'layout' => '<Page id="p1"></Page>'
+               }))
   File.write(File.join(d, 'get-workbook.json'), JSON.pretty_generate(
                'workbook' => { 'views' => { 'view' => [{ 'name' => 'Alpha Overview', 'id' => 'view-1' }] } }))
   File.binwrite(File.join(d, 'views', 'view-1.png'), PNG) if view_png

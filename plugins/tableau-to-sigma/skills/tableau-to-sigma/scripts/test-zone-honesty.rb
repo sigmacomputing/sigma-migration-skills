@@ -184,6 +184,7 @@ check(log.include?('multi-instance trend shelf'), 'overlay expansion is disclose
 # ---- topo order (build_wb_spec) ---------------------------------------------
 puts 'data-page topo order (source before consumer)'
 require_relative 'mechanical-specs'
+require_relative 'lib/workbook_code'
 spec = MechanicalSpecs.build_wb_spec(
   name: 'T', dm_id: 'dm', fact_eid: 'fe',
   master_columns: [{ 'id' => 'm-a', 'name' => 'A' }],
@@ -197,8 +198,8 @@ spec = MechanicalSpecs.build_wb_spec(
     { 'id' => 'helper-2', 'kind' => 'table', 'name' => 'On Master',
       'source' => { 'kind' => 'table', 'elementId' => 'master' }, 'columns' => [] }
   ])
-data_page = spec['pages'].find { |p| p['id'] == 'page-data' }
-order = data_page['elements'].map { |e| e['id'] }
+data_page = WorkbookCode.pages(spec).find { |p| p['id'] == 'page-data' }
+order = WorkbookCode.elements_for_page(spec, data_page).map { |e| e['id'] }
 check(order.first == 'master', "master leads the data page (got #{order.inspect})", fails)
 check(order.index('submaster-b') < order.index('helper-1'),
       "sub-master precedes the helper that sources it (got #{order.inspect})", fails)

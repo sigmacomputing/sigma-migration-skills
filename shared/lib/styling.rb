@@ -47,10 +47,10 @@ module Styling
   SURFACES = {
     kpi_name_color: true,     # name:{text,color} on a kpi-chart (value.color bonus also GO, not emitted here)
     chart_color_by: true,     # color:{by:"single",value:"#hex"} on a chart element
-    categorical_scheme: true, # workbook-level themeOverrides:{categoricalScheme:[...]}
+    categorical_scheme: true, # workbook-level settings.theme.overrides:{categoricalScheme:[...]}
     format_string: true,      # format:{kind:"number",formatString:<d3>} — Excel-style formatString is 400-rejected, never emitted
     container_style: true,    # container style:{backgroundColor,borderRadius,borderColor,borderWidth} (borderRadius, NOT cornerRadius; never combine with padding)
-    typography: true,         # themeOverrides.titleFont + per-element name:{fontSize} — GO, but no helper below emits it (out of this task's scope); kept for a complete surface map
+    typography: true,         # settings.theme.overrides.titleFont + per-element name:{fontSize} — GO, but no helper below emits it (out of this task's scope); kept for a complete surface map
     # WS4 Task 2 (build-plugs-command-center.rb HDRBG probe): container
     # backgroundImage:{url:"data:image/svg+xml;base64,...",style:{fit:"cover"}}
     # carrying a composed <linearGradient>+motif SVG survived readback + a
@@ -138,7 +138,11 @@ module Styling
   def self.chart_color(theme, categorical: false, surfaces: SURFACES)
     if categorical
       return {} unless surfaces[:categorical_scheme]
-      { 'themeOverrides' => { 'categoricalScheme' => theme[:categorical] } }
+      # Workbook-level palette patch. Lives at settings.theme.overrides — the
+      # removed top-level themeOverrides key is silently dropped by the API.
+      # NOTE for callers: this is a NESTED patch, so deep-merge it into the spec;
+      # a shallow merge of `settings` would clobber sibling settings (navigation).
+      { 'settings' => { 'theme' => { 'overrides' => { 'categoricalScheme' => theme[:categorical] } } } }
     else
       return {} unless surfaces[:chart_color_by]
       { 'color' => { 'by' => 'single', 'value' => theme[:categorical][0] } }
@@ -164,9 +168,9 @@ module Styling
   # Thin full-width header band (rows 1..3): a styled `kind:container` +
   # a separate `kind:text` title child (containers have no title-rendering
   # field of their own — see reference/specification/layout.md Recipe 1),
-  # plus the `<GridContainer>` layout fragment wrapping the title
-  # `<LayoutElement>`. If container-style is NO-GO, returns the header as a
-  # plain text element with no wrapping container (a bare `<LayoutElement>`).
+  # plus the `<Container>` layout fragment wrapping the title
+  # `<Element>`. If container-style is NO-GO, returns the header as a
+  # plain text element with no wrapping container (a bare `<Element>`).
   def self.header(id:, title:, theme:, page_cols: 24, surfaces: SURFACES)
     title_id = "#{id}-title"
     text_el = { 'id' => title_id, 'kind' => 'text',
@@ -174,16 +178,16 @@ module Styling
     r0 = 1
     r1 = 3
     unless surfaces[:container_style]
-      layout = "  <LayoutElement elementId=\"#{title_id}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\"/>"
+      layout = "  <Element elementId=\"#{title_id}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\"/>"
       return { element: [text_el], layout: layout }
     end
     container_id = "#{id}-bg"
     container_el = { 'id' => container_id, 'kind' => 'container', 'style' => theme[:header] }
     layout = [
-      "<GridContainer elementId=\"#{container_id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\" " \
+      "<Container elementId=\"#{container_id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\" " \
         "gridTemplateColumns=\"repeat(#{page_cols}, 1fr)\" gridTemplateRows=\"auto\">",
-      "  <LayoutElement elementId=\"#{title_id}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\"/>",
-      '</GridContainer>'
+      "  <Element elementId=\"#{title_id}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\"/>",
+      '</Container>'
     ].join("\n")
     { element: [container_el, text_el], layout: layout }
   end
@@ -193,7 +197,7 @@ module Styling
   # page-level rect, with its ids tiled side-by-side inside (same even
   # column split Composition.band uses, on the container's own relative row
   # range). If container-style is NO-GO, returns the band's bare
-  # (unwrapped) `<LayoutElement>` render, matching plain Composition output.
+  # (unwrapped) `<Element>` render, matching plain Composition output.
   def self.section_card(id:, band:, theme:, page_cols: 24, surfaces: SURFACES)
     ids = band[:ids]
     height = band[:r1] - band[:r0]
@@ -204,10 +208,10 @@ module Styling
     container_el = { 'id' => id, 'kind' => 'container', 'style' => theme[:card] }
     children = Composition.band(ids.map { |i| { id: i } }, 1, 1 + height, page_cols).join("\n")
     wrap = [
-      "<GridContainer elementId=\"#{id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{band[:r0]} / #{band[:r1]}\" " \
+      "<Container elementId=\"#{id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{band[:r0]} / #{band[:r1]}\" " \
         "gridTemplateColumns=\"repeat(#{page_cols}, 1fr)\" gridTemplateRows=\"auto\">",
       children,
-      '</GridContainer>'
+      '</Container>'
     ].join("\n")
     { element: container_el, wrap: wrap }
   end
@@ -277,8 +281,12 @@ module Styling
     title_id = "#{id}-title"
     subtitle_id = "#{id}-subtitle"
 
+    # PATCHED for live probe (2026-08-08): live API now 400s "backgroundImage.source:
+    # Invalid value: undefined" — the current contract nests the url under
+    # backgroundImage.source:{kind:"url",url:} instead of the old flat backgroundImage.url.
+    # See feature-coverage-report for the full finding.
     container_el = { 'id' => container_id, 'kind' => 'container', 'style' => { 'borderRadius' => 'round' },
-                     'backgroundImage' => { 'url' => bg_url, 'style' => { 'fit' => 'cover' } } }
+                     'backgroundImage' => { 'source' => { 'kind' => 'url', 'url' => bg_url }, 'style' => { 'fit' => 'cover' } } }
     title_el = { 'id' => title_id, 'kind' => 'text', 'verticalAlign' => 'middle',
                  'body' => "# <span style=\"color: #FFFFFF\">#{title}</span>" }
 
@@ -294,14 +302,14 @@ module Styling
     r1 = 4
     title_r1 = subtitle ? 3 : r1
     text_c0 = logo_url ? 3 : 1
-    lines = ["<GridContainer elementId=\"#{container_id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\" " \
+    lines = ["<Container elementId=\"#{container_id}\" type=\"grid\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"#{r0} / #{r1}\" " \
               "gridTemplateColumns=\"repeat(#{page_cols}, 1fr)\" gridTemplateRows=\"auto\">"]
-    lines << "  <LayoutElement elementId=\"#{logo_id}\" gridColumn=\"1 / 3\" gridRow=\"#{r0} / #{r1}\"/>" if logo_url
-    lines << "  <LayoutElement elementId=\"#{title_id}\" gridColumn=\"#{text_c0} / #{page_cols + 1}\" gridRow=\"#{r0} / #{title_r1}\"/>"
+    lines << "  <Element elementId=\"#{logo_id}\" gridColumn=\"1 / 3\" gridRow=\"#{r0} / #{r1}\"/>" if logo_url
+    lines << "  <Element elementId=\"#{title_id}\" gridColumn=\"#{text_c0} / #{page_cols + 1}\" gridRow=\"#{r0} / #{title_r1}\"/>"
     if subtitle
-      lines << "  <LayoutElement elementId=\"#{subtitle_id}\" gridColumn=\"#{text_c0} / #{page_cols + 1}\" gridRow=\"#{title_r1} / #{r1}\"/>"
+      lines << "  <Element elementId=\"#{subtitle_id}\" gridColumn=\"#{text_c0} / #{page_cols + 1}\" gridRow=\"#{title_r1} / #{r1}\"/>"
     end
-    lines << '</GridContainer>'
+    lines << '</Container>'
 
     { element: elements, layout: lines.join("\n") }
   end
@@ -365,21 +373,22 @@ module Styling
   # layers (see compose_card_svg): the gradient rect, then a dark scrim --
   # this is what makes the white value/title legible on a bright/medium
   # gradient too, not just a dark one (WS4 Task 6, user-reported "can't see
-  # the numbers"). `child_layout` is only the inner `<LayoutElement>`
+  # the numbers"). `child_layout` is only the inner `<Element>`
   # fragment positioning `kpi_element`'s id inside the container at the
   # Composition kpi-band height (rows 1..7, matching `Composition.bands`'
   # own `:kpi` role height) -- placing the container itself on the page is
   # the caller's job (same "decorate, don't own layout" contract as
-  # `section_card`), so no outer `<GridContainer>` is returned here.
+  # `section_card`), so no outer `<Container>` is returned here.
   # NO-GO -> `{element:[],child_layout:'',patch:{}}` (graceful: nothing to
   # merge, nothing to lay out, never a broken/half-decorated card).
   def self.gradient_card(id:, kpi_element:, gradient: DEFAULT_THEME[:card_gradient], page_cols: 24, surfaces: SURFACES)
     return { element: [], child_layout: '', patch: {} } unless surfaces[:gradient_card]
 
     bg_url = svg_data_uri(compose_card_svg(gradient))
+    # PATCHED for live probe (2026-08-08) — see gradient_header's identical note above.
     container_el = { 'id' => id, 'kind' => 'container', 'style' => { 'borderRadius' => 'round' },
-                      'backgroundImage' => { 'url' => bg_url, 'style' => { 'fit' => 'cover' } } }
-    child_layout = "<LayoutElement elementId=\"#{kpi_element['id']}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"1 / 7\"/>"
+                      'backgroundImage' => { 'source' => { 'kind' => 'url', 'url' => bg_url }, 'style' => { 'fit' => 'cover' } } }
+    child_layout = "<Element elementId=\"#{kpi_element['id']}\" gridColumn=\"1 / #{page_cols + 1}\" gridRow=\"1 / 7\"/>"
     patch = { 'value' => { 'color' => '#FFFFFF' }, 'name' => { 'color' => '#FFFFFF' },
               'style' => { 'backgroundColor' => 'transparent', 'padding' => 'none' } }
     { element: [container_el], child_layout: child_layout, patch: patch }

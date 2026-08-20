@@ -1,0 +1,82 @@
+{
+  "model": {
+    "name": "Native Query P&L Regression",
+    "tables": [
+      {
+        "name": "COR",
+        "columns": [
+          { "name": "Cost Center", "sourceColumn": "COST_CENTER", "dataType": "string" },
+          { "name": "Property Id", "sourceColumn": "PROPERTY_ID", "dataType": "int64" },
+          { "name": "Amount", "sourceColumn": "AMOUNT", "dataType": "decimal" }
+        ],
+        "measures": [
+          { "name": "Total Amount", "expression": "SUM(COR[Amount])" }
+        ],
+        "partitions": [
+          {
+            "name": "COR",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Value.NativeQuery(Snowflake.Databases(\"example-account\"){[Name=\"ENTERPRISE\"]}[Data], \"SELECT c.COST_CENTER, c.PROPERTY_ID, c.AMOUNT#(lf)FROM ENTERPRISE.MASTER.COR_DETAIL c#(lf)JOIN ENTERPRISE.MASTER.PROPERTY p ON p.ID = c.PROPERTY_ID\", null, [EnableFolding=true])",
+                "in",
+                "  Source"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Property",
+        "columns": [
+          { "name": "Property Id", "sourceColumn": "PROPERTY_ID", "dataType": "int64" },
+          { "name": "Property Name", "sourceColumn": "PROPERTY_NAME", "dataType": "string" }
+        ],
+        "partitions": [
+          {
+            "name": "Property",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Value.NativeQuery(Snowflake.Databases(\"example-account\"){[Name=\"ENTERPRISE\"]}[Data], \"SELECT c.PROPERTY_ID, p.PROPERTY_NAME#(lf)FROM ENTERPRISE.MASTER.COR_DETAIL c#(lf)JOIN ENTERPRISE.MASTER.PROPERTY p ON p.ID = c.PROPERTY_ID\", null, [EnableFolding=true])",
+                "in",
+                "  Source"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Time Intelligence",
+        "calculationGroup": {
+          "calculationItems": [
+            { "name": "Current", "expression": ["SELECTEDMEASURE", "()"] },
+            {
+              "name": "Prior Year",
+              "expression": [
+                "CALCULATE(",
+                "  SELECTEDMEASURE(),",
+                "  SAMEPERIODLASTYEAR('Month - Accounting'[Date])",
+                ")"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "name": "COR to Property",
+        "fromTable": "COR",
+        "fromColumn": "Property Id",
+        "toTable": "Property",
+        "toColumn": "Property Id",
+        "isActive": true
+      }
+    ]
+  }
+}

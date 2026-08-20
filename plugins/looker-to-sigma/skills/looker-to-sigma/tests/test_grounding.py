@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Grounding regression for build_workbook.py (beads-sigma-kvza).
+"""Grounding regression for build_workbook.py ([bead]).
 
 Proves the dashboard classifier is documentation-grounded and loud-on-unmapped:
   1. GOLDEN LOCK   — the fixture builds byte-identical (modulo random ids) to the
      committed golden, so catalog extraction + loud-fallback edits changed no
      behavior on a clean dashboard.
-  2. CATALOGS      — all four refs/catalogs/*.json load, have unique cited rows.
+  2. CATALOGS      — all refs/catalogs/*.json load, have unique cited rows.
   3. NO INLINE MAP — the viz/format/aggregation maps are LOADED from the catalogs;
      no residual inline literal bypasses the single source of truth.
   4. LOUD FALLBACKS — an unknown vis type, an unmapped value_format_name, and an
@@ -54,12 +54,15 @@ def test_golden():
     import parse_lookml_dashboard as offline
     contract = offline.parse(DASH)[0]
     spec, _ = build(contract)
+    layout = spec["document"]["layout"]
+    assert "<Element " in layout and "<Container " in layout
+    assert not re.search(r"</?(?:LayoutElement|GridContainer)\b", layout), layout
     got = canon(spec)
     want = open(GOLDEN).read()
     assert got == want, ("GOLDEN DRIFT — build_workbook output changed on the clean "
                          "fixture. If intentional, regenerate the golden.\n"
                          + "\n".join(_first_diff(want, got)))
-    print("[ok] golden: fixture builds byte-identical to committed golden")
+    print("[ok] golden: fixture emits canonical Element/Container layout and matches golden")
 
 def _first_diff(a, b):
     la, lb = a.splitlines(), b.splitlines()
@@ -72,7 +75,9 @@ def _first_diff(a, b):
 def test_catalogs_valid():
     import coverage_catalog as cc
     cats = cc.load_all(CATDIR)
-    assert set(cats) == {"viz-kind", "number-format", "aggregation", "control"}, sorted(cats)
+    assert set(cats) == {
+        "viz-kind", "number-format", "aggregation", "control", "workbook-feature"
+    }, sorted(cats)
     for name, cat in cats.items():
         assert cat.rows, name
         assert cat.source_tool == "looker", (name, cat.source_tool)
@@ -83,9 +88,11 @@ def test_catalogs_valid():
             assert key not in seen, ("duplicate source in %s: %s" % (name, key))
             seen.add(key)
             assert r.get("doc_ref", "").startswith("http"), (name, r["source"])
-            # every mapped Sigma target present (aggregation count/cd document it too)
-            assert r.get("sigma") is not None or r.get("sigma_if") is not None, (name, r["source"])
-    print("[ok] catalogs: 4 dimensions load, cited, unique sources")
+            # Explicit release/source gaps carry no_sigma_equiv instead of a
+            # fabricated Sigma target.
+            assert (r.get("sigma") is not None or r.get("sigma_if") is not None
+                    or r.get("no_sigma_equiv") is True), (name, r["source"])
+    print("[ok] catalogs: 5 dimensions load, cited, unique sources")
 
 
 def test_no_inline_maps():
@@ -173,7 +180,7 @@ def test_loud_unknown_agg():
 def test_coverage_matrix_fresh():
     """refs/looker-coverage.md must be regenerated from the catalogs (no drift)."""
     r = subprocess.run(
-        [sys.executable, os.path.join(SCRIPTS, "gen-coverage-matrix.py"),
+        [sys.executable, os.path.join(SCRIPTS, "gen-looker-coverage-matrix.py"),
          "--catalogs", CATDIR, "--skill", "looker",
          "--out", os.path.join(SKILL, "refs", "looker-coverage.md"), "--check"],
         capture_output=True, text=True)

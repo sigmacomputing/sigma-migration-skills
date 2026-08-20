@@ -198,8 +198,7 @@ not conversion work of its own.
 > `TABLEAU_MCP_BUILD` to a `build/tableau.js`, `SIGMA_DATA_MODEL_MCP` to a checkout, or run
 > `scripts/dev/fetch-converter.sh`. Refresh the vendored copy after the converter changes with
 > `scripts/dev/vendor-converter.sh` (pinned source in `converter/PROVENANCE.json`). The
-> **hosted** converter (an optional, user-provided endpoint set via
-> `SIGMA_CONVERTER_MCP_URL` — placeholder `<hosted-converter-mcp-url>`) uploads the `.twb` to
+> **hosted** converter (`https://the hosted-converter endpoint (SIGMA_MCP_CONVERTER_URL)/mcp`) uploads the `.twb` to
 > a third-party server and is used **only** with explicit `--converter hosted` (which overrides
 > local auto-discovery) or `SIGMA_CONVERTER_ALLOW_HOSTED=1` — never on its own. See QUICKSTART
 > "the data-model converter backend".

@@ -48,7 +48,9 @@
 #                       assert-phase6-ran on every run), minus the POLICY
 #                       exclusion (--skip-visual-comparison under the
 #                       sanctioned /verifier/i split) and minus flags
-#                       reclassified below.
+#                       reclassified below; plus column-scan.json
+#                       skipped-* statuses (gate 3/7's runtime auto-skips —
+#                       ruzs: an unaudited workbook must never keep GREEN).
 #   recorded-escape   — offramps.jsonl escape kinds (cred/doctor/tableau gate
 #                       waivers, stale-skill, degraded fast path, and the
 #                       PR-14 `skip-flag-waived` records every closed --skip-*
@@ -116,6 +118,7 @@ module DegradationLedger
     entries = []
     entries.concat(scope_cuts(workdir))
     entries.concat(quality_waivers(workdir))
+    entries.concat(column_scan_skips(workdir))
     entries.concat(recorded_escapes(workdir))
     entries.concat(fidelity_residuals(workdir))
     entries.concat(resolution_waived(workdir))
@@ -250,6 +253,24 @@ module DegradationLedger
       out << entry('quality-waiver', flag, reason, 'parity-final.json waivers')
     end
     out
+  end
+
+  # Gate 3/7's runtime auto-skips (ruzs): column-scan.json is stamped by
+  # assert-phase6-ran at audit time — complete-clean is positive evidence and
+  # derives nothing; a skipped-* status means the live column audit NEVER
+  # verified the workbook, which is the same degradation class as an operator
+  # --skip-column-check (quality-waiver → verdict at most YELLOW). Kept
+  # separate from the census: these skips are runtime conditions, not flags,
+  # so they must not depend on the waiver census having been stamped.
+  def column_scan_skips(wd)
+    scan = read_json(wd, 'column-scan.json')
+    return [] unless scan.is_a?(Hash) && scan['status'].to_s.start_with?('skipped-')
+    reason = scan['reason'].to_s
+    reason = scan['status'].to_s if reason.empty?
+    detail = scan['columns_read'] ? " (#{scan['columns_read']} column(s) read before the stop)" : ''
+    [entry('quality-waiver', 'gate-3-column-scan',
+           "live column type=error audit #{scan['status']}: #{reason}#{detail}",
+           'column-scan.json')]
   end
 
   def recorded_escapes(wd)

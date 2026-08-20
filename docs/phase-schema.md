@@ -16,8 +16,8 @@ check" in an unfamiliar skill, look up its local name here.
 | C3 | **Reuse-check** | Before creating a DM, look for an existing Sigma DM with the same signature (avoid sprawl) |
 | C4 | **Convert** | Source model → Sigma data-model JSON (MCP `convert_*` tool or in-repo converter) |
 | C5 | **Post-DM gate** | POST the DM, read back real element/column ids — hard gate before any workbook work |
-| C6 | **Build workbook** | Report/dashboard → Sigma workbook spec wired to the DM ids |
-| C7 | **Layout** | Apply the grid layout as the LAST write (stacked ≠ done; bare spec PUT wipes layout) |
+| C6 | **Build workbook** | Report/dashboard → Sigma workbook spec wired to the DM ids, with every element completely placed in the layout on the create write |
+| C7 | **Layout safety** | Preserve the complete layout on every write; make the final write layout-safe and last (stacked ≠ done; any write that omits layout wipes it) |
 | C8 | **Parity hard gate** | Source values vs Sigma values (vs warehouse where possible) — mandatory, never skip |
 | C9 | **Security / RLS** | Port detected RLS/CLS to Sigma user-attributes + DM filters (detect always; apply opt-in) |
 | C10 | **Enhance** | Post-publish polish, UI-only features, optional extras |
@@ -38,7 +38,7 @@ has been edited since).
 | C7 Layout | within Phase 5 (5c/5d layout passes) | Phase 5d — Layout | within Phase 4 (build-sigma-workbook.py) | Phase 6 — Layout | within Phase 3 (newspaper layout) | within Phase 3 (apply-layout.mjs) | Pipeline step 5 — Layout (LAST write) |
 | C8 Parity hard gate | Phase 6 — Verify (hard-gated by assert-phase6-ran.rb) | Phase 6 — Verify (mandatory) | Phase 5 — Parity (hard gate) | Phase 7 — Parity (hard gate) | Phase 4 — Verify parity (3-way, MANDATORY) | Phase 4 — Verify parity (hard gate) | Pipeline step 6 — Parity |
 | C9 Security/RLS | "Security: RLS/CLS" section (unnumbered) | "Security: RLS/CLS" section | "Security: RLS/CLS" section | "Security: RLS/CLS" section | Phase 1d scan + Phase 1.5 RLS decision gate (before building) | "Security: RLS/CLS" section | "Security: RLS/CLS" section |
-| C10 Enhance | **Phase E (opt-in)** — `--enhance` on migrate-tableau.rb (shared enhance-scan/apply engine) | **Phase E (opt-in)** — `--enhance` on migrate-powerbi.rb (same shared engine) + Phase 7 Bookmarks | — | — | Phase 5 — Enhance (UI-only features) | — | — |
+| C10 Enhance | **Phase E (opt-in)** — `--enhance` on migrate-tableau.rb (shared enhance-scan/select/app-plan/apply engine + design interview) | **Phase E (opt-in)** — `--enhance` on migrate-powerbi.rb (same shared engine) + Phase 7 Bookmarks | — (scripts vendored; wire flags per adoption checklist) | — (scripts vendored; wire flags per adoption checklist) | Phase 5 — Enhance (UI-only features; shared Phase E scripts vendored separately) | — (scripts vendored; wire flags per adoption checklist) | — (scripts vendored; wire flags per adoption checklist) |
 
 ### microstrategy-to-sigma
 
@@ -56,7 +56,7 @@ MicroStrategy uses "Phase" numbering and is documented here rather than as an
 | C7 Layout | within Phase 4 (`put-layout.rb`, LAST write) |
 | C8 Parity hard gate | Phase 5 — Verify parity (hard gate) + Phase 6 finalize |
 | C9 Security/RLS | "Security: RLS/CLS" section |
-| C10 Enhance | — |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |
 
 ### sisense-to-sigma
 
@@ -74,7 +74,7 @@ mapping:
 | C7 Layout | within Phase 3 (`build_layout` → `layout` XML, LAST write) |
 | C8 Parity hard gate | Phase 4 — Verify parity (`verify_parity.py` data + `verify_layout.py` layout) |
 | C9 Security/RLS | Phase 1.5 — RLS scan (opt-in: `detect_rls.py` + `apply_sigma_rls.py`) |
-| C10 Enhance | — (defer to `sigma-workbooks`) |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist; defer idioms to `sigma-workbooks`) |
 
 ### gooddata-to-sigma
 
@@ -106,16 +106,36 @@ Notes:
   that cross-reference and add a row here.
 - Regression-test converter changes against `corpus/` (see corpus/README.md)
   before relying on a live tenant.
-- **Phase E (C10) is OPT-IN ONLY and shared.** tableau-to-sigma and
-  powerbi-to-sigma vendor a byte-identical engine
-  (`scripts/enhance-scan.rb` + `scripts/enhance-apply.rb` — md5 discipline,
-  same as escalate-gap.py) triggered exclusively by `--enhance` on their
+- **Phase E (C10) is OPT-IN ONLY and shared.** Every converter vendors a
+  byte-identical engine (`scripts/enhance-scan.rb`, `enhance-select.rb`,
+  `enhance-app-plan.rb`, `enhance-apply.rb` + `scripts/lib/enhance_options.rb`
+  — md5 discipline, same as escalate-gap.py). **tableau-to-sigma** and
+  **powerbi-to-sigma** trigger it exclusively via `--enhance` on their
   one-command orchestrators. It never runs in batch/headless without the
-  flag; nothing applies without `--enhance-accept`; it clones the
-  parity-verified workbook ("<name> — Enhanced") and never touches the 1:1
-  artifact; every applied item is gated by a parity-unchanged spot-check
-  that auto-reverts on divergence. Other skills should adopt the same
-  vendored engine + flag convention when they grow a Phase E.
+  flag; scan emits `enhancements.json` with `candidates` plus `app_options` /
+  `signals` for the design interview; nothing applies without
+  `--enhance-accept` (record the interview with `enhance-select.rb`); it
+  clones the parity-verified workbook ("`<name> — Enhanced`") and never
+  touches the 1:1 artifact; every applied item is gated by a
+  parity-unchanged spot-check that auto-reverts on divergence. Contract:
+  [`shared/refs/phase-e-enhance.md`](../shared/refs/phase-e-enhance.md)
+  (vendored into each skill's `refs/`).
+
+  **Adoption checklist** (future per-plugin PR — scripts are already
+  vendored):
+
+  1. Scripts/refs/schema already present under the skill (this uplift).
+  2. Ensure `scripts/lib/{sigma_rest,code_rep,layout_lint,control_lint}.rb`
+     are vendored; `scripts/lib/layout.rb` is required for apply banding /
+     placement (lazy-loaded — formula/rename/prop patches work without it).
+  3. Wire `--enhance` / `--enhance-accept` after parity green; call
+     `enhance-scan.rb` with `--source <tool>`; **exit 14** when accept is
+     missing (print `app_options` + select/app-plan hints).
+  4. Map C10 in this file + point SKILL.md at `refs/phase-e-enhance.md`; do
+     **not** renumber local phases.
+  5. Keep existing local “enhance” meanings separate (Looker UI-only Phase 5,
+     Domo 5e visual QA, Power BI Phase 7 Bookmarks) — shared Phase E is
+     additive C10, not a rename of those.
 
 ### hex-to-sigma
 
@@ -134,7 +154,7 @@ its `SKILL.md` for why). Its local mapping:
 | C7 Layout | within Phase 4/5 — layout baked into the workbook spec at convert time (no separate put-layout step; Hex's full `appLayout` is known upfront, unlike Metabase) |
 | C8 Parity hard gate | Phase 6 — `assert-phase6-ran.rb` |
 | C9 Security/RLS | "Security: RLS/CLS" section — not yet implemented, gap documented |
-| C10 Enhance | — |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |
 
 ### domo-to-sigma
 
@@ -152,3 +172,21 @@ Domo uses "Phase" numbering (it joined after the mapping table was set). Its loc
 | C8 Parity hard gate | Phase 6 — Parity vs the same warehouse (`verify-parity.rb`, hard-gated by `assert-phase6-ran.rb`) |
 | C9 Security/RLS | Phase 6 — RLS (Domo PDP policies → Sigma row-level security; detect always, apply opt-in) |
 | C10 Enhance | Phase 5e — visual QA + KPI-count parity (defer idioms to `sigma-workbooks`) |
+
+### mode-to-sigma
+
+Mode uses "Phase" numbering (it joined after the mapping table was set). Its
+local mapping:
+
+| Canonical | mode-to-sigma |
+|---|---|
+| C1 Assess | `mode-assessment` skill (scaffolded; not registered in `marketplace.json`/`AGENTS.md` this release — SP1 ships the converter only) |
+| C2 Discover | Phase 0 — Discover (`mode-discover.rb`: Queries, Charts, Filters + a live run to sample each Query's output columns) |
+| C3 Reuse-check | Phase 1 — Reuse check (`build-dm.rb`'s `mode-signature.json` + `find-or-pick-dm.rb --auto-pick`) |
+| C4 Convert | Phase 2 — Build the Data Model (`build-dm.rb`: every Query → one `sql`-kind table element, raw SQL verbatim — no formula translation needed) |
+| C5 Post-DM gate | Phase 3 — Post + read back (`post-dm.rb`, hard gate) |
+| C6 Build workbook | Phase 4 — Build the workbook + layout (`build-mode-workbook.rb`: hidden Data page + visible Report page) |
+| C7 Layout | within Phase 4 — notebook-flow layout baked in as the last write before POST (no separate layout PUT) |
+| C8 Parity hard gate | Phase 5 — Parity (`verify-parity.rb`, hard-gated by `assert-phase6-ran.rb`); the separate visual-render sub-gate (gate 8) is honestly waived in v1 (`--skip-visual-gate` — no Mode UI render capability), but the parity comparison itself is never skipped |
+| C9 Security/RLS | "Security: RLS/CLS" section — Mode has no row/column-level security on query results; access control is Space/Report visibility only |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |

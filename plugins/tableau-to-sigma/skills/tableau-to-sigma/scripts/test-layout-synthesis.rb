@@ -8,7 +8,7 @@
 #   - SigmaLayout band detection (pure): KPI rows (x-disjoint, similar height),
 #     sidebar rails, header text zones
 #   - E1 per-kind minimum row spans: expansion + push-down never overlaps
-#   - KPI rows emit ONE GridContainer, equal inner spans, inner gridRow
+#   - KPI rows emit ONE Container, equal inner spans, inner gridRow
 #     matching the container span (the KPI-sliver rule)
 #   - sidebar rail: vertical repeat(1,1fr) container of stacked controls;
 #     the content grid gets the remaining columns
@@ -60,11 +60,11 @@ end
 def collisions(xml)
   bad = []
   check = lambda do |parent, label|
-    sibs = parent.elements.to_a.select { |e| %w[GridContainer LayoutElement].include?(e.name) }
+    sibs = parent.elements.to_a.select { |e| %w[Container Element].include?(e.name) }
     sibs.map { |e| [e.attributes['elementId'], rect(e)] }.combination(2).each do |(ia, ra), (ib, rb)|
       bad << "#{label}: #{ia} vs #{ib}" if ra[0] < rb[1] && rb[0] < ra[1] && ra[2] < rb[3] && rb[2] < ra[3]
     end
-    sibs.each { |e| check.call(e, e.attributes['elementId']) if e.name == 'GridContainer' }
+    sibs.each { |e| check.call(e, e.attributes['elementId']) if e.name == 'Container' }
   end
   doc_for(xml).elements.each('Root/Page') { |pg| check.call(pg, "page #{pg.attributes['id']}") }
   bad
@@ -156,16 +156,16 @@ Dir.mktmpdir do |d|
   ok('took the synthesized path', log.include?('synthesized layout'))
   next if xml.nil?
   doc = doc_for(xml)
-  gcs = doc.elements.to_a('//GridContainer')
+  gcs = doc.elements.to_a('//Container')
   kpi_gc = gcs.find do |g|
-    ids = g.elements.to_a('LayoutElement').map { |l| l.attributes['elementId'] }
+    ids = g.elements.to_a('Element').map { |l| l.attributes['elementId'] }
     ids.sort == %w[el-k1 el-k2 el-k3 el-k4]
   end
-  ok('the 4 KPI tiles live in ONE GridContainer', !kpi_gc.nil?)
+  ok('the 4 KPI tiles live in ONE Container', !kpi_gc.nil?)
   if kpi_gc
     cr = rect(kpi_gc)
     span = cr[3] - cr[2]
-    kids = kpi_gc.elements.to_a('LayoutElement').map { |l| rect(l) }
+    kids = kpi_gc.elements.to_a('Element').map { |l| rect(l) }
     ok('KPI container spans the full content width', cr[0] == 1 && cr[1] == 25)
     ok('inner KPI spans are equal (24/4 = 6 cols each)',
        kids.map { |r| r[1] - r[0] }.uniq == [6])
@@ -174,7 +174,7 @@ Dir.mktmpdir do |d|
     ok('KPI container is at least the kpi-chart floor tall', span >= 4)
   end
   hdr_gc = gcs.find { |g| g.attributes['elementId'].to_s.end_with?('-hdr') }
-  hdr_ids = hdr_gc ? hdr_gc.elements.to_a('LayoutElement').map { |l| l.attributes['elementId'] } : []
+  hdr_ids = hdr_gc ? hdr_gc.elements.to_a('Element').map { |l| l.attributes['elementId'] } : []
   ok('header band holds the title AND the detected source header text',
      hdr_ids.include?('title-ov') && hdr_ids.include?('text-t1'))
   ok('synthetic title referenced exactly once (no duplicate beside the source header)',
@@ -237,17 +237,17 @@ Dir.mktmpdir do |d|
   ok('took the synthesized path (rail)', log.include?('synthesized layout') && log.include?('left sidebar rail'))
   next if xml.nil?
   doc = doc_for(xml)
-  gcs = doc.elements.to_a('//GridContainer')
+  gcs = doc.elements.to_a('//Container')
   rail_gc = gcs.find { |g| g.attributes['elementId'].to_s.end_with?('-rail') }
-  ok('a rail GridContainer is emitted', !rail_gc.nil?)
+  ok('a rail Container is emitted', !rail_gc.nil?)
   if rail_gc
     ok('rail declares a single internal column (repeat(1, 1fr))',
        rail_gc.attributes['gridTemplateColumns'] == 'repeat(1, 1fr)')
-    ids = rail_gc.elements.to_a('LayoutElement').map { |l| l.attributes['elementId'] }
+    ids = rail_gc.elements.to_a('Element').map { |l| l.attributes['elementId'] }
     ok('all 4 controls stack INSIDE the rail (source y-order)',
        ids == %w[ctl-metric ctl-region ctl-segment ctl-category])
     ok('the table is NOT in the rail', !ids.include?('el-table'))
-    kid_rects = rail_gc.elements.to_a('LayoutElement').map { |l| rect(l) }
+    kid_rects = rail_gc.elements.to_a('Element').map { |l| rect(l) }
     ok('rail controls meet the control floor (>= 2 rows each)',
        kid_rects.all? { |r| r[3] - r[2] >= 2 })
     rr = rect(rail_gc)
@@ -256,7 +256,7 @@ Dir.mktmpdir do |d|
     ok('content containers start where the rail ends (remaining columns)',
        content_gcs.any? && content_gcs.all? { |g| rect(g)[0] == rr[1] })
   end
-  table_le = doc.elements.to_a('//LayoutElement').find { |l| l.attributes['elementId'] == 'el-table' }
+  table_le = doc.elements.to_a('//Element').find { |l| l.attributes['elementId'] == 'el-table' }
   ok('table tile meets its 10-row floor', table_le && rect(table_le)[3] - rect(table_le)[2] >= 10)
   ok('no collisions anywhere', collisions(xml).empty?)
   ok('census bands_detected reports the sidebar',
@@ -309,7 +309,7 @@ Dir.mktmpdir do |d|
   next if xml.nil?
   doc = doc_for(xml)
   spans = {}
-  doc.elements.each('//LayoutElement') { |l| spans[l.attributes['elementId']] = rect(l) }
+  doc.elements.each('//Element') { |l| spans[l.attributes['elementId']] = rect(l) }
   ok('short bar charts expanded to the 8-row floor',
      spans['el-a'] && spans['el-a'][3] - spans['el-a'][2] >= 8 &&
      spans['el-b'] && spans['el-b'][3] - spans['el-b'][2] >= 8)
@@ -353,8 +353,8 @@ Dir.mktmpdir do |d|
   ok('builder produced layout XML (synthetic title, no source header zone)', !xml.nil?)
   next if xml.nil?
   doc = doc_for(xml)
-  hdr_gc = doc.elements.to_a('//GridContainer').find { |g| g.attributes['elementId'].to_s.end_with?('-hdr') }
-  hdr_ids = hdr_gc ? hdr_gc.elements.to_a('LayoutElement').map { |l| l.attributes['elementId'] } : []
+  hdr_gc = doc.elements.to_a('//Container').find { |g| g.attributes['elementId'].to_s.end_with?('-hdr') }
+  hdr_ids = hdr_gc ? hdr_gc.elements.to_a('Element').map { |l| l.attributes['elementId'] } : []
   ok('a full-width header band exists and references the synthetic title',
      hdr_gc && hdr_ids == ['title-profitability-watch'] && rect(hdr_gc)[0] == 1 && rect(hdr_gc)[1] == 25)
   ok('header band sits at the top of the grid', hdr_gc && rect(hdr_gc)[2] == 1)
@@ -511,7 +511,7 @@ end
 # on the next rebuild — respect the operator's last state.
 Dir.mktmpdir do |d|
   File.write(File.join(d, 'layout.xml'),
-             '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)"><LayoutElement elementId="el-1" gridColumn="1 / 25" gridRow="1 / 9"/></Page>')
+             '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)"><Element elementId="el-1" gridColumn="1 / 25" gridRow="1 / 9"/></Page>')
   xml, _c, log, = build(DL_TITLE, WB_NOTITLE, d)
   ok('prior-state: rebuild auto-suppresses the banner', log.include?('auto-suppressed'))
   ok('prior-state: no fabricated banner in the rebuilt layout',

@@ -26,7 +26,7 @@ skipping/placeholdering — never by emitting a silent wrong default.
 ``resolve_or_warn()`` enforces that: it appends a standardized warning to the
 caller's ``warnings`` list and returns ``None`` on a miss.
 
-Stdlib only (json/os); Windows-safe (os.path). Mirrors the shared
+Stdlib only (json/os); Windows-safe (os.path). Mirrors the [bead]
 design contract: the catalog is language-neutral data; this loader is the thin
 resolver. See refs/<skill>-coverage.md (generated FROM the catalogs) for the
 human-readable, cited coverage matrix.

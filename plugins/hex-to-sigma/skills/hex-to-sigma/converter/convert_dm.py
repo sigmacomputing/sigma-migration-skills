@@ -2,13 +2,13 @@
 """Convert a Hex project's SQL cells into a Sigma data-model spec.
 
 Every Hex SQL cell is raw SQL with no query DSL (unlike Metabase's MBQL) —
-so unlike a dual-path SQL converter's decision (auto-remodel a "simple"
+so unlike metabase-to-sigma's dual-path decision (auto-remodel a "simple"
 native SELECT into a structured Sigma table/join model, fall back to a
 Custom SQL element for anything complex), a Hex SQL cell always takes the
 "native SQL element" path: wrap the cell's raw `source` verbatim into a
 Sigma `{kind:'table', source:{kind:'sql', statement}}` element — the exact
-shape the shared converter library uses for its own native-SQL fallback,
-applied here since it's source-language-agnostic.
+shape metabase-to-sigma's converter/metabase.ts (lines 860-885) uses for its
+own native-SQL fallback, ported here since it's source-language-agnostic.
 
 Column discovery: Hex's YAML export never lists a SQL cell's *output*
 columns directly (there's no `result_metadata` equivalent) — but the cell's
@@ -81,8 +81,8 @@ def build_dm(doc: dict, connection_id: str, dm_name: str, folder_id: str | None 
                              "source — skipped.")
             continue
         # Sigma wraps a custom-SQL element's statement as a subquery `( … )`;
-        # a trailing `;` is a syntax error at POST (the same fixup is applied
-        # elsewhere for the same reason).
+        # a trailing `;` is a syntax error at POST (same fixup metabase-to-sigma
+        # applies for the same reason).
         statement = statement.rstrip(";").rstrip()
 
         select_names = _select_clause_output_names(statement)

@@ -111,9 +111,7 @@ def build(an)
 end
 
 def content_elements(spec)
-  Array(spec['pages']).reject { |pg| pg['id'] == 'page-data' }
-                      .flat_map { |pg| Array(pg['elements']) }
-                      .select { |e| e.is_a?(Hash) }
+  Array(spec.dig('document', 'elements')).select { |element| element.is_a?(Hash) }
 end
 
 def find_el(spec, name)

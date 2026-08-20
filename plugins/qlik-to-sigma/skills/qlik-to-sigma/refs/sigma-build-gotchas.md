@@ -110,21 +110,21 @@ LEFT JOIN), add an element filter (verified shape):
 
 ## Layout is a SEPARATE step — don't skip it
 Posting chart elements WITHOUT a layout makes Sigma auto-stack them full-width
-(formatting is fine, arrangement is not). Apply a 24-col grid as a **top-level**
-`spec.layout` XML string (NOT per-page), via the vendored `scripts/vendor/put-layout.rb`:
+(formatting is fine, arrangement is not). Apply a 24-col grid as a single
+`document.layout` XML string (NOT per-page), via the vendored `scripts/vendor/put-layout.rb`:
 ```
 <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-overview">
-  <LayoutElement elementId="<id>" gridColumn="1 / 9"  gridRow="1 / 4"/>   <!-- KPI -->
+  <Element elementId="<id>" gridColumn="1 / 9"  gridRow="1 / 4"/>   <!-- KPI -->
   ...
 </Page>
 ```
 Grid lines are **1-based** (24 cols → lines 1..25; full width = `1 / 25`). 0-based
 coords → `400 Invalid element position`. `put-layout.rb` GETs the spec (Accept:
-application/json → JSON), deletes per-page layouts, sets `spec.layout`, strips
+application/json → JSON), deletes per-page layouts, sets `document.layout`, strips
 read-only fields, PUTs back. Map the Qlik sheet's cell rectangle to grid lines.
 
-**Multi-page layout** = multiple `<Page>` nodes concatenated in the ONE top-level
-`spec.layout` string (after the single `<?xml …?>` declaration) — one `<Page id=…>`
+**Multi-page layout** = multiple `<Page>` nodes concatenated in the ONE
+`document.layout` string (after the single `<?xml …?>` declaration) — one `<Page id=…>`
 per workbook page, matched by page id. Verified live (6-page workbook, 2026-06-10).
 A Qlik sheet's cell grid (`columns`×`rows`, usually 24×N) maps 1:1 onto Sigma's
 24-col grid: `gridColumn = col+1 / col+colspan+1`, `gridRow = row*2+1 /
@@ -133,8 +133,11 @@ A Qlik sheet's cell grid (`columns`×`rows`, usually 24×N) maps 1:1 onto Sigma'
 ## API quirks
 - `POST /v2/dataModels/spec` and `/v2/workbooks/spec` **return YAML, not JSON**
   (`success: true\nworkbookId: ...`). Don't `json.loads` the response; parse YAML or grep.
-- POST body for DM: `{folderId, schemaVersion:1, name, pages:[...]}`. For workbook:
-  `{name, folderId, schemaVersion:1, pages:[...]}`.
+- POST body for DM (unaffected, stays flat): `{folderId, schemaVersion:1, name, pages:[...]}`.
+  **For workbook, the body is `document`-wrapped** (verified live 2026-08-03, including on
+  `/verify` 2026-08-04): `{name, folderId, document: {schemaVersion:1, pages:[...]}}` — the
+  old flat `{name, folderId, schemaVersion:1, pages:[...]}` now 400s. Don't confuse the two
+  surfaces; only the workbook one wraps.
 - Element/column ids are **reassigned on save** — always `describe(datamodel)` →
   `describe(datamodel-element)` to get the real ids before querying.
 

@@ -16,6 +16,11 @@ class CompositionTest(unittest.TestCase):
     def test_exec_layout_matches_golden(self):
         self.assertEqual(composition.compose(self.els, pattern="exec").strip(), self.golden)
 
+    def test_composition_emits_only_canonical_element_leaves(self):
+        out = composition.compose(self.els, pattern="exec")
+        self.assertIn("<Element ", out)
+        self.assertNotRegex(out, r"LayoutElement|GridContainer")
+
     def test_kpi_band_widths_sum_to_24(self):
         out = composition.compose(self.els, pattern="exec")
         self.assertIn('gridColumn="1 / 7"', out)
@@ -122,7 +127,7 @@ class CompositionTest(unittest.TestCase):
 
     def test_overview_unused_bands_are_skipped(self):
         out = composition.compose([{"id": "tr", "role": "trend"}], pattern="overview")
-        self.assertEqual(out.strip(), '<LayoutElement elementId="tr" gridColumn="1 / 25" gridRow="1 / 13"/>')
+        self.assertEqual(out.strip(), '<Element elementId="tr" gridColumn="1 / 25" gridRow="1 / 13"/>')
 
     def test_master_role_passed_to_overview_raises(self):
         with self.assertRaises(ValueError) as ctx:
@@ -150,8 +155,8 @@ class CompositionTest(unittest.TestCase):
         self.assertEqual(out.strip(), md_golden)
 
     # tabbed_container -- labels-only element; <Tab> children map to tabs[]
-    # by position; bare <LayoutElement> children only inside a <Tab> (a
-    # nested GridContainer scrambles tab render order).
+    # by position; bare <Element> children only inside a <Tab> (a
+    # nested Container scrambles tab render order).
     def _tabbed_golden(self):
         golden_path = os.path.join(os.path.dirname(__file__), "testdata", "composition_tabbed_golden.json")
         with open(golden_path) as f:

@@ -130,6 +130,29 @@ def _color(vc):
     }
 
 
+def _legend(vc):
+    """Documented Looker legend controls -> released Sigma legend fields."""
+    hidden = vc.get("hide_legend")
+    if hidden is None and vc.get("show_legend") is not None:
+        hidden = not bool(vc.get("show_legend"))
+    position = vc.get("legend_position")
+    out = {}
+    if hidden is True:
+        out["visibility"] = "hidden"
+    elif hidden is False:
+        out["visibility"] = "shown"
+    if position in ("left", "right"):
+        out["position"] = position
+    if position and position not in ("left", "right"):
+        out["_unmappedPosition"] = position
+    return out or None
+
+
+def _style(vc):
+    color = vc.get("background_color")
+    return {"backgroundColor": color} if isinstance(color, str) and color.strip() else None
+
+
 def _cell_viz(vc):
     """vis_config.series_cell_visualizations -> {fieldName: {scheme: [hex,...]|None}}
     for active in-cell data bars. Looker shape:
@@ -225,12 +248,15 @@ def normalize_element(el, layout=None):
     # Text/markdown tiles (headers, notes) have no query/fields — capture them
     # as text elements so the builder can emit a Sigma text element.
     if el.get("type") == "text" or (not q and (el.get("title_text") or el.get("body_text"))):
+        vc = _vis_config(el, q)
         return {
             "name": el.get("title") or el.get("title_text") or f"element_{el.get('id')}",
             "tileType": "text",
             "titleText": el.get("title_text"),
             "bodyText": el.get("body_text"),
             "subtitleText": el.get("subtitle_text"),
+            "style": _style(vc),
+            "tabName": el.get("tab_name"),
             "layout": lay,
         }
     if not q and el.get("type") in (None, "text") and not el.get("title"):
@@ -264,6 +290,11 @@ def normalize_element(el, layout=None):
         "dynamicFields": _dyn(q.get("dynamic_fields")),
         "noteText": el.get("note_text"), "subtitleText": el.get("subtitle_text"),
         "bodyText": el.get("body_text"),
+        "showComparison": bool(vc.get("show_comparison")),
+        "comparisonType": vc.get("comparison_type"),
+        "legend": _legend(vc),
+        "style": _style(vc),
+        "tabName": el.get("tab_name"),
         # chart reference lines + color encoding (vis_config) → Sigma refMarks/color
         "referenceLines": _reflines(vc),
         "color": _color(vc),
@@ -383,6 +414,15 @@ def normalize(d):
         "layoutMode": layout_mode,
         "source": "api",
         "lookmlLinkId": d.get("lookml_link_id"),
+        # Looker 26.4 introduced dashboard tabs. API versions that expose these
+        # fields flow through; older versions simply return an empty list.
+        "tabs": [{"name": t.get("name"), "label": t.get("label") or t.get("name")}
+                 for t in (d.get("tabs") or []) if isinstance(t, dict) and t.get("name")],
+        "style": _style(d),
+        "filterPanel": {
+            "location": "top" if d.get("filters_location_top", True) else "sidebar",
+            "collapsed": bool(d.get("filters_bar_collapsed")),
+        },
         "filters": filters,
         "elements": elements,
     }

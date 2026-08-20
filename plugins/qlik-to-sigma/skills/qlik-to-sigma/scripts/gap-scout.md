@@ -64,7 +64,7 @@ PROCEDURE
        --home ~/.qlik-to-sigma   [--kind table] \
        --gap-id '<measure:... from the GAP-SCOUT REQUIRED list>' --workdir <migration workdir>
    # --kind: default kpi-chart; use table for row-level/dimension formulas.
-   # --gap-id + --workdir feed the run-each-time gate (bead beads-sigma-5l5e): the
+   # --gap-id + --workdir feed the run-each-time gate (): the
    # result is recorded to <workdir>/scout-ledger.jsonl keyed by --gap-id, so
    # migrate-qlik.rb's gate sees the measure as scouted and stops blocking it on
    # the re-run. Pass the exact --gap-id/--workdir the GAP-SCOUT REQUIRED block printed.
@@ -93,7 +93,7 @@ ready-to-run commands for the shared `escalate-gap.py` filer. The main agent:
 3. Only if the user says yes, runs `escalation.file_cmd` (the same command + `--yes`).
 
 Qlik expression gaps are **converter** gaps, so they mirror to both converter repos
-(`sigma-data-model-manager` + `sigma-data-model-mcp`) with a cross-link and a bead
+(`sigma-data-model-manager` + `converter-source`) with a cross-link and a bead
 as the authoritative tracker. See `scripts/escalate-gap.py`.
 
 ## What the scout depends on

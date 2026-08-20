@@ -3,8 +3,8 @@
 # Container-based layouts (layout-playbook.md, verified 2026-06-10):
 #   - spec side: a `kind: container` placeholder element per band
 #     (container_el / header_text_el below build those spec objects)
-#   - layout side: a <GridContainer> (NOT <LayoutElement type="grid">, which
-#     silently drops children) whose child <LayoutElement>s use
+#   - layout side: a <Container> (NOT <Element type="grid">, which
+#     silently drops children) whose child <Element>s use
 #     CONTAINER-RELATIVE coordinates (rows restart at 1).
 require_relative 'zone_census'
 
@@ -59,13 +59,13 @@ module SigmaLayout
   # Default 24 (the page grid); a vertical control rail declares cols: 1 so its
   # children stack full-width (children's gridColumn refs are LOCAL to this).
   def gc(eid, c0, c1, r0, r1, inner, cols: GRID_COLS)
-    "<GridContainer elementId=\"#{eid}\" type=\"grid\" " \
+    "<Container elementId=\"#{eid}\" type=\"grid\" " \
     "gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\" " \
-    "gridTemplateColumns=\"repeat(#{cols}, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</GridContainer>"
+    "gridTemplateColumns=\"repeat(#{cols}, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</Container>"
   end
 
   def le(eid, c0, c1, r0, r1)
-    "  <LayoutElement elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
+    "  <Element elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
   end
 
   def page_xml(page_id, *children)
@@ -201,7 +201,7 @@ module SigmaLayout
     end
   end
 
-  # One band of items -> a full-width GridContainer spanning the band's row
+  # One band of items -> a full-width Container spanning the band's row
   # range at page level, children re-emitted with CONTAINER-RELATIVE rows.
   # row_offset shifts the container's page-level position (e.g. +3 when a
   # header band was prepended above the original geometry).
@@ -437,7 +437,7 @@ module SigmaLayout
   end
 
   # >= 2 x-disjoint, similar-height, same-y-band KPI-like chart zones -> one
-  # KPI row (emitted as ONE GridContainer with equal inner spans). Returns an
+  # KPI row (emitted as ONE Container with equal inner spans). Returns an
   # array of rows, each an array of zones sorted left-to-right.
   def detect_kpi_rows(zones)
     cands = Array(zones).select { |z| kpi_like_zone?(z) }

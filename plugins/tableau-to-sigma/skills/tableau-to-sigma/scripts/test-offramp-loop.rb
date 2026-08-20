@@ -275,6 +275,8 @@ check(src.include?('_err_region = [_err_line.to_s] if _err_region.empty?'),
       'exit-4 site keeps a region fallback for crash-before-output captures', fails)
 check(src.include?('dsfilters: dsfst.exitstatus'),
       'finalize signature keys the ds-filters gate too (N1: it decides all_green)', fails)
+check(src.include?('actiongates: agst.exitstatus'),
+      'finalize signature keys the action-gates gate too (Task 6 restructure: it decides all_green, same N1 class as ds-filters)', fails)
 check(src.include?('error_region: _fregion'),
       'finalize signature carries the failing child\'s error region, not exit codes alone', fails)
 check(!src.include?('This EXACT finalize failure') &&

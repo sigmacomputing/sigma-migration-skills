@@ -12,7 +12,7 @@
 #     stale DONE can never vouch for the current run) while keeping a
 #     same-run-id success (a green run re-checked with a failing extra flag is
 #     not unminted).
-# parity-final.json additionally carries the off-ramp defect fields
+# parity-final.json additionally carries the off-ramp telemetry fields
 # {route, manual_path_authorized, success_sentinel} (P2).
 #
 # Offline: drives the real assert-phase6-ran.rb in scratch workdirs against a
@@ -53,22 +53,27 @@ end
 # clean; /columns returns one clean (non-error) column.
 STUB_SPEC = {
   'workbookId' => 'wb-test',
-  'pages' => [
-    { 'id' => 'p0', 'name' => 'Data', 'elements' => [
+  'latestDocumentVersion' => '1',
+  'document' => {
+    'schemaVersion' => 4,
+    'kind' => 'workbook',
+    'pages' => [
+      { 'id' => 'p0', 'name' => 'Data' },
+      { 'id' => 'p1', 'name' => 'Dash' }
+    ],
+    'elements' => [
       { 'id' => 'master', 'kind' => 'table', 'name' => 'Master',
-        'columns' => [{ 'id' => 'c0', 'name' => 'Sales', 'formula' => '[T/Sales]' }] }
-    ] },
-    { 'id' => 'p1', 'name' => 'Dash', 'elements' => [
+        'columns' => [{ 'id' => 'c0', 'name' => 'Sales', 'formula' => '[T/Sales]' }] },
       { 'id' => 'el1', 'kind' => 'bar-chart', 'name' => 'Sales by Region',
         'columns' => [{ 'id' => 'c1', 'name' => 'Sales', 'formula' => 'Sum([Master/Sales])' }] }
-    ] }
-  ],
-  'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p0">' \
-              '<LayoutElement elementId="master" gridColumn="1 / 25" gridRow="1 / 21"/></Page>' \
-              '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1">' \
-              '<GridContainer elementId="band1" type="grid" gridColumn="1 / 25" gridRow="1 / 10" ' \
-              'gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">' \
-              '<LayoutElement elementId="el1" gridColumn="1 / 25" gridRow="1 / 9"/></GridContainer></Page>'
+    ],
+    'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p0">' \
+                '<Element elementId="master" gridColumn="1 / 25" gridRow="1 / 21"/></Page>' \
+                '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1">' \
+                '<Container elementId="band1" type="grid" gridColumn="1 / 25" gridRow="1 / 10" ' \
+                'gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">' \
+                '<Element elementId="el1" gridColumn="1 / 25" gridRow="1 / 9"/></Container></Page>'
+  }
 }.freeze
 STUB_COLS = { 'entries' => [{ 'elementId' => 'el1', 'columnId' => 'c1', 'label' => 'Sales',
                               'type' => { 'type' => 'number' } }] }.freeze

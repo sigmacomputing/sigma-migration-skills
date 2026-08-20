@@ -10,7 +10,7 @@
 #   warehouse db/schema/connection it should pass. (Discovery + instruction.)
 #
 #   MODE B (--converter-out ...): take the MCP's sigmaDataModel JSON and apply
-#   the 3 required spec fixups (refs/spec-fixups.md, gap beads-sigma-tkd) so it
+#   the 3 required spec fixups (refs/spec-fixups.md, gap [bead]) so it
 #   is accepted by POST /v2/dataModels/spec:
 #     1. schemaVersion: 1 at top level
 #     2. folderId + ownerId harvested from a reference DM (find-or-pick-dm.rb)
@@ -37,6 +37,7 @@ require 'json'
 require 'optparse'
 require 'open3'
 require_relative 'dax-restructure-patterns'
+require_relative 'lib/warehouse_column_refs'
 
 opts = {}
 OptionParser.new do |p|
@@ -127,7 +128,27 @@ named = 0
 end
 dm['name'] = opts[:name] if opts[:name]
 
-# Fixup 3b (beads-sigma-<1b>): reconcile a base warehouse-table column's formula
+# Sigma connections can disable "Use friendly names". In that mode a converter
+# formula such as [ORDER_FACT/Order Id] does not resolve; the exact catalog name
+# is [ORDER_FACT/ORDER_ID]. Ground base columns, inode ids, and qualified derived
+# references before local validation or POST. Placeholder/offline specs skip the
+# live check and retain the converter output.
+connection_ids = (dm['pages'] || []).flat_map { |page| page['elements'] || [] }
+                 .select { |element| element.dig('source', 'kind') == 'warehouse-table' }
+                 .map { |element| element.dig('source', 'connectionId').to_s }.uniq
+if connection_ids.any? && connection_ids.all? { |id| id.match?(UUID_RE) }
+  require_relative 'lib/sigma_rest'
+  grounding = WarehouseColumnRefs.apply!(
+    dm,
+    requester: ->(method, path, **kwargs) { Sigma.request(method, path, **kwargs) },
+    lister: ->(path) { Sigma.list_entries(path) }
+  )
+  modes = grounding['connectionModes'].map { |id, friendly| "#{id}=#{friendly ? 'friendly' : 'physical'}" }.join(', ')
+  warn "   [convert-model] connection naming: #{modes}; grounded #{grounding['rewritten']} formula(s), " \
+       "re-keyed #{grounding['rekeyed']} column id(s), re-prefixed #{grounding['reprefixed']} reference(s)"
+end
+
+# Fixup 3b ([bead]): reconcile a base warehouse-table column's formula
 # PREFIX to its OWN element name. The converter prefixes base columns with the PBI
 # FRIENDLY table name ("[Sales/Amount]") while Fixup 3 names the element
 # after the PHYSICAL path-tail ("VW_SALES"); when the friendly name != the
@@ -136,8 +157,8 @@ dm['name'] = opts[:name] if opts[:name]
 # is the customer's manual "proper-case element naming" workaround, automated. Only
 # rewrite a base element's OWN 2-segment ref whose prefix matches NO element name — a
 # valid cross-element ref (prefix IS a known element) is left untouched.
-known_norm = []
-(dm['pages'] || []).each { |pg| (pg['elements'] || []).each { |el| known_norm << el['name'].to_s.downcase.gsub(/[^a-z0-9]/, '') } }
+known_names = []
+(dm['pages'] || []).each { |pg| (pg['elements'] || []).each { |el| known_names << el['name'].to_s } }
 reprefixed = 0
 (dm['pages'] || []).each do |pg|
   (pg['elements'] || []).each do |el|
@@ -151,7 +172,10 @@ reprefixed = 0
       next unless m
       pfx = m[1]
       next if pfx == name # already references its own element
-      next if known_norm.include?(pfx.downcase.gsub(/[^a-z0-9]/, '')) # valid ref to a known element
+      # Sigma element references are literal. Treating spaces/underscores or
+      # case as equivalent makes `[Cost Center/X]` look valid when the actual
+      # element is `COST_CENTER`, leaving a dependency-not-found formula.
+      next if known_names.include?(pfx) # exact valid ref to a known element
       c['formula'] = "[#{name}/#{m[2]}]"
       reprefixed += 1
     end
@@ -169,26 +193,13 @@ warn "   [convert-model] re-prefixed #{reprefixed} base column formula(s) to the
 #      "dependency not found". Element NAMES stay untouched (derived "View"
 #      elements reference base elements BY NAME).
 if opts[:tmap]
-  tmap = JSON.parse(File.read(opts[:tmap]))
-  remapped = 0
-  (dm['pages'] || []).each do |pg|
-    (pg['elements'] || []).each do |el|
-      src = el['source'] || {}
-      next unless src['kind'] == 'warehouse-table' && src['path'].is_a?(Array) && !src['path'].empty?
-      tail = src['path'][-1].to_s
-      hit = tmap.find { |k, _| k.to_s.upcase == tail.upcase }
-      next unless hit && hit[1].to_s.upcase != tail.upcase
-      landed = hit[1].to_s
-      src['path'] = src['path'][0..-2] + [landed]
-      (el['columns'] || []).each do |c|
-        f = c['formula']
-        c['formula'] = f.sub("[#{tail}/", "[#{landed}/") if f.is_a?(String) && f.start_with?("[#{tail}/")
-      end
-      remapped += 1
-      warn "[convert-model] table-map: #{tail} -> #{landed}"
-    end
-  end
-  warn "[convert-model] table-map applied to #{remapped} element(s)"
+  require_relative 'lib/table_map'
+  loaded = TableMap.load(opts[:tmap])
+  warn "[convert-model] table-map: #{loaded[:tmap].size} mapping(s) from " \
+       "#{loaded[:from_manifest] ? 'import-to-snowflake manifest.json' : 'plain map'}"
+  applied = TableMap.apply!(dm, loaded[:tmap])
+  applied.each { |a| warn "[convert-model] table-map: #{a['tail']} -> #{a['path'].join('.')}" }
+  warn "[convert-model] table-map applied to #{applied.size} element(s)"
 end
 
 # ---- bjd: auto-emit (b)-bucket DAX restructure elements --------------------

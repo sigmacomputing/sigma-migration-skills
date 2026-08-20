@@ -1,4 +1,4 @@
-// Shared "run-each-time gap-scout gate" — Node side.
+// Shared "run-each-time gap-scout gate" () — Node side.
 //
 // Mirrors scout_gate.rb / scout_gate.py EXACTLY, including the integrity fix
 // (issue #458). A per-conversion JSONL ledger at <workdir>/scout-ledger.jsonl,

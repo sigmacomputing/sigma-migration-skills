@@ -409,6 +409,7 @@ module ExportPool
                        row_limit: nil, name: nil, workdir: nil, script: nil)
     require 'csv'
     require 'securerandom'
+    require 'code_rep' # vendored alongside export_pool.rb wherever this lib ships
     begin
       require 'probe_registry' # soft: present in plugins that vendor it
     rescue LoadError
@@ -422,12 +423,30 @@ module ExportPool
           { 'id' => "c#{i}_#{j}", 'name' => c.to_s, 'formula' => "[Custom SQL/#{c}]" }
         end }
     end
-    spec = { 'name' => name || "_probe_pooled_#{SecureRandom.hex(4)}",
-             'schemaVersion' => 1,
-             'pages' => [{ 'id' => 'p1', 'name' => 'p1', 'elements' => elements }] }
-    spec['folderId'] = folder_id if folder_id # omitted key = My Documents (API default)
+    probe_name = name || "_probe_pooled_#{SecureRandom.hex(4)}"
+    layout_elements = elements.each_with_index.map do |el, i|
+      r0 = 1 + (i * 12)
+      "  <Element elementId=\"#{el['id']}\" gridColumn=\"1 / 25\" gridRow=\"#{r0} / #{r0 + 12}\"/>"
+    end
+    layout = [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1">',
+      *layout_elements,
+      '</Page>'
+    ].join("\n")
+    doc = { 'schemaVersion' => 1,
+            'pages' => [{ 'id' => 'p1', 'name' => 'p1' }],
+            'elements' => elements,
+            'layout' => layout }
+    meta = { 'name' => probe_name }
+    meta['folderId'] = folder_id if folder_id # omitted key = My Documents (API default)
+    # The workbook code-rep surface nests non-metadata fields under a
+    # top-level `document` key and rejects the old flat body with HTTP 400
+    # (see code_rep.rb) — this pooled-probe POST is a second, independent
+    # call site for that same surface (Task 3.2).
+    body = JSON.generate(Sigma::CodeRep.wrap(doc, extra: meta))
     begin
-      r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec))
+      r = Sigma.request(:post, '/v2/workbooks/spec', body: body)
     rescue Sigma::Error => e
       raise "pooled probe workbook POST failed: #{e.message.to_s.gsub(/\s+/, ' ').strip[0, 240]}"
     end
@@ -436,7 +455,7 @@ module ExportPool
     # Register FIRST — before any export can run (or raise). NEVER FATAL by
     # the registry's own contract, so bookkeeping cannot break the probe.
     if defined?(ProbeRegistry)
-      ProbeRegistry.created(wb_id, name: spec['name'], workdir: workdir,
+      ProbeRegistry.created(wb_id, name: probe_name, workdir: workdir,
                             script: script || 'pooled_sql_probe')
     end
     results = Array.new(entries.length)

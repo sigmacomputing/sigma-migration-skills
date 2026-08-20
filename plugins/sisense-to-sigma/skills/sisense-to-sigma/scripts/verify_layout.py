@@ -22,15 +22,20 @@ Usage: python3 verify_layout.py <dashboards.json> <sigma_workbook_spec.json>
   dashboards.json        : the discover.py bundle (widgets + layout inlined)
   sigma_workbook_spec.json: the convert.py dashboard output
 """
-import json, re, sys
+import json, os, re, sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import code_rep  # noqa: E402
 
 GRID_COLS = 24
+_ELEMENT_TAG = r"(?:Element|LayoutElement)"
 
 def parse_layout(xml):
-    """elementId -> (col_start, col_end, row_start, row_end). Skips containers."""
+    """elementId -> grid bounds. Accepts LayoutElement for legacy readback."""
     out = {}
     for eid, gc, gr in re.findall(
-            r'<LayoutElement elementId="([^"]+)" gridColumn="([^"]+)" gridRow="([^"]+)"', xml):
+            rf'<{_ELEMENT_TAG} elementId="([^"]+)" gridColumn="([^"]+)" gridRow="([^"]+)"',
+            xml):
         cs, ce = (int(x) for x in gc.split(" / "))
         rs, re_ = (int(x) for x in gr.split(" / "))
         out[eid] = (cs, ce, rs, re_)
@@ -59,11 +64,10 @@ def widget_to_element(dashboards, spec):
     # build title -> [elementIds] in spec order (pmain viz only, skip controls)
     from collections import defaultdict, deque
     by_title = defaultdict(deque)
-    for p in spec["pages"]:
-        for e in p["elements"]:
-            if e.get("kind") == "control" or e["id"] == "master":
-                continue
-            by_title[e.get("name")].append(e["id"])
+    for e in code_rep.workbook_elements(spec):
+        if e.get("kind") == "control" or e["id"] == "master":
+            continue
+        by_title[e.get("name")].append(e["id"])
     wid2elem = {}
     for d in dashboards:
         for w in d.get("widgets", []):
@@ -76,7 +80,8 @@ def main():
     dashboards = json.load(open(sys.argv[1]))
     dashboards = dashboards if isinstance(dashboards, list) else [dashboards]
     spec = json.load(open(sys.argv[2]))
-    P = parse_layout(spec.get("layout", ""))
+    doc = code_rep.document(spec)
+    P = parse_layout(doc.get("layout", ""))
     wid2elem = widget_to_element(dashboards, spec)
     seq = sisense_order(dashboards)
 
@@ -99,8 +104,8 @@ def main():
     check("PLACED: every mapped widget placed", not missing,
           f"unplaced={missing}" if missing else f"{len(elem_ids)} placed")
     # non-widget placements that are legitimate: the data-page source (`master`)
-    # and dashboard-filter controls (placed in the top GridContainer)
-    legit = {"master"} | {e["id"] for p in spec["pages"] for e in p["elements"]
+    # and dashboard-filter controls (placed as flat Elements at the top)
+    legit = {"master"} | {e["id"] for e in code_rep.workbook_elements(spec)
                           if e.get("kind") == "control"}
     orphans = [e for e in P if e not in set(elem_ids) and e not in legit]
     check("PLACED: no orphan layout refs", not orphans, f"orphans={orphans}" if orphans else "")

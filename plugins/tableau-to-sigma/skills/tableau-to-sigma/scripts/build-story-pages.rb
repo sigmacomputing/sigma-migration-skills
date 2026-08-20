@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Emit one Sigma PAGE per Tableau story point (beads-sigma-y6b).
+# Emit one Sigma PAGE per Tableau story point ([bead]).
 #
 # Tableau stories are sequential slide decks: each story point captures a
 # dashboard or worksheet plus a navigator caption. Sigma has no story
@@ -42,6 +42,7 @@
 require 'json'
 require 'optparse'
 require_relative 'lib/layout'
+require_relative 'lib/workbook_code'
 include SigmaLayout
 
 opts = {}
@@ -89,11 +90,23 @@ def annotation_body(story_name, point, idx, total, points)
   body
 end
 
+def rewrite_control_refs!(node, rewrites)
+  case node
+  when Hash
+    node.each_value { |value| rewrite_control_refs!(value, rewrites) }
+  when Array
+    node.each { |value| rewrite_control_refs!(value, rewrites) }
+  when String
+    rewrites.each { |from, to| node.gsub!("[#{from}]", "[#{to}]") }
+  end
+  node
+end
+
 # ---- PASS 1: spec mode ------------------------------------------------------
 if opts[:spec]
   abort('--spec mode needs --out') unless opts[:out]
   raw  = JSON.parse(File.read(opts[:spec]))
-  spec = raw['workbook'].is_a?(Hash) ? raw['workbook'] : raw
+  spec = WorkbookCode.legacy_view(raw['workbook'].is_a?(Hash) ? raw['workbook'] : raw)
   pages = spec['pages'] || abort('spec has no pages[]')
 
   find_page = lambda do |name|
@@ -111,6 +124,9 @@ if opts[:spec]
   seen_names = pages.map { |pg| pg['name'] }.compact
   cloned_sources = []
   story_pages = []
+
+  story_page_names = points.each_with_index.map { |point, index| page_name_for(point, index, seen_names) }
+  story_page_ids = points.each_index.map { |index| "page-story-#{index + 1}" }
 
   points.each_with_index do |pt, i|
     prefix = "sp#{i + 1}"
@@ -162,11 +178,10 @@ if opts[:spec]
     end
     clones.each do |el|
       remap.call(el)
-      (el['columns'] || []).each do |col|
-        f = col['formula'].to_s
-        ctl_rewrites.each { |from, to| f = f.gsub("[#{from}]", "[#{to}]") }
-        col['formula'] = f unless col['formula'].nil?
-      end
+      # Control handles can appear outside columns (dynamic text, filters,
+      # actions, progress values, titles). Rewrite every serialized string, not
+      # only columns[].formula, while leaving the controlId field itself intact.
+      rewrite_control_refs!(el, ctl_rewrites)
     end
 
     annotation = {
@@ -174,9 +189,19 @@ if opts[:spec]
       'kind' => 'text',
       'body' => annotation_body(story['story'], pt, i, points.length, points)
     }
+    navigation = {
+      'id' => "#{prefix}-story-navigation",
+      'kind' => 'navigation',
+      'mode' => 'manual',
+      'options' => story_page_names.each_with_index.map do |label, index|
+        { 'label' => label,
+          'destination' => { 'type' => 'page', 'pageId' => story_page_ids[index] } }
+      end
+    }
     story_pages << {
-      'name'     => page_name_for(pt, i, seen_names),
-      'elements' => [annotation] + clones
+      'id'       => story_page_ids[i],
+      'name'     => story_page_names[i],
+      'elements' => [annotation, navigation] + clones
     }
   end
 
@@ -184,18 +209,18 @@ if opts[:spec]
     pages.reject! { |pg| cloned_sources.include?(pg['name']) }
   end
   spec['pages'] = pages + story_pages
-  File.write(opts[:out], JSON.pretty_generate(raw))
+  File.write(opts[:out], JSON.pretty_generate(WorkbookCode.canonicalize(spec)))
   puts "wrote #{opts[:out]} (+#{story_pages.size} story page(s) for story #{story['story'].inspect}" \
        "#{opts[:replace] ? ", #{cloned_sources.uniq.size} source page(s) replaced" : ''})"
   story_pages.each_with_index do |pg, i|
-    puts "  #{i + 1}. #{pg['name']}  (#{pg['elements'].size - 1} cloned element(s) + annotation)"
+    puts "  #{i + 1}. #{pg['name']}  (#{pg['elements'].size - 2} cloned element(s) + annotation + native navigation)"
   end
 end
 
 # ---- PASS 2: layout mode (post-readback) ------------------------------------
 if opts[:wb_ids]
   abort('--wb-ids mode needs --layout-out') unless opts[:layout_out]
-  wb_ids = JSON.parse(File.read(opts[:wb_ids]))
+  wb_ids = WorkbookCode.legacy_view(JSON.parse(File.read(opts[:wb_ids])))
   seen = []
   wanted = points.each_with_index.map { |pt, i| page_name_for(pt, i, seen) }
 
@@ -209,15 +234,18 @@ if opts[:wb_ids]
     end
     els = pg['elements'] || []
     annotation = els.find { |e| e['kind'] == 'text' }
-    charts = els.reject { |e| e['kind'] == 'text' || e['kind'] == 'container' }
+    navigation = els.find { |e| e['kind'] == 'navigation' }
+    charts = els.reject { |e| %w[text navigation container].include?(e['kind']) }
     # Tile charts 2-per-row, 9 rows tall; banded_page reflows under-filled
     # bands so a 1- or 3-chart point still fills the grid.
-    items = charts.each_with_index.map do |e, j|
+    items = []
+    items << [navigation['id'], 1, 25, 1, 3] if navigation
+    items.concat(charts.each_with_index.map do |e, j|
       c0 = j.even? ? 1 : 13
       c1 = j.even? ? 13 : 25
-      r0 = 1 + (j / 2) * 9
+      r0 = 3 + (j / 2) * 9
       [e['id'], c0, c1, r0, r0 + 9]
-    end
+    end)
     xml, extra = banded_page(pg['id'], items, header_el: annotation && annotation['id'],
                                               id_prefix: "story-#{pg['id']}")
     page_frags << xml

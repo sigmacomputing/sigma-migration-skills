@@ -1,5 +1,6 @@
 {
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "lookml.mjs",
-  "note": "Self-contained generated bundle; not source — do not hand-edit."
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
+  "bundle_sha256": "1279bcba19cbee9452deb8ed21768b9223ba9ef66bb023e38d4b046f30a7c0e2"
 }

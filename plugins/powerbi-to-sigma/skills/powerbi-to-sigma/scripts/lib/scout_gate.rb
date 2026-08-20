@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 #
-# Shared "run-each-time gap-scout gate".
+# Shared "run-each-time gap-scout gate" ().
 #
 # The guarantee: a migration may NOT proceed past its unhandled-feature gaps
 # unless the gap-scout actually ran for EVERY one — either it validated a Sigma

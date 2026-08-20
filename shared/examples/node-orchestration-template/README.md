@@ -53,6 +53,6 @@ you are building a Node-only skill and want to drop the Python dependency, swap 
 ## Not shown (intentionally)
 
 This template is about the **portability seam**, not a full migration. Real converters are the
-esbuild-bundled `converter/*.mjs` (source of truth: `sigma-data-model-mcp/src/*.ts`) — call those,
+esbuild-bundled `converter/*.mjs` (source of truth: `converter-source/src/*.ts`) — call those,
 don't reimplement conversion here. Gates (`assert-doctor-ran.rb`, parity checks) still apply and
 compose on top of this shape.

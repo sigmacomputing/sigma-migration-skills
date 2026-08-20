@@ -13,6 +13,15 @@ Usage:
       --db DEMO_DB --schema DEMO --out dm_spec.json --flags flags.json
 """
 import argparse, json, re, sys, os
+
+# Windows runners default redirected stdout to a legacy code page that cannot
+# represent migration diagnostics such as "source → target". Emit UTF-8
+# consistently so reporting a flagged metric never aborts the conversion.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from maql import translate
 

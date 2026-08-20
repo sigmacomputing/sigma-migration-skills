@@ -175,15 +175,63 @@ module SqlIdentCheck
   end
 
   # Structural scan → {
-  #   idents:  [{name:, quoted:, alias: <tbl-alias|nil>}, ...]  candidate COLUMN refs
-  #   aliases: { "OUTPUT_ALIAS" => true, ... }   names defined by AS / CTEs (upcased)
-  #   tables:  [{name:, alias:}]                 FROM/JOIN base tables (last path part)
+  #   idents:      [{name:, quoted:, alias: <tbl-alias|nil>}, ...]  candidate COLUMN refs
+  #   aliases:     { "OUTPUT_ALIAS" => true, ... }   names defined by AS / CTEs (upcased)
+  #   tables:      [{name:, alias:}]                 FROM/JOIN base tables (last path part)
+  #   bad_aliases: [{raw:}, ...]  (#693) `AS <name>` clauses whose alias was
+  #                NOT a single legal bare/quoted identifier — see below.
   # }
   def scan(sql)
     tokens = tokenize(sql)
     idents  = []
     defined = {}
     tables  = []
+    bad_aliases = []
+    # (#693) An `AS <name>` alias legally spans exactly ONE token — either a
+    # whole :word or a whole :quoted. `AS SUB-CATEGORY` tokenizes as
+    # word(SUB), punct(-), word(CATEGORY) — three tokens. The OLD scan took
+    # only the first ("SUB") as "the" alias and left "- CATEGORY" to re-enter
+    # the stream as spurious candidate column refs, which is exactly how the
+    # live #693 failure printed "OK ... identifiers resolve" for the element
+    # that then failed compilation: "CATEGORY" happened to be a real,
+    # unrelated column, so the stray fragment silently passed catalog
+    # resolution.
+    #
+    # extend_alias_run walks past a completed word/quoted token and decides
+    # whether the run continues:
+    #   - a hard-stop punct (`,` or `)`) or EOF always ends it.
+    #   - any OTHER punct (`-`, `.`, `+`, ...) immediately glued onto the
+    #     alias can ONLY be part of a genuine SQL clause when it is itself
+    #     followed by another word/quoted token (a real compound-looking
+    #     identifier) — never on its own after a complete alias — so it is
+    #     consumed together with that next token and the run continues. This
+    #     is what correctly reconstructs "YEAR-OVER-YEAR" as ONE alias even
+    #     though its middle fragment ("OVER") happens to spell the real SQL
+    #     keyword OVER: the keyword-ness of a word never matters when it
+    #     arrives glued on through a connecting punct, only when it arrives
+    #     bare (see next bullet).
+    #   - a bare word with NO connecting punct before it (the source had a
+    #     plain space, or nothing) is ambiguous: it is either the next SQL
+    #     clause (`AS N FROM ...` — stop, do not consume) or the second word
+    #     of an illegal unquoted multi-word alias (`AS ORDER DATE` — keep
+    #     going, it's illegal either way and the whole run gets reported).
+    #     KEYWORDS is exactly that dividing line: any name that only ever
+    #     appears in SOURCE data as a business word (not a SQL keyword) will
+    #     never appear here by accident, and even a false stop just leaves
+    #     the remainder to the ordinary candidate-identifier scan below —
+    #     never a false PASS.
+    extend_alias_run = lambda do |alias_run, tokens, j|
+      tok = tokens[j]
+      return [alias_run, j] if tok.nil?
+      if tok.kind == :punct
+        return [alias_run, j] if %w[, )].include?(tok.value)
+        following = tokens[j + 1]
+        return [alias_run, j] unless following && (following.kind == :word || following.kind == :quoted)
+        return [alias_run + [tok, following], j + 2]
+      end
+      return [alias_run, j] if KEYWORDS[tok.value.upcase]
+      [alias_run + [tok], j + 1]
+    end
     i = 0
     while i < tokens.length
       t = tokens[i]
@@ -201,10 +249,27 @@ module SqlIdentCheck
         end
       end
 
-      # AS <name> — output alias / derived-table alias: defined, never checked.
+      # AS <name> — output alias / derived-table alias: defined, never checked
+      # as a source ref. But first confirm <name> really IS a single legal
+      # identifier (see extend_alias_run above) — a fragmented/illegal alias
+      # is recorded in bad_aliases instead of silently defining its first
+      # fragment.
       if up == 'AS' && nxt && (nxt.kind == :word || nxt.kind == :quoted)
-        defined[nxt.value.upcase] = true
-        i += 2
+        alias_run = [nxt]
+        j = i + 2
+        loop do
+          new_run, new_j = extend_alias_run.call(alias_run, tokens, j)
+          break if new_j == j # no progress — this IS the boundary
+          alias_run, j = new_run, new_j
+        end
+        if alias_run.size > 1
+          raw = alias_run.map(&:value).join
+          bad_aliases << { raw: raw }
+          defined[raw.upcase] = true
+        else
+          defined[nxt.value.upcase] = true
+        end
+        i = j
         next
       end
 
@@ -288,7 +353,7 @@ module SqlIdentCheck
 
       i += 1
     end
-    { idents: idents, aliases: defined, tables: tables }
+    { idents: idents, aliases: defined, tables: tables, bad_aliases: bad_aliases }
   end
 
   # Check one statement against catalog columns.
@@ -300,6 +365,13 @@ module SqlIdentCheck
   #
   # Returns { ok:, unknown: [{identifier:, quoted:, table:, suggestion:}], tables: [...] }
   #   suggestion is the ready-to-paste fix, e.g. %q{"Customer Ref ID"}, or nil.
+  #   (#693) unknown[] also carries emitted-ALIAS legality findings —
+  #   `illegal_alias: true`, `table: nil` (a syntax defect, not a catalog
+  #   miss) — so a statement whose SOURCE identifiers all resolve but whose
+  #   `AS <alias>` is not legal SQL (e.g. `AS SUB-CATEGORY`, unquoted) still
+  #   flips `ok` to false. This check needs NO catalog: it is independent of
+  #   columns_by_table and runs even when the catalog for this element's
+  #   table was never supplied.
   def check(statement, columns_by_table)
     scanned = scan(statement)
     norm_tables = {}
@@ -313,6 +385,16 @@ module SqlIdentCheck
 
     unknown = []
     seen = {}
+    (scanned[:bad_aliases] || []).each do |ba|
+      raw = ba[:raw]
+      key = "ALIAS:#{raw}"
+      next if seen[key]
+      seen[key] = true
+      fixed = sql_ident(raw)
+      unknown << { identifier: raw, quoted: false, table: nil,
+                   suggestion: fixed, illegal_alias: true,
+                   reason: fixed.nil? ? illegal_reason(raw) : nil }
+    end
     scanned[:idents].each do |ref|
       name = ref[:name]
       next if name.empty?

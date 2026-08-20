@@ -1,11 +1,21 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "thoughtspot-to-sigma",
-  "displayName": "ThoughtSpot → Sigma",
-  "version": "1.2.1",
-  "description": "Migrate ThoughtSpot models/worksheets and Liveboards to Sigma — TML discovery, model→data-model conversion, Liveboard→workbook build (KPI/bar/line/pie/pivot/table + search-query filters), grid layout, and parity verification. Includes an instance assessment skill.",
-  "author": { "name": "Sigma Computing" },
+  "displayName": "ThoughtSpot \u2192 Sigma",
+  "version": "1.2.19",
+  "description": "Migrate ThoughtSpot models/worksheets and Liveboards to Sigma \u2014 TML discovery, model\u2192data-model conversion, Liveboard\u2192workbook build (KPI/bar/line/pie/pivot/table + search-query filters), grid layout, and parity verification. Includes an instance assessment skill.",
+  "author": {
+    "name": "Sigma Computing"
+  },
   "license": "Apache-2.0",
-  "keywords": ["thoughtspot", "tml", "liveboard", "sigma", "migration", "bi", "converter"],
+  "keywords": [
+    "thoughtspot",
+    "tml",
+    "liveboard",
+    "sigma",
+    "migration",
+    "bi",
+    "converter"
+  ],
   "skills": "./skills/"
 }

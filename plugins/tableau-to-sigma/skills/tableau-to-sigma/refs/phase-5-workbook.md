@@ -50,8 +50,40 @@ A very common Tableau idiom: a **parameter** (e.g. "Select Metric": Sales / Prof
 3. **`SUM(CASE …)` (CASE inside the aggregate)** and **per-branch `SUM()`** both translate; the outer aggregate comes from the chart shelf, so don't hand-wrap a second time.
 4. If the calc doesn't auto-translate (compound/inequality condition, LOD-wrapped branch, branch referencing another calc), the build emits a manual note — hand-author the control + `Switch` measure per the shape above, then re-verify with #1 and #2.
 
+### Workbook controls that drive data-model calculations
+
+Control formula scope is document-local. A workbook control named
+`ctl-param-region` does **not** drive a data-model calculation that references a
+data-model control merely because the IDs or captions match. The workbook
+control must target the data-model control explicitly:
+
+```json
+"parameters": [
+  {
+    "kind": "data-model",
+    "dataModelId": "<posted-data-model-id>",
+    "controlId": "<readback data-model controlId>"
+  }
+]
+```
+
+The orchestrator adds this binding after the data-model readback and records
+`<WORK>/dm-control-bindings.json`. Never replace it with a workbook formula
+reference to the data-model control. Workbook calculations may reference the
+workbook control as `[<workbook controlId>]`; data-model calculations reference
+their local data-model control, and `parameters[]` is the bridge between them.
+
+The same document boundary applies to **dynamic text in a title**. Tableau
+serializes a displayed parameter in a worksheet title as
+`<[Parameters].[Parameter 1 3]>`; Sigma renders that literally, so it must be
+translated to `{{[<controlId>]}}` — and only against a control the **workbook**
+carries. Dynamic text cannot reach a data-model control, so when a parameter was
+converted into a data-model control only, `build-charts-from-signals.rb`
+substitutes the parameter's current value instead and records why. `validate-spec.rb`
+fails the spec if any raw Tableau token would reach POST.
+
 ### Migration coverage — WARN vs NOTE (read this before reacting to log volume)
-The build prints two prefixes (bead beads-sigma-59mk). **`NOTE`** = a success
+The build prints two prefixes (). **`NOTE`** = a success
 confirmation or a verify-nudge — NOT a gap (`translated inline:` / `decomposed:` /
 `learned-rule applied` / `auto-emitted … verify` / `sort carried`). **`WARN`** =
 an actual drop or degradation that needs a decision. Historically every note was
@@ -69,9 +101,9 @@ What the remaining message types mean — act on each one:
 - `NOTE 'X' auto-emitted … verify / detected as dual-axis` — built; eyeball it against the source PNG.
 - `WARN 'X' … could not be auto-decomposed — dropped from the grid` — re-author the calc manually (a `dropped` coverage gap).
 - `WARN 'X' … STAYS MANUAL` — degraded: copy the printed Sigma formula into a master column.
-- `WARN 'X' has Tableau reference marks (...) not auto-emitted` — add Sigma `referenceMarks` post-publish (beads-sigma-7ak).
+- `WARN 'X' has Tableau reference marks (...) not auto-emitted` — add Sigma `referenceMarks` post-publish ([bead]).
 - `'X' has N Tableau action filter(s) — skipped` — read `<out>-actions.md` and wire Sigma cross-element filtering manually.
-- `parameter '...' is a numeric range — skipped auto-control` — add a number control by hand (beads-sigma-ebw).
+- `parameter '...' is a numeric range — skipped auto-control` — add a number control by hand ([bead]).
 - `DATASOURCE-level filter 'X' (always-on) … Recorded needs-master-default` (#483) — an always-on Tableau data-source filter (a virtual-connection `<shared-view>` database-domain filter such as `company_active = true`) whose column is not a charted dimension. It is **NOT optional** and renders nothing on any dashboard, so a visual check can't catch a miss. **Apply it as a workbook-wide default filter on the master element** — an element-level `filters` entry `{id, columnId, kind:"list", mode:"include", values:[…]}` on the `master` table (the `id` is REQUIRED — the spec endpoint 400s `filters[N].id: Invalid string: undefined` without it; use a deterministic slug like `flt-master-0`) (so every element sourcing it inherits the scope) — NOT an open `values:[]` control, which widens it back to everything. The **datasource-filter gate** (`scripts/assert-datasource-filters.rb`, run at `migrate-tableau.rb --finalize` and standalone) blocks GREEN until it is applied (an `is_active_flag` filter must be applied, not merely surfaced as a control). Escape hatch: `--skip-datasource-filters "<reason>"`.
 
 ### Multi-metric region dashboard (READ if a control's `png-read.json` mixes `target_tiles` and `highlight_tiles`)
@@ -81,6 +113,15 @@ When Phase 1d recorded a list control that **filters** some tiles (`target_tiles
 ### 5a. Write the workbook spec
 
 > **`folderId` is required here too.**
+
+> **The workbook body is `document`-wrapped, not flat (verified live 2026-08-03,
+> including on `POST /v2/workbooks/spec/verify` 2026-08-04).** `schemaVersion`,
+> `pages`, `kind`, and `layout` all nest under a top-level `document` key; only
+> ownership/location metadata (`name`, `folderId`, `ownerId`) stays outside it.
+> The old flat body (these fields at the request root) now 400s fleet-wide.
+> Data-model specs (`POST /v2/dataModels/spec`) are unaffected and remain flat
+> — do not wrap those. `shared/lib/code_rep.{rb,py,mjs}` (`Sigma::CodeRep.wrap`)
+> is the canonical adapter; reads tolerate both shapes, writes always nest.
 
 #### The two-page rule — master always on a dedicated "Data" page
 
@@ -97,56 +138,58 @@ Spec skeleton (two pages, master on `Data`, all charts on `Orders Overview`):
 {
   "name": "Orders Overview",
   "folderId": "<folder-id>",
-  "schemaVersion": 1,
-  "pages": [
-    {
-      "id": "page-data",
-      "name": "Data",
-      "elements": [
-        {
-          "id": "master",
-          "kind": "table",
-          "name": "Master",
-          "visibleAsSource": false,
-          "source": {
-            "kind": "data-model",
-            "dataModelId": "<dataModelId>",
-            "elementId": "<elementId from dm-ids.json>"
+  "document": {
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "page-data",
+        "name": "Data",
+        "elements": [
+          {
+            "id": "master",
+            "kind": "table",
+            "name": "Master",
+            "visibleAsSource": false,
+            "source": {
+              "kind": "data-model",
+              "dataModelId": "<dataModelId>",
+              "elementId": "<elementId from dm-ids.json>"
+            },
+            "columns": [
+              { "id": "m-sales", "formula": "[Order Fact/Sales]", "name": "Sales" }
+            ],
+            "order": ["m-sales"]
+          }
+        ]
+      },
+      {
+        "id": "page-overview",
+        "name": "Orders Overview",
+        "elements": [
+          { "id": "txt-title", "kind": "text", "body": "# Orders Dashboard" },
+          {
+            "id": "el-ctl-date",
+            "kind": "control",
+            "controlId": "ctl-date",
+            "name": "Order Date",
+            "controlType": "date-range",
+            "selectionMode": "ranges",
+            "source": { "kind": "source" },
+            "mode": "between",
+            "filters": [{ "source": { "kind": "table", "elementId": "master" }, "columnId": "m-order-date" }],
+            "includeNulls": "when-no-value-is-selected"
           },
-          "columns": [
-            { "id": "m-sales", "formula": "[Order Fact/Sales]", "name": "Sales" }
-          ],
-          "order": ["m-sales"]
-        }
-      ]
-    },
-    {
-      "id": "page-overview",
-      "name": "Orders Overview",
-      "elements": [
-        { "id": "txt-title", "kind": "text", "body": "# Orders Dashboard" },
-        {
-          "id": "el-ctl-date",
-          "kind": "control",
-          "controlId": "ctl-date",
-          "name": "Order Date",
-          "controlType": "date-range",
-          "selectionMode": "ranges",
-          "source": { "kind": "source" },
-          "mode": "between",
-          "filters": [{ "source": { "kind": "table", "elementId": "master" }, "columnId": "m-order-date" }],
-          "includeNulls": "when-no-value-is-selected"
-        },
-        {
-          "id": "el-kpi-sales",
-          "kind": "kpi-chart",
-          "source": { "kind": "table", "elementId": "master" },
-          "columns": [{ "id": "k-sales", "formula": "Sum([Master/Sales])", "name": "Total Sales" }],
-          "value": { "columnId": "k-sales" }
-        }
-      ]
-    }
-  ]
+          {
+            "id": "el-kpi-sales",
+            "kind": "kpi-chart",
+            "source": { "kind": "table", "elementId": "master" },
+            "columns": [{ "id": "k-sales", "formula": "Sum([Master/Sales])", "name": "Total Sales" }],
+            "value": { "columnId": "k-sales" }
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -155,7 +198,7 @@ Rules:
 - Master-column formulas use the DM element's `name` as prefix (`[Order Fact/Sales]`, not the element ID).
 - Charts and controls source the master with `"elementId": "master"` regardless of which page they live on — cross-page **source** references (chart → master) resolve fine.
 - Chart-column formulas use the master table's `name` as prefix (`[Master/Sales]`).
-- Layout XML must produce **one `<Page>` tag per page**, including a tiny full-width `<LayoutElement elementId="master" .../>` inside the Data page's `<Page>` (one entry **per master instance** when per-page masters are on — see below).
+- Layout XML must produce **one `<Page>` tag per page**, including a tiny full-width `<Element elementId="master" .../>` inside the Data page's `<Page>` (one entry **per master instance** when per-page masters are on — see below).
 
 > **⚠️ Per-page masters (PLAN-v3 PR-17, flag-staged).** A control filter *propagates
 > along source chains, not page boundaries* — so when **multiple content pages share
@@ -248,8 +291,9 @@ ruby scripts/post-and-readback.rb --type workbook \
 ### 5d. Build layout XML (MANDATORY)
 
 > **Skip this step and Sigma renders every tile as a single-column stack** —
-> the CoCo regression (beads-sigma-bw3). `assert-phase6-ran.rb` gate 4
-> rejects any workbook without a non-empty top-level `layout` XML.
+> the CoCo regression ([bead]). `assert-phase6-ran.rb` gate 4
+> rejects any workbook without a non-empty `layout` XML (`document.layout`
+> in the current wrapped shape — see 5a).
 
 **Preferred path — auto-layout from the parsed Tableau zone tree:**
 
@@ -285,12 +329,13 @@ workbooks with no `<dashboard>` element, or a layout you want to redesign),
 write a per-workbook layout config that `require`s the helper library.
 Never hand-write layout XML directly.
 
-> **PUT /v2/workbooks/{id}/spec wipes the top-level `layout` string.** If you
-> re-PUT the workbook spec after a formula fix (or any other spec edit), the
-> existing layout is **erased** and the workbook reverts to a single
-> auto-stacked column. Two ways to avoid the round trip:
+> **PUT /v2/workbooks/{id}/spec wipes the `layout` string** (`document.layout`
+> in the current wrapped shape). If you re-PUT the workbook spec after a
+> formula fix (or any other spec edit), the existing layout is **erased** and
+> the workbook reverts to a single auto-stacked column. Two ways to avoid the
+> round trip:
 > 1. **Preferred:** re-emit the layout XML in the same PUT body — set
->    `spec.layout` to the assembled XML string before PUTting.
+>    `document.layout` to the assembled XML string before PUTting.
 > 2. Or PUT layout separately AFTER spec via `scripts/put-layout.rb`. That
 >    script GETs the spec, replaces just the layout field, and PUTs back. Cost:
 >    one extra round trip (~5-15s) and an export to confirm.
@@ -324,11 +369,11 @@ File.write('<WORK>/layout.xml', xml)
 ```
 
 Layout helpers (in `scripts/lib/layout.rb`): `gc(eid, c0, c1, r0, r1, inner)` for
-`<GridContainer>`, `le(eid, c0, c1, r0, r1)` for `<LayoutElement>`, `page_xml(page_id, *children)`
+`<Container>`, `le(eid, c0, c1, r0, r1)` for `<Element>`, `page_xml(page_id, *children)`
 to wrap a page, `assemble(*pages)` to add the XML prologue.
 
 See `refs/layout-grid.md` for typical page layouts (4 KPIs + line chart + 2 bars,
-multi-row containers, etc.) and rules (`<GridContainer>` for nesting, KPI inner `gridRow`
+multi-row containers, etc.) and rules (`<Container>` for nesting, KPI inner `gridRow`
 must match container outer span).
 
 ### 5e. PUT the layout
@@ -341,7 +386,7 @@ ruby scripts/put-layout.rb \
 
 The script:
 - GETs the current workbook spec,
-- replaces per-page `layout` with a single top-level `layout` (per-page layouts are silently dropped),
+- replaces per-page `layout` with a single `document.layout` (per-page layouts are silently dropped),
 - strips read-only fields (`workbookId`, `url`, `ownerId`, `createdBy`, `updatedBy`, `createdAt`, `updatedAt`, `latestDocumentVersion`),
 - aborts if any `elementId=""` appears in the XML,
 - PUTs the full payload back.

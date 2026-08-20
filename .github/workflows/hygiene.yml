@@ -94,9 +94,20 @@ jobs:
           else
             BASE="$PUSH_BEFORE_SHA"
           fi
-          # New-branch pushes carry an all-zero 'before'; fall back to the
-          # default-branch merge-base so the branch's commits are still checked.
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+          # New-branch pushes carry an all-zero 'before'; a force-push (rebase,
+          # history rewrite) leaves 'before' pointing at a commit that still
+          # exists in the fetched history but is no longer an ancestor of the
+          # new head — git rev-list/diff over such a range walks the full
+          # history divergence instead of the intended small range (#680:
+          # observed 734 unrelated files on a rebased PR, because the old
+          # check here only asked "does this object exist", never "is it an
+          # ancestor of HEAD"). Validate ancestry, not just object existence,
+          # before trusting BASE; fall back to the default-branch merge-base
+          # in either failure mode so the branch's real commits are still
+          # checked. This also protects the PR branch above in the (unlikely)
+          # case its own fallback lands on a non-ancestor $PR_BASE_SHA.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null \
+             || ! git merge-base --is-ancestor "$BASE" "$HEAD_SHA" 2>/dev/null; then
             git fetch --quiet origin "$DEFAULT_BRANCH" || true
             BASE="$(git merge-base "origin/$DEFAULT_BRANCH" "$HEAD_SHA" 2>/dev/null || true)"
           fi
@@ -214,6 +225,10 @@ jobs:
         run: |
           ruby tools/lint-skills.rb
           bash tools/test-lint-skills-budgets.sh
+      - name: Skill path lint + self-test (marketplace-safe refs)
+        run: |
+          ruby tools/lint-skill-paths.rb
+          bash tools/test-lint-skill-paths.sh
       - name: Bootstrap/doctor lockstep self-test (creds-free)
         # bootstrap.sh duplicates doctor.sh's probes (py_real, the vm-node
         # candidate globs, Test-RealPython) under KEEP-IN-LOCKSTEP comments

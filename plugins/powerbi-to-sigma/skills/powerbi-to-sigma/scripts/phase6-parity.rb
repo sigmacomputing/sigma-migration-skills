@@ -57,6 +57,7 @@ end
 BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
+require 'code_rep'
 
 # Sigma.request handles initial token fetch + 401-retry-with-refresh
 # transparently. Phase 6 is the longest pass in the pipeline; tokens
@@ -70,7 +71,11 @@ plan_path = File.join(opts[:tab], 'parity-plan.json')
 if !opts[:finalize]
   # PASS 1 — build plan + emit per-chart MCP instructions
   warn "Phase 6 PASS 1: reading workbook spec #{opts[:wb]}"
-  spec = http_json("/v2/workbooks/#{opts[:wb]}/spec")
+  raw_spec = http_json("/v2/workbooks/#{opts[:wb]}/spec")
+  # Live GET now nests non-metadata fields under `document` (verified 2026-08-03/04);
+  # unwrap so wb-readback.json keeps the flat {pages:[...]} shape downstream
+  # scripts (auto-parity-plan.rb, ...) already expect on disk.
+  spec = Sigma::CodeRep.document(raw_spec)
   File.write(File.join(opts[:tab], 'wb-readback.json'), JSON.pretty_generate(spec))
 
   warn "Phase 6 PASS 1: building parity plan"
@@ -139,7 +144,7 @@ File.write(opts[:out], out)
 # Hard-gate sentinel — parity-final.json. assert-phase6-ran.rb checks this file
 # to confirm Phase 6 actually ran. Without this sentinel, a subagent can skip
 # Phase 6 entirely and still self-report GREEN (the historic loophole that
-# masked the cluster follower regression on 2026-05-22, see beads-sigma-4pm).
+# masked the cluster follower regression on 2026-05-22, see [bead]).
 summary_path = File.join(opts[:tab], 'parity-final.json')
 total = plan['charts'].size
 passed_chart_names = out.scan(/^PASS\s+\[[^\]]+\]\s+(.+)$/).flatten

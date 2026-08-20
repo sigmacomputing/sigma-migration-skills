@@ -1,5 +1,6 @@
 {
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "sql.mjs",
-  "note": "Self-contained generated bundle; not source — do not hand-edit."
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
+  "bundle_sha256": "bd40fe0c304d2fb0010be7e29a9e4c04f62f6ac9e41ed2763a8090338e9312bc"
 }

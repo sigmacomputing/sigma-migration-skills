@@ -77,7 +77,7 @@ Exits 0 only when ALL pass. Full prose per gate: `refs/script-map.md` +
 | 2 | parity | FAIL / extract-mode-without-flag / `charts_total==0` unbacked |
 | 4 | orphans | uncleaned posted workbooks (`cleanup-orphan-workbooks.rb`) |
 | 5 | live columns | any live `type=error` column |
-| 6 | layout | no non-empty top-level layout applied |
+| 6 | layout | no non-empty layout applied (`document.layout` — spec is `document`-wrapped, see `refs/phase-5-workbook.md`) |
 | 7 | tile census | unexplained missing zones / `--allow-missing-tiles N` |
 | 8 | layout lint | `lib/layout_lint.rb` / `--skip-layout-lint` |
 | 9 | control lint | `lib/control_lint.rb`, `control-scope.json` / `--skip-control-lint` |

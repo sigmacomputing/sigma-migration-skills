@@ -1,0 +1,100 @@
+{
+  "dimension": "workbook-feature",
+  "source_tool": "quicksight",
+  "authoritative_doc": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_AnalysisDefinition.html",
+  "on_unmapped_default": "record an explicit fidelity gap; never synthesize workbook behavior without QuickSight metadata",
+  "description": "QuickSight interaction, pagination, composition, and presentation metadata mapped to released Sigma workbook-as-code surfaces.",
+  "rows": [
+    {
+      "source": "waterfall-categories-values-breakdowns",
+      "sigma": "waterfall-chart",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_WaterfallChartAggregatedFieldWells.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+skip-invalid-visual",
+      "notes": "Categories and Values map to x/y; Breakdowns maps to splitBy. Native waterfall emission requires both a category and a value."
+    },
+    {
+      "source": "legend-options",
+      "sigma": "element.legend",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_LegendOptions.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+omit-unsupported-legend-field",
+      "notes": "Visibility and top/bottom/left/right position map directly. Width, height, fonts, and rich title styling remain explicit gaps. QuickSight has no standalone shared legend-control object, so none is invented."
+    },
+    {
+      "source": "column-hierarchies",
+      "sigma": "controlType:drill",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_ColumnHierarchy.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+suppress-entire-drill-control",
+      "notes": "ExplicitHierarchy and PredefinedHierarchy emit an ordered native drill control only when every exported column resolves on the visual's routed master. DateTimeHierarchy does not export ordered columns and remains loud."
+    },
+    {
+      "source": "sheet-tabs",
+      "sigma": "pages + navigation:auto",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_SheetDefinition.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "retain-separate-pages",
+      "notes": "Each sheet becomes a metadata-only page. Multi-sheet analyses receive auto navigation and shown page tabs."
+    },
+    {
+      "source": "tabbed-container",
+      "sigma": null,
+      "source_gap": true,
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_SheetDefinition.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "QuickSight sheets are top-level pages, not alternate views sharing one canvas region. Do not convert them to tabbed-container."
+    },
+    {
+      "source": "section-page-break",
+      "sigma": "page-break",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_SectionPageBreakConfiguration.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+omit",
+      "notes": "An ENABLED SectionAfterPageBreak emits an id/kind-only page-break placed at exactly one grid row."
+    },
+    {
+      "source": "gauge-arc-axis",
+      "sigma": "progress",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_GaugeChartOptions.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+emit-without-guessed-maximum",
+      "notes": "Gauge Values plus ArcAxis.Range map to native ring progress. Missing Max is not replaced by an invented value."
+    },
+    {
+      "source": "body-section-repeat",
+      "sigma": "repeated-container",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_BodySectionRepeatConfiguration.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+flatten-section",
+      "notes": "A single resolvable repeat dimension and concrete section children emit a grouped repeat source plus repeated-container. Multi-dimension or unresolved repeat metadata stays flat and loud."
+    },
+    {
+      "source": "workbook-panels",
+      "sigma": null,
+      "source_gap": true,
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_SheetDefinition.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "explicit-gap",
+      "notes": "QuickSight FilterControls are in-canvas controls, not workbook header/sidebar panels. The builder emits an empty document.panels collection and never fabricates application chrome."
+    },
+    {
+      "source": "theme-and-visual-style",
+      "sigma": "settings.theme + element style/legend",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_ThemeConfiguration.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "warn+omit-unsupported-style",
+      "notes": "Discovered categorical palette, dark base, card chrome, and chart legend presentation map to released fields. Unsupported font/legend dimensions are not guessed."
+    },
+    {
+      "source": "box-plot",
+      "sigma": null,
+      "release_gate": "box-chart must be present in the published workbook element union",
+      "doc_ref": "https://docs.aws.amazon.com/quicksight/latest/APIReference/API_BoxPlotVisual.html",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "data-migrate-as-table+warn",
+      "notes": "Native box-chart emission is gated. Until published, preserve underlying fields in a grouped table and record a loud approximation."
+    }
+  ]
+}

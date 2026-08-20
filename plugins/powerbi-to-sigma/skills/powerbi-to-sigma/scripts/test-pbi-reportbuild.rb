@@ -55,6 +55,20 @@ tie_for = ->(qr) { { 'a' => ['A'], 'b' => ['B'] }[qr] }
 tie_visuals = [{ 'bindings' => { 'X' => ['a'], 'Y' => ['b'] } }]
 ok('page_base_master tie -> first-seen (A)', PbiReportBuild.page_base_master(tie_visuals, tie_for) == 'A')
 
+# A dominant page base must not be forced onto a specialized visual when it
+# resolves only some of that visual's fields.
+special_for = lambda do |qr|
+  {
+    'year' => %w[BASE YEAR_GROUP],
+    'revenue' => %w[BASE YEAR_GROUP],
+    'prior' => ['YEAR_GROUP']
+  }[qr]
+end
+ok('page base is rejected when one visual field needs a specialized master',
+   !PbiReportBuild.all_fields_resolve_on?(%w[year revenue prior], 'BASE', special_for))
+ok('specialized master is eligible when it resolves every visual field',
+   PbiReportBuild.all_fields_resolve_on?(%w[year revenue prior], 'YEAR_GROUP', special_for))
+
 # ---- boolean_leaf?: indicator naming, conservative --------------------------
 B = PbiReportBuild.method(:boolean_leaf?)
 ok('"Is Active" -> boolean',        B.call('Is Active'))

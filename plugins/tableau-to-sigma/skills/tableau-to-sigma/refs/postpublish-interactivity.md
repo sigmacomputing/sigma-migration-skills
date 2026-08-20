@@ -26,9 +26,22 @@ ruby scripts/build-postpublish-guide.rb \
   --twb  <workdir>/workbook-content.twb \
   --out  <workdir>/POSTPUBLISH_GUIDE.md \
   --wb-ids   <workdir>/wb-ids.json \          # AFTER the POST — names real elements
-  --json-out <workdir>/postpublish-guide.json \
+  --emitted-manifest <workdir>/chart-specs-actions-emitted.json \  # what build-charts-from-signals.rb already auto-wired
+  --json-out <workdir>/action-ledger.json \
   --sigma-url "https://app.sigmacomputing.com/<org>/workbook/<id>"
 ```
+
+`--emitted-manifest` is the `*-actions-emitted.json` sidecar `build-charts-
+from-signals.rb` writes next to its `--out` (in the tableau-to-sigma
+orchestrator this is always `<workdir>/chart-specs-actions-emitted.json`).
+**Never omit it in the live pipeline**: the guide joins detected interactions
+against that manifest and renders ONLY the ones NOT already auto-wired
+(currently: navigate nav-buttons). Omit it (or point it at a missing file)
+and the guide will re-instruct the user to hand-wire actions the converter
+already built — the exact defect this generator exists to prevent. A missing
+file is read as "nothing auto-wired" (never an error), which is only correct
+when nothing genuinely was — e.g. `--page-per-worksheet` mode, where
+build-charts-from-signals.rb never attempts the button auto-wiring either.
 
 Run it (or re-run it) **after** the workbook POST so `--wb-ids` resolves
 Tableau sheet/dashboard/parameter names to the built Sigma elements, pages,
@@ -46,11 +59,19 @@ minimal guide), so the safe pattern is simply: run the generator during Phase
 6 wrap-up, unconditionally. Do not rename the output or write it anywhere but
 the workdir.
 
-The `--json-out` sidecar (`postpublish-guide.json`) is the machine-readable
-form: `[{kind, caption, source, targets, fields, sigma_status, ui_steps,
-notes}]` with `sigma_status` ∈ `ui-configurable` |
-`control-equivalent-built` | `no-equivalent`. Downstream tooling (report
-generation) reads this instead of scraping the markdown.
+The `--json-out` sidecar (`<workdir>/action-ledger.json` — that exact path is
+CONTRACTUAL, a later gate reads it) is the machine-readable ACTION LEDGER
+object, not a bare entries array:
+`{schemaVersion, detectedCount, emitted, residue}`. `emitted` echoes back
+whatever `--emitted-manifest` supplied; `residue` is every detected
+interaction `{kind, caption, source, targets, fields, ui_steps, notes, ...}`
+that was NOT already auto-wired — this is exactly what the rendered guide
+shows. There is no per-entry `sigma_status` field any more: status
+(UI-configurable / control-equivalent-built / no-equivalent) is derived at
+render time from `kind` (see `KIND_STATUS` in the generator), not asserted
+per entry. Downstream tooling (report generation, telemetry) should read
+`residue` for "what still needs manual work" instead of scraping the
+markdown.
 
 ## The report must walk the user through it
 

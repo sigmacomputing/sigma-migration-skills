@@ -30,7 +30,7 @@ If a destination is already supplied, honor it silently — don't ask.
 > **READ FIRST — `refs/operating-contract.md`**: the fidelity guardrails (render + value-check EVERY page against the source; never ship empty or silently drop a tile; don't spin — surface blockers).
 > **Modeling strategy — `refs/modeling-strategy.md`**: faithful reproduction of the source model is the DEFAULT (parity is the gate); an upstream OBT or Sigma-native materialization is an OPT-IN optimization for hot, join-heavy dashboards, re-verified against the same parity oracle. The converter never auto-flattens.
 > Status: **foundation** (converter MCP + browser shipped 2026-05-28).
-> Beads: converter = `beads-sigma-j5e`; CustomSql/DIRECT_QUERY fixup = `beads-sigma-vy4k`.
+> Beads: converter = `[bead]`; CustomSql/DIRECT_QUERY fixup = `[bead]`.
 > Defers to: `sigma-workbooks` (canonical workbook spec), `sigma-data-models` (DM spec), the local vendored converter (`converter/quicksight.mjs`, exporting `convertQuickSightToSigma` — the `convert_quicksight_to_sigma` MCP tool is a manual fallback only), and the shared vendor-neutral Sigma-side scripts (`post-and-readback.rb`, `put-layout.rb`, `find-or-pick-dm.rb`, `verify-parity.rb`) reused across the migration skills.
 
 ## What's proven (the happy path)
@@ -168,7 +168,7 @@ What the converter handles vs. what it doesn't (see `refs/migration-test-slate.m
 - **Handled**: RelationalTable, CustomSql, JoinInstruction, DataTransforms (CreateColumns/Rename/Cast/Filter/Project), ~40 calc-field functions (`ifelse`→`If`, `switch`→nested `If`), parameters → Sigma controls. KPI / bar / line / donut/pie visuals on the workbook side.
 - **Gaps (degrade to `/* TODO */` placeholder or skipped)**: window / table-calc functions (`sumOver`, `runningSum`, `rank`, `percentOfTotal`, `periodOverPeriod*`, `window*`, `percentile*Over`); S3Source & SaaSTable physical sources; analysis-level FilterGroups; ColumnConfigurations (formatting); dataset-of-datasets. Un-migratable visuals (Insight ML, CustomContent, Plugin, Sankey, map family) → emit a partial migration + warning manifest; never call these "failed".
 
-For an untranslated calc-field expression, spawn the **gap-scout subagent** (see `scripts/gap-scout.md`): it proposes a Sigma formula, validates it against the live DM via `scripts/scout-validate-and-persist.rb`, and on success persists a rule to `~/.quicksight-to-sigma/learned-rules.yaml` (customer home — `git pull` can't clobber; the build script auto-applies it next run via `LearnedRules.load`). On failure the scout returns an **opt-in** `escalate-gap.py` command — filing a tracking issue is never automatic: run the returned `escalation.dry_run_cmd` to draft the issue (shows target repo + dedupe), show the user, and only re-run with `--yes` if they accept. Calc-field gaps route to the converter repos (`sigma-data-model-manager` + `sigma-data-model-mcp`, mirrored) with a cross-linked bead.
+For an untranslated calc-field expression, spawn the **gap-scout subagent** (see `scripts/gap-scout.md`): it proposes a Sigma formula, validates it against the live DM via `scripts/scout-validate-and-persist.rb`, and on success persists a rule to `~/.quicksight-to-sigma/learned-rules.yaml` (customer home — `git pull` can't clobber; the build script auto-applies it next run via `LearnedRules.load`). On failure the scout returns an **opt-in** `escalate-gap.py` command — filing a tracking issue is never automatic: run the returned `escalation.dry_run_cmd` to draft the issue (shows target repo + dedupe), show the user, and only re-run with `--yes` if they accept. Calc-field gaps route to the converter repos (`sigma-data-model-manager` + `converter-source`, mirrored) with a cross-linked bead.
 
 ## Phase 3.5 — Reuse an existing DM? (avoid sprawl — the reuse-first DM gate every converter runs before building)
 
@@ -196,7 +196,7 @@ calc columns from CreateColumnsOperation). Decision:
 
 ## Phase 4 — Fixup + POST the data model
 
-The converter output needs fixups before `POST /v2/dataModels/spec` (gap `beads-sigma-vy4k`: CustomSql / DIRECT_QUERY elements come back nameless, and sql refs need rewriting):
+The converter output needs fixups before `POST /v2/dataModels/spec` (gap `[bead]`: CustomSql / DIRECT_QUERY elements come back nameless, and sql refs need rewriting):
 
 ```bash
 ruby scripts/convert-model.rb --fixup \
@@ -223,9 +223,15 @@ ruby scripts/build-workbook-from-quicksight.rb \
 ruby scripts/post-and-readback.rb --type workbook --spec wb-spec.json --out wb-readback.json
 ```
 
+> The workbook spec is `document`-wrapped, not flat: `schemaVersion`/`pages`/`kind`/
+> `layout`/`settings`/`agents` all nest under a top-level `document` key (confirmed live
+> 2026-08-03, including on `/verify` 2026-08-04). The theme is workbook content, so it
+> travels inside `document` too — at `document.settings.theme`, not the request root.
+> Data-model specs are unaffected and stay flat.
+
 **Color + style fidelity (theme).** QuickSight visual colors AND its card/big-number chrome are theme-driven and NOT in the definition export, so the builder reads `signals.json.theme` (resolved in Phase 2) and applies:
-- **Colors:** top-level `themeOverrides.categoricalScheme` = the QS data-color palette (the ONLY spec path to pie/donut slice colors, and the palette for every categorical chart), plus `color:{by:single, value:<primaryColor>}` on single-measure bar/line/area (QuickSight paints those in the theme's primary data color), and `themeName:Dark` when the QS theme is dark.
-- **Card chrome:** QuickSight renders every tile as a bordered card, so `themeOverrides.hasCards:shown` + `borderRadius:round` + a subtle `elementBorder` (light border skipped on dark themes) mirror that look theme-agnostically.
+- **Colors:** top-level `settings.theme.overrides.categoricalScheme` = the QS data-color palette (the ONLY spec path to pie/donut slice colors, and the palette for every categorical chart), plus `color:{by:single, value:<primaryColor>}` on single-measure bar/line/area (QuickSight paints those in the theme's primary data color), and `settings.theme.name:Dark` when the QS theme is dark.
+- **Card chrome:** QuickSight renders every tile as a bordered card, so `settings.theme.overrides.hasCards:shown` + `borderRadius:round` + a subtle `elementBorder` (light border skipped on dark themes) mirror that look theme-agnostically.
 - **KPI tiles:** QuickSight KPIs are prominent big-number tiles, so each `kpi-chart` gets `value.fontSize:24` + `layout.anchor:middle` (Sigma's default is a small top-anchored number). 24 fits the scaled QS KPI row height without clipping; card bg/border come from `hasCards` (not per-element) so they stay theme-aware.
 
 No `theme` in signals (e.g. offline `--from-fixtures`) → colors + card chrome fall to Sigma defaults, unchanged. **Limitations:** (1) `categoricalScheme` is one *global, positional* palette applied in Sigma's category sort order — the color SET matches QuickSight but a pie's slice→label assignment can differ (QS assigns by value-descending); per-slice label parity isn't expressible via Sigma's single global scheme. (2) `build-quicksight-layout.rb` ports grid *geometry* faithfully but flattens QS SectionBasedLayout headers and approximates exact spacing/padding; inline chrome hexes (title color) aren't mapped.
@@ -254,7 +260,7 @@ A workbook that POSTs 200 and passes parity can still be visually broken — **o
 1. Render every page to PNG (token first: `eval "$(scripts/get-token.sh)"`):
    `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600`
 2. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls in their own band, no clipped titles, even heights, right chart kind/format).
-3. Fix any failure in the spec — for multi-page workbooks use `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-read**.
+3. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
 4. Declare the migration done on a **clean render**, not on HTTP 200.
 
 ## Phase 7 — Parity (hard gate)
@@ -292,7 +298,7 @@ ruby scripts/assert-phase6-ran.rb --workdir /tmp/<name> --workbook-id <WORKBOOK_
 ## Gotchas (carry these forward)
 - **Enterprise edition is mandatory** for the `describe-*-definition` APIs. Standard rejects them outright — there's no fallback extraction.
 - **QuickSight identity region is usually `us-east-1`** — resources read from the identity region, not the data region.
-- **CustomSql / DIRECT_QUERY converter gap (`beads-sigma-vy4k`)**: those elements come back nameless and with raw sql refs; the `--fixup` step names them + rewrites refs to `[Custom SQL/<ALIAS>]`. Don't post the converter output unfixed.
+- **CustomSql / DIRECT_QUERY converter gap (`[bead]`)**: those elements come back nameless and with raw sql refs; the `--fixup` step names them + rewrites refs to `[Custom SQL/<ALIAS>]`. Don't post the converter output unfixed.
 - **Workbook element refs** are `[<source element name>/<col>]`, where the source element name is the DM element name set during fixup.
 - **pie/donut** use `color:{id}` + `value:{id}`, not the bar/line `xAxis`/`yAxis` shape.
 - **Layout grid is 1-based** in QuickSight — offset by 1 before scaling to Sigma's grid.

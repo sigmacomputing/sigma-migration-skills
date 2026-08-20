@@ -14,7 +14,7 @@ import re, os, sys
 # ── documentation-grounded aggregation catalog (SINGLE SOURCE OF TRUTH) ──────
 # The MAQL scalar aggregate map is loaded from refs/catalogs/aggregation.json — the
 # SAME catalog build_workbook.py loads, so the two copies of this map can never drift
-# (beads-sigma-kvza). Keys upper-cased to match the (SUM|AVG|MIN|MAX|MEDIAN) regex;
+# ([bead]). Keys upper-cased to match the (SUM|AVG|MIN|MAX|MEDIAN) regex;
 # COUNT is carried for coverage but resolved compositionally in count_attr (COUNT of
 # an attribute -> CountDistinct). Loader: shared/lib/coverage_catalog.py.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))

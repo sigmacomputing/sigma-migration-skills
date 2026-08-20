@@ -131,19 +131,23 @@ Prefer a **workbook-level control filtering the master table** — every chart t
 
 > **Phase 6 will not catch a missed filter on its own.** Data parity in Phase 6 compares Sigma rows to Tableau rows for the dimensions you query — if your Sigma chart includes extra rows the CSV never had, the comparison only flags missing rows from Tableau, not extra rows in Sigma. Always sanity-check distinct values and date ranges side-by-side before declaring parity.
 
-> **Element-level filters DO work on viz elements — verify them the right way.** A boolean
-> `filters: [{id, columnId, kind:"list", mode:"include", values:[true]}]` (`id` required — the API 400s without it) on a `bar-chart` /
-> `kpi-chart` is enforced in the render AND round-trips intact on `GET /v2/workbooks/{id}/spec`
-> (live-verified 2026-06-29 on a live Sigma org: a not-null filter cut 731→397 on both kinds,
-> confirmed via element CSV export and rendered PNG). So if a filter *looks* like it "doesn't
-> work," do NOT assume the API silently dropped it — the cause is almost always a `columnId`
-> that doesn't resolve to a real column on that element, which `validate-spec.rb` / `control_lint.rb`
-> catch on the gated path. **Validate filter behavior via the element's CSV export or a rendered
-> PNG — NOT via a base-grain `mcp__sigma-mcp-v2__query` against the connection**, which reads the
-> underlying table and is blind to element-level `filters`, `groupings`, and sort (use MCP only
-> for raw-data spot-checks and explicit-`GROUP BY` aggregation checks). A helper-table element
-> carrying the filter (chart sources the helper) also works, but is NOT required for simple
-> boolean/not-null slices — reserve it for the LOD/grain cases above.
+> **Element-level filters DO work on viz elements — verify them the right way.** For a
+> not-null / keep-true slice, emit a **Text-cast** helper column and string values —
+> `columns: [{id, formula: "Text(IsNotNull(...))"}]` +
+> `filters: [{id, columnId, kind:"list", mode:"include", values:["true"]}]`
+> (`id` required — the API 400s without it). A boolean-typed column with JSON
+> `values:[true]` is accepted by verify/PUT and by `/export`, but the UI renders
+> **"Invalid filter"** and blanks the tile (S11 / K20, live-confirmed 2026-08-05).
+> The Text()+string shape is enforced in render AND round-trips on
+> `GET /v2/workbooks/{id}/spec`. So if a filter *looks* like it "doesn't work," do
+> NOT assume the API silently dropped it — check both type/value shape and that
+> `columnId` resolves on that element (`validate-spec.rb` / `control_lint.rb` catch
+> the latter on the gated path). **Validate filter behavior via a rendered PNG —
+> NOT via `/export` alone** (invalid filters are ignored by export) and NOT via a
+> base-grain `mcp__sigma-mcp-v2__query` against the connection (blind to
+> element-level `filters` / `groupings` / sort). A helper-table element carrying
+> the filter (chart sources the helper) also works, but is NOT required for simple
+> not-null slices — reserve it for the LOD/grain cases above.
 
 ---
 

@@ -27,7 +27,8 @@ end
 
 DM = { 'dataModelId' => 'dm1', 'pages' => [{ 'elements' => [
   { 'id' => 'e1', 'name' => 'Master',
-    'columnLabels' => ['Net Revenue', 'Region', 'Customer Id (CUSTOMER_DIM)'] }
+    'columnLabels' => ['Net Revenue', 'Region', 'Customer Id (CUSTOMER_DIM)'],
+    'metrics' => [{ 'id' => 'metric-gross-margin', 'name' => 'Gross Margin Pct' }] }
 ] }] }
 
 # all refs resolve (incl. suffix-normalized "Customer Id")
@@ -36,6 +37,32 @@ rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
   { 'formula' => '[Master/Customer Id]' }
 ] }] }] }, DM)
 check(rc == 0, 'all-resolving spec passes (exit 0), suffix-normalized match works')
+
+# [Metrics/name] is a literal namespace. It resolves ONLY against the DM
+# metrics census from the full spec/readback, never against columnLabels.
+rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+  { 'formula' => '[Metrics/Gross Margin Pct]' }
+] }] }] }, DM)
+check(rc == 0, 'metric-only DM name resolves through the metrics census')
+
+rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+  { 'formula' => '[Metrics/Net Revenue]' }
+] }] }] }, DM)
+check(rc == 1, '[Metrics/name] does not resolve through a same-named DM column')
+check(out.include?('not in the DM metrics census'), 'column-only metric miss names the metrics census')
+
+rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+  { 'formula' => '[Metrics/Ghost Rate]' }
+] }] }] }, DM)
+check(rc == 1 && out.include?('Ghost Rate'), 'genuinely absent metric fails closed')
+
+dm_without_metrics = Marshal.load(Marshal.dump(DM))
+dm_without_metrics['pages'][0]['elements'][0].delete('metrics')
+rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+  { 'formula' => '[Metrics/Gross Margin Pct]' }
+] }] }] }, dm_without_metrics)
+check(rc == 1, 'missing metric census fails closed')
+check(out.include?('no DM metrics census'), 'missing census failure is explicit')
 
 # dropped columns (multi-DS collapse) → fail with exit 1
 rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [

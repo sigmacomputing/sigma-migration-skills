@@ -1,4 +1,4 @@
-"""Shared run-each-time gap-scout ledger — Python side.
+"""Shared run-each-time gap-scout ledger () — Python side.
 
 Mirrors scout_gate.rb's contract EXACTLY, including the integrity fix (issue #458).
 A per-conversion JSONL ledger at <workdir>/scout-ledger.jsonl, one row per scouted

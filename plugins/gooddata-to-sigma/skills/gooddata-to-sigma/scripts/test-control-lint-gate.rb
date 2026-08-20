@@ -9,6 +9,7 @@
 
 require 'json'
 require 'tmpdir'
+require_relative 'lib/code_rep'
 
 HERE = __dir__
 CL   = File.join(HERE, 'lib', 'control_lint.rb')
@@ -27,36 +28,49 @@ def lint(spec)
   end
 end
 
-# A page with a base table + a KPI sourced from it, and a control that targets
-# the base table. Sigma propagates the filter to the KPI -> full reach -> CLEAN.
-good = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
+# A metadata-only page with flat elements and authoritative layout. The control
+# targets the base table; Sigma propagates the filter to the KPI -> CLEAN.
+def workbook(elements)
+  layout_rows = elements.each_with_index.map do |element, index|
+    %(<Element elementId="#{element['id']}" gridColumn="1 / 25" ) +
+      %(gridRow="#{index + 1} / #{index + 2}"/>)
+  end
+  Sigma::CodeRep.wrap({
+    'schemaVersion' => 1,
+    'kind' => 'workbook',
+    'pages' => [{ 'name' => 'P1', 'id' => 'pg1' }],
+    'elements' => elements,
+    'layout' => ([
+      '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" ',
+      'gridTemplateRows="auto" id="pg1">',
+      *layout_rows,
+      '</Page>'
+    ]).join("\n")
+  }, extra: { 'name' => 'Control lint fixture' })
+end
+
+good = workbook(
+  [
       { 'id' => 'base', 'kind' => 'table', 'name' => 'Orders',
         'columns' => [{ 'id' => 'c_region', 'formula' => '[Region]' }] },
       { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total',
         'source' => { 'kind' => 'source', 'source' => { 'elementId' => 'base' } } },
       { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'region', 'controlType' => 'list',
         'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_region' }] }
-    ]
-  }]
-}
+  ]
+)
 
 # Same page, but the control targets ONLY the base table; the KPI is sourced
 # INDEPENDENTLY (not from base) -> the control does NOT reach it -> PARTIAL -> FAIL.
-partial = {
-  'pages' => [{
-    'name' => 'P1', 'id' => 'pg1',
-    'elements' => [
+partial = workbook(
+  [
       { 'id' => 'base', 'kind' => 'table', 'name' => 'Orders',
         'columns' => [{ 'id' => 'c_region', 'formula' => '[Region]' }] },
       { 'id' => 'kpi1', 'kind' => 'kpi-chart', 'name' => 'Total' }, # NOT sourced from base
       { 'id' => 'ctl1', 'kind' => 'control', 'controlId' => 'region', 'controlType' => 'list',
         'filters' => [{ 'source' => { 'elementId' => 'base' }, 'columnId' => 'c_region' }] }
-    ]
-  }]
-}
+  ]
+)
 
 check(File.exist?(CL), 'control_lint.rb is vendored into gooddata scripts/lib')
 check(lint(good) == 0, 'correctly-wired control (reaches KPI via source) -> gate PASSES (exit 0)')

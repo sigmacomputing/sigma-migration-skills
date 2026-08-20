@@ -2,7 +2,7 @@
 # test-intake.rb — unit test for the migration front-door (intake.rb): connection
 # resolution precedence + intake.json run metadata. Offline — the /v2/connections
 # listing is exercised via the --connections-fixture test seam, never the network.
-# Canonical in shared/scripts. Run: ruby scripts/test-intake.rb
+# Canonical in shared/scripts (epic [bead]). Run: ruby scripts/test-intake.rb
 require 'json'
 require 'tmpdir'
 require 'rbconfig'

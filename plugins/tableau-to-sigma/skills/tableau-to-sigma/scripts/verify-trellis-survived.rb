@@ -19,6 +19,12 @@
 require 'json'
 require 'optparse'
 
+begin
+  require_relative 'lib/code_rep'
+rescue LoadError
+  require_relative '../lib/code_rep'
+end
+
 opts = {}
 OptionParser.new do |p|
   p.on('--emitted PATH', 'native-trellis-emitted.json from build-charts') { |v| opts[:emitted] = v }
@@ -40,12 +46,11 @@ if records.empty?
 end
 
 raw  = JSON.parse(File.read(opts[:spec]))
-spec = raw['spec'].is_a?(Hash) ? raw['spec'] : raw # accept the full GET body or the bare spec
+spec = Sigma::CodeRep.document(raw['spec'].is_a?(Hash) ? raw['spec'] : raw)
 
-# Index every element on every page by id.
-by_id = {}
-Array(spec['pages']).each do |pg|
-  Array(pg['elements']).each { |e| by_id[e['id']] = e if e.is_a?(Hash) && e['id'] }
+# Index every flat workbook element by id.
+by_id = Sigma::CodeRep.workbook_elements(spec).each_with_object({}) do |e, out|
+  out[e['id']] = e if e['id']
 end
 
 fails = []

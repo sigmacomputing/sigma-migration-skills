@@ -1,4 +1,4 @@
-// ../../../build/sigma-data-model-mcp/build/sigma-ids.js
+// ../../../Users/converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var SIGMA_LOWERCASE_WORDS = /* @__PURE__ */ new Set([
@@ -116,7 +116,7 @@ function makeClsSecurity(opts) {
   };
 }
 
-// ../../../build/sigma-data-model-mcp/build/quicksight.js
+// ../../../Users/converter-source/build/quicksight.js
 function rewriteSqlRefs(formula, colMap) {
   const byDisplay = /* @__PURE__ */ new Map();
   for (const e of colMap.values())
@@ -1490,7 +1490,7 @@ function parameterDeclarationToControl(decl, warnings) {
   if (staticDefaults.length)
     control.defaultValue = isMulti ? staticDefaults : staticDefaults[0];
   if (kind === "number" && isMulti) {
-    warnings.push(`\u2139 Parameter "${inner.Name}" is multi-valued numeric \u2014 Sigma multi-numeric controls have known limitations; verify in UI (see beads-sigma-z3y).`);
+    warnings.push(`\u2139 Parameter "${inner.Name}" is multi-valued numeric \u2014 Sigma multi-numeric controls have known limitations; verify in UI (see [bead]).`);
   }
   return control;
 }

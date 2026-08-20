@@ -16,7 +16,8 @@
 #      + border_color.
 #   2. a fully-transparent fill (#00000000) is NOT emitted (no visible tint).
 #   3. a filter zone with mode='compact' carries control_display='compact'.
-#   4. the nested `zone_tree` container node also carries fill_color.
+#   4. released border-width / radius / rounding fields survive extraction.
+#   5. the nested `zone_tree` container node also carries the style fields.
 #
 # Usage:  ruby scripts/test-zone-style-extraction.rb
 
@@ -55,6 +56,9 @@ TWB = <<~XML
                 <format attr='border-style' value='none' />
                 <format attr='background-color' value='#07b4a24e' />
                 <format attr='border-color' value='#07b4a2' />
+                <format attr='border-width' value='2' />
+                <format attr='corner-radius' value='8' />
+                <format attr='rounding' value='medium' />
               </zone-style>
               <zone id='3' type-v2='filter' param='[federated.x].[none:Region:nk]' mode='compact' x='0' y='0' w='25000' h='40000' />
             </zone>
@@ -89,6 +93,11 @@ check(z2 && z2['fill_color'] == '#07b4a24e',
 check(z2 && z2['border_color'] == '#07b4a2',
       "flat zones: container border_color extracted (got #{z2 && z2['border_color'].inspect})", fails)
 
+check(z2 && z2['border_width'] == '2',
+      "flat zones: border_width extracted (got #{z2 && z2['border_width'].inspect})", fails)
+check(z2 && z2['corner_radius'] == 8 && z2['rounding'] == 'medium',
+      "flat zones: corner radius + rounding extracted (got #{z2 && z2.slice('corner_radius', 'rounding').inspect})", fails)
+
 # ---- 2. transparent fill is NOT emitted ------------------------------------
 z5 = zones.find { |z| z['id'] == '5' }
 check(z5 && z5['fill_color'].nil?,
@@ -99,7 +108,7 @@ z3 = zones.find { |z| z['id'] == '3' }
 check(z3 && z3['control_display'] == 'compact',
       "flat zones: filter mode='compact' → control_display (got #{z3 && z3['control_display'].inspect})", fails)
 
-# ---- 4. nested zone_tree also carries the fill -----------------------------
+# ---- 5. nested zone_tree also carries the released style fields ------------
 tree = (dash && dash['zone_tree']) || []
 def find_zone(nodes, id)
   nodes.each do |n|
@@ -112,6 +121,8 @@ end
 t2 = find_zone(tree, '2')
 check(t2 && t2['fill_color'] == '#07b4a24e',
       "zone_tree: nested container node carries fill_color (got #{t2 && t2['fill_color'].inspect})", fails)
+check(t2 && t2['border_width'] == '2' && t2['corner_radius'] == 8 && t2['rounding'] == 'medium',
+      "zone_tree: nested container carries width/radius/rounding (got #{t2 && t2.slice('border_width', 'corner_radius', 'rounding').inspect})", fails)
 
 puts
 if fails.empty?

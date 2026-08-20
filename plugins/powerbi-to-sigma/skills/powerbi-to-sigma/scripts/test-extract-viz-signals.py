@@ -84,6 +84,15 @@ for vt, v in by.items():
 
 check(not hasattr(erc, "VISUAL_KIND"),
       "the duplicated VISUAL_KIND dict is GONE from extract-report-classic.py")
+classic_hierarchy = {
+    "projections": {
+        "Category": [{"queryRef": "D.Year"}, {"queryRef": "D.Month"}]
+    },
+    "activeProjections": {"Category": [{"queryRef": "D.Month"}]},
+}
+check(erc._drill_signal(classic_hierarchy) == {
+          "role": "Category", "levels": ["D.Year", "D.Month"], "active": "D.Month"
+      }, "classic extractor preserves full hierarchy for native drill")
 
 print("\n2. PBIR extractor (extract-pbir.py) — same contract, same catalogs")
 epb = load("epb", os.path.join(HERE, "extract-pbir.py"))
@@ -97,6 +106,34 @@ if hasattr(epb, "_VK") and hasattr(erc, "_VK"):
           "both extractors resolve the datepicker identically")
 else:
     check(False, "both extractors expose a catalog resolver (_VK)")
+pbir_hierarchy = {
+    "Category": {
+        "projections": [
+            {"queryRef": "D.Year"},
+            {"queryRef": "D.Month", "active": True},
+        ]
+    }
+}
+check(epb._role_bindings(pbir_hierarchy) == {"Category": ["D.Month"]},
+      "PBIR chart binding keeps the active hierarchy level")
+check(epb._drill_signal(pbir_hierarchy) == {
+          "role": "Category", "levels": ["D.Year", "D.Month"], "active": "D.Month"
+      }, "PBIR extractor separately preserves full hierarchy for native drill")
+rich_textbox = {
+    "objects": {
+        "general": [{
+            "properties": {
+                "paragraphs": [
+                    {"textRuns": [{"value": "Retail Performance & Trends"}]},
+                    {"textRuns": [{"value": "Net revenue, profitability, and order mix"}]},
+                ]
+            }
+        }]
+    }
+}
+check(epb._textbox_body(rich_textbox) ==
+      "Retail Performance & Trends\nNet revenue, profitability, and order mix",
+      "PBIR rich-text paragraphs preserve title and subtitle")
 
 print(f"\n{'ALL PASS' if not fails else f'{len(fails)} FAILURE(S)'}")
 for f in fails:

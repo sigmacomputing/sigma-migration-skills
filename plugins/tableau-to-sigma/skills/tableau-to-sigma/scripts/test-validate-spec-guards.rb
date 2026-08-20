@@ -15,6 +15,7 @@
 require 'json'
 require 'tempfile'
 require 'open3'
+require_relative 'lib/workbook_code'
 
 VALIDATE = File.join(__dir__, 'validate-spec.rb')
 
@@ -34,6 +35,25 @@ def validate(spec, type: 'workbook', envelope: true)
     spec['name'] ||= 'guards-test'
     spec['folderId'] ||= 'folder-test' # keeps warn-count assertions envelope-neutral
     (spec['pages'] || []).each_with_index { |p, i| p['id'] ||= "pg-#{i}" }
+    if type == 'workbook'
+      pages = Array(spec['pages'])
+      page_records = pages.map do |page|
+        [page.reject { |key, _| key == 'elements' }, Array(page['elements'])]
+      end
+      metadata = spec.reject do |key, _|
+        %w[schemaVersion kind pages elements layout settings agents overlays panels].include?(key)
+      end
+      spec = metadata.merge(
+        'document' => {
+          'schemaVersion' => spec['schemaVersion'],
+          'kind' => 'workbook',
+          'pages' => page_records.map(&:first),
+          # Preserve duplicates: Parts A1-A4 exercise duplicate diagnostics.
+          'elements' => page_records.flat_map(&:last),
+          'layout' => WorkbookCode.layout_for(page_records)
+        }
+      )
+    end
   end
   tmp = Tempfile.new(['validate-guards-', '.json'])
   tmp.write(JSON.generate(spec))
@@ -151,6 +171,7 @@ check(out.include?('needs source.kind "data-model"'), 'catches table-kind-with-d
 puts
 puts 'Part G — --dm-context with null element names must NOT false-abort (reused-DM handoff bug)'
 def validate_dm_ctx(wb, ctx)
+  wb = WorkbookCode.canonicalize(wb)
   wf = Tempfile.new(['g-wb-', '.json']);  wf.write(JSON.generate(wb));   wf.close
   cf = Tempfile.new(['g-ctx-', '.json']); cf.write(JSON.generate(ctx)); cf.close
   out, err, st = Open3.capture3('ruby', VALIDATE, '--type', 'workbook', '--dm-context', cf.path, wf.path)

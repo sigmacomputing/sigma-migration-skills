@@ -46,3 +46,10 @@ punchlist.json
 # them commit-able.
 evidence-ledger.jsonl
 export-cache/
+# Every skill's discovery/ dir (e.g. dataset-map.json, written by build-dm.rb
+# and domo-import-to-snowflake) is per-run, workdir-local discovery state that
+# can carry real dataset UUIDs and warehouse database/schema/table
+# coordinates — same class of risk as evidence-ledger.jsonl above, and not
+# scoped to one skill, so this is repo-wide rather than a single .gitignore
+# entry under one plugin.
+plugins/*/skills/*/discovery/

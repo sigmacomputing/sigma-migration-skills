@@ -23,7 +23,15 @@ Dir.mktmpdir do |work|
   srv.mount_proc('/') do |req, res|
     if req.request_method == 'GET'
       captured[:get_auth] ||= req['authorization']
-      res.body = { 'pages' => [{ 'id' => 'p1', 'name' => 'P', 'elements' => [] }] }.to_json
+      res.body = {
+        'document' => {
+          'schemaVersion' => 1,
+          'kind' => 'workbook',
+          'pages' => [{ 'id' => 'p1', 'name' => 'P' }],
+          'elements' => [],
+          'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1"></Page>'
+        }
+      }.to_json
     else # PUT
       captured[:saw_put] = true
       res.body = { 'workbookId' => 'wb-test' }.to_json
@@ -36,7 +44,9 @@ Dir.mktmpdir do |work|
   File.write(File.join(work, 'auth.json'),
              { 'SIGMA_API_TOKEN' => 'filetok', 'SIGMA_BASE_URL' => "http://127.0.0.1:#{port}" }.to_json)
   layout = File.join(work, 'layout.xml')
-  File.write(layout, "<Layout><Zone/></Layout>", encoding: 'UTF-8')
+  File.write(layout,
+             '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1"></Page>',
+             encoding: 'UTF-8')
 
   # Scrub the env AND redirect HOME so sigma_rest's ~/.sigma-migration/env neutral
   # bootstrap (real creds on a dev box) can't leak in — the token+base must come

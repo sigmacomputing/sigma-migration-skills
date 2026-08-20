@@ -18,17 +18,26 @@ Row heights are relative units (auto). KPIs are ~6 units tall, charts 12-18 unit
 
 ## Layout XML structure
 
-The layout is a **single top-level field on the workbook spec** — NOT a per-page field.
-It is one XML string containing all pages concatenated, each identified by the server-assigned page ID.
+The layout is a **single field on the workbook spec's `document` object** — NOT a per-page
+field. It is one XML string containing all pages concatenated, each identified by the
+server-assigned page ID.
+
+> Workbook specs require a top-level `document` key wrapping `schemaVersion`/`pages`/`kind`/
+> `layout` (confirmed live 2026-08-03, including on `POST /v2/workbooks/spec/verify`
+> 2026-08-04); only `name`/`folderId`/`ownerId` stay outside it. Data-model specs remain
+> flat — do not wrap those. `layout` lived at the request root before this change; every
+> `spec['layout']` / `spec.layout` reference below means `spec['document']['layout']` now.
 
 ```json
 {
   "name": "My Workbook",
-  "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" ...>...</Page>\n<Page ...>...</Page>",
-  "pages": [
-    {"id": "Hn2bYOjeRL", "name": "Overview", "elements": [...]},
-    {"id": "gAPPHE3kaD", "name": "Product",  "elements": [...]}
-  ]
+  "document": {
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" ...>...</Page>\n<Page ...>...</Page>",
+    "pages": [
+      {"id": "Hn2bYOjeRL", "name": "Overview", "elements": [...]},
+      {"id": "gAPPHE3kaD", "name": "Product",  "elements": [...]}
+    ]
+  }
 }
 ```
 
@@ -48,27 +57,31 @@ Each page in the layout XML must use this exact format, with the server-assigned
 
 A bare `<Page>` tag without `type`, `gridTemplateColumns`, `gridTemplateRows`, and `id` is ignored.
 
-### LayoutElement — for plain elements (charts, tables, KPIs)
+### Element — for plain elements (charts, tables, KPIs)
 
 ```xml
-<LayoutElement elementId="abc123" gridColumn="1 / 25" gridRow="1 / 7"/>
+<Element elementId="abc123" gridColumn="1 / 25" gridRow="1 / 7"/>
 ```
 
-### GridContainer — for container elements that wrap children
+### Container — for container elements that wrap children
 
 ```xml
-<GridContainer elementId="container-id" type="grid"
+<Container elementId="container-id" type="grid"
   gridColumn="1 / 25" gridRow="1 / 9"
   gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-  <LayoutElement elementId="kpi-1-id" gridColumn="1 / 7" gridRow="1 / 9"/>
-  <LayoutElement elementId="kpi-2-id" gridColumn="7 / 13" gridRow="1 / 9"/>
-  <LayoutElement elementId="kpi-3-id" gridColumn="13 / 19" gridRow="1 / 9"/>
-  <LayoutElement elementId="kpi-4-id" gridColumn="19 / 25" gridRow="1 / 9"/>
-</GridContainer>
+  <Element elementId="kpi-1-id" gridColumn="1 / 7" gridRow="1 / 9"/>
+  <Element elementId="kpi-2-id" gridColumn="7 / 13" gridRow="1 / 9"/>
+  <Element elementId="kpi-3-id" gridColumn="13 / 19" gridRow="1 / 9"/>
+  <Element elementId="kpi-4-id" gridColumn="19 / 25" gridRow="1 / 9"/>
+</Container>
 ```
 
-**Critical:** Container elements MUST use `<GridContainer>`, not `<LayoutElement type="grid">`.
-Using `<LayoutElement>` for a container causes empty containers to appear in the published workbook.
+Only `<Element>` and `<Container>` are valid on live Sigma workbook endpoints.
+The historical `<LayoutElement>` and `<GridContainer>` aliases receive HTTP 400
+and must be accepted only when reading old local artifacts.
+
+**Critical:** Container elements MUST use `<Container>`, not `<Element type="grid">`.
+Using `<Element>` for a container causes empty containers to appear in the published workbook.
 
 **Critical — inner KPI row spans must match the container outer span.** `gridTemplateRows="auto"`
 does NOT fill available container height — rows size to content minimum. A KPI at `gridRow="1 / 2"`
@@ -84,13 +97,13 @@ require 'date'
 require 'json'
 
 def gc(eid, c0, c1, r0, r1, inner)
-  "<GridContainer elementId=\"#{eid}\" type=\"grid\" " \
+  "<Container elementId=\"#{eid}\" type=\"grid\" " \
   "gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\" " \
-  "gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</GridContainer>"
+  "gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</Container>"
 end
 
 def le(eid, c0, c1, r0, r1)
-  "  <LayoutElement elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
+  "  <Element elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
 end
 
 # page_id is the server-assigned page ID (e.g. "Hn2bYOjeRL"), NOT the page name
@@ -218,7 +231,7 @@ overview_layout = page_xml(
 | Data table | 15–20 rows |
 
 > **Critical — KPI inner row span must equal the container outer span.**
-> `gridTemplateRows="auto"` inside a GridContainer does NOT expand rows to fill
+> `gridTemplateRows="auto"` inside a Container does NOT expand rows to fill
 > the container height. If your KPIs use `gridRow="1 / 2"` inside a container
 > that spans 6 outer rows, the KPIs render as a tiny sliver — names invisible,
 > values barely readable.
@@ -235,22 +248,24 @@ overview_layout = page_xml(
 ```ruby
 # Merge layout into a copy of the current spec, then PUT
 spec = YAML.safe_load(File.read('/tmp/current-spec.yaml'), permitted_classes: [Date, Time])
+doc = Sigma::CodeRep.document(spec)  # tolerates a legacy flat GET too — see shared/lib/code_rep.rb
 
 # Build per-page XML using server-assigned IDs
-pages_by_name = spec['pages'].each_with_object({}) { |p, h| h[p['name']] = p }
+pages_by_name = doc['pages'].each_with_object({}) { |p, h| h[p['name']] = p }
 
 overview_xml  = page_xml(pages_by_name['Overview']['id'],  ...)
 product_xml   = page_xml(pages_by_name['Product']['id'],   ...)
 # ...
 
-# Set ONE top-level layout field — remove any layout from page objects
-spec['pages'].each { |p| p.delete('layout') }
-spec['layout'] = [
+# Set ONE layout field on `document` — remove any layout from page objects
+doc['pages'].each { |p| p.delete('layout') }
+doc['layout'] = [
   "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
   overview_xml,
   product_xml
 ].join("\n")
 
+spec = Sigma::CodeRep.wrap(doc, extra: Sigma::CodeRep.metadata(spec))  # writes always nest
 File.write('/tmp/workbook-with-layout.json', JSON.pretty_generate(spec))
 ```
 
@@ -272,13 +287,13 @@ curl -s -X PUT \
 | Using `"kind": "donut"` | `"Invalid kind: 'donut'"` | The correct kind is `"donut-chart"` — the official example library is wrong here |
 | KPI names invisible or truncated inside container | Inner `gridRow` too small — e.g., `1 / 2` inside a 6-row container | Set inner end value = container outer end value: container `1 / 9` → KPIs `1 / 9` |
 | KPIs appear as a tiny sliver at top of container | Same root cause as above | Same fix — match inner row span to container outer span |
-| Setting `layout` on each page object instead of top-level | PUT returns success but UI shows no layout change | Set `spec['layout']` once at the top level; strip `layout` from all page objects |
+| Setting `layout` on each page object instead of on `document` | PUT returns success but UI shows no layout change | Set `spec['document']['layout']` once; strip `layout` from all page objects |
 | Bare `<Page>` tag without `type`/`id` attributes | Layout ignored silently | Use `<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="<pageId>">` |
 | Using `measures` instead of `yAxis` on bar/line charts | `"Invalid array: ...yAxis, got undefined"` | Replace `measures` with `yAxis` |
 | KPI missing `value` field | `"Invalid object: ...value, got undefined"` | Add `"value": {"columnId": "<col-id>"}` to every `kpi-chart` element |
 | Using `rows`/`columnGroups` on a pivot table | API accepts silently but pivot does not render | Use `rowsBy`/`columnsBy` (object arrays) and `values` (string array) |
 | Using IDs from POST body instead of GET response | Layout elements don't appear | Always GET spec after POST to get real IDs |
-| `<LayoutElement>` for a container | Empty container visible | Use `<GridContainer>` for elements that have children |
+| `<Element>` for a container | Empty container visible | Use `<Container>` for elements that have children |
 | Hand-writing layout XML | Off-grid sizing, overlapping elements | Use Ruby helpers; let math determine positions |
 | Overlapping row ranges | Elements hidden behind each other | Draw row ranges on paper; ensure no two elements share rows on the same column span |
 | Fallback `els.values[N]` when page has fewer elements than expected | `elementId=""` in XML — PUT rejected with `invalid_request` | Guard with `(le(id, ...) if id)` and call `.compact` on the children array before passing to `page_xml` |

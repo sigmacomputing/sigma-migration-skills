@@ -30,8 +30,9 @@
 # Usage:
 #   ruby scripts/probe-join-keys.rb --workdir <WORK> [--plan PATH]
 #     --connection-id <id> [--folder-id <id>]     # live probe via Sigma;
-#                            # no --folder-id → folderId omitted from the POST
-#                            # (probe lands in My Documents, the API default)
+#                            # omitted flag → infer folderId from the workdir's
+#                            # wb-spec.json or dm-spec.json; current API
+#                            # requires an explicit UUID on workbook creation
 #     [--fixture DIR]        # offline: DIR/entry-<index>.json per ledger entry:
 #                            #   {"total": N, "distinct": M,
 #                            #    "duplicates": [{"keys": {"COL": "v", ...}, "count": 3}, ...]}
@@ -65,6 +66,14 @@ require 'json'
 require 'csv'
 require 'optparse'
 require 'securerandom'
+require_relative 'lib/workbook_code'
+
+# K12(a): how long to wait for a probe's CSV export before giving up. Bounded by
+# wall-clock, not iteration count. The previous ~30s ceiling was routinely
+# exceeded by a cold warehouse, which made the probe report a failure for a query
+# that would have succeeded. Raise it for a very cold warehouse:
+#   PROBE_EXPORT_TIMEOUT_S=600 ruby scripts/probe-join-keys.rb ...
+PROBE_EXPORT_TIMEOUT_S = Integer(ENV.fetch('PROBE_EXPORT_TIMEOUT_S', '180'))
 require_relative 'lib/sql_ident_check' # single identifier-legality oracle (W2.9)
 
 opts = { dialect: 'snowflake' }
@@ -83,6 +92,30 @@ end.parse!
 plan_path = opts[:plan] || (opts[:workdir] && File.join(opts[:workdir], 'join-plan.json'))
 abort 'usage: probe-join-keys.rb --workdir <WORK> [--plan PATH] (--connection-id <id> | --fixture DIR | --resolve N --how H --reason R)' unless plan_path
 abort "FATAL: #{plan_path} not found — run the DM build first (migrate-tableau.rb derives the ledger)" unless File.exist?(plan_path)
+
+# The current workbook-create contract requires folderId. Migration runs
+# already persist the selected destination on wb-spec.json and dm-spec.json,
+# so the generated probe command can stay concise while still emitting the
+# required UUID. Refuse before any live POST if neither source exists; guessing
+# a destination would violate the probe-cleanup/audit contract.
+if opts[:conn] && opts[:folder].to_s.empty? && opts[:workdir]
+  %w[wb-spec.json dm-spec.json].each do |name|
+    path = File.join(opts[:workdir], name)
+    next unless File.exist?(path)
+    begin
+      candidate = JSON.parse(File.read(path))['folderId'].to_s
+      unless candidate.empty?
+        opts[:folder] = candidate
+        break
+      end
+    rescue JSON::ParserError
+      next
+    end
+  end
+end
+if opts[:conn] && opts[:folder].to_s.empty?
+  abort 'FATAL: live join probes require --folder-id <UUID>, or a workdir wb-spec.json/dm-spec.json carrying folderId'
+end
 
 doc = JSON.parse(File.read(plan_path))
 entries = doc.is_a?(Hash) ? (doc['entries'] || []) : doc
@@ -189,13 +222,16 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, workdir: nil)
       'columns' => columns.map { |c| { 'id' => "c-#{c.downcase.gsub(/[^a-z0-9]+/, '-')}", 'name' => c, 'formula' => "[Custom SQL/#{c}]" } }
     }] }]
   }
-  # folderId only when the caller supplied one. An explicit `folderId: null`
-  # is a live 400 (Twin B e2e); an OMITTED key lands the probe in My Documents
-  # — the API default validate-spec.rb documents, stamped conditionally the
-  # same way mechanical-specs.rb does.
-  spec['folderId'] = folder_id if folder_id
+  # The caller has either supplied or workdir-inferred the destination. The
+  # current API rejects both a missing folderId and an explicit null.
+  spec['folderId'] = folder_id
   begin
-    r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec))
+    # Workbook code-rep POSTs require the nested `document` envelope and flat
+    # document.elements. Keep this throwaway probe on the same canonical write
+    # boundary as production workbooks; the legacy flat pages[].elements body
+    # is rejected by the current API.
+    post_body = WorkbookCode.canonicalize(spec)
+    r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
   rescue Sigma::Error => e
     # Keep the HTTP status AND the response-body excerpt on one line so the
     # recorded probe_error names the real cause, not a bare "400 Bad Request".
@@ -211,8 +247,15 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, workdir: nil)
     qid = exp && exp['queryId']
     raise "export POST returned no queryId: #{exp.inspect[0, 160]}" unless qid
     csv = nil
-    30.times do |i|
+    # K12(a): bound by WALL-CLOCK, not iteration count. The old `30.times` loop
+    # gave a ~30s ceiling; a cold warehouse routinely exceeds it, so the probe
+    # reported failure for a query that would have succeeded. Operators were
+    # hand-patching this to 180s every run.
+    started = Time.now
+    i = 0
+    while Time.now - started < PROBE_EXPORT_TIMEOUT_S
       sleep(i.zero? ? 0.5 : 1)
+      i += 1
       begin
         b = Sigma.request(:get, "/v2/query/#{qid}/download", accept: 'text/csv', binary: true)
         (csv = b) && break if b && !b.to_s.empty?
@@ -220,7 +263,11 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, workdir: nil)
         raise unless e.message.lines.first.to_s =~ /\b404\b/
       end
     end
-    raise 'export did not complete in 30s' unless csv
+    unless csv
+      raise "export did not complete in #{PROBE_EXPORT_TIMEOUT_S}s " \
+            "(PROBE_EXPORT_TIMEOUT_S env var raises this; a cold warehouse can " \
+            'legitimately need longer — this is not necessarily a probe failure)'
+    end
     CSV.parse(csv, headers: true)
   ensure
     begin

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scout-gate-readback — the run-each-time gap-scout gate for MicroStrategy → Sigma
-(bead beads-sigma-5l5e).
+().
 
 MSTR's converter (convert.py metric_formula) passes metric function names through
 optimistically — a function with no Sigma equivalent does NOT surface as a

@@ -23,16 +23,18 @@ def check(cond, msg, fails)
 end
 
 WB_SPEC = {
-  'pages' => [{
-    'id' => 'p1', 'name' => 'Data',
+  'document' => {
+    'pages' => [{ 'id' => 'p1', 'name' => 'Data' }],
     'elements' => [
       { 'id' => 'master', 'kind' => 'table', 'source' => { 'kind' => 'data-model', 'dataModelId' => 'dm', 'elementId' => 'e' },
         'columns' => [{ 'id' => 'm-region', 'name' => 'Region' }, { 'id' => 'm-rev', 'name' => 'Net Revenue' }] },
       { 'id' => 'el-chart', 'kind' => 'bar-chart', 'name' => 'Chart',
+        'source' => { 'kind' => 'table', 'elementId' => 'master' },
         'xAxis' => { 'columnId' => 'm-region' }, 'yAxis' => { 'columnIds' => ['m-rev'] },
         'columns' => [{ 'id' => 'm-region', 'name' => 'Region' }, { 'id' => 'm-rev', 'name' => 'Net Revenue' }] }
-    ]
-  }]
+    ],
+    'layout' => '<Page id="p1"><Element elementId="master"/><Element elementId="el-chart"/></Page>'
+  }
 }
 
 plan = nil

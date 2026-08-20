@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 #
 # test-window-native.rb — regression for the safe inline QuickSight window-fn →
-# native Sigma mapping (beads-sigma-7lw8). Guards the invariant:
+# native Sigma mapping ([bead]). Guards the invariant:
 #
 #   SELF-CONTAINED windows (unpartitioned rank / denseRank / percentileRank +
 #   unpartitioned percentOfTotal) map to a native Sigma window fn — they fully

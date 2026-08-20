@@ -5,7 +5,7 @@
 # "<...>"`) from <workdir>/join-plan.json into the consolidated end-of-run
 # readout, instead of leaving them recorded but unread.
 #
-# WHY (beads-sigma-zjkw, the real M5 gap): when a join/Lookup target is not
+# WHY ([bead], the real M5 gap): when a join/Lookup target is not
 # unique at the key grain, probe-join-keys.rb lets an operator resolve it by
 # (a) adding a pre-aggregated helper element to the data model at the key
 # grain and repointing the Lookup at it (`--how preaggregated`), or (b)

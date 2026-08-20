@@ -69,7 +69,7 @@ One paragraph: feature, candidate, status, and — if escalated — the
 The validator auto-deletes its test workbook.
 ```
 
-## Run-each-time gate (bead beads-sigma-5l5e) — why `--gap-id` + `--workdir` matter
+## Run-each-time gate () — why `--gap-id` + `--workdir` matter
 
 A flagged DAX measure surfaces in `migrate-powerbi.rb`'s OPEN QUESTIONS as a
 `dax_no_equivalent` (⛔ degrade-to-Null) or `dax_needs_restructure` (⚠) decision
@@ -99,7 +99,7 @@ ready-to-run commands for the shared `escalate-gap.py` filer. The main agent:
 3. Only if the user says yes, runs `escalation.file_cmd` (the same command + `--yes`).
 
 Power BI DAX gaps are **converter** gaps, so they mirror to both converter repos
-(`sigma-data-model-manager` + `sigma-data-model-mcp`) with a cross-link and a
+(`sigma-data-model-manager` + `converter-source`) with a cross-link and a
 bead as the authoritative tracker. See `scripts/escalate-gap.py`.
 
 ## What the scout depends on

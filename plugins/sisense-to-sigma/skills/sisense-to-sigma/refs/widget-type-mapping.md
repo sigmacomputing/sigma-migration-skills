@@ -7,17 +7,19 @@ must be verified when a sample dashboard exists.
 
 | Sisense widget `type`        | Sigma element            | Tag      | Notes |
 |------------------------------|--------------------------|----------|-------|
-| `indicator`                  | KPI chart                | AUTO     | single value; gauge variants → KPI + flag |
+| `indicator`                  | KPI / progress           | AUTO     | numeric → KPI; gauge → progress only with explicit min/max, otherwise KPI + loud flag |
 | `pivot2` / `pivot`           | pivot-table              | AUTO     | rows/columns/values panels → pivot axes |
 | `tablewidget` / `table`      | table                    | AUTO     | |
 | `chart/column`, `chart/bar`  | bar chart                | AUTO     | orientation from sub-type |
 | `chart/line`                 | line chart               | AUTO     | |
 | `chart/area`                 | area chart               | AUTO     | |
+| `chart/waterfall`            | waterfall chart          | AUTO     | native cumulative waterfall + connector |
 | `chart/pie`                  | pie chart                | AUTO     | |
 | `chart/scatter`              | scatter                  | HINT     | verify axis/size mapping |
 | `chart/polar`, `chart/funnel`| closest chart            | HINT     | |
 | `map/*` (scatter/area maps)  | region/point map         | HINT     | geo level mapping |
 | `treemap`, `sunburst`        | table (+flag)            | MANUAL   | no native equivalent |
+| `chart/boxplot`, `boxplot`   | flag                     | MANUAL   | Sigma box-chart is workspace-gated; do not emit optimistically |
 | BloX / `plugin/*` / scripted | flag                     | UNHANDLED| no Sigma equivalent — surface, don't fake |
 
 Tags: **AUTO** converts cleanly · **HINT** converts, verify · **MANUAL** needs a

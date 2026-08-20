@@ -1,0 +1,75 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for FIXED-LOD Custom-SQL dialect translation —
+     invented, neutral names; no customer/warehouse-specific data. The FIXED
+     LOD calc's inner aggregate expression uses Tableau's DATETRUNC, which the
+     converter must lower to Snowflake's DATE_TRUNC (not copy verbatim) when
+     it synthesizes the row-level GROUP-BY Custom SQL helper element. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Order Facts' name='federated.orders1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh.example.snowflakecomputing.com' name='snowflake.conn1'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='wh.example.snowflakecomputing.com' warehouse='COMPUTE_WH' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.conn1' name='ORDER_FACTS' table='[SALES].[ORDER_FACTS]' type='table'>
+          <columns>
+            <column name='Ship Date' datatype='date' />
+            <column name='Order Date' datatype='date' />
+            <column name='Days To Ship' datatype='integer' />
+          </columns>
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>Ship Date</remote-name>
+            <remote-type>133</remote-type>
+            <local-name>[Ship Date]</local-name>
+            <parent-name>[ORDER_FACTS]</parent-name>
+            <remote-alias>Ship Date</remote-alias>
+            <local-type>date</local-type>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>Order Date</remote-name>
+            <remote-type>133</remote-type>
+            <local-name>[Order Date]</local-name>
+            <parent-name>[ORDER_FACTS]</parent-name>
+            <remote-alias>Order Date</remote-alias>
+            <local-type>date</local-type>
+          </metadata-record>
+          <metadata-record class='measure'>
+            <remote-name>Days To Ship</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[Days To Ship]</local-name>
+            <parent-name>[ORDER_FACTS]</parent-name>
+            <remote-alias>Days To Ship</remote-alias>
+            <local-type>integer</local-type>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Ship Date' datatype='date' name='[Ship Date]' role='dimension' type='ordinal' />
+      <column caption='Order Date' datatype='date' name='[Order Date]' role='dimension' type='ordinal' />
+      <column caption='Days To Ship' datatype='integer' name='[Days To Ship]' role='measure' type='quantitative' />
+      <column caption='Avg Days To Ship Same Month' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [Ship Date] : AVG(IF DATETRUNC(&apos;month&apos;,[Ship Date])=DATETRUNC(&apos;month&apos;,[Order Date]) THEN [Days To Ship] END) }' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Ship Timing'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.orders1'>
+            <column caption='Ship Date' datatype='date' name='[Ship Date]' role='dimension' type='ordinal' />
+            <column caption='Avg Days To Ship Same Month' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{ FIXED [Ship Date] : AVG(IF DATETRUNC(&apos;month&apos;,[Ship Date])=DATETRUNC(&apos;month&apos;,[Order Date]) THEN [Days To Ship] END) }' />
+            </column>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.orders1].[none:Ship Date:ok]</rows>
+        <cols>[federated.orders1].[usr:Calculation_1:qk]</cols>
+        <panes><pane><mark class='Bar' /></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

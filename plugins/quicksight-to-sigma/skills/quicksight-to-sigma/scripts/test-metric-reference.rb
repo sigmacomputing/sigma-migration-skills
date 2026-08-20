@@ -65,7 +65,9 @@ def measure_formula(readback)
     system(RUBY, BUILDER, '--analysis', an, '--dm-readback', rb, '--out', out,
            out: File::NULL, err: File::NULL) or abort 'build-workbook failed'
     spec = JSON.parse(File.read(out))
-    el = spec['pages'].flat_map { |p| p['elements'] }.find { |e| e['name'] == 'Rev by Region' }
+    elements = spec.dig('document', 'elements') ||
+               spec['pages'].flat_map { |p| p['elements'] }
+    el = elements.find { |e| e['name'] == 'Rev by Region' }
     (el['columns'] || []).map { |c| c['formula'] }.find { |f| f.to_s =~ /Net Revenue|Metrics/ }
   end
 end

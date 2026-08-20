@@ -57,7 +57,7 @@ Categories emitted:
 - **🛠 Manual** — customer wires up post-publish (action filters, ref-marks)
 - **❌ Unhandled** — feature is used in the .twb but the skill does not yet
   cover it; the agent should escalate via the `gap-scout` subagent OR file
-  an issue at github.com/sigmacomputing/sigma-migration-skills
+  an issue at github.com/sigmacomputing/sigma-skills-staging
 
 Share the markdown report with the customer up front to set expectations.
 Save the JSON for the subagent.
@@ -125,7 +125,7 @@ customer's Sigma site via `scripts/validate-sigma-formula.rb`, and:
   automatic: run the returned `escalation.dry_run_cmd` to draft the issue
   (shows target repo + dedupe), show the user, and only re-run with `--yes`
   if they accept. Calc-field gaps route to the converter repos
-  (`sigma-data-model-manager` + `sigma-data-model-mcp`, mirrored) with a
+  (`sigma-data-model-manager` + `converter-source`, mirrored) with a
   cross-linked bead. See "Opt-in issue filing" in `scripts/gap-scout.md`.
 
 The build script (`build-charts-from-signals.rb`) loads learned rules at

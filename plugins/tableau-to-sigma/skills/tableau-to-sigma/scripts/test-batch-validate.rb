@@ -52,8 +52,14 @@ STUB = <<~'RUBY'
                                                 'columns' => [{ 'name' => 'Net Revenue', 'formula' => '[T/Net Revenue]' }] }] }] }
       end
       if method == :post && path == '/v2/workbooks/spec'
-        spec = JSON.parse(body)
-        test = (spec['pages'] || []).flat_map { |p| p['elements'] || [] }.find { |e| e['id'] == 'el-scout-test' }
+        posted = JSON.parse(body)
+        # Workbook code-rep POSTs nest the spec under a top-level `document`
+        # key and flatten elements into document.elements (live since
+        # 2026-08). Keep the nested-page fallback for older payload fixtures.
+        raise Error, 'stub: probe POST body is not `document`-wrapped' unless posted.is_a?(Hash) && posted['document'].is_a?(Hash)
+        doc = posted['document']
+        elements = doc['elements'] || (doc['pages'] || []).flat_map { |p| p['elements'] || [] }
+        test = elements.find { |e| e['id'] == 'el-scout-test' }
         File.write(ENV['STUB_STATE'], JSON.generate((test && test['columns']) || []))
         return { 'workbookId' => 'wb-probe-1' }
       end

@@ -43,7 +43,12 @@ def master(id = 'm')
 end
 
 def spec_of(*pages)
-  { 'pages' => pages.map.with_index { |els, i| { 'name' => "P#{i + 1}", 'elements' => els } } }
+  page_meta = pages.map.with_index { |_els, i| { 'id' => "p#{i + 1}", 'name' => "P#{i + 1}" } }
+  layout = pages.map.with_index do |els, i|
+    placed = els.map { |el| %(<Element elementId="#{el['id']}"/>) }.join
+    %(<Page id="p#{i + 1}">#{placed}</Page>)
+  end.join
+  { 'pages' => page_meta, 'elements' => pages.flatten, 'layout' => layout }
 end
 
 fires = ->(vs) { vs.any? { |v| v.include?('conflicting cross-page control defaults') } }

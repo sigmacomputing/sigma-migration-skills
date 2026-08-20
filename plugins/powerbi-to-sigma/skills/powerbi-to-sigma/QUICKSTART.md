@@ -130,13 +130,14 @@ ruby scripts/migrate-powerbi.rb \
 ```
 
 **Phase E (opt-in) — Enhance.** After parity passes, `--enhance` scans the source
-signals + built workbook and proposes trial-validated enhancements (period-comparison
-KPIs, grain switcher restoring the PBI date drill, selection controls, map
-restoration, null-label/freshness polish). Nothing is applied without
-`--enhance-accept`; accepted items land on a **clone** named "<name> — Enhanced"
-(the parity workbook is never touched), one at a time, each gated by an
-untouched-element parity spot-check that auto-reverts on any shift. See the
-SKILL.md "Phase E (opt-in) — Enhance" section.
+signals + built workbook and proposes trial-validated enhancements **plus**
+`app_options[]` for the design interview (see `refs/phase-e-enhance.md`). Exit
+`14` means proposals pending — run `enhance-select.rb` (and
+`enhance-app-plan.rb` for archetypes), then re-run with `--enhance-accept`.
+Accepted items land on a **clone** named "<name> — Enhanced" (the parity
+workbook is never touched), one at a time, each gated by an untouched-element
+parity spot-check that auto-reverts on any shift. Phase 7 Bookmarks stay
+separate.
 
 **Phase-by-phase** (`scripts/run.sh`, or drive the scripts directly) when you want to
 inspect or hand-tune each stage. The phases:

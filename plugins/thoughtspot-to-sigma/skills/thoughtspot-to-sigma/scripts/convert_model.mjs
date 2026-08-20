@@ -10,7 +10,7 @@ import { dirname, join } from 'path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VENDORED = join(HERE, '..', 'converter', 'thoughtspot.mjs');
 const CONV = process.env.CONVERTER_PATH || (existsSync(VENDORED) ? VENDORED : null);
-if (!CONV) { console.error('no converter: set CONVERTER_PATH (sigma-data-model-mcp build/thoughtspot.js) or restore the vendored converter/thoughtspot.mjs'); process.exit(2); }
+if (!CONV) { console.error('no converter: set CONVERTER_PATH (converter-source build/thoughtspot.js) or restore the vendored converter/thoughtspot.mjs'); process.exit(2); }
 // pathToFileURL: a bare absolute path is not a valid ESM specifier on Windows
 // (ERR_UNSUPPORTED_ESM_URL_SCHEME); a file:// URL imports on every OS.
 const { convertThoughtSpotToSigma } = await import(pathToFileURL(CONV).href);

@@ -79,7 +79,7 @@ end
 # DIFFERENT case: QS auto-flows those on its full 36-column canvas, so the canvas IS
 # 36. Taking max(span) as the width here collapsed a uniform-18-span sheet (2-up on
 # the QS canvas) into a full-width single-column stack (every 18-span tile scaled to
-# 18/18 = full width) — beads-sigma-vvus. Spans-only callers must pass
+# 18/18 = full width) — [bead]. Spans-only callers must pass
 # spans_only: true to get the fixed 36 canvas.
 def infer_grid_width(els, spans_only: false)
   return GRID if spans_only
@@ -193,7 +193,7 @@ def layout_sheet(sheet, v2e, eids_for_sheet)
 
   # fallback: 2-per-row flow over this sheet's mapped elements (preserving sheet order)
   if placed.empty?
-    # beads-sigma-kvza.3: no source visual geometry (positions absent) — say so
+    # [bead].3: no source visual geometry (positions absent) — say so
     # LOUDLY instead of silently synthesizing a grid that looks source-faithful.
     warn "⚠ layout: QuickSight sheet '#{sheet['Name'] || sheet['SheetId'] || 'sheet'}' has no " \
          "source visual geometry (positions absent) — SYNTHESIZED a 2-per-row auto-flow; " \
@@ -233,6 +233,9 @@ total_placed = 0
 # They have no QS visual-grid coords, so we LIFT them into a clean full-width band at the
 # top of the page (qlik-to-sigma parity): the chart bands keep their QS geometry below.
 control_eids = map['controlElementIds'] || {}
+page_element_ids = map['pageElementIds'] || {}
+page_break_ids = (map['pageBreakElementIds'] || []).to_set
+repeated_containers = map['repeatedContainers'] || {}
 
 # Prepend a controls band: tile the page's control eids edge-to-edge across the full grid
 # at the top (rows 1..3), then shift all chart items DOWN by that band's height so nothing
@@ -256,14 +259,52 @@ if sheet_pages && !sheet_pages.empty?
   sheet_pages.each do |sp|
     idx = sp['sheetIndex']
     sheet = sheets[idx] || {}
-    # element ids that belong to THIS sheet = the elements for this sheet's visuals
-    eids_for_sheet = (sheet['Visuals'] || []).map { |v| _t, inner = v.first; v2e[inner['VisualId']] }.compact.to_set
+    # Every flat document element owned by this page. Source geometry only
+    # covers visual/textbox ids; controls, navigation, page breaks, and other
+    # builder-generated elements are deterministically placed below.
+    eids_for_sheet = Array(page_element_ids[sp['pageId']]).to_set
+    if eids_for_sheet.empty?
+      eids_for_sheet = (sheet['Visuals'] || []).map { |v| _t, inner = v.first; v2e[inner['VisualId']] }.compact.to_set
+    end
     placed, src = layout_sheet(sheet, v2e, eids_for_sheet)
     placed = lift_controls(placed, control_eids[sp['pageId']])
+    missing = eids_for_sheet - placed.map(&:first).to_set
+    row = (placed.map { |item| item[4] }.max || 1) + 1
+    missing.each do |eid|
+      height = page_break_ids.include?(eid) ? 1 : 4
+      placed << [eid, 1, 25, row, row + height]
+      row += height
+    end
+    repeaters = Array(repeated_containers[sp['pageId']])
+    unless repeaters.empty?
+      owned = repeaters.flat_map { |record| [record['containerId'], *Array(record['childIds'])] }.to_set
+      normal = placed.reject { |item| owned.include?(item[0]) }
+      repeat_xml = []
+      next_row = (normal.map { |item| item[4] }.max || 1) + 1
+      repeaters.each do |record|
+        child_rows = []
+        inner_row = 1
+        Array(record['childIds']).each do |child_id|
+          height = page_break_ids.include?(child_id) ? 1 : 6
+          child_rows << le(child_id, 1, 13, inner_row, inner_row + height)
+          inner_row += height
+        end
+        height = [inner_row, 4].max
+        repeat_xml << gc(record['containerId'], 1, 25, next_row, next_row + height, child_rows.join("\n"))
+        next_row += height
+      end
+      direct_xml = normal.map { |item| le(*item[0, 5]) }
+      pages_xml << page_xml(sp['pageId'], (direct_xml + repeat_xml).join("\n"))
+      sidecar[sp['pageId']] = []
+      total_placed += normal.size + repeaters.sum { |record| 1 + Array(record['childIds']).size }
+      STDERR.puts "layout: page \"#{sp['name']}\" preserves #{repeaters.size} QuickSight repeating section(s)"
+      next
+    end
+
     total_placed += placed.size
     next if placed.empty?
     # Container-banded page (layout-playbook.md): header band with the QS sheet
-    # name, then one full-width GridContainer per row band — the QS 36-col row
+    # name, then one full-width Container per row band — the QS 36-col row
     # geometry is preserved INSIDE each band (container-relative coordinates).
     xml, extra = banded_page(sp['pageId'], placed, title: sp['name'] || sheet['Name'])
     pages_xml << xml
@@ -283,7 +324,10 @@ else
   STDERR.puts "layout: #{placed.size} elements mapped from QuickSight #{src} (legacy single-page; container bands)"
 end
 
-data_page = page_xml('page-data', le(map['masterElementId'], 1, 25, 1, 15))
+data_ids = Array(map['dataElementIds'])
+data_ids = [map['masterElementId']] if data_ids.empty?
+data_children = data_ids.each_with_index.map { |eid, i| le(eid, 1, 25, i * 12 + 1, i * 12 + 11) }
+data_page = page_xml('page-data', data_children.join("\n"))
 File.write(opts[:out], assemble(data_page, *pages_xml))
 File.write("#{opts[:out]}.elements.json", JSON.pretty_generate(sidecar))
 STDERR.puts "layout: #{total_placed} elements across #{pages_xml.size} page(s) -> #{opts[:out]} (+ .elements.json sidecar)"

@@ -1,7 +1,7 @@
 # tableau / winprobe-window-functions
 
 The WINPROBE regression pair for **Tableau window/table calcs → Sigma-native
-window math** (bead beads-sigma-427, validated 2026-06-12 with **930/930 cells
+window math** (, validated 2026-06-12 with **930/930 cells
 exact** vs warehouse ground truth on ONE DM base element, zero Custom SQL).
 Source: live Tableau workbook **"WINPROBE Window Functions"**
 (`<workbook-luid>`, a Tableau Cloud site) over the

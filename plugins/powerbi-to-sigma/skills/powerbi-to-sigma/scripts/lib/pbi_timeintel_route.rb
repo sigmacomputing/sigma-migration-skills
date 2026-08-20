@@ -21,6 +21,9 @@
 module PbiTimeIntelRoute
   module_function
 
+  TIME_INTEL_RE =
+    /\b(SAMEPERIODLASTYEAR|TOTALYTD|TOTALQTD|TOTALMTD|DATESYTD|DATEADD|PARALLELPERIOD|PREVIOUSYEAR|PREVIOUSMONTH|PREVIOUSQUARTER)\b/i
+
   # base fact of a synthesized time-intel element = the table its source View
   # denormalizes ("ABSENCE_RECORDS View" -> "ABSENCE_RECORDS"). A plain table name
   # passes through unchanged.
@@ -34,6 +37,33 @@ module PbiTimeIntelRoute
     a = norm(measure_table)
     b = norm(ti_fact)
     !a.empty? && a == b
+  end
+
+  # Classify a remaining measure before selecting a synthesized time-intel
+  # column. Prefer the measure's explicit semantic name over broad expression
+  # heuristics: a "Net Revenue PY" expression commonly contains ALL([Year]), but
+  # that is still a prior-year value, not the synthesized YoY percentage.
+  def measure_shape(measure_name, expression)
+    name = measure_name.to_s
+    expr = expression.to_s
+    return :yoy if name =~ /YoY|Y\/Y|growth/i
+    return :ytd if name =~ /\bYTD\b/i
+    return :prior if name =~ /\b(PY|Prior Year|Last Year|LY)\b/i
+    return :generic if expr =~ TIME_INTEL_RE
+    return :yoy if expr =~ /ALL\s*\([^)]*\[Year\]/i
+
+    nil
+  end
+
+  # A reused Sigma time-intel element may have been renamed since conversion
+  # ("Net Revenue PY" -> "Revenue by Year"), so no source measure name maps back
+  # to its original table. Preserve the source element's fact as the fallback
+  # routing table for co-locating base values and period dimensions.
+  def routing_table(original_table, time_intel_fact)
+    original = original_table.to_s.strip
+    return original unless original.empty?
+
+    time_intel_fact.to_s.strip
   end
 
   def norm(str)

@@ -33,7 +33,7 @@ Before POSTing any workbook spec, run `ruby scripts/lib/preflight_lint.rb <spec.
 ## Converter architecture (read if you know the other migration skills)
 
 Unlike the **Group-A** converters (tableau, powerbi, qlik, quicksight, looker,
-thoughtspot, cognos) — which share the vendored `sigma-data-model-mcp` engine
+thoughtspot, cognos) — which share the vendored `converter-source` engine
 (`converter/*.mjs`, with the hosted `convert_*` MCP tool as a fallback) — this
 skill uses a **self-contained Python converter that ships in `scripts/`**
 (`convert.py`). It runs locally via `python3`; there is **no vendored `.mjs`
@@ -64,8 +64,10 @@ logic.
 > **Validated**: exact parity (19/19 + 30/30 + 3/3 rows) on a live Strategy One
 > trial against Snowflake — classic-schema path, grid reports, incl. a
 > `Count<Distinct=True>` metric, a compound margin metric, and an
-> Analytical-Engine row-collapse report. Chart-viz emission and the newer
-> "Data Model" object are roadmap (`refs/design-notes.md`).
+> Analytical-Engine row-collapse report. Grid and bar/line are live-validated;
+> waterfall is released and wired; area is mechanically wired but has not
+> passed a live source-to-target render/parity run. Richer chart families and
+> the newer "Data Model" object remain roadmap (`refs/design-notes.md`).
 
 > **READ FIRST — `refs/operating-contract.md`**: the fidelity guardrails (render + value-check EVERY page against the source; never ship empty or silently drop a tile; don't spin — surface blockers).
 > **Modeling strategy — `refs/modeling-strategy.md`**: faithful reproduction of the source model is the DEFAULT (parity is the gate); an upstream OBT or Sigma-native materialization is an OPT-IN optimization for hot, join-heavy dashboards, re-verified against the same parity oracle. The converter never auto-flattens.
@@ -130,7 +132,14 @@ Check what backs the dossier's dataset before extracting. `GET /objects/{dataset
   1. Pull all rows via the cube instance API — `POST /v2/cubes/{id}/instances?offset&limit` for page 1 (returns `instanceId` + `definition.grid` + `data`), then `GET /v2/cubes/{id}/instances/{iid}?offset` to page. Element lists in each response are page-scoped. Flatten attributes-on-rows + metrics-on-columns into one table.
   2. `COPY` it into the warehouse the Sigma connection reaches (quote identifiers to preserve display names; `DATE_FORMAT`/`FIELD_OPTIONALLY_ENCLOSED_BY` for messy CSV; `GRANT SELECT` to the connection role + schema sync — see `sigma-data-models`).
   3. **Rejoin the normal flow at Phase 3** with a `warehouse-table` source. Skip Phase 1/2 (no bundle to extract) — build the DM + workbook directly, and lean hard on Phase 1.1's source-PDF capture + execute-instance value truth (a cube's KPIs are often a latest-period stat, and a chapter date filter drives the row subsets).
-  4. **Emit REAL charts, not labeled-table stubs.** The `convert.py` classic path currently falls back to flagged tables for chart vizzes (roadmap) — **do NOT carry that fallback into a path-B hand build.** Map each `visualizationType` (`refs/viz-type-mapping.md`) to its Sigma element via the `sigma-workbooks` skill: `kpi`→`kpi-chart`, `bar_chart`→`bar-chart`, `combo_chart`→`combo-chart`, `grid`→`table`/`pivot-table`, `microcharts`→`pivot-table` with `conditionalFormats`/data bars. These all build via the workbook spec (proven live on Retail Insights — kpi/bar/combo/pivot). A table is the fallback ONLY for a genuinely unmappable type, and you say so.
+  4. **Emit REAL charts, not labeled-table stubs.** Path B is the legacy Quick
+     Cube hand-build fallback, not evidence that every classic-converter chart
+     family is validated. Reuse released Sigma kinds only when the recovered
+     source semantics ground their required channels. The classic converter
+     live-validates bar/line, wires released waterfall, and mechanically wires
+     area (still unverified); KPI/pie/combo and richer families remain explicit
+     gaps. A table is the fallback only for a genuinely unmappable or
+     insufficiently grounded type, and you say so.
   5. **Gates:** `assert-phase6-ran.rb` is wired for the classic path — in path B it does not apply, but you still MUST run the **parity gate** and the **source-fidelity Visual QA gate** (compare the render to `source_dossier.pdf`, every page). Don't declare done on HTTP 200.
 
   > **Known ceiling — be honest in the writeup:** a cube's *derived* metrics (e.g. an "Inventory Performance" ratio, or non-additive aggregations) carry their formula only inside the cube — they do NOT reduce from the rehosted base columns. Recover exact definitions via Workstation export / ODBC, or approximate and **label the approximation**. Never silently ship a guessed metric as exact.
@@ -214,10 +223,16 @@ python3 scripts/convert.py --bundle bundle.json \
 
 Emits `sigma_dm_spec.json` (one table element per logical table, derived
 left-outer joins, a consumable join element, token-parsed metrics with derived
-display formats) + `sigma_workbook_spec.json` (one page per dossier chapter,
+display formats) + `sigma_workbook_spec.json` in the current workbook code
+representation: outer `name`/`folderId` metadata plus
+`document:{schemaVersion,kind,pages,elements,layout}`. Workbook pages are
+metadata-only, elements are flat, and the required authoritative layout assigns
+every element to a page. The data-model spec deliberately retains its separate
+`pages[].elements[]` nesting. The workbook contains one page per dossier chapter,
 grouped tables mirroring each report template, **controls** from the dossier's
-filter signals, banded-layout container elements) + `parity_keys.json` +
-`layout.xml` + `control-scope.json`. The workbook spec carries
+filter signals, and banded-layout container elements. Also emits
+`parity_keys.json` + `layout.xml` (a human-readable copy of the embedded layout) +
+`control-scope.json` + `feature-gaps.json`. The workbook spec carries
 `{{DATA_MODEL_ID}}` / element-id placeholders until Phase 4 re-runs with real
 ids.
 
@@ -318,25 +333,35 @@ formulas that don't resolve at query time). Do not proceed on errors —
 
 ## Phase 4 — Re-emit the workbook with real ids, POST it
 
+> **`sigma_workbook_spec.json` must be `document`-wrapped, not flat** (verified live
+> 2026-08-03, including on `/verify` 2026-08-04): `schemaVersion`/`pages`/`kind`/`layout`
+> nest under a top-level `document` key; `folderId` stays outside it. The old flat body
+> (these fields at the file's root) 400s. `scripts/convert.py` must emit the wrapped
+> shape here — the Phase 3 DM spec above is unaffected and stays flat.
+
 ```bash
 python3 scripts/convert.py ... --data-model-id <dataModelId> \
   --dm-element-ids dm_element_ids.json [--ae-winners ae_winners.json]
 curl -s -X POST "$SIGMA_BASE_URL/v2/workbooks/spec" \
   -H "Authorization: Bearer $SIGMA_API_TOKEN" -H "Content-Type: application/json" \
   -d @sigma_workbook_spec.json      # -> workbookId
-# MANDATORY run-each-time gap-scout gate (bead beads-sigma-5l5e): the converter
+# MANDATORY run-each-time gap-scout gate (): the converter
 # passes metric function names through, so a function with no Sigma equivalent
 # surfaces HERE as a type=error column. This script STOPS (exit 11) on any
 # UNSCOUTED error column — spawn a gap-scout per the printed --gap-id (see
 # scripts/gap-scout.md), re-run the gate, and only proceed when it exits 0.
 python3 scripts/scout-gate-readback.py --workbook-id <workbookId> --workdir <out-dir>
-ruby scripts/put-layout.rb --workbook <workbookId> --layout layout.xml
+# Read back and confirm document.layout + flat document.elements survived.
+# put-layout.rb is now a repair/reapply tool, not the normal create path:
+# ruby scripts/put-layout.rb --workbook <workbookId> --layout layout.xml
 ```
 
-The layout PUT applies the banded layout (header band titled from the
-chapter/dossier name, controls band, full-width tables) the converter emitted
-— without it the workbook renders as Sigma's single-column stack and gates
-4/6 fail. The `scout-gate-readback.py` step above is the **mechanical** version
+The create body already applies the banded `document.layout` (header band titled
+from the chapter/dossier name, navigation/controls bands, full-width content).
+Layout is required and authoritative: without it flat elements have no reliable
+page membership and the workbook falls back to a broken stack. `put-layout.rb`
+remains available to reapply a corrected layout and uses CodeRep helpers to keep
+pages metadata-only and elements flat. The `scout-gate-readback.py` step above is the **mechanical** version
 of the old "confirm no `type: error` columns" check — do NOT skip it; a broken
 metric must be scouted (translated or escalated) before the workbook ships, not
 waved through. (Workbook DELETE, if you need to retry, is
@@ -370,7 +395,8 @@ dashboard** — right numbers, wrong look. This gate has TWO parts: source
 **fidelity** (does it resemble the original?) and intrinsic **quality** (is it
 cleanly laid out?). Both must pass. Sigma's grid has no z-order; the shared
 layout lib de-overlaps bands, but this gate is the safety net (without a
-top-level layout the workbook renders as a single-column stack).
+layout — `document.layout` in the current wrapped spec shape, see Phase 4 —
+the workbook renders as a single-column stack).
 
 1. Render every page to PNG (token first: `eval "$(scripts/get-token.sh)"`):
    `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600`
@@ -385,7 +411,7 @@ top-level layout the workbook renders as a single-column stack).
 3. **Quality check** — also verify each PNG against the intrinsic checklist (no
    overlaps/stacking, no dead zones, controls in-band, no clipped titles, even
    heights, right format).
-4. Fix any failure in the spec — for multi-page workbooks use `sigma-skills/sigma-workbooks/scripts/wb-rep.rb` (pull → edit → push) — then **re-render and re-compare**.
+4. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-compare**.
 5. Declare the migration done on a render that **matches the source PDF**, not on HTTP 200 and not on row-parity alone. If the user explicitly scoped styling down (e.g. "layout + metrics, skip branding"), record exactly what was descoped — don't silently drop it.
 
 ## Phase 6 — Finalize (hard gate before declaring GREEN)
@@ -427,11 +453,20 @@ chapters → workbook pages with grouped tables (KEY-form grouping + `Max(DESC)`
 labels + null-exclude filters) · AE row-collapse reports → deterministic
 pinned-winner SQL elements · **chapter filters + attribute selectors → Sigma
 controls** wired to the selectors' DECLARED viz targets (gate-7-verified +
-flip-tested) with banded layout.
+flip-tested) with banded layout · released workbook code surfaces when grounded
+in source metadata: waterfall charts; chart legends; chapter navigation tabs;
+fully populated panel-stack tabbed containers; explicit print page breaks;
+explicit-value progress gauges; allowlisted styling; and explicit repeaters.
+Every partial panel/repeater/style translation is recorded in
+`feature-gaps.json`. Box plots remain capability-gated and default to a loud
+table fallback.
 
-**Flagged / roadmap:** unmapped viz types → flagged table fallback
-(`refs/viz-type-mapping.md`); chart emission (kpi/bar/line/combo) extraction-
-validated but build roadmap; metric-condition selectors / page-by / prompts
+**Flagged / roadmap:** unmapped or unwired viz types → flagged table fallback
+(`refs/viz-type-mapping.md`); KPI/pie/combo/scatter and other non-axis-generic
+chart emission; type-only gauges without value/range semantics; box plots unless
+the operator explicitly enables the workspace capability; standalone
+legend/drill selectors without complete released source/target bindings;
+metric-condition selectors / report page-by / prompts
 (metric qualification selectors land in `control-scope.json` `unbound` as
 MANUAL); panel selectors (navigation — flagged MANUAL); the newer
 REST-authorable "Data Model" object incl. `securityFilters` (the future RLS

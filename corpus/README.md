@@ -38,6 +38,7 @@ corpus/
 | cognos/sales-overview-charts-report | report-spec XML (plugin fixtures) | workbook (17 elements) |
 | looker/skilltest-orders | LookML model+views+dashboard (plugin fixtures) | DM (explore + join) |
 | domo/orders-smoke | synthetic Domo DataSets + cards + Beast Modes | DM (2 elements) |
+| domo/orders-presentation | synthetic Domo cards + card-data snapshot | presentation-override derivation pin (checks.sh, no golden DM) |
 
 ## Runner
 
@@ -94,5 +95,5 @@ warnings}` — so warning-text regressions are caught too.
 
 Large artifacts: the hosted MCP server rejects bodies over ~100 KB (HTTP 413).
 For those (e.g. the Orders .twb), run the converter from a clean
-`sigma-data-model-mcp` checkout pinned to origin/main — see
+`converter-source` checkout pinned to origin/main — see
 `tableau/orders-overview/MANIFEST.md`.

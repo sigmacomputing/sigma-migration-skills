@@ -36,7 +36,7 @@ This is more reliable than inferring chart type from the view CSV.
 | `text` | `text` | `text` element (free annotation) |
 | `filter` | `filter` | `control` element on the master table (list / date-range / etc.) |
 | `parameter` | `paramctrl` | `control` of `controlType: "segmented"` or `number` / `slider` |
-| `legend` | `color` | Usually automatic in Sigma — drop unless explicitly free-floating |
+| `legend` | `color` | Native chart `legend` controls. When one legend maps unambiguously to one worksheet, preserve its nearest edge as `legend.position`; ambiguous shared/free-floating legends require visual verification |
 | `spacer` | `empty` | Leave the grid range empty (no Sigma element) |
 | `container` | `layout-basic` / `layout-flow` | Pure layout — only affects grid spans, no Sigma element |
 | `dashboard-object` | `dashboard-object` | Generic — usually an `image` element |
@@ -50,6 +50,7 @@ This is more reliable than inferring chart type from the view CSV.
 | `area` | `Area` | `area-chart` |
 | `pie` | `Pie` | `pie-chart` |
 | `scatter` | `Circle` / `Shape` | `scatter-chart` |
+| `waterfall` | `GanttBar` **and a `RUNNING_SUM` calculated field** | `waterfall-chart` (verify the bound y-series is the delta, not an already-cumulative export) |
 | `pivot-table` | `Square` / `Text` **with dims on BOTH Rows AND Cols shelves** (or Measure-Names crosstab) | `pivot-table` (emit `rowsBy` / `columnsBy` / `values`) |
 | `table` | `Square` / `Text` with dims on ONE shelf only (flat detail list) | `table` |
 | `map-region` | `Multipolygon` / `Polygon` / `Filled` / `Map` / has `<geometry>` | `region-map` |
@@ -58,6 +59,13 @@ This is more reliable than inferring chart type from the view CSV.
 | `other` | unknown / unhandled | Open the dashboard PNG and decide manually |
 
 > **`automatic` is not a Sigma kind.** When the parser emits `chart_kind: automatic`, fetch the dashboard view image, look at the tile, and pick the right Sigma kind. Tableau's "Automatic" mark adapts to whatever the worksheet's encodings imply — there's no deterministic mapping.
+
+> **Do not map every `GanttBar` to waterfall.** Tableau also uses that mark for
+> gantt timelines, candlesticks, and floating strips. Only the explicit
+> GanttBar + `RUNNING_SUM` signature becomes native `waterfall-chart`; other
+> uses stay manual. Likewise, do not emit `box-chart`: that kind is not
+> published in workbook code representation, so box plots remain an explicit
+> quartile/reference-mark fallback.
 
 > **Pivot tables vs flat tables — don't downgrade a crosstab.** A Tableau crosstab (mark `Text` or `Square` with dimensions on BOTH Rows AND Cols shelves) MUST become a Sigma `pivot-table`, not a `table`. The parser decides via `dim_count` on each shelf: ≥1 real dim on both ⇒ `chart_kind: pivot-table`. The Measure-Names pattern (one dim shelf + Measure Names placeholder on the other + ≥2 measures on the worksheet) also resolves to `pivot-table`. A flat Text-mark detail list (dims on Rows only, nothing on Cols) stays as `chart_kind: table`. If you see a Tableau crosstab landing in Sigma as a plain table, the regression is upstream — inspect `rows_shelf` / `cols_shelf` on the zone JSON; the `is_crosstab` flag is the canonical signal.
 
@@ -100,7 +108,7 @@ rows per chart row.
 | Text annotation | `text` element (markdown `body`) |
 | Filter shelf (single filter) | `control` element (`list` / `date-range` / `number-range` etc.) on the master table |
 | Parameter control | `control` of `controlType: "segmented"` (radio buttons) or `number` / `slider` |
-| Color legend (chart-internal) | Automatic in Sigma — don't recreate |
-| Color legend (free-floating) | Optional `text` element + `color` channel on the chart |
+| Color legend (chart-internal) | Native chart `legend` config; preserve position when attribution is unambiguous |
+| Color legend (free-floating/shared) | Native legend has edge/corner positions but no pixel-floating zone; choose the nearest supported position and verify |
 | Dashboard title | `text` element with `body: "## <Title>"` |
 

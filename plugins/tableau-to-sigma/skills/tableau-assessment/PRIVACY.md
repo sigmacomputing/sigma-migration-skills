@@ -92,6 +92,6 @@ If you want to run the skill but with the smallest possible data footprint:
 - Anthropic API privacy: <https://www.anthropic.com/legal/privacy>
 - Tableau Admin Insights data dictionary:
   <https://help.tableau.com/current/online/en-us/adminview_insights_manage.htm>
-- This skill's source code: the `tableau-assessment` skill in this repository
+- This skill's source code: <https://github.com/sigmacomputing/sigma-skills-staging/tree/main/tableau-assessment>
   (you can read every script that runs on your behalf)
 - Sigma privacy policy: <https://www.sigmacomputing.com/privacy-policy>

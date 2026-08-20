@@ -30,6 +30,18 @@ ok(dash, 'build_dashboard_for_page returns a dashboard for the v4-merged cards')
 eq(dash['zones'].length, 3, 'all 3 real cards became zones (the HEADER content entry never became a phantom zone)')
 zone_by_id = dash['zones'].each_with_object({}) { |z, h| h[z['id']] = z }
 
+layout_content = pagelayoutv4_content(stacks_v4_fixture, stacks_v4_fixture['id'])
+eq(layout_content.map { |content| content['type'] }, %w[header page-break],
+   'v4 authored HEADER and PAGE_BREAK are preserved as explicit layout content')
+header = layout_content.find { |content| content['type'] == 'header' }
+page_break = layout_content.find { |content| content['type'] == 'page-break' }
+eq(header['text'], 'Sample Section', 'v4 header retains its authored text')
+eq([header['x'], header['y'], header['w'], header['h']], [0.0, 0.0, 24.0, 1.2],
+   'v4 header geometry scales from Domo 60-wide grid to Sigma 24-wide grid')
+eq(page_break['h'], 0.4, 'v4 page-break source geometry is captured before fixed one-row layout placement')
+ok(header['id'].length <= 64 && page_break['id'].length <= 64,
+   'synthesized layout-content element ids satisfy Sigma length limits')
+
 # Exact values, not a relative ordering check: rung 1's build_dashboard derives
 # these from the v4 template's real x/y/w/h (scaled x0.4, then normalized to
 # max_x=12.0/max_y=15.6 across the 3 cards). Rung 2 (build_dashboard_from_

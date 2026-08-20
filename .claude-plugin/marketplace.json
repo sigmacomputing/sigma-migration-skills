@@ -162,6 +162,13 @@
       "description": "Hex → Sigma — SQL cells, single-value/METRIC cells, and EXPLORE charts → Sigma data model + workbook, built from a project's .hex.yaml export (Hex's REST API doesn't return cell content), with app layout carried over and warehouse parity verification. Bundles a read-only hex-assessment skill (scaffolded, not yet built out).",
       "category": "migration",
       "keywords": ["hex", "hex.tech", "migration", "bi"]
+    },
+    {
+      "name": "mode-to-sigma",
+      "source": "./plugins/mode-to-sigma",
+      "description": "Mode Analytics Reports (SQL Queries + Charts) -> Sigma, with parity verification. No formula translation needed -- Mode's SQL already runs in the target warehouse dialect.",
+      "category": "migration",
+      "keywords": ["mode", "migration", "bi"]
     }
   ]
 }

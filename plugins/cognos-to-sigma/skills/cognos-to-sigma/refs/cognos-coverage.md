@@ -1,12 +1,10 @@
 # Cognos → Sigma — dashboard/report classifier coverage matrix
 
-> **Grounding note (beads-sigma-kvza).** Unlike the other migration skills (whose
-> classifiers LOAD JSON catalogs via `coverage_catalog.{py,rb}`), cognos-to-sigma's
-> classifier is **TypeScript bundled to `converter/cli.mjs`** (from `converter/cognos-report.ts`).
-> There is no TS catalog loader, so cognos's maps are grounded as **cited constants in
-> the TS source** with a **loud fallback** on anything unmapped — and documented here.
-> A machine-loaded TS catalog would be the same shape and belongs with the converter
-> (lanq) track. Every mapped Sigma target is a real, current Sigma construct.
+> **Grounding note.** Cognos' executable catalog is
+> `converter/workbook-features.ts`, bundled into `converter/cli.mjs` and consumed
+> directly by `cognos-report.ts`. It records released, gated, and no-analog
+> targets. Anything outside that catalog takes the loud
+> `⛔ WORKBOOK FEATURE GAP […]` path; it never silently selects a chart.
 
 Cognos was already the most loud of the classifiers (an unknown visual degrades to a
 **warned table**, never a silent chart; number formats are read from the report's
@@ -15,7 +13,7 @@ name). This pass closed the one remaining silent default: an **unmapped Cognos
 aggregate / rollup no longer silently becomes `Sum`** — it warns first.
 
 ## Visualization / chart kind
-Source: `cognos-report.ts` `VIZ_KIND` (+ `VIZ_NOANALOG`). Cognos `com.ibm.vis.*` → Sigma element kind.
+Source: `workbook-features.ts` `VIZ_KIND` (+ `VIZ_NO_ANALOG` / `VIZ_GATED`). Cognos `com.ibm.vis.*` → Sigma element kind.
 Authoritative source: <https://www.ibm.com/docs/en/cognos-analytics> (visualization types).
 
 | Cognos vizType | Sigma target | on-unmapped |
@@ -27,7 +25,40 @@ Authoritative source: <https://www.ibm.com/docs/en/cognos-analytics> (visualizat
 | `com.ibm.vis.donut` | `donut-chart` | — |
 | `com.ibm.vis.clusteredcombination` / `stackedcombination` | `combo-chart` | — |
 | `com.ibm.vis.bubble` / `scatter` | `scatter-chart` | — |
-| _unknown vizType_ | — (no native equivalent) | **loud warn + emit the data as a `table`** (`cognos-report.ts` `if (!kind)`) — never a silent concrete chart |
+| `com.ibm.vis.waterfall` / `waterfallchart` | `waterfall-chart` (`source`, `columns`, required `yAxis`) | category columns retained; multi-level category hierarchy is a loud render-review gap because the released schema exposes no `xAxis` |
+| `com.ibm.vis.box*` | `box-chart` only when the workspace feature is enabled | **gated**: loud warning + data-preserving table; never emit a box chart into an unknown entitlement |
+| _unknown vizType_ | — (no grounded equivalent) | **loud `⛔ WORKBOOK FEATURE GAP` + emit the data as a `table`** — never a silent concrete chart |
+
+## Workbook-code representation and released features
+
+Source: `cognos-report.ts`, grounded status: `workbook-features.ts`
+`RELEASED_WORKBOOK_FEATURES`.
+
+| Cognos source | Sigma target | Guard / gap behavior |
+|---|---|---|
+| report workbook | outer `{name, document}` | CodeRep wrapper required before POST and again on readback |
+| report pages | metadata-only `document.pages[]` | elements in a page object fail the contract gate |
+| page contents | flat `document.elements[]` | page ownership comes only from layout |
+| report page membership | required `document.layout` | every page gets one `<Page>` and every element is placed exactly once; missing/unknown/duplicate ids fail before POST and on readback |
+| `viewPagesAsTabs` + multiple `<page>` nodes | metadata pages + `navigation {mode:auto}` | one navigation element per page, with source page labels |
+| `vizProperty*Value name="*legend*"` | chart/map `legend.visibility` / `legend.position` | only explicit source properties are emitted |
+| non-empty `<drillBehavior>` | `controlType: drill` control | cross-report `<reportDrill>` is **not** mislabeled as hierarchy drill; it remains a loud gap requiring explicit page/document navigation |
+| `<pageBreak>` | `page-break` | layout always assigns exactly one grid row |
+| progress/bullet/gauge viz | `progress` + hidden aggregate source table | value binds to the hidden source; percent mode retains 0–1 semantics |
+| `<pageHeader>` | `document.panels[] {type:header, pages:[…]}` | safe CSS background maps to panel config; page ids are contract-gated |
+| named `<block>` with converted children | styled `container` section | safe CSS background/radius properties only; children are authoritative live `<Container>` members |
+| `<repeater>` / `<repeaterTable>` | hidden local source table + `repeated-container` + text bindings | local source name grounds Sigma's derived `"<source> repeated container"` namespace; unresolved query/content is loud |
+
+### Remaining loud gaps
+
+- Cross-report drill-through targets require the destination report to be
+  converted and then wired as Sigma navigation/open-url.
+- Cognos page footers remain loud: released workbook panels support page
+  header/sidebar, not footer.
+- Unknown visual kinds preserve their data as a table and carry a loud gap.
+- Box plots remain workspace-gated until entitlement is proven.
+- Waterfalls with multiple Cognos category levels require render verification
+  because released workbook code does not expose a waterfall category axis.
 
 ## Aggregation
 Source: `cognos-report.ts` `AGG` (list footer/dataItem) + `ROLLUP_AGG` (chart rollup). Cognos aggregate/rollup → Sigma aggregate function.

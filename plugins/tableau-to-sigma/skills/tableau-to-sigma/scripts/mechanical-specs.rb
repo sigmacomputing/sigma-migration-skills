@@ -32,8 +32,11 @@ require 'set'
 require 'json'
 require 'open3'
 require 'zlib' # CRC32 — a cross-run-STABLE hash for case-disambiguating column ids (#455)
+require 'rexml/document'
+require 'rexml/xpath'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
 require_relative 'lib/theme_derive' # shared theme derivation/emission (v5.0)
+require_relative 'lib/sql_ident_check' # #685-C: calc-masquerading-as-physical fixup reuses its scanner/catalog check
 
 module MechanicalSpecs
   module_function
@@ -162,6 +165,26 @@ module MechanicalSpecs
 
   def all_elements(model)
     (model['pages'] || []).flat_map { |p| p['elements'] || [] }
+  end
+
+  # Issue #685-A part 2: the converter's extractPath fallback (converter/
+  # tableau.mjs) names an unresolvable relation literally "UNKNOWN" and gives
+  # it a malformed, DATABASE-SEGMENT-MISSING path (e.g. ["TJ","UNKNOWN"]) — an
+  # intentional placeholder for embedded-extract elements the Ruby-side
+  # extract-landing manifest remap is EXPECTED to overwrite afterward
+  # (remap_from_manifest!). When that attribution never happens (no manifest,
+  # --skip-extract-landing was waived, or 0% column-caption overlap with any
+  # manifest entry) the placeholder survives fixup and would otherwise reach a
+  # live POST, which 404s late with an unnamed "Source not found: warehouse
+  # table '<schema>.UNKNOWN'" error. Callers must check this AFTER remap_from_
+  # manifest!/fixup_dm_spec have had their chance and fail loud + named instead
+  # of POSTing a broken path. Returns the offending elements (empty = clean).
+  def unresolved_warehouse_elements(model)
+    all_elements(model).select do |e|
+      next false unless e.dig('source', 'kind') == 'warehouse-table'
+      path = Array(e.dig('source', 'path'))
+      e['name'].to_s.upcase == 'UNKNOWN' || path.any? { |seg| seg.to_s.upcase == 'UNKNOWN' }
+    end
   end
 
   def elem_name(e)
@@ -692,6 +715,39 @@ module MechanicalSpecs
     # every embedded datasource) are unattributable and stay as NAMED residue,
     # never a guess.
     claimed_ids = rename_pairs.map { |r| r[4].object_id }
+
+    # #685-C secondary pattern: PRECISE attribution first, via source.elementId.
+    # A kind:'table' derived VIEW carries an explicit pointer to its base
+    # element — when that base was claimed above, the view's refs can be
+    # repointed using THAT SPECIFIC claim, never the (possibly ambiguous)
+    # identifier-STRING match below. This matters when Tableau's OWN duplicate-
+    # datasource shape reuses the identical internal relation name across TWO
+    # DIFFERENT datasources (a workbook + its "(2)" duplicate both name their
+    # table "Orders") — the string old_last="ORDERS" is then genuinely
+    # ambiguous (two DIFFERENT landed tables both trace back to "ORDERS"), so
+    # the string-based repair below correctly refuses to guess — but the
+    # VIEW's elementId link removes the ambiguity entirely for elements that
+    # carry one (live-caught: Executive Dashboard's "Orders View").
+    by_id = all_elements(model).each_with_object({}) { |e, h| h[e['id']] = e }
+    by_orig_object_id = rename_pairs.each_with_object({}) { |r, h| h[r[4].object_id] = r }
+    precisely_repaired = Set.new
+    all_elements(model).each do |other|
+      next if claimed_ids.include?(other.object_id)
+      next unless other.dig('source', 'kind') == 'table'
+      base_el = (bid = other.dig('source', 'elementId')) && by_id[bid]
+      rp = base_el && by_orig_object_id[base_el.object_id]
+      next unless rp
+      old_last, old_name, new_last, = rp
+      [old_last, old_name].each do |old|
+        next if old.to_s.empty?
+        pfx_old = /\[#{Regexp.escape(old)}\//
+        (Array(other['columns']) + Array(other['metrics'])).each do |c|
+          c['formula'] = c['formula'].gsub(pfx_old, "[#{new_last}/") if c['formula'].is_a?(String)
+        end
+      end
+      precisely_repaired << other.object_id
+    end
+
     { 0 => 2, 1 => 3 }.each do |old_idx, new_idx|
       rename_pairs.group_by { |r| r[old_idx] }.each do |old, rs|
         next if old.to_s.empty?
@@ -705,7 +761,7 @@ module MechanicalSpecs
         pfx_old = /\[#{Regexp.escape(old)}\//
         repl = "[#{news.first}/"
         all_elements(model).each do |other|
-          next if claimed_ids.include?(other.object_id)
+          next if claimed_ids.include?(other.object_id) || precisely_repaired.include?(other.object_id)
           (Array(other['columns']) + Array(other['metrics'])).each do |c|
             c['formula'] = c['formula'].gsub(pfx_old, repl) if c['formula'].is_a?(String)
           end
@@ -830,7 +886,7 @@ module MechanicalSpecs
   #     npm install, no network); the orchestrator also auto-discovers a dev's
   #     fresher build when present. This is the normal path.
   #   - mcp_build nil     → the HOSTED converter MCP over HTTP
-  #     (a user-provided endpoint via SIGMA_CONVERTER_MCP_URL, lib/mcp_convert.py),
+  #     (the endpoint at SIGMA_MCP_CONVERTER_URL, via lib/mcp_convert.py),
   #     used ONLY on explicit --converter hosted opt-in (uploads the .twb).
   def run_converter(twb_path:, conn:, db:, schema:, mcp_build:, workdir:, datasource_index: 0, table_mapping: nil, fact_table: nil)
     # fact_table: operator override for the object-model fact election
@@ -923,7 +979,7 @@ module MechanicalSpecs
     meta_out  = File.join(workdir, 'conv-meta.json')
     File.write(args_file, JSON.pretty_generate(args))
     o, e, st = Open3.capture3(*PyResolve.argv, PyResolve.winpath(client), 'convert_tableau_to_sigma', PyResolve.winpath(args_file), PyResolve.winpath(raw_text))
-    raise "hosted converter failed (user-provided hosted endpoint): #{e}#{o}" unless st.success?
+    raise "hosted converter failed (SIGMA_MCP_CONVERTER_URL=#{ENV['SIGMA_MCP_CONVERTER_URL'].inspect}): #{e}#{o}" unless st.success?
     out = JSON.parse(File.read(raw_text))
     bare = out['model'] || out['sigmaDataModel'] || out
     has_wrapper = out.is_a?(Hash) && (out.key?('warnings') || out.key?('stats') || out.key?('security'))
@@ -1114,6 +1170,210 @@ module MechanicalSpecs
       end
     end
     out
+  end
+
+  # ---- GUID-backed date recovery (#700) -------------------------------------
+  # Recover converter-omitted virtual-connection dates only when Tableau type,
+  # parse format, owning relation, live physical column, and warehouse type all
+  # agree. Returns { recovered:, messages: }; "GAP:" messages are refusals.
+  def recover_guid_backed_date_fields!(model, twb_xml, real_cols, warehouse_catalogs,
+                                       column_mapping: nil)
+    result = { recovered: 0, messages: [] }
+    xml = twb_xml.to_s.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: '')
+    begin
+      document = REXML::Document.new(xml)
+    rescue REXML::ParseException => e
+      result[:messages] << "GAP: GUID date recovery could not parse the Tableau workbook: #{e.message.to_s.lines.first.to_s.strip}"
+      return result
+    end
+
+    warehouse_elements = all_elements(model).select do |element|
+      element.dig('source', 'kind') == 'warehouse-table'
+    end
+    by_table = warehouse_elements.group_by do |element|
+      Array(element.dig('source', 'path')).last.to_s.upcase
+    end
+
+    guid_of = lambda do |raw|
+      raw.to_s[/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i]&.downcase
+    end
+    table_token = lambda do |raw|
+      value = raw.to_s
+      bracketed = value.scan(/\[([^\]]+)\]/).flatten.last
+      value = bracketed unless bracketed.to_s.empty?
+      value = value.sub(/\s*\([^()]*\)\s*\z/, '').strip
+      value.split('.').last.to_s.gsub(/\A["`\[]|["`\]]\z/, '').upcase
+    end
+
+    relation_evidence = Hash.new { |hash, key| hash[key] = [] }
+    REXML::XPath.each(document, "//relation[@type='table']") do |relation|
+      owners = [relation.attributes['name'], relation.attributes['table']]
+               .map { |raw| table_token.call(raw) }.reject(&:empty?).uniq
+      owners.select! { |owner| by_table.key?(owner) }
+      REXML::XPath.each(relation, './columns/column') do |column|
+        guid = guid_of.call(column.attributes['name'])
+        next unless guid
+        relation_evidence[guid] << {
+          owners: owners,
+          format: column.attributes['date-parse-format'].to_s.strip
+        }
+      end
+    end
+
+    # parent-name is a second structural owner signal for vendor-wrapped
+    # relation attributes.
+    metadata_owners = Hash.new { |hash, key| hash[key] = [] }
+    REXML::XPath.each(document, '//metadata-record') do |record|
+      guid = guid_of.call(record.elements['local-name']&.text)
+      next unless guid
+      owner = table_token.call(record.elements['parent-name']&.text)
+      metadata_owners[guid] << owner if by_table.key?(owner)
+    end
+
+    fields = {}
+    REXML::XPath.each(document, '//column[@caption]') do |column|
+      guid = guid_of.call(column.attributes['name'])
+      next unless guid
+      next unless column.attributes['datatype'].to_s.casecmp?('date')
+      caption = column.attributes['caption'].to_s.strip
+      next if caption.empty?
+      fields[[guid, caption]] ||= { guid: guid, caption: caption }
+    end
+
+    normalized_mapping = {}
+    (column_mapping || {}).each do |source, destination|
+      normalized_mapping[source.to_s.strip.upcase] = destination.to_s.strip
+    end
+
+    physical_type_compatible = lambda do |format, type|
+      raw = type.to_s.downcase
+      next false if raw.empty? || raw =~ /bool|binary|variant|object|array/
+      next true if raw =~ /date|time|char|string|text/
+      format == 'yyyyMMdd' && raw =~ /int|number|numeric|decimal|float|double|real/
+    end
+
+    formula_for = lambda do |format, type, physical_display|
+      ref = "[#{physical_display}]"
+      next "Date(#{ref})" if type.to_s =~ /date|time/i
+      if format == 'yyyyMMdd'
+        text = "Text(#{ref})"
+        next %(Date(Left(#{text}, 4) & "-" & Mid(#{text}, 5, 2) & "-" & Right(#{text}, 2)))
+      end
+      strftime = {
+        'yyyy-MM-dd' => '%Y-%m-%d',
+        'MM/dd/yyyy' => '%m/%d/%Y',
+        'dd/MM/yyyy' => '%d/%m/%Y'
+      }[format]
+      strftime && %(Date(DateParse(Text(#{ref}), "#{strftime}")))
+    end
+
+    fields.each_value do |field|
+      guid = field[:guid]
+      caption = field[:caption]
+      evidence = relation_evidence[guid]
+      formats = evidence.map { |entry| entry[:format] }.reject(&:empty?).uniq
+      if formats.empty?
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} has no date-parse-format; NOT synthesized"
+        next
+      end
+      if formats.size != 1
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} has ambiguous date-parse-format values " \
+                             "#{formats.inspect}; NOT synthesized"
+        next
+      end
+      format = formats.first
+
+      owners = evidence.flat_map { |entry| entry[:owners] }
+      owners.concat(metadata_owners[guid])
+      owners = owners.reject(&:empty?).uniq
+      if owners.size != 1 || Array(by_table[owners.first]).size != 1
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} has ambiguous owning table evidence " \
+                             "#{owners.inspect}; NOT synthesized"
+        next
+      end
+      owner = owners.first
+      fact = by_table.fetch(owner).first
+
+      catalog = Array(warehouse_catalogs && (warehouse_catalogs[owner] || warehouse_catalogs[owner.upcase]))
+      live_names = Array(real_cols && (real_cols[owner] || real_cols[owner.upcase])).map { |name| name.to_s.upcase }
+      mapped = normalized_mapping[caption.upcase] || normalized_mapping[guid.upcase]
+      inferred = caption.gsub(/[^0-9A-Za-z]+/, '_').gsub(/\A_+|_+\z/, '').upcase
+      wanted = mapped.to_s.empty? ? [inferred, "#{inferred}_KEY"] : [mapped]
+      physical_candidates = catalog.select do |entry|
+        entry.is_a?(Hash) && wanted.any? { |name| entry['name'].to_s.casecmp?(name.to_s) }
+      end
+      physical_candidates.select! { |entry| live_names.include?(entry['name'].to_s.upcase) }
+      if physical_candidates.size != 1
+        reason = physical_candidates.empty? ? 'no verified physical warehouse column' : 'ambiguous physical warehouse columns'
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} has #{reason} on #{owner} " \
+                             "(expected #{wanted.join(' or ')}); NOT synthesized"
+        next
+      end
+      physical = physical_candidates.first
+      physical_name = physical['name'].to_s
+      physical_type = physical['type'].to_s
+      unless physical_type_compatible.call(format, physical_type)
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} maps to #{owner}.#{physical_name} with " \
+                             "incompatible warehouse type #{physical_type.inspect} for #{format.inspect}; NOT synthesized"
+        next
+      end
+
+      physical_display = display_name(physical_name)
+      physical_display = "#{caption} Key" if physical_display.casecmp?(caption)
+      date_formula = formula_for.call(format, physical_type, physical_display)
+      unless date_formula
+        result[:messages] << "GAP: GUID-backed date #{caption.inspect} uses unsupported date-parse-format " \
+                             "#{format.inspect}; NOT synthesized"
+        next
+      end
+
+      columns = (fact['columns'] ||= [])
+      existing_physical = columns.find do |column|
+        col_display(column).to_s.casecmp?(physical_display) ||
+          column['formula'].to_s.casecmp?("[#{owner}/#{display_name(physical_name)}]")
+      end
+      changed = false
+      unless existing_physical
+        existing_ids = columns.map { |column| column['id'] }.compact.to_set
+        physical_id = "c-#{slug(physical_display)}"
+        suffix = 2
+        while existing_ids.include?(physical_id)
+          physical_id = "c-#{slug(physical_display)}-#{suffix}"
+          suffix += 1
+        end
+        existing_physical = {
+          'id' => physical_id,
+          'name' => physical_display,
+          'formula' => "[#{owner}/#{display_name(physical_name)}]"
+        }
+        columns << existing_physical
+        fact['order'] << physical_id if fact['order']
+        changed = true
+      end
+
+      existing_date = columns.find { |column| col_display(column).to_s.casecmp?(caption) }
+      unless existing_date
+        existing_ids = columns.map { |column| column['id'] }.compact.to_set
+        date_id = "c-#{slug(caption)}"
+        suffix = 2
+        while existing_ids.include?(date_id)
+          date_id = "c-#{slug(caption)}-#{suffix}"
+          suffix += 1
+        end
+        columns << { 'id' => date_id, 'name' => caption, 'formula' => date_formula }
+        fact['order'] << date_id if fact['order']
+        changed = true
+      end
+
+      if changed
+        result[:recovered] += 1
+        source = mapped.to_s.empty? ? 'catalog match' : '--column-mapping'
+        result[:messages] << "GUID-backed date recovered: #{caption.inspect} on #{owner} via #{source} " \
+                             "#{physical_name} (#{physical_type}, #{format})"
+      end
+    end
+
+    result
   end
 
   # ---- computed-key join recovery (bead ovud; role-instanced, R3-1) -----------
@@ -1404,6 +1664,135 @@ module MechanicalSpecs
     added
   end
 
+  # Issue #685-B: the mechanical converter's base-column passthrough formula
+  # embeds a Tableau field's raw CAPTION, unescaped, inside a Sigma
+  # `[Table/Column]` bracket-path formula. Tableau captions routinely contain
+  # "/" (a very common naming convention — "Country/Region", "State/Province"
+  # — present in several of Tableau's OWN sample workbooks). A caption
+  # containing "/" (or "[" / "]") is ambiguous to Sigma's bracket-path parser
+  # (it reads as a multi-segment nested path, not a table/column pair) and the
+  # column compiles server-side to `type="error"`. It ALSO silently corrupts
+  # every Ruby-side consumer that recovers the physical name via
+  # `formula.split('/').last` (col_display, fixup_dm_spec's own phantom-column
+  # check below) — for "[T/Country/Region]" that yields "Region", the wrong,
+  # truncated segment, which is how a --column-mapping remediation went
+  # silently inert in the field: the phantom-check's derived physical name was
+  # already wrong (but coincidentally matched an unrelated real column), so
+  # the mapping was never even consulted.
+  #
+  # Rewrites every base (pure passthrough) column formula so the CAPTION
+  # segment is bracket-path-safe: folded to the SAME upper-snake physical-name
+  # form used everywhere else in this file (remap_from_manifest!'s colmap,
+  # synthesize_fixed_lods!'s `phys` — one convention, not a second one-off
+  # escaping scheme), while preserving the ORIGINAL caption as the column's
+  # display `name` — the user-visible label is unaffected; only the internal
+  # formula reference is desensitized. Runs unconditionally (no manifest /
+  # catalog / --column-mapping required) so every downstream consumer sees an
+  # unambiguous formula from the start. Returns the number of formulas rewritten.
+  BRACKET_PATH_SPECIAL_RE = %r{[/\[\]]}.freeze
+
+  def sanitize_bracket_path_captions!(model)
+    rewritten = 0
+    all_elements(model).each do |el|
+      next unless el.dig('source', 'kind') == 'warehouse-table'
+      tbl = (el.dig('source', 'path') || []).last.to_s
+      next if tbl.empty?
+      pfx = /\A\[#{Regexp.escape(tbl)}\/(.+)\]\z/
+      (el['columns'] || []).each do |c|
+        f = c['formula'].to_s
+        m = f.match(pfx)
+        next unless m
+        caption = m[1]
+        next unless caption =~ BRACKET_PATH_SPECIAL_RE
+        safe = caption.gsub(/[^0-9A-Za-z]+/, '_').gsub(/\A_+|_+\z/, '').upcase
+        c['name'] = caption if c['name'].to_s.empty?
+        c['formula'] = "[#{tbl}/#{safe}]"
+        rewritten += 1
+      end
+    end
+    rewritten
+  end
+
+  # Issue #685-C: a generated Custom-SQL helper element (window/LOD/Top-N
+  # builder) can reference a Tableau CALCULATED field — e.g. "Days to Ship" =
+  # DATEDIFF('day',[Order Date],[Ship Date]) — as though it were a physical
+  # warehouse column. The calc has no physical counterpart, so the bare
+  # identifier (DAYS_TO_SHIP) 404s the live catalog. The pre-POST
+  # check-sql-idents gate correctly catches this (exit 20) BEFORE a wasted
+  # POST — that gate is correct and stays exactly as strict; this fixup runs
+  # BEFORE the gate and removes the phantom reference AT THE SOURCE, but only
+  # when it can do so with confidence:
+  #   * the offending identifier's NORMALIZED form matches a KNOWN Tableau
+  #     calculated field (from calc-fields.json), AND
+  #   * that calc's formula is a single, confidently-translatable shape
+  #     (DATEDIFF('unit', [Field1], [Field2])) whose two operand fields ARE
+  #     themselves physical columns on the statement's own FROM table.
+  # When either condition fails, the statement is left COMPLETELY UNTOUCHED —
+  # refuse, don't guess. The (unweakened) gate remains the backstop for every
+  # other shape.
+  #
+  # calc_fields: [{ 'name' => 'Days to Ship',
+  #                 'formula' => "DATEDIFF('day',[Order Date],[Ship Date])" }, ...]
+  #   (the shape scripts/extract-calc-fields.rb's calc-fields.json carries
+  #   under its top-level "calcs" key).
+  # real_columns: { "TABLE" => [phys col, ...], ... } — the live catalog. nil
+  #   or empty => no-op (never guess blind about what's physical).
+  # Returns { rewritten: <n identifiers substituted>, elements: [<element
+  # name>, ...] }. Mutates model in place.
+  DATEDIFF_CALC_RE = /\A\s*DATEDIFF\s*\(\s*'([^']+)'\s*,\s*\[([^\]]+)\]\s*,\s*\[([^\]]+)\]\s*\)\s*\z/i.freeze
+
+  def fix_calc_masquerading_as_physical!(model, calc_fields, real_columns)
+    result = { rewritten: 0, elements: [] }
+    return result if real_columns.nil? || real_columns.empty?
+    norm_tables = {}
+    real_columns.each { |t, cols| norm_tables[t.to_s.split('.').last.upcase] = Array(cols).map(&:to_s) }
+    return result if norm_tables.empty?
+    calc_by_norm = {}
+    Array(calc_fields).each do |cf|
+      nm = cf['name'] || cf[:name]
+      formula = cf['formula'] || cf[:formula]
+      calc_by_norm[SqlIdentCheck.normalize(nm)] = formula.to_s if nm && formula
+    end
+    return result if calc_by_norm.empty?
+
+    all_elements(model).each do |el|
+      next unless el.dig('source', 'kind') == 'sql'
+      stmt = el.dig('source', 'statement').to_s
+      next if stmt.empty?
+      tbl_name = SqlIdentCheck.scan(stmt)[:tables].first&.dig(:name).to_s.split('.').last.upcase
+      real_cols = norm_tables[tbl_name]
+      next unless real_cols
+      chk = SqlIdentCheck.check(stmt, { tbl_name => real_cols })
+      touched = false
+      chk[:unknown].each do |u|
+        formula = calc_by_norm[SqlIdentCheck.normalize(u[:identifier])]
+        next unless formula
+        m = formula.match(DATEDIFF_CALC_RE)
+        next unless m
+        unit, f1, f2 = m[1], m[2], m[3]
+        p1 = real_cols.find { |c| SqlIdentCheck.normalize(c) == SqlIdentCheck.normalize(f1) }
+        p2 = real_cols.find { |c| SqlIdentCheck.normalize(c) == SqlIdentCheck.normalize(f2) }
+        next unless p1 && p2 # both operands must themselves be REAL physical columns
+        # Word-boundary substitution only. `\b` never fires between two word
+        # characters (letters/digits/underscore), so this can never match
+        # INSIDE a longer token like the output alias
+        # DAYS_TO_SHIP_CURRENT_MONTH_AVERAGE — only the bare, standalone
+        # phantom reference is touched.
+        ident_re = /\b#{Regexp.escape(u[:identifier])}\b/
+        next unless stmt.match?(ident_re)
+        new_stmt = stmt.gsub(ident_re, "DATEDIFF('#{unit}', #{p1}, #{p2})")
+        next if new_stmt == stmt
+        stmt = new_stmt
+        touched = true
+        result[:rewritten] += 1
+      end
+      next unless touched
+      el['source']['statement'] = stmt
+      result[:elements] << (el['name'] || el['id']).to_s
+    end
+    result
+  end
+
   # DM-spec fixup (mechanical). See module doc. Returns
   #   { fixed: <n formulas rewritten>, dropped: [<dropped calc display names>] }.
   # real_columns: optional { "TABLE" => Set/Array of UPPER physical column names }
@@ -1434,6 +1823,11 @@ module MechanicalSpecs
     # Keyed by the UPPER extract caption; value = the real warehouse column.
     colmap = {}
     (column_mapping || {}).each { |src, dest| colmap[src.to_s.strip.upcase] = dest.to_s.strip }
+    # Bracket-path caption escaping FIRST (#685-B): a caption containing "/"
+    # (or "[" / "]") must be desensitized in the FORMULA before anything below
+    # tries to recover a physical name from it (formula.split('/').last would
+    # otherwise silently truncate "Country/Region" to "Region").
+    sanitize_bracket_path_captions!(model)
     # Caption hygiene FIRST (bead 320u): Sigma trims display names server-side,
     # so trailing-space captions must be trimmed everywhere refs are built.
     trim_spec_whitespace!(model)
@@ -1838,6 +2232,148 @@ module MechanicalSpecs
     { 'master_columns' => master_columns, 'mmap' => mmap, 'untranslated_metrics' => untranslated }
   end
 
+  # ── DM-reuse augmentation (#691) ────────────────────────────────────────────
+  # A REUSED data model never runs through THIS conversion's Phase 3 build+POST
+  # — the converter's own fact element (conv_fact) can carry mechanically-
+  # derived columns (date-key synthesis like "Date(Left(Text([Order Date
+  # Key]),...))", cross-element Lookups, translated calc fields) that a FRESH
+  # build would have POSTed as real physical columns on the live DM. Reuse
+  # skips that POST entirely, so those columns simply never exist on the
+  # candidate — derive_master then falls back to a bare `[Fact/<name>]`
+  # reference that dangles at the pre-POST ref gate (exit 4).
+  #
+  # plan_reuse_derived_columns computes, for a chosen reuse candidate, exactly
+  # which of the converter's fact columns are MISSING and whether each one can
+  # be safely authored onto the live element:
+  #   CLOSABLE   — every column its formula references (bare same-element
+  #                refs, or slash-qualified cross-element refs) already
+  #                resolves against the candidate: present verbatim on the
+  #                live fact, another column we're already authoring, or
+  #                reachable on a sibling element via an EXISTING wired
+  #                relationship. Fixed-point over multiple passes so a chained
+  #                dependency (a calc column referencing another calc column)
+  #                still resolves once its own dependency is authored.
+  #   UNCLOSABLE — the formula depends on an element/relationship/column the
+  #                candidate does not have and cannot self-derive (e.g. a
+  #                role-playing date dimension behind a join the run could not
+  #                create). A workbook that needs this field must abandon the
+  #                reuse candidate and build fresh rather than ship a dangling
+  #                ref — a raw column-superset score cannot see this gap
+  #                because it counts a name existing ANYWHERE in the DM, not
+  #                whether it is reachable from the fact grain the workbook
+  #                actually needs.
+  #
+  # This intentionally does NOT re-derive formulas — it only replays the
+  # ALREADY-COMPUTED conv_fact column verbatim, so the reuse and fresh-build
+  # paths can never drift onto two different derivations of the same field.
+  def plan_reuse_derived_columns(conv_fact, live_spec, live_fact_name)
+    closable = []
+    unclosable = []
+    empty = { 'closable' => closable, 'unclosable' => unclosable }
+    return empty unless conv_fact && live_spec && live_fact_name
+
+    live_els = all_elements(live_spec)
+    live_fact = live_els.find { |e| e['name'].to_s.casecmp?(live_fact_name.to_s) }
+    return empty unless live_fact
+
+    known = (live_fact['columns'] || []).map { |c| col_display(c) }.compact.map(&:downcase).to_set
+    live_by_name = live_els.each_with_object({}) { |e, h| h[e['name'].to_s.downcase] = e }
+    wired = lambda do |el_name|
+      tgt = live_by_name[el_name.to_s.downcase]
+      return false unless tgt
+      (live_fact['relationships'] || []).any? { |r| r['targetElementId'] == tgt['id'] }
+    end
+    cross_ok = lambda do |el_name, col_name|
+      tgt = live_by_name[el_name.to_s.downcase]
+      next false unless tgt
+      tgt_cols = (tgt['columns'] || []).map { |c| col_display(c) }.compact.map(&:downcase)
+      tgt_cols.include?(col_name.to_s.downcase) && wired.call(el_name)
+    end
+
+    candidates = (conv_fact['columns'] || []).each_with_object([]) do |col, acc|
+      dname = col_display(col)
+      next if dname.nil? || dname.to_s.empty? || dname =~ GUID_RE
+      next if known.include?(dname.downcase) # already present verbatim — nothing to author
+      acc << { 'name' => dname, 'formula' => col['formula'].to_s, 'format' => col['format'] }.compact
+    end
+
+    loop do
+      progressed = false
+      candidates.reject! do |cand|
+        refs = cand['formula'].to_s.scan(/\[([^\]]+)\]/).flatten
+        missing = refs.reject do |ref|
+          parts = ref.split('/')
+          parts.size == 1 ? known.include?(parts[0].downcase) : cross_ok.call(parts[0], parts[-1])
+        end
+        if missing.empty?
+          closable << cand
+          known << cand['name'].downcase
+          progressed = true
+          true
+        else
+          cand['missing_refs'] = missing.uniq
+          false
+        end
+      end
+      break unless progressed
+    end
+    unclosable.concat(candidates)
+    empty
+  end
+
+  # Splice `closable` derived columns (from plan_reuse_derived_columns) onto
+  # the live spec's fact element in place, minting ids the same way derive_
+  # master/fresh-build columns are minted. The formula is carried VERBATIM —
+  # never re-derived — so this can only ever replay the fresh-build's own
+  # output. Returns the number of columns actually added (idempotent: a
+  # column already present by name is skipped, not duplicated).
+  def apply_reuse_augmentation!(live_spec, live_fact_name, closable)
+    return 0 if closable.nil? || closable.empty?
+    live_fact = all_elements(live_spec).find { |e| e['name'].to_s.casecmp?(live_fact_name.to_s) }
+    return 0 unless live_fact
+    live_fact['columns'] ||= []
+    registry = {}
+    live_fact['columns'].each do |c|
+      dn = col_display(c)
+      registry["c-#{slug(dn.to_s)}"] ||= dn.to_s if dn
+    end
+    added = 0
+    closable.each do |col|
+      next if live_fact['columns'].any? { |c| col_display(c).to_s.casecmp?(col['name'].to_s) }
+      id = mint_id('c-', col['name'], registry)
+      entry = { 'id' => id, 'name' => col['name'], 'formula' => col['formula'] }
+      entry['format'] = col['format'] if col['format']
+      live_fact['columns'] << entry
+      added += 1
+    end
+    added
+  end
+
+  # #691 requirement 4: find-or-pick-dm.rb's own ambiguous_wide_tie guard only
+  # refuses a WIDE (>=3-way) tie; a narrow tie at an identical/near-identical
+  # score still auto-picks — its own rationale even says so ("collapsing a
+  # 0.9-score tie — duplicate-DM sprawl"). Column-superset scoring is also
+  # computed over every element's RAW columns rather than the workbook's
+  # actual required (post-derivation) fields, so a tie between near-identical
+  # DM twins is exactly the case the picker's score cannot break on its own.
+  # Prefer a candidate whose name matches the source workbook (a genuine
+  # signal the picker's own tie-break already uses); otherwise refuse the
+  # auto-pick, log why, and let the caller fall back to a fresh, unambiguous
+  # build rather than an arbitrary pick.
+  def reuse_tie_guard(dm_match, source_name)
+    return { 'auto_picked' => false, 'blocked' => false } unless dm_match && dm_match['auto_picked']
+    tie_count = dm_match['tie_count'].to_i
+    best = (dm_match['candidates'] || []).first
+    name_matches = !!(best && source_name && best['dm_name'].to_s.strip.casecmp?(source_name.to_s.strip))
+    if tie_count >= 2 && !name_matches
+      return { 'auto_picked' => false, 'blocked' => true,
+               'reason' => "#{tie_count} candidate(s) tie at score #{dm_match['score']} and none is a " \
+                           'source-name match — refusing to auto-pick an arbitrary twin (#691); build fresh ' \
+                           'unless an explicit --reuse-dm is given.' }
+    end
+    { 'auto_picked' => true, 'blocked' => false }
+  end
+
   # Assemble the full workbook spec: a hidden master table on page-data sourcing
   # the DM fact element, plus dashboard page(s) of the build-charts elements.
   #
@@ -1850,7 +2386,7 @@ module MechanicalSpecs
   # orchestrated path previously dropped it, so every mechanical run shipped
   # themeless even when the source declared fonts/canvas/palette (v5.0 fix).
   def build_wb_spec(name:, dm_id:, fact_eid:, master_columns:, chart_elements:, folder_id: nil,
-                    data_elements: [], theme: nil)
+                    data_elements: [], theme: nil, canonical: true)
     master = {
       'id' => 'master', 'kind' => 'table', 'name' => 'Master', 'visibleAsSource' => false,
       'source' => { 'kind' => 'data-model', 'dataModelId' => dm_id, 'elementId' => fact_eid },
@@ -1900,7 +2436,15 @@ module MechanicalSpecs
     }
     spec['folderId'] = folder_id if folder_id
     ThemeDerive.apply!(spec, theme) if defined?(ThemeDerive)
-    spec
+    if canonical
+      require_relative 'lib/workbook_code'
+      WorkbookCode.canonicalize(spec)
+    else
+      # The orchestrator still has several pre-serialization, Tableau-specific
+      # transforms whose input is a page assignment. It requests this private
+      # compatibility shape, then canonicalizes exactly once before writing.
+      spec
+    end
   end
 
   # Bind an agent-authored (--wb-spec) workbook spec to the LIVE data model. The

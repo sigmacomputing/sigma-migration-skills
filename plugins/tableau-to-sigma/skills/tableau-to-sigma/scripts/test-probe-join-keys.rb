@@ -11,10 +11,11 @@
 # missing fixture → status error + exit 3; probe SQL recorded on the entry.
 #
 # Live-path coverage (stubbed sigma_rest, same -I <stub> -r sigma_rest seam as
-# test-parity-render-verify-fallback.rb): no --folder-id → the probe-workbook
-# POST body carries NO folderId key (an explicit null is a live 400, Twin B
-# e2e); --folder-id supplied → stamped; a POST 400 → probe_error records the
-# HTTP status + response-body excerpt and the console prints a --folder-id
+# test-parity-render-verify-fallback.rb): no --folder-id → infer the required
+# UUID from the migration workdir's wb-spec.json; no flag or artifact refuses
+# before a POST; the body uses the current nested document envelope with flat
+# elements; --folder-id supplied → stamped; a POST 400 → probe_error records
+# the HTTP status + response-body excerpt and the console prints a --folder-id
 # hint when the error mentions the folder.
 #
 # W2.9 identifier-legality gate — six-trajectory matrix (the oracle itself is
@@ -243,7 +244,8 @@ puts "\n== W2.9: live path — refused identifier sends NOTHING (zero POSTs) =="
 Dir.mktmpdir do |dir|
   workdir_with(dir, [entry('probe_keys' => ['PRODUCT_KEY_(PRODUCT_DIM)'])])
   log = File.join(dir, 'stub.log')
-  _out, _err, st = run_probe_live(dir, { 'SIGMA_STUB_LOG' => log }, '--connection-id', 'conn-1')
+  _out, _err, st = run_probe_live(dir, { 'SIGMA_STUB_LOG' => log },
+                                  '--connection-id', 'conn-1', '--folder-id', 'fld-123')
   check(st.exitstatus == 3, "live refused → exit 3 (got #{st.exitstatus})", fails)
   check(!File.exist?(log) || spec_posts(log).empty?,
         'refused identifier → ZERO probe-workbook POSTs (never live SQL)', fails)
@@ -320,9 +322,10 @@ Dir.mktmpdir do |dir|
   check(ledger(dir)[0]['status'] == 'error', 'ledger status error (gate still blocks)', fails)
 end
 
-puts "\n== live probe, no --folder-id → POST body has NO folderId key =="
+puts "\n== live probe, no --folder-id → infer required folderId from wb-spec.json =="
 Dir.mktmpdir do |dir|
   workdir_with(dir, [entry])
+  File.write(File.join(dir, 'wb-spec.json'), JSON.generate('folderId' => 'fld-inferred'))
   log = File.join(dir, 'stub.log')
   _out, err, st = run_probe_live(dir, { 'SIGMA_STUB_LOG' => log }, '--connection-id', 'conn-1')
   check(st.success?, "live-stub unique → exit 0 (got #{st.exitstatus}: #{err.lines.first})", fails)
@@ -330,9 +333,29 @@ Dir.mktmpdir do |dir|
   posts = spec_posts(log)
   check(posts.size == 2, "two probe-workbook POSTs (dup sample + totals; got #{posts.size})", fails)
   bodies = posts.map { |r| JSON.parse(r['body']) }
-  check(bodies.all? { |b| !b.key?('folderId') },
-        'no --folder-id → POST body carries NO folderId key (explicit null is a live 400)', fails)
-  check(bodies.all? { |b| b['schemaVersion'] == 1 && b['pages'] }, 'probe spec envelope otherwise intact', fails)
+  check(bodies.all? { |b| b['folderId'] == 'fld-inferred' },
+        'no --folder-id → POST body carries the workdir-inferred destination UUID', fails)
+  check(bodies.all? { |b|
+          doc = b['document']
+          doc.is_a?(Hash) && doc['schemaVersion'] == 1 && doc['kind'] == 'workbook' &&
+            doc['pages'].is_a?(Array) && doc['pages'].none? { |page| page.key?('elements') } &&
+            doc['elements'].is_a?(Array) && doc['elements'].one? &&
+            doc['elements'][0]['id'] == 'probe' && !doc['layout'].to_s.empty? &&
+            !b.key?('schemaVersion') && !b.key?('pages')
+        },
+        'probe POST uses nested document, flat elements, and layout-owned page membership', fails)
+end
+
+puts "\n== live probe, no --folder-id and no workdir destination → refuse before POST =="
+Dir.mktmpdir do |dir|
+  workdir_with(dir, [entry])
+  log = File.join(dir, 'stub.log')
+  _out, err, st = run_probe_live(dir, { 'SIGMA_STUB_LOG' => log }, '--connection-id', 'conn-1')
+  check(!st.success?, 'missing required destination exits nonzero', fails)
+  check(err.include?('require --folder-id') && err.include?('wb-spec.json/dm-spec.json'),
+        'failure names both the explicit flag and workdir inference path', fails)
+  check(!File.exist?(log) || spec_posts(log).empty?,
+        'missing destination refuses before any live probe-workbook POST', fails)
 end
 
 puts "\n== live probe, --folder-id supplied → folderId stamped on the POST body =="
@@ -349,7 +372,8 @@ end
 puts "\n== live probe POST 400 → probe_error carries status + body excerpt + --folder-id hint =="
 Dir.mktmpdir do |dir|
   workdir_with(dir, [entry])
-  out, _err, st = run_probe_live(dir, { 'SIGMA_STUB_400' => '1' }, '--connection-id', 'conn-1')
+  out, _err, st = run_probe_live(dir, { 'SIGMA_STUB_400' => '1' },
+                                 '--connection-id', 'conn-1', '--folder-id', 'fld-bad')
   check(st.exitstatus == 3, "probe error → exit 3 (got #{st.exitstatus})", fails)
   e = ledger(dir)[0]
   check(e['status'] == 'error', 'ledger status error (gate still blocks)', fails)

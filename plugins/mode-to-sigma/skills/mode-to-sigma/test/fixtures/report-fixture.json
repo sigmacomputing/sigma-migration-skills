@@ -1,0 +1,46 @@
+{
+  "report": {
+    "token": "report-fixture",
+    "name": "Orders Report",
+    "space_token": "spc-fixture"
+  },
+  "queries": [
+    {
+      "token": "q1",
+      "name": "Monthly Revenue",
+      "raw_query": "select order_month, revenue from widget_orders",
+      "data_source_id": "ds-fixture",
+      "columns": ["order_month", "revenue"]
+    },
+    {
+      "token": "q2",
+      "name": "Region Revenue",
+      "raw_query": "select region, revenue from widget_orders",
+      "data_source_id": "ds-fixture",
+      "columns": ["region", "revenue"]
+    }
+  ],
+  "charts": [
+    {
+      "token": "c1",
+      "query_token": "q1",
+      "view": {
+        "selectedChart": "Line",
+        "chartTitle": "Monthly Revenue Trend",
+        "x": ["order_month"],
+        "y": ["revenue"]
+      }
+    },
+    {
+      "token": "c2",
+      "query_token": "q2",
+      "view": {
+        "selectedChart": "Bar",
+        "chartTitle": "Revenue by Region",
+        "x": ["region"],
+        "y": ["revenue"]
+      }
+    }
+  ],
+  "filters": []
+}

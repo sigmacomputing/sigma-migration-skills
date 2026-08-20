@@ -6,13 +6,15 @@
 require 'json'
 require_relative '../lib/sigma_rest'
 require_relative '../lib/export_pool'
+require_relative '../lib/code_rep'
 
 conn = ENV.fetch('SIGMA_TEST_CONNECTION_ID')
 tbl_id, kpi_id = 'tbl-kpiproof', 'kpi-proof'
 # Single-row synthetic source: two known numeric columns (ground truth = literals).
 sql = 'SELECT 100 AS current_rev, 60 AS prior_rev'
 
-# POST /v2/workbooks/spec requires name/folderId/schemaVersion/pages (see
+# POST /v2/workbooks/spec requires name/folderId plus a complete document
+# (schemaVersion, metadata-only pages, flat elements, and layout; see
 # reference/workflows/crud.md). folderId + schemaVersion are NOT part of the
 # comparative-KPI shape under test — fetch them live rather than hardcode, per
 # this repo's own rule that schemaVersion must come from a reference GET.
@@ -21,39 +23,44 @@ uid = who['userId'] || who['memberId'] || who['id']
 folder_id = Sigma.request(:get, "/v2/members/#{uid}")['homeFolderId']
 ref_wbs = Sigma.request(:get, '/v2/workbooks?limit=1')
 ref_id = ref_wbs['entries']&.first && ref_wbs['entries'].first['workbookId']
-schema_version = ref_id && Sigma.request(:get, "/v2/workbooks/#{ref_id}/spec", accept: 'application/json')['schemaVersion']
+schema_version = if ref_id
+                   Sigma::CodeRep.document(
+                     Sigma.request(:get, "/v2/workbooks/#{ref_id}/spec", accept: 'application/json')
+                   )['schemaVersion']
+                 end
 schema_version ||= 1
 
-spec = {
-  'name' => 'KPI comparison E2E proof',
-  'folderId' => folder_id,
-  'schemaVersion' => schema_version,
-  'pages' => [{
-    'id' => 'p1',
-    'name' => 'P1',
-    'elements' => [
-      { 'id' => tbl_id, 'kind' => 'table', 'name' => 'KPI Proof Source',
-        'source' => { 'kind' => 'sql', 'connectionId' => conn, 'statement' => sql },
-        # Custom-SQL source columns use the FIXED '[Custom SQL/ALIAS]' formula
-        # prefix (not the element name, not bare) — see sigma-formula-rules.
-        'columns' => [
-          { 'id' => 'current_rev', 'name' => 'Current Rev', 'formula' => '[Custom SQL/current_rev]' },
-          { 'id' => 'prior_rev', 'name' => 'Prior Rev', 'formula' => '[Custom SQL/prior_rev]' }
-        ] },
-      { 'id' => kpi_id, 'kind' => 'kpi-chart',
-        'name' => { 'text' => 'Revenue', 'color' => '#0B3D2E' },
-        'source' => { 'kind' => 'table', 'elementId' => tbl_id },
-        'columns' => [
-          { 'id' => 'current_rev', 'name' => 'Current Rev', 'formula' => '[KPI Proof Source/Current Rev]' },
-          { 'id' => 'prior_rev', 'name' => 'Prior Rev', 'formula' => '[KPI Proof Source/Prior Rev]' }
-        ],
-        'value' => { 'columnId' => 'current_rev' },
-        'comparisonColumn' => { 'columnId' => 'prior_rev' },
-        'comparison' => { 'display' => 'delta', 'colorGood' => '#1a7f37', 'colorBad' => '#cf222e' } }
+elements = [
+  { 'id' => tbl_id, 'kind' => 'table', 'name' => 'KPI Proof Source',
+    'source' => { 'kind' => 'sql', 'connectionId' => conn, 'statement' => sql },
+    # Custom-SQL source columns use the FIXED '[Custom SQL/ALIAS]' formula
+    # prefix (not the element name, not bare) — see sigma-formula-rules.
+    'columns' => [
+      { 'id' => 'current_rev', 'name' => 'Current Rev', 'formula' => '[Custom SQL/current_rev]' },
+      { 'id' => 'prior_rev', 'name' => 'Prior Rev', 'formula' => '[Custom SQL/prior_rev]' }
+    ] },
+  { 'id' => kpi_id, 'kind' => 'kpi-chart',
+    'name' => { 'text' => 'Revenue', 'color' => '#0B3D2E' },
+    'source' => { 'kind' => 'table', 'elementId' => tbl_id },
+    'columns' => [
+      { 'id' => 'current_rev', 'name' => 'Current Rev', 'formula' => '[KPI Proof Source/Current Rev]' },
+      { 'id' => 'prior_rev', 'name' => 'Prior Rev', 'formula' => '[KPI Proof Source/Prior Rev]' }
     ],
-    'layout' => "<GridLayout><GridContainer><Row><Cell layoutId=\"#{tbl_id}\"/><Cell layoutId=\"#{kpi_id}\"/></Row></GridContainer></GridLayout>"
-  }]
+    'value' => { 'columnId' => 'current_rev' },
+    'comparisonColumn' => { 'columnId' => 'prior_rev' },
+    'comparison' => { 'display' => 'delta', 'colorGood' => '#1a7f37', 'colorBad' => '#cf222e' } }
+]
+doc = {
+  'schemaVersion' => schema_version,
+  'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+  'elements' => elements,
+  'layout' => '<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="p1">' \
+              "<Element elementId=\"#{tbl_id}\" gridColumn=\"1 / 13\" gridRow=\"1 / 13\"/>" \
+              "<Element elementId=\"#{kpi_id}\" gridColumn=\"13 / 25\" gridRow=\"1 / 13\"/>" \
+              '</Page>'
 }
+spec = Sigma::CodeRep.wrap(doc, extra: { 'name' => 'KPI comparison E2E proof',
+                                         'folderId' => folder_id })
 
 resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec), accept: 'application/yaml')
 raw = resp.is_a?(String) ? resp : resp.to_s
@@ -89,12 +96,8 @@ abort 'NO-GO: bound values did not survive round-trip' unless ok
 back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
 back = JSON.parse(back) if back.is_a?(String) # defensive: accept:'application/json' already parses, but don't assume
 abort "NO-GO: readback spec was not a Hash (got #{back.class}): #{back.inspect}" unless back.is_a?(Hash)
-
-pages = back['pages']
-abort "NO-GO: readback spec has no pages array: #{back.inspect}" unless pages.is_a?(Array)
-
-kpi_el = pages.flat_map { |p| (p.is_a?(Hash) && p['elements'].is_a?(Array)) ? p['elements'] : [] }
-              .find { |e| e.is_a?(Hash) && e['id'] == kpi_id }
+back_doc = Sigma::CodeRep.document(back)
+kpi_el = Sigma::CodeRep.workbook_elements(back_doc).find { |e| e['id'] == kpi_id }
 abort "NO-GO: kpi-chart element '#{kpi_id}' not found on readback (dropped entirely):\n#{JSON.generate(back)}" unless kpi_el
 
 cc = kpi_el['comparisonColumn']

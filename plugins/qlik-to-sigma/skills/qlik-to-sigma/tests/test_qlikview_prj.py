@@ -73,13 +73,13 @@ def test_viz_map_covers_all_13_qlikview_chart_types():
     spec = importlib.util.spec_from_file_location("qpd", os.path.join(SCRIPTS, "qlik-prj-discover.py"))
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     supported = {"barchart", "linechart", "combochart", "piechart", "scatterplot",
-                 "table", "pivot-table", "kpi", "map"}
+                 "table", "pivot-table", "kpi", "map", "gauge"}
     # All 13 QlikView chart types -> a supported Sigma viz.
     expect = {
         "GRAPH_MODE_BAR": "barchart", "GRAPH_MODE_LINE": "linechart",
         "GRAPH_MODE_COMBO": "combochart", "GRAPH_MODE_PIE": "piechart",
         "GRAPH_MODE_SCATTER": "scatterplot", "GRAPH_MODE_STRAIGHT_TABLE": "table",
-        "GRAPH_MODE_PIVOT_TABLE": "pivot-table", "GRAPH_MODE_GAUGE": "kpi",
+        "GRAPH_MODE_PIVOT_TABLE": "pivot-table", "GRAPH_MODE_GAUGE": "gauge",
         "GRAPH_MODE_RADAR": "linechart", "GRAPH_MODE_GRID": "scatterplot",
         "GRAPH_MODE_BLOCK": "barchart", "GRAPH_MODE_FUNNEL": "barchart",
         "GRAPH_MODE_MEKKO": "barchart",

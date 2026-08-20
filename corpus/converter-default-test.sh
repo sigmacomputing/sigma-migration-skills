@@ -3,11 +3,11 @@
 #
 # Guards the invariant that made customers see different behavior than demos: the
 # orchestrators must default to the PINNED VENDORED converter bundle and must NOT
-# silently auto-discover a developer's ~/sigma-data-model-mcp checkout. A local
+# silently auto-discover a developer's ~/converter-source checkout. A local
 # build is used ONLY when EXPLICITLY opted in via an env var / flag.
 #
 # Two layers:
-#   1. STATIC (all 5 orchestrators): no implicit `~/…sigma-data-model-mcp…` probe
+#   1. STATIC (all 5 orchestrators): no implicit `~/…converter-source…` probe
 #      and no hardcoded `/Users/<name>/…` developer path may reappear.
 #   2. DYNAMIC (the 4 with a --print-converter mode): with a planted fake ~ checkout
 #      + clean env → resolves to the vendored bundle; with the explicit env var →
@@ -19,12 +19,12 @@ note() { printf '  %s\n' "$*"; }
 
 # ── Layer 1: static — no implicit home-dir / hardcoded dev-path probing ──────────
 echo "== static: no silent dev-checkout auto-discovery in any orchestrator"
-STATIC_HITS=$(grep -rnE "expand_path\(['\"]~/[^'\"]*sigma-data-model-mcp|expanduser\(['\"]~/[^'\"]*sigma-data-model-mcp|/Users/[a-z]+/[^ ]*sigma-data-model-mcp" \
+STATIC_HITS=$(grep -rnE "expand_path\(['\"]~/[^'\"]*converter-source|expanduser\(['\"]~/[^'\"]*converter-source|/Users/[a-z]+/[^ ]*converter-source" \
   plugins/*/skills/*/scripts/migrate-*.rb plugins/*/skills/*/scripts/migrate-*.py 2>/dev/null || true)
 if [ -n "$STATIC_HITS" ]; then
   echo "FAIL: implicit dev-checkout probing reintroduced:"; echo "$STATIC_HITS"; fail=1
 else
-  note "OK — no implicit ~/ or /Users/<name>/ sigma-data-model-mcp probes"
+  note "OK — no implicit ~/ or /Users/<name>/ converter-source probes"
 fi
 
 # ── Layer 2: dynamic — vendored default vs explicit override ─────────────────────
@@ -43,9 +43,9 @@ for spec in "${CASES[@]}"; do
 
   fh=$(mktemp -d)
   # Plant a fake dev checkout in BOTH well-known home locations — must be ignored.
-  mkdir -p "$fh/sigma-data-model-mcp/build" "$fh/Desktop/sigma-data-model-mcp/build"
-  echo "x" > "$fh/sigma-data-model-mcp/build/$build"
-  echo "x" > "$fh/Desktop/sigma-data-model-mcp/build/$build"
+  mkdir -p "$fh/converter-source/build" "$fh/Desktop/converter-source/build"
+  echo "x" > "$fh/converter-source/build/$build"
+  echo "x" > "$fh/Desktop/converter-source/build/$build"
 
   # (a) clean env + planted checkout → MUST resolve to the vendored bundle
   out_default=$(HOME="$fh" env -u "$envvar" "$runner" "$orch" --print-converter 2>/dev/null | head -1)

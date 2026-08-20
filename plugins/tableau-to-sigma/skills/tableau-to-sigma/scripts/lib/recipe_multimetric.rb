@@ -704,15 +704,16 @@ module RecipeMultimetric
     el.delete('dataLabel') # no per-point value labels smeared across the lines
     # Trim trailing no-data years: the master carries rows for every year ANY
     # metric covers, so a metric that ends earlier (UNITS stops before REV) plots
-    # its trailing all-null years as a cliff to 0. Row-level IsNotNull filter
-    # (the verified bool-filter shape) ends each trend at ITS metric's last
+    # its trailing all-null years as a cliff to 0. Row-level Text(IsNotNull)
+    # + values:["true"] filter (S11/K20) ends each trend at ITS metric's last
     # real year — exactly the source's per-tile x-domain.
     nn_id = "nn-trend-#{el['id']}"
     unless cols.any? { |c| c['id'] == nn_id }
+      # S11/K20: list filters reject boolean-typed columns — Text() + ["true"].
       (el['columns'] ||= []) << { 'id' => nn_id, 'name' => "#{metric} Not Null",
-                                  'formula' => "IsNotNull([#{prefix}/#{metric}])" }
+                                  'formula' => "Text(IsNotNull([#{prefix}/#{metric}]))" }
       (el['filters'] ||= []) << { 'id' => "f-#{nn_id}", 'columnId' => nn_id, 'kind' => 'list',
-                                  'mode' => 'include', 'selectionMode' => 'multiple', 'values' => [true] }
+                                  'mode' => 'include', 'selectionMode' => 'multiple', 'values' => ['true'] }
     end
     # Integer Year x-axis (build-charts uses a DateTrunc datetime column). Rewrite
     # the bound x column to the plain Year field so ticks read 1960…2014, not "Jan 1960".

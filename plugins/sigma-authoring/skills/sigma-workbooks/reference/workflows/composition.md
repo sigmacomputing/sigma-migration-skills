@@ -37,13 +37,13 @@ Example: *"Built a single-page dashboard with 4 KPIs across the top, a revenue-b
 
 ## Patterns
 
-Two layout patterns are wired into a shared composition engine (`shared/lib/composition.rb`, with a byte-identical Python twin `shared/lib/composition.py`). Both take a flat array of elements — each `{ id:, role: }` or `{ id:, kind: }` — and emit the `<LayoutElement elementId="..." gridColumn="a / b" gridRow="c / d"/>` lines for a single `<Page>`'s worth of layout XML. Wrap the engine's output in a `<Page id="<pageId>" ...>` block, then place the assembled XML — one shared prolog plus one `<Page>` block per page — in the **workbook-top-level `layout` field**, NOT `pages[].layout` (which silently no-ops and falls back to auto-arrange). See `reference/specification/layout.md` for the `<Page>`/`<GridContainer>` wrapper and this workbook-level placement. Elements are grouped into horizontal bands by `role`; a band with no elements is skipped and the next band simply starts where the last one left off, so array order doesn't matter — only the role tag does.
+Two layout patterns are wired into a shared composition engine (`scripts/lib/composition.rb`). Both take a flat array of elements — each `{ id:, role: }` or `{ id:, kind: }` — and emit the `<Element elementId="..." gridColumn="a / b" gridRow="c / d"/>` lines for a single `<Page>`'s worth of layout XML. Wrap the engine's output in a `<Page id="<pageId>" ...>` block, then place the assembled XML — one shared prolog plus one `<Page>` block per page — in **`document.layout`**, NOT `pages[].layout` (which silently no-ops and falls back to auto-arrange). See `reference/specification/layout.md` for the `<Page>`/`<Container>` wrapper and this document-level placement. Elements are grouped into horizontal bands by `role`; a band with no elements is skipped and the next band simply starts where the last one left off, so array order doesn't matter — only the role tag does.
 
 Role resolution: give an element an explicit `role:`, or let `kind:` infer one — `kpi-chart` → `:kpi`; `table` / `pivot-table` / `input-table` → `:table`; any other kind (every chart kind) defaults to `:supporting`. `:hero`, `:control`, `:insight`, `:master`, and `:detail` are **never** inferred — tag those explicitly. An untagged element infers to `:supporting` — `:exec` places that (merged into its final `:supporting`+`:table` band), but `:master_detail` does NOT: it only consumes `:control`, `:master`, and `:detail`, so an untagged (or explicitly `:kpi`/`:hero`/`:insight`/`:supporting`/`:table`) element passed to `:master_detail` is a role the pattern doesn't place.
 
 An unrecognized explicit role raises (`compose: unknown role <x> for element <id>`) rather than silently dropping the element — and, separately, a *recognized* role the chosen pattern simply doesn't consume now raises too (`compose: role <role> (element <id>) is not used by pattern <pattern>`), e.g. tagging something `:master` and composing with `:exec`, or leaving something `:kpi`/untagged and composing with `:master_detail`. Neither case silently vanishes from the layout anymore.
 
-Within a band, elements split the available width evenly (`band()`, the same helper both patterns use) — the element count in any one band must evenly divide `page_cols` (default 24: 1, 2, 3, 4, 6, 8, 12, or 24 elements fit cleanly). An uneven count raises `ArgumentError` (Ruby) / `ValueError` (Python) rather than producing a lopsided or clipped layout — pick a clean count, or drop to hand-written layout XML for an odd one.
+Within a band, elements split the available width evenly (`band()`, the same helper both patterns use) — the element count in any one band must evenly divide `page_cols` (default 24: 1, 2, 3, 4, 6, 8, 12, or 24 elements fit cleanly). An uneven count raises `ArgumentError` rather than producing a lopsided or clipped layout — pick a clean count, or drop to hand-written layout XML for an odd one.
 
 ### `exec` — KPI-strip dashboard
 
@@ -62,7 +62,7 @@ Role → band, top to bottom (each optional; skipped if empty):
 Call:
 
 ```ruby
-require_relative 'shared/lib/composition'
+require_relative 'scripts/lib/composition'
 
 elements = [
   { id: 'kpi1', role: :kpi }, { id: 'kpi2', role: :kpi },
@@ -72,7 +72,7 @@ elements = [
 Composition.compose(elements, pattern: :exec)
 ```
 
-produces a 4-up KPI strip (each 6 of 24 columns, row 1–7), a full-width hero (row 7–19), and a full-width table (row 19–28) — the exact shape golden-tested in `shared/lib/testdata/composition_exec_golden.txt`.
+produces a 4-up KPI strip (each 6 of 24 columns, row 1–7), a full-width hero (row 7–19), and a full-width table (row 19–28) — the exact shape golden-tested in `scripts/lib/testdata/composition_exec_golden.txt`.
 
 ### `master-detail` — pick one, see its detail
 
@@ -98,9 +98,9 @@ elements = [
 Composition.compose(elements, pattern: :master_detail)
 ```
 
-(note the pattern name is the symbol `:master_detail`, underscore — the hyphen is only in prose) produces a full-width control row (row 1–3), then master at columns 1–13 and detail at columns 13–25 sharing row 3–17 — see `shared/lib/testdata/composition_master_detail_golden.txt`. Drop the `:control` element and the master/detail band starts at row 1 instead.
+(note the pattern name is the symbol `:master_detail`, underscore — the hyphen is only in prose) produces a full-width control row (row 1–3), then master at columns 1–13 and detail at columns 13–25 sharing row 3–17 — see `scripts/lib/testdata/composition_master_detail_golden.txt`. Drop the `:control` element and the master/detail band starts at row 1 instead.
 
-**Critical semantics — verified live against a real Sigma org (2026-07-28, `shared/scripts/verify-master-detail-e2e.rb`), not just spec-shape-valid:**
+**Critical semantics — verified live against a real Sigma org (2026-07-28), not just spec-shape-valid:**
 
 - **The control filters the detail element only.** Wire it as a `filters[]` entry on the control pointing at the detail table — `{ source: { kind: table, elementId: <detail-element-id> }, columnId: <dimension-column> }` (see `reference/specification/controls.md`). Do not add the master to that `filters[]` array.
 - **The master stays whole.** It is the selection surface the viewer picks from, not a filtered view of the current pick — it must keep rendering every category/row, not just the selected one. Live proof: setting the control's value and exporting the master still returns every category with its correct (unfiltered) totals. This is the intended shape, not a bug to "fix" by also filtering the master.
@@ -126,19 +126,19 @@ imposed layout, no house style forced onto every workbook. Reach for these when 
 request calls for polish; a plain KPI-and-chart page (composed with `:exec`, or with no
 pattern at all) is still a completely valid answer on its own.
 
-Each item below emits one spec fragment — via `shared/lib/richness.rb` (Ruby canonical,
-byte-identical `shared/lib/richness.py` twin) or the existing `shared/lib/kpi_card.rb`/
-`.py` — that drops into whatever layout is already being built. None of them assemble a
-whole page by themselves.
+Each item below emits one spec fragment — via `scripts/lib/richness.rb` or the existing
+`scripts/lib/kpi_card.rb` — that drops into whatever layout is already being built. None
+of them assemble a whole page by themselves.
 
 ### Comparative KPI cards (+ optional value styling)
 
 The house default for a KPI is comparative: a value column plus a `comparisonColumn`
-rendered as a Δ badge (see `refs/kpi-comparison.md` and `KpiCard.build`/`kpi_card.build`).
-That comparison is itself optional — a plain single-value KPI is a valid, simpler choice;
-calling `KpiCard.build` with no `comparison_column_id` emits a plain card, no Δ badge.
+rendered as a Δ badge (see `reference/specification/comparative-kpi-card.yaml` and
+`KpiCard.build`). That comparison is itself optional — a plain single-value KPI is a valid,
+simpler choice; calling `KpiCard.build` with no `comparison_column_id` emits a plain card,
+no Δ badge.
 
-On top of that, `KpiCard.build`/`kpi_card.build` takes two further optional kwargs —
+On top of that, `KpiCard.build` takes two further optional kwargs —
 `value_color:` / `value_font_size:` — that accent the number itself:
 `value: {columnId: ..., color: '#FDE047', fontSize: 44}`. Leave both `nil` (the default)
 and the emitted card is byte-identical to a call that never knew these kwargs existed.
@@ -148,7 +148,7 @@ POST.
 
 ### AI-insight callout (opt-in, org-dependent)
 
-`Richness.ai_insight(id:, model:, prompt:)` / `richness.ai_insight(...)` builds a `text`
+`Richness.ai_insight(id:, model:, prompt:)` builds a `text`
 element whose `body` is a Cortex-backed formula:
 
 ```
@@ -189,18 +189,19 @@ choice as one with both.
 
 ### Wide pivot (optional)
 
-`Richness.wide_pivot(id:, source_element_id:, rows_by:, values:)` emits a `pivot-table`
-biased wide rather than crosstabbed: `rowsBy` takes the row shelves, `columnsBy` is always
-`[]`, and `values` is a plain list of metric column-id strings (not `{id: ...}` objects —
-matching the existing pivot precedent). Grand totals are a UI-only setting, not a spec
-field, so this helper doesn't emit or guess one. Reach for this when the request wants a
-wide detail table rather than a small-multiple crosstab; a regular table, or a pivot with
-`columnsBy` populated, are equally valid alternatives depending on what's actually asked
-for.
+`Richness.wide_pivot(id:, source_element_id:, rows_by:, values:, columns:)` emits a
+`pivot-table` biased wide rather than crosstabbed: `columns` is the pivot's own column
+definitions (required — see the tables.md pivot recipe), `rowsBy` takes the row shelves,
+`columnsBy` is always `[]`, and `values` is a plain list of metric column-id strings (not
+`{id: ...}` objects — matching the existing pivot precedent). Grand totals are a UI-only
+setting, not a spec field, so this helper doesn't emit or guess one. Reach for this when
+the request wants a wide detail table rather than a small-multiple crosstab; a regular
+table, or a pivot with `columnsBy` populated, are equally valid alternatives depending on
+what's actually asked for.
 
 ### Composition pattern choice: `:overview` as one more option
 
-`Composition.compose`/`compose` (see *Patterns* above) offers a third pattern alongside
+`Composition.compose` (see *Patterns* above) offers a third pattern alongside
 `:exec` and `:master_detail`: `pattern: :overview`, an optional stack of full-width bands,
 each skipped if its role has no elements:
 

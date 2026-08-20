@@ -19,7 +19,13 @@ captures the signals, the builder emits the Sigma equivalents. No UI editing.
 ## What's emitted (build-workbook-from-pbir.rb)
 
 ### 1. Workbook theme (`lib/pbi_theme.rb`)
-Every PBI migration emits a top-level `themeName: Light` + `themeOverrides`:
+> The workbook spec is `document`-wrapped, not flat: `schemaVersion`/`pages`/`kind`/
+> `layout`/`settings`/`agents` all nest under a top-level `document` key (confirmed live
+> 2026-08-03, including on `/verify` 2026-08-04). The theme is workbook content, so it
+> travels inside `document` too — at `document.settings.theme`, not the request root.
+> Data-model specs are unaffected and stay flat.
+
+Every PBI migration emits a top-level `settings.theme.name: Light` + `settings.theme.overrides`:
 `hasCards: shown` (card chrome), `elementBorder` (subtle 1px), `borderRadius: round`,
 and `categoricalScheme` = the report theme's **data-color sequence**. The palette
 **order matters** — Sigma assigns `scheme[i]` to the i-th category/series exactly as
@@ -126,11 +132,11 @@ reliability (all mechanical reads of `visual.objects[...].properties`):
 | Legend position | `legend.position` (`Top`/`Right`/…) | chart legend `position` | planned (`show` already ported) |
 | Axis titles / visibility | `categoryAxis/valueAxis.showAxisTitle`, `.titleText`, `.show` | chart axis `title`, `visibility` | planned |
 | Explicit series colors | `dataPoint[].properties.fill` per series | `color.scheme` (bar/line/combo) | partial (theme palette by order) |
-| Title font / size / color | `title.properties.{fontSize,fontColor,alignment}` | element `titleFont` / `themeOverrides.titleFont` | planned |
+| Title font / size / color | `title.properties.{fontSize,fontColor,alignment}` | element `titleFont` / `settings.theme.overrides.titleFont` | planned |
 | Y-axis gridlines | `valueAxis.gridlineShow` | chart gridlines | planned |
 | Negative-number / currency-symbol / separators | number-format structured props | `format` structured fields (`prefix`,`currencySymbol`,…) | planned |
 | Total label / subtotal toggles | matrix `subTotals`, `total.label` | pivot `totals` | partial |
-| Page/canvas background | `section.objects.background` | `themeOverrides.colorOverrides.backgroundCanvas` | planned |
+| Page/canvas background | `section.objects.background` | `settings.theme.overrides.colorOverrides.backgroundCanvas` | planned |
 
 Conditional formatting (background/font scales, rules, data bars) is **already**
 ported (`rec['conditional_formats']` → Sigma `conditionalFormats`).
@@ -145,7 +151,7 @@ can also be **sampled** to recover style the file dropped:
 
 | Recover from PNG | How | Feeds |
 |---|---|---|
-| KPI accent / series palette (hex) | sample dominant non-neutral pixels in each KPI value / chart mark region | `value.color`, `themeOverrides.categoricalScheme` |
+| KPI accent / series palette (hex) | sample dominant non-neutral pixels in each KPI value / chart mark region | `value.color`, `settings.theme.overrides.categoricalScheme` |
 | Whether values are abbreviated + case | OCR/needle a KPI tile: does it read `$126K` vs `$125,916`? | confirm `display_units` when `nil` |
 | Value/label alignment | centroid of the value text within its card bbox | `layout.anchor` |
 | Data-label / legend presence | detect label glyphs / legend swatches in the render | confirm `data_labels`/`legend` when `nil` |
@@ -192,7 +198,7 @@ isn't in the migrated table, and the two non-mappable modes, are recorded to
 ## Verification
 - `theme: CY24SU10`, card `value_color: #118DFF`, tableEx `show_totals: True` round-trip
   through `extract-pbir.py` (live-checked against the Retail Performance & Trends report).
-- Cold builder run emits `themeName`/`themeOverrides` (CY24SU10 palette), KPI
+- Cold builder run emits `settings.theme.name`/`settings.theme.overrides` (CY24SU10 palette), KPI
   `value.color`+`titleOrient`, donut `Coalesce(..., "(Blank)")`, and the tableEx→pivot
   totals re-expression — 0 dropped/degraded in coverage.
 - §5–§7 (`lib/pbi_style.rb`): `scripts/test-pbi-style.rb` (26 assertions, offline)

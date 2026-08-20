@@ -26,6 +26,7 @@ import jaql_expr as J
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import coverage_catalog as _cc  # noqa: E402
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+import code_rep                  # noqa: E402  workbook document/envelope adapter
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 VIZ_CAT  = _cc.load(_CAT_DIR, "viz-kind")        # Sisense widget type -> Sigma element kind
 FMT_CAT  = _cc.load(_CAT_DIR, "number-format")   # JAQL format mask    -> Sigma number format
@@ -342,7 +343,7 @@ def _money_fmt(jaql, warns=None):
     currency mask (format.mask.currency) — the ONLY documentation-grounded
     numeric-format signal (refs/catalogs/number-format.json).
 
-    beads-sigma-kvza: the previous implementation ALSO returned a $ format when
+    [bead]: the previous implementation ALSO returned a $ format when
     the widget TITLE contained the substring 'Revenue' or 'Cost'. That was a
     name-guessing heuristic that mis-formatted any non-currency measure titled
     that way; it has been REMOVED. A `format.mask` that is present but is NOT a
@@ -364,8 +365,8 @@ def _money_fmt(jaql, warns=None):
 # Sisense stores layout as `layout.columns[]` (vertical strips, % width) ->
 # `cells[]` (stacked) -> `subcells[]` (side-by-side, % width) -> `elements[]`
 # ({widgetid, height px}). Sigma stores layout as ONE top-level `layout` XML
-# string: a <Page> per page (24-col grid), elements positioned by
-# <LayoutElement elementId gridColumn="start / end" gridRow="start / end"/>
+# string: a <Page> per page (24-col grid), elements positioned by the live
+# <Element elementId gridColumn="start / end" gridRow="start / end"/> tag
 # where `end` is EXCLUSIVE (full width = "1 / 25"). On workbook CREATE the
 # server preserves our client element IDs, so layout refs resolve.
 GRID_COLS = 24
@@ -373,10 +374,10 @@ PX_PER_ROW = 42          # Sisense px height -> grid row units (512px ~= 12 rows
 KPI_ROWS = 4             # KPIs are short cards regardless of Sisense's px height
 CTRL_ROWS = 3
 MIN_VIZ_ROWS = 8
-WIDE_KINDS = {"line-chart", "area-chart", "table", "pivot-table"}  # span full width
+WIDE_KINDS = {"line-chart", "area-chart", "waterfall-chart", "table", "pivot-table"}  # span full width
 
 def _rows_for(kind, height_px):
-    if kind == "kpi-chart":
+    if kind in ("kpi-chart", "progress"):
         return KPI_ROWS
     return max(MIN_VIZ_ROWS, round((height_px or 512) / PX_PER_ROW))
 
@@ -482,7 +483,7 @@ def _page(page_id, body_lines):
     return "\n".join([head, *body_lines, "  </Page>"])
 
 def _layout_element(eid, cstart, cw, rstart, rh):
-    return (f'    <LayoutElement elementId="{eid}" '
+    return (f'    <Element elementId="{eid}" '
             f'gridColumn="{cstart} / {cstart + cw}" gridRow="{rstart} / {rstart + rh}"/>')
 
 def build_layout(dashboards, control_ids, wid2elem):
@@ -494,7 +495,7 @@ def build_layout(dashboards, control_ids, wid2elem):
     row = 1
     if control_ids:
         # Controls go in a flat row at the top — one per equal column slice.
-        # NOT a <GridContainer>: a GridContainer's elementId must reference a real
+        # NOT a <Container>: a Container's elementId must reference a real
         # container element in the spec, and we don't emit one (Sigma rejects a
         # synthetic container id with "not a valid container").
         cw = _alloc([1] * len(control_ids), GRID_COLS)
@@ -512,6 +513,93 @@ def build_layout(dashboards, control_ids, wid2elem):
     data_page = _page("pdata", [_layout_element("master", 1, GRID_COLS, 1, 12)])
     main_page = _page("pmain", placed)
     return '<?xml version="1.0" encoding="utf-8"?>\n' + data_page + "\n" + main_page
+
+
+def _literal_color(value):
+    """Return a portable literal CSS color, never a script/theme expression."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{3,8}", value):
+        return value
+    return None
+
+
+def _style_from_source(widget, flags):
+    """Map the documented Sisense widget background to released element style."""
+    style = widget.get("style") or {}
+    raw = style.get("backgroundColor") or style.get("background-color")
+    if raw is None:
+        return None
+    color = _literal_color(raw)
+    if color:
+        return {"backgroundColor": color}
+    flags.append({"widget": widget.get("title"), "feature": "styling",
+                  "reason": "widget background is not a literal hex color — "
+                            "style omitted rather than guessed"})
+    return None
+
+
+def _legend_from_source(widget, flags):
+    """Translate only explicit, documented Sisense legend options."""
+    raw = (widget.get("style") or {}).get("legend")
+    if not isinstance(raw, dict):
+        return None
+    legend = {}
+    if isinstance(raw.get("enabled"), bool):
+        legend["visibility"] = "shown" if raw["enabled"] else "hidden"
+    position = str(raw.get("position") or "").lower()
+    if position in ("top", "bottom", "left", "right"):
+        legend["position"] = position
+    elif position:
+        flags.append({"widget": widget.get("title"), "feature": "legend",
+                      "reason": f"Sisense legend position {position!r} has no "
+                                "grounded Sigma mapping — position omitted"})
+    return legend or None
+
+
+def _fixed_bound(widget, panel):
+    """Read a literal gauge bound from known persisted style slots."""
+    style = widget.get("style") or {}
+    for key in (panel, panel + "Value"):
+        value = style.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+    return None
+
+
+def _source_feature_flags(widget, flags):
+    """Surface released-feature source intent that cannot be wired safely."""
+    title = widget.get("title")
+    if any(widget.get(k) for k in ("drilldownOptions", "drillDown", "drillHierarchy")):
+        flags.append({"widget": title, "feature": "drill",
+                      "reason": "Sisense drill intent found, but the released Sigma "
+                                "drill control has no documented hierarchy binding; "
+                                "no dead drill UI was emitted"})
+    if any(widget.get(k) for k in ("drillToDashboardConfig", "jumpToDashboard", "jtd")):
+        flags.append({"widget": title, "feature": "navigation",
+                      "reason": "Sisense Jump To Dashboard intent found, but the "
+                                "destination payload is not normalized by discovery; "
+                                "navigation was not guessed"})
+
+
+def _assert_authoritative_layout(doc):
+    """Fail closed unless required layout owns every flat element exactly once."""
+    ids = [e.get("id") for e in code_rep.workbook_elements(doc)]
+    if any(not eid for eid in ids) or len(ids) != len(set(ids)):
+        raise ValueError("workbook elements require unique non-empty ids")
+    placed = re.findall(r'\belementId="([^"]+)"', str(doc.get("layout") or ""))
+    missing = sorted(set(ids) - set(placed))
+    orphan = sorted(set(placed) - set(ids))
+    duplicate = sorted(eid for eid in set(placed) if placed.count(eid) != 1)
+    page_ids = re.findall(r'<Page\b[^>]*\bid="([^"]+)"', str(doc.get("layout") or ""))
+    declared_pages = [p.get("id") for p in doc.get("pages", [])]
+    if missing or orphan or duplicate or sorted(page_ids) != sorted(declared_pages):
+        raise ValueError(
+            "authoritative workbook layout mismatch: "
+            f"missing={missing}, orphan={orphan}, duplicate={duplicate}, "
+            f"layout_pages={page_ids}, pages={declared_pages}"
+        )
 
 
 def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
@@ -556,12 +644,17 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
             wt = w.get("type")
             kind = SIGMA_KIND.get(wt)
             if not kind:
-                flags.append({"widget": w.get("title"), "type": wt, "reason": "no Sigma element (treemap/sunburst/map/etc.) — flag"})
+                reason = ("Sigma box-chart is workspace-gated; preserve this Sisense "
+                          "box plot manually after entitlement/readback verification"
+                          if "box" in str(wt).lower() else
+                          "no grounded Sigma element (treemap/sunburst/map/add-on/etc.) — flag")
+                flags.append({"widget": w.get("title"), "type": wt, "reason": reason})
                 continue
-            dims, meas = [], []
+            dims, meas, measure_by_panel = [], [], {}
             ok = True
             for p in w.get("metadata", {}).get("panels", []):
-                role = "dim" if p["name"] in DIM_PANELS else ("meas" if p["name"] in MEAS_PANELS else None)
+                panel_name = p["name"].lower()
+                role = "dim" if panel_name in DIM_PANELS else ("meas" if panel_name in MEAS_PANELS else None)
                 for it in p.get("items", []):
                     jaql = it.get("jaql", {})
                     if not jaql:
@@ -576,7 +669,8 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
                     for m in re.finditer(r"\[([^.\]/]+)\.([^\]]+)\]", J.raw_dims(jaql)):
                         master_ref(m.group(1), m.group(2))
                     vid = "c_" + cid()
-                    _f = _masterize(formula)
+                    _inline_f = _masterize(formula)
+                    _f = _inline_f
                     if k == "measure":
                         # governed [Metrics/<name>] ref when this inline aggregate matches
                         # a metric on the fact element (strip the "Master" prefix); safe
@@ -592,10 +686,23 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
                         for _wmsg in _fmt_warns:   # loud fallback: non-currency mask dropped
                             flags.append({"widget": w.get("title"),
                                           "field": jaql.get("title"), "reason": _wmsg})
+                        # Native progress has no source/columns envelope, so its
+                        # formula must retain the explicit [Master/…] qualifier
+                        # rather than a source-relative [Metrics/…] shortcut.
+                        measure_by_panel.setdefault(
+                            panel_name, {**spec, "formula": _inline_f})
                     (meas if (k == "measure" or role == "meas") else dims).append((vid, spec, jaql))
             if not ok and not (dims or meas):
                 continue
-            elem = _emit_viz(kind, w.get("title"), dims, meas)
+            if kind == "waterfall-chart" and not (dims and meas):
+                flags.append({"widget": w.get("title"), "type": wt,
+                              "feature": "waterfall",
+                              "reason": "waterfall requires at least one category "
+                                        "and one value — no invalid chart emitted"})
+                continue
+            elem = _emit_viz(kind, w.get("title"), dims, meas, w, flags,
+                             measure_by_panel)
+            _source_feature_flags(w, flags)
             viz_elements.append(elem)
             if w.get("oid"):            # link the source widget to its Sigma element for layout
                 wid2elem[w["oid"]] = (elem["id"], elem["kind"])
@@ -605,11 +712,26 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
                          "elementId": dm_info["factElementId"], "kind": "data-model"},
               "columns": master_cols, "name": "Master",
               "order": [c["id"] for c in master_cols], "visibleAsSource": True}
-    spec = {"name": "ECommerce Overview (from Sisense)", "schemaVersion": 1,
-            "pages": [{"id": "pdata", "name": "Data", "elements": [master]},
-                      {"id": "pmain", "name": "Overview", "elements": controls + viz_elements}],
-            "layout": build_layout(dashboards, [c["id"] for c in controls], wid2elem)}
-    return spec, flags
+    doc = {"schemaVersion": 1, "kind": "workbook",
+           "pages": [{"id": "pdata", "name": "Data", "visibility": "hidden"},
+                     {"id": "pmain", "name": "Overview"}],
+           "elements": [master] + controls + viz_elements,
+           "layout": build_layout(dashboards, [c["id"] for c in controls], wid2elem)}
+    dashboard_colors = {
+        _literal_color((d.get("style") or {}).get("backgroundColor"))
+        for d in dashboards if (d.get("style") or {}).get("backgroundColor") is not None
+    }
+    dashboard_colors.discard(None)
+    if len(dashboard_colors) == 1:
+        code_rep.set_theme(doc, overrides={
+            "colorOverrides": {"backgroundCanvas": next(iter(dashboard_colors))}
+        })
+    elif len(dashboard_colors) > 1:
+        flags.append({"feature": "styling",
+                      "reason": "dashboards have conflicting canvas backgrounds; "
+                                "workbook theme left at Sigma default"})
+    _assert_authoritative_layout(doc)
+    return code_rep.wrap(doc, {"name": "ECommerce Overview (from Sisense)"}), flags
 
 def _emit_control(fl, master_ref, master_idx, cid):
     """Sisense dashboard filter -> a Sigma control bound to the Master column it
@@ -649,21 +771,42 @@ def _emit_control(fl, master_ref, master_idx, cid):
     return {**base, "controlType": _CTRL_KIND["*"], "mode": "include", "selectionMode": "multiple", "values": [],
             "source": {"kind": "source", "source": {"kind": "table", "elementId": "master"}, "columnId": col_id}}
 
-def _emit_viz(kind, title, dims, meas):
+def _emit_viz(kind, title, dims, meas, widget=None, flags=None,
+              measure_by_panel=None):
+    widget, flags = widget or {}, flags if flags is not None else []
+    measure_by_panel = measure_by_panel or {}
     cols = [s for _, s, _ in dims] + [s for _, s, _ in meas]
     dim_ids = [i for i, _, _ in dims]
     meas_ids = [i for i, _, _ in meas]
     e = {"id": "v_" + _sid(8), "kind": kind,
          "source": {"elementId": "master", "kind": "table"},
          "columns": cols, "name": title}
+    if kind == "kpi-chart" and widget.get("subtype") == "indicator/gauge":
+        value = measure_by_panel.get("value")
+        minimum = ((measure_by_panel.get("min") or {}).get("formula")
+                   or _fixed_bound(widget, "min"))
+        maximum = ((measure_by_panel.get("max") or {}).get("formula")
+                   or _fixed_bound(widget, "max"))
+        if value and minimum is not None and maximum is not None:
+            progress_style = _style_from_source(widget, flags)
+            return {"id": e["id"], "kind": "progress", "name": title,
+                    "mode": "value", "shape": "ring",
+                    "min": minimum, "max": maximum, "value": value["formula"],
+                    **({"style": progress_style} if progress_style else {})}
+        flags.append({"widget": title, "feature": "progress",
+                      "reason": "Sisense gauge lacks explicit convertible min/max "
+                                "bounds — retained as KPI instead of fabricating a range"})
     if kind == "kpi-chart":
         e["columns"] = [s for _, s, _ in meas][:1]
         e["value"] = {"columnId": meas_ids[0]} if meas_ids else None
-    elif kind in ("bar-chart", "line-chart", "area-chart"):
+    elif kind in ("bar-chart", "line-chart", "area-chart", "waterfall-chart"):
         e["xAxis"] = {"columnId": dim_ids[0]} if dim_ids else None
         e["yAxis"] = {"columnIds": meas_ids}
         if len(dims) > 1:  # break-by series
             e["colorBy"] = {"columnId": dim_ids[1]}
+        if kind == "waterfall-chart":
+            e["waterfallShape"] = {"calculation": "sum",
+                                   "connectorLine": "shown"}
     elif kind == "pie-chart":  # this org's API uses pie-chart with {id} refs
         e["value"] = {"id": meas_ids[0]} if meas_ids else None
         e["color"] = {"id": dim_ids[0]} if dim_ids else None
@@ -687,6 +830,13 @@ def _emit_viz(kind, title, dims, meas):
                 "rankingFunction": "rank", "mode": "top-n", "rowCount": int(tn["count"]),
                 "includeNulls": "when-no-value-is-selected"})
             break
+    legend = _legend_from_source(widget, flags)
+    if legend and kind in ("bar-chart", "line-chart", "area-chart",
+                           "waterfall-chart", "pie-chart", "scatter-chart"):
+        e["legend"] = legend
+    style = _style_from_source(widget, flags)
+    if style:
+        e["style"] = style
     return e
 
 if __name__ == "__main__":
@@ -744,8 +894,11 @@ if __name__ == "__main__":
             dm_metrics = _mb.available_metrics(dm_info["factElementId"], _by_id)
         spec, flags = convert_dashboard(dashboards, model, dm_info, dm_metrics=dm_metrics)
         json.dump(spec, open("sigma_workbook_spec.json", "w"), indent=2)
-        print(f"wrote sigma_workbook_spec.json ({len(spec['pages'][1]['elements'])} viz elements, "
-              f"{len(spec['pages'][0]['elements'][0]['columns'])} master cols)")
+        _doc = code_rep.document(spec)
+        _els = code_rep.workbook_elements(_doc)
+        _master = next(e for e in _els if e.get("id") == "master")
+        print(f"wrote sigma_workbook_spec.json ({len(_els) - 1} page elements, "
+              f"{len(_master.get('columns', []))} master cols)")
         # gate 7 (control-wiring lint): FAIL the build if a control does not
         # filter every same-page KPI/chart (partial reach), is dead, or points
         # at a ghost target — the shared, proven scripts/lib/control_lint.rb, on
