@@ -30,12 +30,16 @@ class Base(unittest.TestCase):
     # env keys we mutate — snapshot + restore so cases don't bleed.
     KEYS = ["SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET",
             "SIGMA_API_TOKEN", "SIGMA_TOKEN_MINTED_AT", "SIGMA_WORKDIR",
-            "SIGMA_INSECURE_TLS"]
+            "SIGMA_INSECURE_TLS", "SIGMA_ALLOW_INSECURE_BASE_URL"]
 
     def setUp(self):
         self._saved = {k: os.environ.get(k) for k in self.KEYS}
         for k in self.KEYS:
             os.environ.pop(k, None)
+        # These are network-mocked unit tests that mint tokens against fake hosts
+        # (https://b, https://x.example); bypass the A2 base-URL host validator so
+        # they exercise the HTTP/auth seam, not the (separately-tested) allowlist.
+        os.environ["SIGMA_ALLOW_INSECURE_BASE_URL"] = "1"
         # reset module state
         sigma_rest._token_override = None
         sigma_rest._minted_at = None

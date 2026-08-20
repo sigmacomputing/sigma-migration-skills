@@ -84,7 +84,7 @@ except Exception:  # ts_screenshot imports yaml at module load; guard the dep
             return False, "not a PNG (error body?)"
         return True, "png signature ok"
 
-_SSL = ssl._create_unverified_context()
+_SSL = ts_lib.ssl_context()
 ENDPOINT = "/api/rest/2.0/report/liveboard"
 
 

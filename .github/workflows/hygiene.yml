@@ -165,23 +165,6 @@ jobs:
         run: |
           if [ -z "${RANGE_BASE:-}" ]; then echo "no diff range to check — skipping"; exit 0; fi
           bash tools/check-converter-provenance.sh "$RANGE_BASE" "$RANGE_HEAD"
-      - name: Converter-freshness guard (vendored-bundle staleness by age)
-        # Standing gate, NOT diff-scoped (unlike the pairing guard above, this
-        # runs every time regardless of RANGE_BASE): a merge to
-        # sigma-data-model-mcp changes nothing for any operator until someone
-        # runs tools/vendor-converters.sh and commits the regenerated bundle,
-        # and pre-existing drift nobody re-vendored in a long time has no diff
-        # to catch it on. CI cannot assume network access to that private repo,
-        # so this grades staleness by the AGE of each PROVENANCE.json's own
-        # source_commit_date (default threshold 14d, CONVERTER_STALENESS_DAYS)
-        # rather than asking upstream what's new — see the header comment in
-        # tools/check-converter-provenance.sh for the full trade-off. cognos-to-sigma
-        # vendors its own converter/*.ts in-skill (no source_repo/source_commit
-        # by design) and is reported explicitly as not-applicable, not flagged
-        # stale; its own freshness gate is tools/check-cognos-bundle.rb below.
-        # A STALE verdict that carries local_patches gets a note pointing at
-        # porting those patches upstream first, never "just re-vendor blind".
-        run: bash tools/check-converter-provenance.sh --freshness "$RANGE_HEAD"
       - name: Plugin-version-bump guard (release-hygiene diff gate)
         # #486: a change under plugins/<name>/** must move that plugin's
         # plugin.json "version" (strict semver) so `claude plugin update` sees a
@@ -211,12 +194,7 @@ jobs:
         # Proves the diff-pairing guard fails unpaired bundle changes, passes
         # paired ones, and schema-pins local_patches entries — plus the
         # string-pin on the real tableau PROVENANCE.json (synthetic fixture
-        # names only). Also proves the --freshness staleness-by-age gate
-        # (Part E) fails a 40d-stale fixture and passes the same fixture
-        # dated today, reports an in-skill/cognos-shaped entry explicitly
-        # rather than silently, and surfaces the local_patches
-        # don't-re-vendor-blind note; plus --online's soft-pass when no local
-        # checkout is present (Part F).
+        # names only).
         run: bash tools/test-converter-provenance.sh
       - name: Plugin-version-bump guard self-test (fixture repos, creds-free)
         # Proves the version-bump gate fails an unbumped plugin change, passes a

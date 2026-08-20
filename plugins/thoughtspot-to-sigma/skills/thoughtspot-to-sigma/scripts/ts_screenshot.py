@@ -20,7 +20,7 @@ import os, sys, json, ssl, struct, urllib.request, urllib.error, re, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml, ts_lib
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
-_SSL = ssl._create_unverified_context()
+_SSL = ts_lib.ssl_context()
 
 def png_health(data):
     """Heuristic blank/placeholder detection without PIL. Returns (ok, reason).

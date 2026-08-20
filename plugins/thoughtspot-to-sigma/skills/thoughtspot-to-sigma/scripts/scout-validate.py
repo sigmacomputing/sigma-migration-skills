@@ -25,8 +25,10 @@ Prints JSON: {status: validated|error, workbook_id, error, ...}. Cleans up the t
 """
 import json, os, sys, ssl, urllib.request, argparse, datetime, re, hashlib
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scout_gate
-_SSL = ssl._create_unverified_context()
+import ts_lib
+_SSL = ts_lib.ssl_context()
 
 BASE = os.environ["SIGMA_BASE_URL"]; TOK = os.environ["SIGMA_API_TOKEN"]
 def api(method, path, body=None, accept_json=True):

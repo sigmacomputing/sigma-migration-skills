@@ -21,6 +21,31 @@ checks.json: [{"label","datasource","jaql":[...],"snowflake_sql","tol":0.01}]
 """
 import json, os, ssl, subprocess, sys, urllib.error, urllib.request
 
+def _ssl_context():
+    """TLS trust resolution. On-prem Sisense deployments commonly sit on
+    self-signed certs. Prefer the OS trust store (truststore), then certifi,
+    then the stock verified context. NEVER silently downgrades: an unverified
+    context is used ONLY when SISENSE_INSECURE_TLS=1 is explicitly set, and it
+    logs loudly."""
+    if os.environ.get("SISENSE_INSECURE_TLS") == "1":
+        print("WARNING: SISENSE_INSECURE_TLS=1 — TLS verification DISABLED for "
+              "sisense (insecure)", file=sys.stderr)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    try:
+        import truststore  # OS trust store; matches curl/browser reachability
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    return ssl.create_default_context()
+
 def sisense_jaql(datasource, metadata):
     ds = datasource.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
     url = f'{os.environ["SISENSE_BASE_URL"].rstrip("/")}/api/datasources/{ds}/jaql'
@@ -29,14 +54,7 @@ def sisense_jaql(datasource, metadata):
         "Authorization": f'Bearer {os.environ["SISENSE_API_TOKEN"]}',
         "Content-Type": "application/json",
     })
-    # NOTE: the original `curl -sk` skipped TLS verification (-k), which is
-    # commonly needed against on-prem Sisense deployments on self-signed certs.
-    # Preserved here (not tightened) so existing setups don't silently break;
-    # if this ever needs to be strict, gate it behind an env var instead of
-    # flipping the default.
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx = _ssl_context()
     try:
         with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
             out = resp.read().decode("utf-8")

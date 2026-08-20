@@ -3,8 +3,8 @@
 #
 # check-cognos-bundle.rb — freshness gate for the cognos vendored converter bundle.
 #
-# Unlike the other converters (which vendor from sigma-data-model-mcp), cognos vendors
-# its OWN TypeScript converter IN the skill: converter/cli.ts (+ cognos.ts /
+# Unlike the other converters (which vendor from an external converter source), cognos
+# vendors its OWN TypeScript converter IN the skill: converter/cli.ts (+ cognos.ts /
 # cognos-report.ts / sigma-ids.ts / metric-binding.ts) is bundled by esbuild into the
 # committed, self-contained converter/cli.mjs — and PRODUCTION runs that bundle (plain
 # `node`, no tsx). So a converter/*.ts edit that ships WITHOUT re-bundling cli.mjs
@@ -33,7 +33,7 @@ CONV = File.join(ROOT, 'plugins/cognos-to-sigma/skills/cognos-to-sigma/converter
 PROV = File.join(CONV, 'PROVENANCE.json')
 BUNDLE = File.join(CONV, 'cli.mjs')
 
-REVENDOR = 'tools/vendor-converters.sh <sigma-data-model-mcp> cognos'
+REVENDOR = 'tools/vendor-converters.sh <converter-source checkout> cognos'
 
 def bundled_sources
   Dir[File.join(CONV, '*.ts')]

@@ -16,7 +16,8 @@ try:
     truststore.inject_into_ssl()
     _CTX = None
 except ImportError:
-    _CTX = ssl._create_unverified_context()
+    # No truststore: fall back to a VERIFIED context, never unverified.
+    _CTX = ssl.create_default_context()
 
 # Optional hosted-converter MCP endpoint. No default — the hosted path is only
 # available when the user opts in by setting SIGMA_CONVERTER_MCP_URL to a

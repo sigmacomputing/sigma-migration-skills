@@ -13,7 +13,13 @@ set -euo pipefail
 : "${TS_USERNAME:?set TS_USERNAME (the service/user to mint a token for)}"
 : "${TS_SECRET_KEY:?set TS_SECRET_KEY (Trusted-Auth secret from Security Settings)}"
 
-RESP=$(curl -sf -k -X POST "${TS_HOST%/}/api/rest/2.0/auth/token/full" \
+CURL_TLS_OPT=()
+if [ "${THOUGHTSPOT_INSECURE_TLS:-}" = "1" ]; then
+  echo "WARNING: THOUGHTSPOT_INSECURE_TLS=1 — TLS verification DISABLED for thoughtspot (insecure)" >&2
+  CURL_TLS_OPT=(-k)
+fi
+
+RESP=$(curl -sf "${CURL_TLS_OPT[@]}" -X POST "${TS_HOST%/}/api/rest/2.0/auth/token/full" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"${TS_USERNAME}\",\"secret_key\":\"${TS_SECRET_KEY}\",\"validity_time_in_sec\":86400}") || {
     echo "token request failed — check TS_HOST / TS_USERNAME / TS_SECRET_KEY and that Trusted Auth is enabled" >&2
@@ -23,4 +29,4 @@ TOKEN=$(echo "$RESP" | python3 -c "import sys,json;print(json.load(sys.stdin)['t
 if [ -z "${TOKEN:-}" ] || [ "$TOKEN" = "null" ]; then
   echo "no token in response: ${RESP:0:200}" >&2; exit 1
 fi
-echo "export TS_TOKEN=${TOKEN}"
+printf 'export TS_TOKEN=%q\n' "$TOKEN"

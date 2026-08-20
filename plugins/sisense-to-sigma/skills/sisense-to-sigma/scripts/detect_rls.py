@@ -28,10 +28,36 @@ Usage:
 """
 import argparse, json, os, ssl, sys, urllib.parse, urllib.request, urllib.error
 
+def _ssl_context():
+    """TLS trust resolution. Some Sisense trial/on-prem endpoints present a CA
+    chain Python rejects (trial CA lacks the key-usage extension) that
+    curl/browsers accept. Prefer the OS trust store (truststore), then certifi,
+    then the stock verified context. NEVER silently downgrades: an unverified
+    context is used ONLY when SISENSE_INSECURE_TLS=1 is explicitly set, and it
+    logs loudly."""
+    if os.environ.get("SISENSE_INSECURE_TLS") == "1":
+        print("WARNING: SISENSE_INSECURE_TLS=1 — TLS verification DISABLED for "
+              "sisense (insecure)", file=sys.stderr)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    try:
+        import truststore  # OS trust store; matches curl/browser reachability
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    return ssl.create_default_context()
+
 def _get(url):
     req = urllib.request.Request(url)
     req.add_header("Authorization", "Bearer " + os.environ["SISENSE_API_TOKEN"])
-    ctx = ssl._create_unverified_context()           # trial CA lacks key-usage ext
+    ctx = _ssl_context()
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
             return json.loads(r.read() or "null")

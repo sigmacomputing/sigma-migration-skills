@@ -20,6 +20,7 @@ TABLEAU_SITE_CONTENT_URL) in the env or ~/.sigma-migration/env (setup-tableau.rb
 """
 import argparse
 import os
+import shlex
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -46,10 +47,10 @@ def main():
         print(token)
         return
     # default + --print-export: bash-eval-compatible exports (matches get-tableau-token.sh)
-    print(f"export TABLEAU_AUTH_TOKEN='{token}'")
-    print(f"export TABLEAU_SITE_ID='{site}'")
-    print(f"export TABLEAU_SERVER_URL='{server}'")
-    print(f"export TABLEAU_API_VERSION='{ver}'")
+    print(f"export TABLEAU_AUTH_TOKEN={shlex.quote(token)}")
+    print(f"export TABLEAU_SITE_ID={shlex.quote(site)}")
+    print(f"export TABLEAU_SERVER_URL={shlex.quote(server)}")
+    print(f"export TABLEAU_API_VERSION={shlex.quote(ver)}")
 
 
 if __name__ == "__main__":

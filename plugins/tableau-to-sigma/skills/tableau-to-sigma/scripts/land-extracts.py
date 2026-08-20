@@ -426,6 +426,11 @@ def sigma_token(base):
         sys.exit("FATAL: --sigma-connection-id needs SIGMA_API_TOKEN, or "
                  "SIGMA_CLIENT_ID + SIGMA_CLIENT_SECRET (env or ~/.sigma-migration/env).\n"
                  "  Mint one:  eval \"$(scripts/get-token.sh)\"")
+    # Security (A2): only send Sigma client creds to an https:// sigmacomputing.com host.
+    if os.environ.get("SIGMA_ALLOW_INSECURE_BASE_URL") != "1":
+        _p = urllib.parse.urlparse(base or ""); _h = (_p.hostname or "").lower()
+        if _p.scheme != "https" or not (_h == "sigmacomputing.com" or _h.endswith(".sigmacomputing.com")):
+            sys.exit(f"FATAL: refusing to send Sigma credentials to '{base}' — require https:// on a sigmacomputing.com host (set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override).")
     try:
         status, body = _http_json(
             "POST", f"{base}/v2/auth/token",

@@ -32,11 +32,20 @@ def _load_neutral_env():
 def _base():
     return os.environ.get("SIGMA_BASE_URL", "https://aws-api.sigmacomputing.com").rstrip("/")
 
+def _validate_base_url(base):
+    # Security (A2): only send Sigma client creds to an https:// sigmacomputing.com host.
+    if os.environ.get("SIGMA_ALLOW_INSECURE_BASE_URL") == "1":
+        print(f"WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation ({base})", file=sys.stderr); return
+    p = urllib.parse.urlparse(base or ""); host = (p.hostname or "").lower()
+    if p.scheme != "https" or not (host == "sigmacomputing.com" or host.endswith(".sigmacomputing.com")):
+        sys.exit(f"FATAL: refusing to send Sigma credentials to '{base}' — require https:// on a sigmacomputing.com host (set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override).")
+
 def _token():
     tok = os.environ.get("SIGMA_API_TOKEN")
     if tok:
         return tok
     _load_neutral_env()
+    _validate_base_url(_base())
     data = urllib.parse.urlencode({
         "grant_type": "client_credentials",
         "client_id": os.environ["SIGMA_CLIENT_ID"],

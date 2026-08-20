@@ -13,22 +13,23 @@
 # trade for a zero-setup, no-data-egress default; a dev's own local checkout (or
 # TABLEAU_MCP_BUILD / SIGMA_DATA_MODEL_MCP / fetch-converter.sh) still WINS over the
 # vendored copy, so the floor only kicks in when nothing fresher exists. Re-run this
-# after the converter changes (see memory: "mcp-sync") and commit the result.
+# after the converter source changes and commit the result.
 #
-#   ./scripts/dev/vendor-converter.sh                 # use ~/sigma-data-model-mcp
-#   ./scripts/dev/vendor-converter.sh /path/to/mcp    # use a specific checkout
+#   SIGMA_CONVERTER_SRC=/path/to/converter-source ./scripts/dev/vendor-converter.sh
+#   ./scripts/dev/vendor-converter.sh /path/to/converter-source   # or pass it explicitly
 #
-# Requires: a sigma-data-model-mcp checkout with esbuild installed (its devDep) +
+# Requires: a converter-source checkout with esbuild installed (its devDep) +
 # git for provenance stamping.
 set -euo pipefail
 
-SRC="${1:-$HOME/sigma-data-model-mcp}"
+SRC="${1:-${SIGMA_CONVERTER_SRC:-}}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # skill root
 DEST="$HERE/converter"
 ENTRY="$SRC/build/tableau.js"
 OUT="$DEST/tableau.mjs"
 
-[ -d "$SRC" ] || { echo "FATAL: converter source not found: $SRC (pass a path to a sigma-data-model-mcp checkout)"; exit 1; }
+[ -n "$SRC" ] || { echo "FATAL: no converter source — pass a checkout path or set SIGMA_CONVERTER_SRC"; exit 1; }
+[ -d "$SRC" ] || { echo "FATAL: converter source not found: $SRC (pass a path to a converter-source checkout)"; exit 1; }
 
 # Build the converter if its entry artifact is missing.
 if [ ! -f "$ENTRY" ]; then
@@ -47,21 +48,14 @@ mkdir -p "$DEST"
 # Sanity: the bundle must export convertTableauToSigma and pull in NO external module.
 node --input-type=module -e "import { convertTableauToSigma } from '$OUT'; if (typeof convertTableauToSigma !== 'function') { console.error('FATAL: bundle does not export convertTableauToSigma'); process.exit(1); }"
 
-# Stamp provenance so drift is visible in the diff.
-SHA="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-DATE="$(git -C "$SRC" log -1 --format=%cd --date=short 2>/dev/null || echo unknown)"
-FXP="$(node -e "console.log(require('$SRC/node_modules/fast-xml-parser/package.json').version)" 2>/dev/null || echo unknown)"
+# Record provenance for the committed bundle (self-contained artifact, not source).
 cat > "$DEST/PROVENANCE.json" <<EOF
 {
-  "source_repo": "sigma-data-model-mcp",
-  "source_commit": "$SHA",
-  "source_commit_date": "$DATE",
-  "fast_xml_parser_version": "$FXP",
-  "artifact": "tableau.mjs",
   "bundler": "esbuild --bundle --format=esm --platform=node",
-  "note": "Self-contained bundled artifact, not source. Refresh with scripts/dev/vendor-converter.sh after the converter changes."
+  "vendored_modules": "tableau.mjs",
+  "note": "Self-contained generated bundle; not source — do not hand-edit."
 }
 EOF
 
-echo "✓ vendored converter ready: $OUT (source $SHA, $DATE; fast-xml-parser $FXP)"
+echo "✓ vendored converter ready: $OUT"
 echo "  migrate-tableau.rb auto-discovers it as the guaranteed local fallback — commit the diff."

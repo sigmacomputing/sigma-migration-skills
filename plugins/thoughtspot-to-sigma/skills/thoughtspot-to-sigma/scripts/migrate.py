@@ -37,7 +37,7 @@ Env:
 import argparse, json, os, re, ssl, subprocess, sys, time, urllib.request, urllib.error
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import yaml, ts_common, apply_layouts, scout_gate
+import yaml, ts_common, ts_lib, apply_layouts, scout_gate
 import metric_binding as _mb    # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
 
@@ -48,7 +48,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _VENDORED_CONV = os.path.join(HERE, "..", "converter", "thoughtspot.mjs")
 if not os.environ.get("CONVERTER_PATH") and os.path.exists(_VENDORED_CONV):
     os.environ["CONVERTER_PATH"] = _VENDORED_CONV
-_SSL = ssl._create_unverified_context()
+_SSL = ts_lib.ssl_context()
 MCP_TOOL = "mcp__sigma-data-model__convert_thoughtspot_to_sigma"
 
 # Unattended mode (set from --yes in main). Regression fix (gap-scout PR #153):

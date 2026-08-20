@@ -7,13 +7,39 @@ in the browser tab where you're logged in, or via Develop > REST Playground.
 For a service identity, enable Trusted Auth (Develop > Customizations >
 Security Settings) and POST username+secret_key to auth/token/full.
 """
-import json, os, ssl, urllib.request, urllib.error
+import json, os, ssl, sys, urllib.request, urllib.error
 
 HOST = os.environ.get("TS_HOST", "").rstrip("/")
 TOKEN = os.environ.get("TS_TOKEN", "")
-# Trials often sit behind corp TLS interception whose CA Python won't verify
-# (curl uses the system store and works). Use an unverified context.
-_SSL = ssl._create_unverified_context()
+
+
+def ssl_context():
+    """TLS trust resolution. Trials often sit behind corp TLS interception whose
+    CA Python won't verify even though curl/browsers accept it. Prefer the OS
+    trust store (truststore), then certifi, then the stock verified context.
+    NEVER silently downgrades: an unverified context is used ONLY when
+    THOUGHTSPOT_INSECURE_TLS=1 is explicitly set, and it logs loudly."""
+    if os.environ.get("THOUGHTSPOT_INSECURE_TLS") == "1":
+        print("WARNING: THOUGHTSPOT_INSECURE_TLS=1 — TLS verification DISABLED "
+              "for thoughtspot (insecure)", file=sys.stderr)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    try:
+        import truststore  # OS trust store; matches curl/browser reachability
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    return ssl.create_default_context()
+
+
+_SSL = ssl_context()
 
 
 def _req(path, body=None, method="POST"):
