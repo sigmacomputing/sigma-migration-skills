@@ -1,5 +1,14 @@
 version: 2
-# Automated dependency-advisory monitoring.
+# Dependency policy (SEC-41733).
+# This repo is a SCRUBBED mirror of a private dev repo; dependencies are bumped
+# in dev and flow here via the resync, NOT via direct lockfile PRs (which cannot
+# pass the plugin-version-bump gate anyway).
+#   - VERSION updates (this config): DISABLED via open-pull-requests-limit: 0.
+#   - Dependabot ALERTS + SECURITY updates: left ON in repo settings (not here).
+#     A real CVE PR will still open + hit the version-bump gate (no auto-merge) —
+#     that's intended visibility; it's then resolved via the same dev→resync path.
+# The ecosystem entries are kept (not deleted) so Dependabot still knows the
+# manifest locations for security updates + alerts.
 # NOTE: Dependabot only sees DECLARED manifests (package-lock.json, requirements.txt).
 # It CANNOT see third-party libraries inlined into the pre-built converter *.mjs
 # bundles (e.g. fast-xml-parser, js-yaml) — those are refreshed out-of-band via
@@ -10,7 +19,7 @@ updates:
     directory: /plugins/cognos-to-sigma/skills/cognos-to-sigma/converter
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # version updates off (SEC-41733); security updates unaffected
     groups:
       cognos-converter:
         patterns: ["*"]
@@ -20,7 +29,7 @@ updates:
     directory: /plugins/powerbi-to-sigma/skills/powerbi-assessment/scripts
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # version updates off (SEC-41733); security updates unaffected
     groups:
       powerbi-assessment:
         patterns: ["*"]
@@ -30,7 +39,7 @@ updates:
     directory: /plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # version updates off (SEC-41733); security updates unaffected
     groups:
       powerbi:
         patterns: ["*"]
