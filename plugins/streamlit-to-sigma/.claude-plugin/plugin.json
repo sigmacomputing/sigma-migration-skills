@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "streamlit-to-sigma",
+  "displayName": "Streamlit → Sigma",
+  "version": "0.1.23",
+  "description": "Migrate Streamlit projects to Sigma with static analysis, architecture dispositions, complexity readouts, controls/charts/layout conversion, parity gates, and read-only assessment.",
+  "author": {
+    "name": "Sigma Computing"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "streamlit",
+    "sigma",
+    "migration",
+    "bi",
+    "converter"
+  ],
+  "skills": "./skills/"
+}

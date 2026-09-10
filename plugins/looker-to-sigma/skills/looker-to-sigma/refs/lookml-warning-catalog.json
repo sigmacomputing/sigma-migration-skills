@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "warnings": [
+    {"id":"LOOKML_CONNECTION_UNSET","pattern":"Connection ID not set","readiness":"caveat"},
+    {"id":"LOOKML_INCLUDE_NOTICE","pattern":"contains include: directive","readiness":"clean"},
+    {"id":"LOOKML_FORMAT_UNMAPPED","pattern":"value_format","readiness":"caveat"},
+    {"id":"LOOKML_FIELD_OMITTED","pattern":"skipped — contains","readiness":"blocked"},
+    {"id":"LOOKML_FIELD_TRANSLATION","pattern":"could not auto-convert","readiness":"blocked"},
+    {"id":"LOOKML_MEASURE_TRANSLATION","pattern":"measure could not be translated|measure type .* could not be translated|measure sql .* could not be resolved","readiness":"blocked"},
+    {"id":"LOOKML_UNRESOLVED_VIEW","pattern":"UNRESOLVED VIEW|could not be fully resolved","readiness":"blocked"},
+    {"id":"LOOKML_DERIVED_CYCLE","pattern":"circular \\$\\{.*SQL_TABLE_NAME","readiness":"blocked"},
+    {"id":"LOOKML_DERIVED_PLACEHOLDER","pattern":"placeholder table","readiness":"blocked"},
+    {"id":"LOOKML_DERIVED_INLINE","pattern":"inlined .* referenced derived view","readiness":"caveat"},
+    {"id":"LOOKML_NDT_MANUAL","pattern":"Native Derived Table.*Rebuild|\\(NDT on explore","readiness":"blocked"},
+    {"id":"LOOKML_NDT_CUSTOM_SQL","pattern":"Native Derived Table.*translated to a Custom SQL","readiness":"caveat"},
+    {"id":"LOOKML_JOIN_KEY_PARSE","pattern":"complex sql_on could not be parsed","readiness":"blocked"},
+    {"id":"LOOKML_JOIN_KEY_RESOLVE","pattern":"could not resolve column IDs for keys","readiness":"blocked"},
+    {"id":"LOOKML_STANDALONE_VIEWS","pattern":"No explore/model file provided","readiness":"caveat"},
+    {"id":"LOOKML_CALCULATED_COLUMN","pattern":"calculated column:","readiness":"clean"},
+    {"id":"LOOKML_COMPUTED_MEASURE","pattern":"\\(computed\\) →","readiness":"clean"},
+    {"id":"LOOKML_UNCLASSIFIED_CONVERTER_WARNING","pattern":"(?!)","readiness":"caveat"},
+    {"id":"LOOKML_EXTENDS_CYCLE","pattern":"(?!)","readiness":"blocked"},
+    {"id":"LOOKML_EXTENDS_PARENT_MISSING","pattern":"(?!)","readiness":"blocked"},
+    {"id":"LOOKML_EXTENDS_UNMERGED_FIELDS","pattern":"(?!)","readiness":"blocked"},
+    {"id":"LOOKML_MEASURE_REFERENCE_UNRESOLVED","pattern":"(?!)","readiness":"blocked"},
+    {"id":"LOOKML_MEASURE_MULTI_HOP","pattern":"(?!)","readiness":"caveat"},
+    {"id":"LOOKML_MEASURE_DEPENDENCY_CYCLE","pattern":"(?!)","readiness":"blocked"},
+    {"id":"LOOKML_EMITTED_MATCH_OMITTED","pattern":"(?!)","readiness":"blocked"}
+  ]
+}

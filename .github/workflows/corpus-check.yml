@@ -5,10 +5,18 @@
 # fallback), and the syntax job only parses files. No secrets are used or
 # needed anywhere in this workflow — keep it that way.
 #
-# Runner deps (verified): ubuntu-24.04 ships python3 (3.12), ruby (3.x) and
-# bash preinstalled — no setup-* actions required. Pinned to ubuntu-24.04
-# (not -latest) so a runner-image rollover can't silently change the
-# interpreters. Whole workflow budget: < 2 minutes (locally ~1 s + ~5 s).
+# Runner deps (verified): ubuntu-24.04 ships python3 (3.12), ruby and bash
+# preinstalled. Pinned to ubuntu-24.04 (not -latest) so a runner-image
+# rollover can't silently change the interpreters — but note that pinning the
+# IMAGE does not pin the image's Ruby: ubuntu-24.04 image 20260816.277.1
+# shipped a Ruby whose bundled json gem is >= 2.8, which pretty-prints empty
+# containers as `[]` instead of the historical `[\n\n]`. Every byte-compared
+# corpus golden was generated with the older form, so the `corpus` job pins
+# Ruby explicitly via setup-ruby. The pin is deliberately NOT applied to the
+# test-*.rb jobs: those run fine on whatever Ruby the image ships, and
+# setup-ruby's Ruby lacks gems the distro build bundles (webrick, which
+# test-put-layout-prune.rb requires). Whole workflow budget: < 2 minutes
+# (locally ~1 s + ~5 s).
 name: corpus-check
 
 on:
@@ -21,14 +29,147 @@ jobs:
     name: corpus --check (creds-free goldens)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      # Same pin, same reason as ruby-full-suite and the BSD-smoke job below:
+      # UTF-8-heavy fixtures crash under a US-ASCII default external encoding
+      # (F5 crash class). This job was the one that did NOT pin it, which is how
+      # tableau/preagg-kpi could pass in CI and fail on an unset-LANG laptop
+      # (issue #752). run-corpus.sh self-pins as well, which covers a developer
+      # running it directly; this job-level pin covers the OTHER steps here and
+      # means the runner's default locale is never something we rely on.
+      # (Running a single case's `bash checks.sh` by hand still needs a UTF-8
+      # locale in your own shell -- its inline `ruby -e` assertions cannot
+      # self-pin. corpus/README.md says so.)
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     steps:
       - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        # Pin Ruby (same version the windows-smoke job already pins) so the
+        # bundled json gem keeps the empty-container pretty-print form the
+        # goldens were generated with. Without this, a runner-image Ruby bump
+        # fails every `cmp` golden as an opaque byte offset.
+        with:
+          ruby-version: '3.3'
+      - name: Install offline image-analysis dependencies
+        run: python3 -m pip install --quiet pillow numpy
       - name: Validate every corpus case against its golden
         run: ./corpus/run-corpus.sh --check
       - name: Converter-default regression (issue #227 — vendored default, no silent dev-checkout)
         # Creds-free, network-free: proves each orchestrator defaults to the pinned
         # vendored bundle and only uses a local build via an explicit env/flag.
         run: ./corpus/converter-default-test.sh
+
+  metabase-typescript:
+    name: Metabase converter fixtures (TypeScript)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: plugins/metabase-to-sigma/skills/metabase-to-sigma/converter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: plugins/metabase-to-sigma/skills/metabase-to-sigma/converter/package-lock.json
+      - name: Install locked converter tooling
+        run: npm ci
+      - name: Run Metabase fixture and contract suite
+        run: npm test
+      - name: Reject vulnerable converter dependencies
+        run: npm audit --audit-level=low
+
+  ruby-free-runtime:
+    name: Tableau Python runtime (Ruby absent)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    container:
+      image: node:22-bookworm
+    env:
+      SIGMA_CLIENT_ID: ci-offline-placeholder
+      SIGMA_CLIENT_SECRET: ci-offline-placeholder
+      SIGMA_BASE_URL: https://aws-api.[REDACTED].com
+      SIGMA_SKIP_CRED_SMOKE: "1"
+      SIGMA_SKIP_VERSION_CHECK: "1"
+    steps:
+      - name: Install Python-only runtime prerequisites
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends python3 git curl ca-certificates
+          if command -v ruby >/dev/null 2>&1; then
+            echo "::error::Ruby must be absent from the ruby-free-runtime job"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - name: Verify profile, doctor, discovery, and converter paths without Ruby
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 shared/scripts/test_runtime_profile.py
+          bash plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-doctor-json.sh
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_doctor_ran.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_rest.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_discover.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_convert_tableau.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_repair_date_role.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_post_and_readback.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_template.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_parity.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_complete.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_migrate_tableau.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_migration_report.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_discover_columns.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_parse_twb_layout.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_scan_workbook_gaps.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_anchors.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_from_signals.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_phase6_ran.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_source_object_census.py
+          python3 tools/check-shared.py
+
+  tableau-python-cold:
+    name: Tableau Python cold / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run Python-only smoke with Ruby quarantined
+        # The runner images may contain Ruby. The Python harness builds a
+        # minimal PATH, explicitly asserts `ruby` cannot resolve, then drives
+        # the production Python entry points with no credentials or network.
+        # Keep this as one portable command: Windows uses PowerShell by default.
+        run: python tools/test-tableau-python-runtime.py
+
+  tableau-runtime-parity:
+    name: Tableau Ruby/Python normalized fixture parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compare normalized Ruby and Python artifacts
+        run: >-
+          python
+          plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/tableau-runtime-parity.py
 
   windows-smoke:
     name: windows PowerShell path (doctor.ps1 + offline corpus)
@@ -62,6 +203,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install offline image-analysis dependencies
+        run: python -m pip install --quiet pillow numpy
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -216,6 +359,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Validate sigma-workbooks formula and control contracts
+        run: bash plugins/sigma-authoring/skills/sigma-workbooks/scripts/test-validate-spec-contract.sh
       - name: Run offline test-*.rb suites
         # EXPLICIT allow-list — only tests that need NO Tableau/Sigma creds or
         # network. Do NOT add test-calc-discovery.rb (needs a Tableau token);
@@ -285,6 +430,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-warehouse.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-parity-plan.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-phase6-parity-pbi.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-element-match.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-native-query.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-composite-gate.rb
@@ -298,6 +444,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-trellis-emit.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-trellis.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-control-lint.rb
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/test-control-lint-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-conflicting-page-defaults.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-metric-reference.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild.rb
@@ -323,10 +470,12 @@ jobs:
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-trellis.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-metric-reference.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-deterministic-ids-kpi-format.rb
+            shared/lib/test-destination-resolver.rb
             shared/lib/test_metric_binding.rb
             shared/lib/test_phase_metrics.rb
             shared/scripts/test-intake-triage.rb
             shared/scripts/test-assert-phase6.rb
+            shared/scripts/test-cleanup-orphan-workbooks.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-triage.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-cleanup.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-wrap.rb
@@ -384,7 +533,46 @@ jobs:
         # runner (US-ASCII) it raises Encoding::CompatibilityError on any non-ASCII
         # .twb/XML — which has silently crashed migrations 3+ times. Any read of a
         # .twb / xml / layout file MUST pass `encoding: 'UTF-8'`.
+        # RULE 2 (#752) additionally catches a RAW read whose result is later
+        # regexp-matched, whatever the extension — that is how the
+        # assert-phase6-ran.rb dm-spec.json crash slipped past the .twb-token rule.
         run: ruby tools/lint-twb-encoding.rb   # single source of truth (plugins/ + shared/); also run by .githooks/run-governance-checks.sh
+      - name: Self-test — the F5 gate must FAIL on the #752 shape
+        # A gate nobody has watched fail is not a gate. Plants the exact defect
+        # (raw dm-spec.json read + .scan) in a throwaway tree and asserts exit 1,
+        # plus the safe shapes that must stay quiet.
+        run: ruby tools/test-lint-twb-encoding.rb
+      - name: Lint — .rb/.py twin API parity (#753)
+        # The .rb/.py pairing in shared/lib reads as "these are equivalent", but
+        # nothing checked it: check-shared.rb enforces byte-identical VENDORING of
+        # one file into each plugin, not that a .py twin exports what its .rb does.
+        # A ported caller just hits AttributeError at runtime.
+        run: ruby tools/lint-twin-parity.rb
+      - name: Self-test — the twin-parity gate must FAIL on a deleted function
+        # And must stay QUIET on the seven shapes a naive `grep '^def '` diff gets
+        # wrong (Python's `_` privacy marker, ruby `private` regions, `def self.`,
+        # `?`/`!` suffixes, initialize/__init__, declared renames). Five of the nine
+        # rows in the original report were one of those.
+        run: ruby tools/test-lint-twin-parity.rb
+      - name: Lint — layout emitters must not produce legacy tags
+        # The 2026-08-07 contract renamed <LayoutElement>/<GridContainer> to
+        # <Element>/<Container>. domo's scripts/lib/layout.rb — a vendored copy
+        # of tableau's, marked "do not diverge" — sat on the old tags for ~2.5
+        # weeks unnoticed, because CodeRep.document()/.wrap() canonicalize on
+        # the way to the wire. That net only covers adapter paths: a script
+        # writing document.layout directly, or a human hand-building a request
+        # from an intermediate artifact, still gets a 400. Pin the emitters.
+        run: ruby tools/lint-layout-tags.rb
+      - name: Lint — ruby 2.6 floor (polyfill present, in scope, in order)
+        # `ruby -c` CANNOT see this: a missing METHOD is a runtime NoMethodError,
+        # and this job runs 3.3 where filter_map/tally exist. ~60 call sites had
+        # already broken the documented 2.6 floor; under system 2.6, 13 of 277
+        # tableau suites failed and 6 of those emitted silently EMPTY output.
+        run: ruby tools/lint-ruby-floor.rb
+      - name: Self-test — the ruby-floor gate must FAIL on each real mistake
+        # missing require / require nested in a block / require after first use /
+        # ruby-3.0 endless def. All four were made while landing the polyfill.
+        run: ruby tools/test-lint-ruby-floor.rb
       - name: Run offline test_*.py suites
         # EXPLICIT allow-list — creds-free, network-free Python tests only.
         # PyYAML is needed by the looker offline dashboard parser
@@ -392,7 +580,7 @@ jobs:
         # New offline test_*.py → add its path here.
         run: |
           set -uo pipefail
-          python3 -m pip install --quiet pyyaml
+          python3 -m pip install --quiet pyyaml pillow numpy
           tests=(
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_grid_fidelity.py
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_looker_client.py
@@ -402,12 +590,23 @@ jobs:
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_look_migration.py
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_grounding.py
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_metric_reference.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_filter_normalization.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_dynamic_parameters.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_modeling_hazards.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_safe_workbook_io.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_course_performance_fixture.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_build_looker_accounting.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_post_workbook_coderep.py
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_grounding.py
+            plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_completion_contract.py
             shared/lib/test_metric_binding.py
+            shared/scripts/test_pick_destination.py
             # powerbi-to-sigma uses HYPHENATED test-*.py names, which is why these were
             # never picked up by the test_*.py convention above. Listed explicitly.
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-viz-signals.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-filters.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-kind-parity.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-fabric-resolve.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-model-pbix.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-report-classic.py
             shared/lib/test_plugin_embed.py
@@ -419,6 +618,24 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_sigma_rest.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_rest.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_pick_destination.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_doctor_ran.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_convert_tableau.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_discover.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_repair_date_role.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_post_and_readback.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_template.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_parity.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_complete.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_migrate_tableau.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_migration_report.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_discover_columns.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_parse_twb_layout.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_scan_workbook_gaps.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_anchors.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_from_signals.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_phase6_ran.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_source_object_census.py
+            shared/scripts/test_runtime_profile.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_scout_ledger_integrity.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_warehouse_column_refs.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/scripts/test_scout_ledger_integrity.py
@@ -429,12 +646,25 @@ jobs:
             plugins/gooddata-to-sigma/skills/gooddata-to-sigma/tests/test_metric_reference.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_metric_reference.py
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/tests/test_metric_reference.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_jaql.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_convert.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_layout.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_gaps_rls.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_workbook_release.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_grounding.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_metric_reference.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_scan_gaps.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_uplift_orchestrator.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/test_verify_guards.py
             # hex-to-sigma (own converter/ package, no shared catalog/metric_binding usage)
             plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_hex_yaml.py
             plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_sigma_ids.py
             plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_convert_dm.py
             plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_convert_workbook.py
+            plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_analyzer.py
+            plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_workbook.py
+            plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_advanced_patterns.py
+            plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_safety_gates.py
           )
           fail=0
           for t in "${tests[@]}"; do
@@ -450,6 +680,7 @@ jobs:
         run: |
           set -uo pipefail
           tests=(
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-pick-destination.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-scout-ledger-integrity.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-metric-reference.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-warehouse-column-refs.mjs
@@ -514,6 +745,7 @@ jobs:
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-verify-complete.rb
             plugins/gooddata-to-sigma/skills/gooddata-to-sigma/scripts/test-verify-guards.rb
             plugins/qlik-to-sigma/skills/qlik-to-sigma/scripts/test-verify-complete.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-destination-resolver.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-verify-complete.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/tests/test-grounding.rb
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/scripts/test-verify-complete.rb

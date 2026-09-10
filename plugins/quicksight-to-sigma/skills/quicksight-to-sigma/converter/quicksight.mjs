@@ -1,4 +1,4 @@
-// ../../../Users/converter-source/build/sigma-ids.js
+// ../../..~/converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var SIGMA_LOWERCASE_WORDS = /* @__PURE__ */ new Set([
@@ -116,7 +116,7 @@ function makeClsSecurity(opts) {
   };
 }
 
-// ../../../Users/converter-source/build/quicksight.js
+// ../../..~/converter-source/build/quicksight.js
 function rewriteSqlRefs(formula, colMap) {
   const byDisplay = /* @__PURE__ */ new Map();
   for (const e of colMap.values())

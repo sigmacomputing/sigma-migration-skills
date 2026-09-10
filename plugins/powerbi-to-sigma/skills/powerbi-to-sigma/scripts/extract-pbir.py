@@ -109,7 +109,7 @@ def _fetch_pbir(ws, report, out_dir):
           file=sys.stderr)
 
 
-def _role_bindings(query_state):
+def _role_bindings(query_state, visual_type=None):
     """{Role: [queryRef, ...]} from visual.query.queryState.
 
     bead hjke(c): a date-hierarchy role carries one projection PER LEVEL
@@ -127,6 +127,14 @@ def _role_bindings(query_state):
             projs = active
         refs = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
         out[role] = [r for r in refs if r]
+    # Azure Maps uses cartesian-looking role names for geographic coordinates.
+    # Canonicalize the roles, never the bound column names; scatter X/Y must stay
+    # untouched. Remove the raw keys so Y cannot later be mistaken for bubble size.
+    if visual_type == "azureMap":
+        for source, target in (("X", "Longitude"), ("Y", "Latitude")):
+            raw = out.pop(source, [])
+            if raw:
+                out[target] = list(dict.fromkeys((out.get(target) or []) + raw))
     return out
 
 
@@ -751,7 +759,7 @@ def extract(pbir_dir):
                 "w": pos.get("width", 0), "h": pos.get("height", 0),
                 "z": pos.get("z", 0),
                 "parent_group": v.get("parentGroupName"),
-                "bindings": _role_bindings(qs),
+                "bindings": _role_bindings(qs, vtype),
                 # Full ordered hierarchy for native Sigma controlType:drill.
                 # bindings above intentionally keeps only the active level.
                 "drill": _drill_signal(qs),

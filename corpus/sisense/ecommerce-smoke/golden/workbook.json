@@ -1,0 +1,758 @@
+{
+  "name": "ECommerce Overview (from Sisense)",
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Data",
+        "visibility": "hidden"
+      },
+      {
+        "id": "id0002",
+        "name": "Overview"
+      }
+    ],
+    "elements": [
+      {
+        "id": "id0003",
+        "kind": "table",
+        "source": {
+          "dataModelId": "id0004",
+          "elementId": "id0005",
+          "kind": "data-model"
+        },
+        "columns": [
+          {
+            "id": "id0006",
+            "formula": "[Commerce/Gender]",
+            "name": "Gender"
+          },
+          {
+            "id": "id0007",
+            "formula": "[Commerce/COUNTRY/Country]",
+            "name": "Country"
+          },
+          {
+            "id": "id0008",
+            "formula": "[Commerce/Revenue]",
+            "name": "Revenue"
+          },
+          {
+            "id": "id0009",
+            "formula": "[Commerce/Quantity]",
+            "name": "Quantity"
+          },
+          {
+            "id": "id0010",
+            "formula": "[Commerce/CATEGORY/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0011",
+            "formula": "[Commerce/Date]",
+            "name": "Date"
+          },
+          {
+            "id": "id0012",
+            "formula": "[Commerce/Visit ID]",
+            "name": "Visit ID"
+          },
+          {
+            "id": "id0013",
+            "formula": "[Commerce/BRAND/Brand]",
+            "name": "Brand"
+          },
+          {
+            "id": "id0014",
+            "formula": "[Commerce/Condition]",
+            "name": "Condition"
+          }
+        ],
+        "name": "Master",
+        "order": [
+          "id0006",
+          "id0007",
+          "id0008",
+          "id0009",
+          "id0010",
+          "id0011",
+          "id0012",
+          "id0013",
+          "id0014"
+        ],
+        "visibleAsSource": true
+      },
+      {
+        "kind": "control",
+        "id": "id0015",
+        "controlId": "Gender",
+        "name": "Gender",
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0003"
+            },
+            "columnId": "id0006"
+          }
+        ],
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [
+          "Male",
+          "Female"
+        ],
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0003"
+          },
+          "columnId": "id0006"
+        }
+      },
+      {
+        "kind": "control",
+        "id": "id0016",
+        "controlId": "Country",
+        "name": "Country",
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0003"
+            },
+            "columnId": "id0007"
+          }
+        ],
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [
+          "United States",
+          "Canada"
+        ],
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0003"
+          },
+          "columnId": "id0007"
+        }
+      },
+      {
+        "id": "id0017",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0018",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Total Revenue"
+          }
+        ],
+        "name": "Total Revenue",
+        "value": {
+          "columnId": "id0018"
+        }
+      },
+      {
+        "id": "id0019",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0020",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Total Quantity"
+          }
+        ],
+        "name": "Total Quantity",
+        "value": {
+          "columnId": "id0020"
+        }
+      },
+      {
+        "id": "id0021",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0022",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0023",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Category",
+        "xAxis": {
+          "columnId": "id0022"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0023"
+          ]
+        }
+      },
+      {
+        "id": "id0024",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0025",
+            "formula": "[Master/Country]",
+            "name": "Country"
+          },
+          {
+            "id": "id0026",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Country (Top 10)",
+        "xAxis": {
+          "columnId": "id0025"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0026"
+          ]
+        },
+        "filters": [
+          {
+            "id": "id0027",
+            "columnId": "id0026",
+            "kind": "top-n",
+            "rankingFunction": "rank",
+            "mode": "top-n",
+            "rowCount": 10,
+            "includeNulls": "when-no-value-is-selected"
+          }
+        ]
+      },
+      {
+        "id": "id0028",
+        "kind": "line-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0029",
+            "formula": "DateTrunc(\"month\", [Master/Date])",
+            "name": "Months in Date"
+          },
+          {
+            "id": "id0030",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue Trend (Monthly)",
+        "xAxis": {
+          "columnId": "id0029"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0030"
+          ]
+        }
+      },
+      {
+        "id": "id0031",
+        "kind": "pie-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0032",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0033",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Quantity by Category",
+        "value": {
+          "columnId": "id0033"
+        },
+        "color": {
+          "columnId": "id0032"
+        }
+      },
+      {
+        "id": "id0034",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0035",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Total Revenue"
+          }
+        ],
+        "name": "KPI: Total Revenue",
+        "value": {
+          "columnId": "id0035"
+        }
+      },
+      {
+        "id": "id0036",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0037",
+            "formula": "[Metrics/Avg Order Value]",
+            "name": "Avg Order Value"
+          }
+        ],
+        "name": "KPI: Gauge AOV",
+        "value": {
+          "columnId": "id0037"
+        }
+      },
+      {
+        "id": "id0038",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0039",
+            "formula": "CountDistinct([Master/Brand])",
+            "name": "Distinct Brands"
+          }
+        ],
+        "name": "KPI: Distinct Brands",
+        "value": {
+          "columnId": "id0039"
+        }
+      },
+      {
+        "id": "id0040",
+        "kind": "kpi-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0041",
+            "formula": "[Metrics/Revenue per Unit]",
+            "name": "Revenue per Unit"
+          }
+        ],
+        "name": "KPI: Revenue per Unit",
+        "value": {
+          "columnId": "id0041"
+        }
+      },
+      {
+        "id": "id0042",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0043",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0044",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Category",
+        "xAxis": {
+          "columnId": "id0043"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0044"
+          ]
+        }
+      },
+      {
+        "id": "id0045",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0046",
+            "formula": "[Master/Country]",
+            "name": "Country"
+          },
+          {
+            "id": "id0047",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Country (Top 10)",
+        "xAxis": {
+          "columnId": "id0046"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0047"
+          ]
+        },
+        "filters": [
+          {
+            "id": "id0048",
+            "columnId": "id0047",
+            "kind": "top-n",
+            "rankingFunction": "rank",
+            "mode": "top-n",
+            "rowCount": 10,
+            "includeNulls": "when-no-value-is-selected"
+          }
+        ]
+      },
+      {
+        "id": "id0049",
+        "kind": "line-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0050",
+            "formula": "DateTrunc(\"month\", [Master/Date])",
+            "name": "Months"
+          },
+          {
+            "id": "id0051",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue Trend (Monthly)",
+        "xAxis": {
+          "columnId": "id0050"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0051"
+          ]
+        }
+      },
+      {
+        "id": "id0052",
+        "kind": "area-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0053",
+            "formula": "DateTrunc(\"month\", [Master/Date])",
+            "name": "Months"
+          },
+          {
+            "id": "id0054",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Quantity Trend (Area)",
+        "xAxis": {
+          "columnId": "id0053"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0054"
+          ]
+        }
+      },
+      {
+        "id": "id0055",
+        "kind": "line-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0056",
+            "formula": "DateTrunc(\"month\", [Master/Date])",
+            "name": "Months"
+          },
+          {
+            "id": "id0057",
+            "formula": "[Master/Gender]",
+            "name": "Gender"
+          },
+          {
+            "id": "id0058",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Month x Gender",
+        "xAxis": {
+          "columnId": "id0056"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0058"
+          ]
+        },
+        "colorBy": {
+          "columnId": "id0057"
+        }
+      },
+      {
+        "id": "id0059",
+        "kind": "pie-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0060",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0061",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Quantity by Category (Pie)",
+        "value": {
+          "columnId": "id0061"
+        },
+        "color": {
+          "columnId": "id0060"
+        }
+      },
+      {
+        "id": "id0062",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0063",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0064",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Category (Polar)",
+        "xAxis": {
+          "columnId": "id0063"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0064"
+          ]
+        }
+      },
+      {
+        "id": "id0065",
+        "kind": "bar-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0066",
+            "formula": "[Master/Condition]",
+            "name": "Condition"
+          },
+          {
+            "id": "id0067",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          }
+        ],
+        "name": "Revenue by Condition (Funnel)",
+        "xAxis": {
+          "columnId": "id0066"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0067"
+          ]
+        }
+      },
+      {
+        "id": "id0068",
+        "kind": "scatter-chart",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0069",
+            "formula": "[Master/Brand]",
+            "name": "Brand"
+          },
+          {
+            "id": "id0070",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          },
+          {
+            "id": "id0071",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Revenue vs Qty by Brand (Scatter)",
+        "xAxis": {
+          "columnId": "id0070"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0071"
+          ]
+        },
+        "filters": [
+          {
+            "id": "id0072",
+            "columnId": "id0070",
+            "kind": "top-n",
+            "rankingFunction": "rank",
+            "mode": "top-n",
+            "rowCount": 50,
+            "includeNulls": "when-no-value-is-selected"
+          }
+        ]
+      },
+      {
+        "id": "id0073",
+        "kind": "table",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0074",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0075",
+            "formula": "[Master/Gender]",
+            "name": "Gender"
+          },
+          {
+            "id": "id0076",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          },
+          {
+            "id": "id0077",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Pivot: Category x Gender",
+        "groupings": [
+          {
+            "id": "id0078",
+            "groupBy": [
+              "id0074",
+              "id0075"
+            ],
+            "calculations": [
+              "id0076",
+              "id0077"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0079",
+        "kind": "table",
+        "source": {
+          "elementId": "id0003",
+          "kind": "table"
+        },
+        "columns": [
+          {
+            "id": "id0080",
+            "formula": "[Master/Brand]",
+            "name": "Brand"
+          },
+          {
+            "id": "id0081",
+            "formula": "[Master/Category]",
+            "name": "Category"
+          },
+          {
+            "id": "id0082",
+            "formula": "[Metrics/Total Revenue]",
+            "name": "Revenue"
+          },
+          {
+            "id": "id0083",
+            "formula": "[Metrics/Total Quantity]",
+            "name": "Quantity"
+          }
+        ],
+        "name": "Detail Table"
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n  <Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"pdata\">\n    <Element elementId=\"master\" gridColumn=\"1 / 25\" gridRow=\"1 / 13\"/>\n  </Page>\n  <Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"pmain\">\n    <Element elementId=\"ctrl_DK4FrUMp\" gridColumn=\"1 / 13\" gridRow=\"1 / 4\"/>\n    <Element elementId=\"ctrl_DgAL47D1\" gridColumn=\"13 / 25\" gridRow=\"1 / 4\"/>\n    <Element elementId=\"v_o7XBetF5\" gridColumn=\"1 / 13\" gridRow=\"4 / 8\"/>\n    <Element elementId=\"v_LODfU250\" gridColumn=\"13 / 25\" gridRow=\"4 / 8\"/>\n    <Element elementId=\"v_hnXuYgjR\" gridColumn=\"1 / 13\" gridRow=\"8 / 20\"/>\n    <Element elementId=\"v_hnX6bAgq\" gridColumn=\"13 / 25\" gridRow=\"8 / 20\"/>\n    <Element elementId=\"v_ZpIaTucr\" gridColumn=\"1 / 25\" gridRow=\"20 / 32\"/>\n    <Element elementId=\"v_Nx2JzyRz\" gridColumn=\"1 / 13\" gridRow=\"32 / 44\"/>\n    <Element elementId=\"v_U2EtCY2Y\" gridColumn=\"1 / 7\" gridRow=\"44 / 48\"/>\n    <Element elementId=\"v_O2r8g0yf\" gridColumn=\"7 / 13\" gridRow=\"44 / 48\"/>\n    <Element elementId=\"v_4cUROS3N\" gridColumn=\"13 / 19\" gridRow=\"44 / 48\"/>\n    <Element elementId=\"v_SuMck8ry\" gridColumn=\"19 / 25\" gridRow=\"44 / 48\"/>\n    <Element elementId=\"v_vDRAsT35\" gridColumn=\"1 / 13\" gridRow=\"48 / 60\"/>\n    <Element elementId=\"v_w9qWAwd1\" gridColumn=\"13 / 25\" gridRow=\"48 / 60\"/>\n    <Element elementId=\"v_4tEEPmLn\" gridColumn=\"1 / 25\" gridRow=\"60 / 72\"/>\n    <Element elementId=\"v_nca0ujjO\" gridColumn=\"1 / 25\" gridRow=\"72 / 84\"/>\n    <Element elementId=\"v_Fpe16szY\" gridColumn=\"1 / 25\" gridRow=\"84 / 96\"/>\n    <Element elementId=\"v_xcDjcMNg\" gridColumn=\"1 / 13\" gridRow=\"96 / 108\"/>\n    <Element elementId=\"v_X42QYGWl\" gridColumn=\"13 / 25\" gridRow=\"96 / 108\"/>\n    <Element elementId=\"v_56zgVTbB\" gridColumn=\"1 / 13\" gridRow=\"108 / 120\"/>\n    <Element elementId=\"v_1lgv7i7w\" gridColumn=\"13 / 25\" gridRow=\"108 / 120\"/>\n    <Element elementId=\"v_msD6XrIQ\" gridColumn=\"1 / 25\" gridRow=\"120 / 132\"/>\n    <Element elementId=\"v_prU4KcXs\" gridColumn=\"1 / 25\" gridRow=\"132 / 144\"/>\n  </Page>"
+  }
+}

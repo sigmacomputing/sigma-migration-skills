@@ -55,6 +55,10 @@ patterns = { 'workbookPatterns' => [
     'elseExpr' => nil }
 ] }
 require 'tmpdir'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 Dir.mktmpdir do |d|
   File.write(File.join(d, 'wp.json'), JSON.dump(patterns))
   load_param_switches(File.join(d, 'wp.json'), meta)

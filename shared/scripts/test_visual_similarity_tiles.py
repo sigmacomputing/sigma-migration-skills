@@ -141,7 +141,8 @@ FOUR_TILES = frozenset(((0, 0), (0, 2), (1, 1), (2, 1)))
 FIVE_TILES = FOUR_TILES | {(2, 0)}
 
 LEGACY_KEYS = {"score_layout", "score_ink", "score_overall", "pass",
-               "threshold", "notes", "components"}
+               "threshold", "notes", "components", "source_health",
+               "render_health"}
 TILE_KEYS = {"tiles_measured", "tiles_blank", "per_tile_ink"}
 
 

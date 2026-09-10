@@ -1,0 +1,10 @@
+[
+  {"period_date":"2026-01-01","content_domain":"Data","country_group":"North","enrollments":100,"module_1_completions":60,"course_completions":40,"freemium_conversions":20,"active_days_30":7.0,"overall_revenue_rank":1},
+  {"period_date":"2026-02-01","content_domain":"Data","country_group":"North","enrollments":120,"module_1_completions":78,"course_completions":54,"freemium_conversions":27,"active_days_30":7.5,"overall_revenue_rank":1},
+  {"period_date":"2026-03-01","content_domain":"Data","country_group":"North","enrollments":150,"module_1_completions":105,"course_completions":72,"freemium_conversions":36,"active_days_30":8.0,"overall_revenue_rank":1},
+  {"period_date":"2026-04-01","content_domain":"Data","country_group":"North","enrollments":130,"module_1_completions":91,"course_completions":65,"freemium_conversions":32,"active_days_30":7.8,"overall_revenue_rank":1},
+  {"period_date":"2026-01-01","content_domain":"Arts","country_group":"South","enrollments":80,"module_1_completions":40,"course_completions":24,"freemium_conversions":8,"active_days_30":5.0,"overall_revenue_rank":null},
+  {"period_date":"2026-02-01","content_domain":"Arts","country_group":"South","enrollments":90,"module_1_completions":48,"course_completions":29,"freemium_conversions":10,"active_days_30":5.3,"overall_revenue_rank":20},
+  {"period_date":"2026-03-01","content_domain":"Arts","country_group":"South","enrollments":70,"module_1_completions":35,"course_completions":21,"freemium_conversions":7,"active_days_30":4.9,"overall_revenue_rank":20},
+  {"period_date":"2026-04-01","content_domain":"Arts","country_group":"South","enrollments":110,"module_1_completions":66,"course_completions":39,"freemium_conversions":13,"active_days_30":5.8,"overall_revenue_rank":20}
+]

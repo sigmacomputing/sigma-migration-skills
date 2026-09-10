@@ -43,6 +43,11 @@ VIZ_MAPPED = {
     'pie_chart', 'ring_chart', 'bubble_chart',
     'geospatial_service', 'google_map', 'esri_map',
 }
+# Types with NO native Sigma analog that are reproducible via a bespoke plugin
+# element (refs/plugin-tier.md). Convertible, but each costs a plugin to build,
+# host and register — so they are neither "mapped" nor "needs-review": they
+# carry their own signal so estate sizing reflects the real work.
+VIZ_PLUGIN_TIER = {'heat_map', 'sankey', 'network', 'sequences_sunburst'}
 # MicroStrategy object types (quick-search `type` param)
 TYPE_REPORT = 3
 TYPE_DOCUMENT = 55  # documents AND dossiers
@@ -89,9 +94,13 @@ def assess_dossier(s, doc):
         for pg in ch.get('pages') or []:
             n_pages += 1
             walk_container(pg, hist, flags)
-    unmapped = sorted(t for t in hist if t not in VIZ_MAPPED)
+    unmapped = sorted(t for t in hist
+                      if t not in VIZ_MAPPED and t not in VIZ_PLUGIN_TIER)
+    plugin_tier = sorted(t for t in hist if t in VIZ_PLUGIN_TIER)
     if flags['panel_stacks'] or unmapped:
         tag = 'needs-review'
+    elif plugin_tier:
+        tag = 'plugin-tier'
     elif flags['free_form_fields'] or flags['selectors'] or len(hist) > 2:
         tag = 'moderate'
     else:

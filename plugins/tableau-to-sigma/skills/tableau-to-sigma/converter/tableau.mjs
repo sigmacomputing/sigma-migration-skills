@@ -2108,10 +2108,10 @@ var require_fxp = __commonJS({
   }
 });
 
-// converter-source/build/tableau.js
+// ../converter-source/build/tableau.js
 var import_fast_xml_parser = __toESM(require_fxp(), 1);
 
-// converter-source/build/sigma-ids.js
+// ../converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var _idCounter = 0;
@@ -2380,6 +2380,16 @@ function buildDerivedElements(elements, warnings) {
         }
         if (!dispName)
           continue;
+        // A target can itself carry columns synthesized through ANOTHER
+        // relationship (hub parent with multiple child facts). Their captions
+        // carry the sibling table suffix. Pulling them into this derived view
+        // makes child A reach sideways through the parent into child B — an
+        // invalid sibling-fact Lookup. Do this after display-name recovery so a
+        // legitimate slash-named caption still reaches warnSlash below.
+        const relatedSuffix = dispName.match(/\s+\(([^()]+)\s+\([^()]+\)\)\s*$/);
+        const targetBaseName = tgtEl.name || (tgtEl.source?.path || []).slice(-1)[0] || "";
+        if (relatedSuffix && relatedSuffix[1].toUpperCase() !== String(targetBaseName).toUpperCase())
+          continue;
         if (dispName.includes("/")) {
           warnSlash(dispName, `"${derivedName}" element (related column via ${rel.name})`);
           continue;
@@ -2403,7 +2413,7 @@ function buildDerivedElements(elements, warnings) {
   return derived;
 }
 
-// converter-source/build/formulas.js
+// ../converter-source/build/formulas.js
 function decodeXmlEntities(s) {
   if (!s || s.indexOf("&") === -1)
     return s;
@@ -3221,7 +3231,7 @@ function tableauFormulaIsRls(formula) {
   return /\b(USERNAME|FULLNAME|USERDOMAIN|ISMEMBEROF|ISUSERNAME|USERATTRIBUTE)\s*\(/i.test(formula || "");
 }
 
-// converter-source/build/tableau.js
+// ../converter-source/build/tableau.js
 function paramControlId(rawName) {
   return clampId("ctl-" + rawName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase());
 }
@@ -5261,6 +5271,8 @@ function convertTableauToSigma(xmlContent, options = {}) {
               keys: inferredKeys,
               uniqueA: /^true$/i.test(String(attr(firstEp, "unique-key") || "")),
               uniqueB: /^true$/i.test(String(attr(secondEp, "unique-key") || "")),
+              dbUniqueA: /^true$/i.test(String(attr(firstEp, "is-db-set-unique-key") || "")),
+              dbUniqueB: /^true$/i.test(String(attr(secondEp, "is-db-set-unique-key") || "")),
               relExprText: JSON.stringify(rel.expression || ""),
               derivedVia: "name-inference",
               ...droppedConditions > 0 ? { droppedConditions } : {}
@@ -5410,6 +5422,8 @@ function convertTableauToSigma(xmlContent, options = {}) {
             keys,
             uniqueA: /^true$/i.test(String(attr(firstEp, "unique-key") || "")),
             uniqueB: /^true$/i.test(String(attr(secondEp, "unique-key") || "")),
+            dbUniqueA: /^true$/i.test(String(attr(firstEp, "is-db-set-unique-key") || "")),
+            dbUniqueB: /^true$/i.test(String(attr(secondEp, "is-db-set-unique-key") || "")),
             relExprText: JSON.stringify(rel.expression || ""),
             derivedVia: "serialized",
             ...skippedComputed > 0 ? { droppedConditions: skippedComputed } : {}
@@ -5551,7 +5565,17 @@ function convertTableauToSigma(xmlContent, options = {}) {
             const db = dist.get(e.b) ?? 0;
             let carrier = e.a, target = e.b, carrierUnique = e.uniqueA, targetUnique = e.uniqueB;
             let keys = e.keys.map((k) => ({ sourceColumnId: k.aColId, targetColumnId: k.bColId }));
-            const flip = db < da || db === da && (visitOrder.get(e.b) ?? 0) < (visitOrder.get(e.a) ?? 0);
+            // Sigma relationships are many -> one lookups. Tableau serializes
+            // decisive endpoint cardinality as unique-key=true together with
+            // is-db-set-unique-key=true; when exactly one endpoint has that
+            // database-backed evidence, it MUST be the target even
+            // when the relationship-degree election picked the unique hub as
+            // the workbook's default/fact element. Ignoring this evidence
+            // produces a valid-looking one -> many Lookup that returns one
+            // arbitrary child row and silently undercounts child-fact measures.
+            // Both/neither unique remains on the evidence-ranked BFS path.
+            const uniqueHintDecisive = e.dbUniqueA !== e.dbUniqueB;
+            const flip = uniqueHintDecisive ? e.dbUniqueA : db < da || db === da && (visitOrder.get(e.b) ?? 0) < (visitOrder.get(e.a) ?? 0);
             if (flip) {
               carrier = e.b;
               target = e.a;

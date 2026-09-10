@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "source": "looker",
+  "entries": [
+    {
+      "class": "additive-over-preagg",
+      "hazard": "preaggregated-relationship",
+      "consumer": "period_bridge",
+      "preagg": "Enrollment Metrics → Period Bridge",
+      "context": "relationship joins two already-grouped/windowed SQL elements",
+      "formula": "[{\"sourceColumnId\": \"AAAAAAAAAC\", \"targetColumnId\": \"AAAAAAAAAO\"}]",
+      "detail": "Sigma accepted this shape in dashboard 7405 but returned NULL related columns. Rebuild at one explicit grain or use one Custom SQL window query.",
+      "recommendation": "custom-sql-handoff"
+    },
+    {
+      "class": "additive-over-preagg",
+      "hazard": "unsafe-window-grain",
+      "consumer": "Volatility",
+      "preagg": "moving_average(${enrollment_metrics.enrollments_total}, 2)",
+      "context": "rolling/window calculation lacks a stable sorted date grain",
+      "formula": "moving_average(${enrollment_metrics.enrollments_total}, 2)",
+      "detail": "Moving and cumulative functions are row-order dependent. Add a date group, ascending sort, and explicit partition grain or push the window into SQL.",
+      "recommendation": "declare-grain-sort-partition"
+    }
+  ]
+}

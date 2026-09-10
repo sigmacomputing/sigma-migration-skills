@@ -5,7 +5,7 @@ description: >-
   dashboard. Use when the user has a Tableau datasource, TDS file, or Tableau
   workbook and wants to recreate it in Sigma. Discovery, calc-field translation,
   data model + workbook creation via REST API, layout generation, and parity
-  verification — driven by `scripts/*.rb`.
+  verification — driven by the selected Ruby or Python runtime profile.
 user-invocable: true
 ---
 
@@ -17,11 +17,12 @@ user-invocable: true
 > - macOS / Linux / Git Bash: `bash scripts/bootstrap.sh --workdir <WORK>`
 > - Windows PowerShell: `powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1 -WorkDir <WORK>`
 >
-> It verifies/installs ruby + python3 (+ Pillow/numpy/requests) + node 22 LTS
-> (user-scoped, never admin; PATH persisted), persists creds from env vars
-> (`setup.rb --from-env`), ends in a doctor run (`doctor.json`), and writes
+> It resolves a supported runtime profile from `runtime-capabilities.json`,
+> installs only that profile's missing dependencies (user-scoped, never admin),
+> persists credentials with the matching setup script, ends in a doctor run
+> (`doctor.json`), and writes
 > the **bootstrap sentinel** (`bootstrap.json`).
-> `intake.rb` and `migrate-tableau.rb` REFUSE to start without sentinel +
+> Both orchestrators REFUSE to start without sentinel +
 > doctor-green. **NEVER hand-install a runtime or edit PATH yourself** — if
 > bootstrap reports no admin-free route, surface its message to the user and
 > stop. Dry run: `--check` / `-Check`. Details: `refs/environment.md`.
@@ -30,15 +31,19 @@ user-invocable: true
 > After the bootstrap, **always run the orchestrator** — it chains every phase
 > in one process and self-gates:
 > ```
+> # Use the entrypoint selected in doctor.json:
 > ruby scripts/migrate-tableau.rb --workbook "<name>" --connection <id>
+> # or, when selectedProfile=python:
+> python3 scripts/migrate-tableau.py --workbook "<name>" --connection <id> …
 > ```
 > - **Pass the Tableau `/#/views/…` share URL straight to `--workbook` (quote it).**
 >   The orchestrator resolves the workbook LUID from the URL's `contentUrl` slug
 >   in process. Display names diverge from slugs, so **never** hand-roll
 >   `name:eq:` filters or page the workbook list — that field-cost a
 >   500-workbook scan. Give it the URL.
-> - **Flag cheatsheet — use the EXACT flags (do not guess or grep `opts.on`):**
+> - **Flag cheatsheet — use the EXACT flags for the selected entrypoint:**
 >   `migrate-tableau.rb --out DIR` (the workdir flag is **`--out`**, not `--workdir`);
+>   `migrate-tableau.py --out DIR` uses the same workdir flag;
 >   `validate-spec.rb <spec.json> --type dm|workbook` (spec is a **positional** arg, no `--spec`);
 >   `put-layout.rb --workbook ID` (**not** `--workbook-id`), reading `SIGMA_API_TOKEN` from the env.
 > - **Do NOT hand-drive the per-phase scripts or hand-author DM/workbook JSON
@@ -46,9 +51,13 @@ user-invocable: true
 >   STOP", the exit-4 handoff). The script map is **not a menu** — à-la-carte
 >   scripts are the #1 way runs go inconsistent.
 > - **"Done" is not something you decide — it is a file on disk.** The migration
->   is complete **only** when `ruby scripts/verify-complete.rb --workdir <WORK>`
->   exits 0 / prints ✅ DONE. A clean **PASS 1 (exit 12) is NOT done** — it means
+>   is complete **only** when the selected runtime's completion gate
+>   (`verify-complete.rb` or `verify-complete.py`) exits 0 / prints ✅ DONE.
+>   A clean **PASS 1 (exit 12) is NOT done** — it means
 >   "run `--finalize`". Never report success or write a completion summary before.
+>   Completion also requires complete accounting: every formula in
+>   `formula-audit.json` and every object in `source-object-census.json` has one
+>   terminal disposition in `MIGRATION_REPORT.md` / `migration-result.json`.
 > - **This is a PRODUCTION migration, not a demo.** The bar is EXACT parity
 >   against the same warehouse, always. At a wall: follow the printed
 >   STOP/handoff, or surface the blocker plainly and stop — NEVER a third
@@ -63,9 +72,15 @@ user-invocable: true
 >   control-lint wholesale — the #1 way this handoff spirals; prefer
 >   `--master-col` for master-level calcs). Full handoff discipline:
 >   `refs/gates.md` §Exit-4.
-> - **Credentials:** the orchestrator stops at step 0 telling you to run
->   `ruby scripts/setup.rb` once — do that rather than working around auth
+> - **Credentials:** the orchestrator stops at step 0 telling you to run the
+>   selected runtime's `scripts/setup.rb` or `scripts/setup.py` once — do that
+>   rather than working around auth
 >   (`refs/environment.md` §Credentials).
+
+> ## Runtime selection
+> `auto` prefers Ruby and falls back to Python + Node when Ruby is unavailable.
+> Explicit `--runtime-profile python` skips Ruby. Full contract and command:
+> **`PYTHON_RUNTIME.md`**.
 
 > **Model fit & vision — `refs/model-fit.md`** (read before Phase 0 on any
 > multi-dashboard workbook): pixel-fidelity claims require image input;
@@ -107,15 +122,16 @@ or a single-view `/#/views/` URL in `scope.value`) — it threads onto
 ## Step 0 — Bootstrap + doctor (MANDATORY — the orchestrator gates on it)
 
 Run the bootstrap FIRST (STEP 0 banner above). It ends with the doctor
-(`doctor.json` + the `bootstrap.json` sentinel); `migrate-tableau.rb` refuses
-to start until both pass. Re-verify: `bash scripts/doctor.sh --workdir <WORK>`
+(`doctor.json` + the `bootstrap.json` sentinel); both orchestrators refuse to
+start until both pass. Re-verify: `bash scripts/doctor.sh --workdir <WORK>`
 (PowerShell: `scripts\doctor.ps1 -WorkDir <WORK>`). Gate impossible in your
 environment (e.g. a sandbox) → waive explicitly and name it in your report:
 `migrate-tableau.rb … --skip-doctor-gate "<reason>"`.
 
 ## Step 0.1 — Front door: resolve the connection once (`scripts/intake.rb`)
 
-`ruby scripts/intake.rb --workdir <WORK> --tool tableau-to-sigma --mode live
+The Ruby profile can use `ruby scripts/intake.rb --workdir <WORK>
+--tool tableau-to-sigma --mode live
 --source "<workbook>"` resolves the Sigma warehouse connection a SINGLE time
 (caches `<WORK>/connection.json`, read by the orchestrator when `--connection`
 is omitted — point `--out` at the same `<WORK>`). With multiple connections it
@@ -128,6 +144,10 @@ low-rank/blocked/consolidation WARN and proceed; no plan → one offer line,
 never a block. Full flags, precedence, ranking, triage:
 `refs/phase-0-scope.md` §Step 0.1. Credentials: `refs/environment.md`
 §Credentials.
+
+The Python profile requires `--connection` explicitly and performs strict
+GET-only reuse discovery inside `migrate-tableau.py`; it never guesses among
+multiple compatible objects.
 
 ## One command (orchestrated path)
 
@@ -143,11 +163,13 @@ ruby scripts/migrate-tableau.rb \
   --workbook "<name>" --connection <SIGMA_CONNECTION_ID> --folder <SIGMA_FOLDER_ID> \
   [--db <DB> --schema <SCHEMA>] [--name '<prefix>'] [--row-scale 1.5] \
   [--reuse-dm [ID]] [--force] [--yes]
+# … gap scan writes <workdir>/formula-audit.json + source-object-census.json …
 # … pass 1 auto-fills <workdir>/parity-actuals.json (collect-parity-actuals.rb);
 #   run the printed mcp-v2 queries for the REMAINING charts (pivot grids) only …
-# PASS 2 — finalize: phase6 verify + cleanup-orphans + census-aware hard gate
+# PASS 2 — finalize: phase6 verify + cleanup-orphans + census-aware report/gate
 ruby scripts/migrate-tableau.rb --workbook "<name>" \
   --finalize --actuals <workdir>/parity-actuals.json [--allow-missing-tiles N]
+# … writes MIGRATION_REPORT.md + migration-result.json; incomplete accounting fails …
 ```
 
 > **`--db`/`--schema` (always together) — there is NO default database.** The
@@ -188,12 +210,13 @@ done-done — run `--finalize`**.
 
 ## Scripts
 
-**`migrate-tableau.rb` composes everything** (STEP 1) — the only entry point
-you run cold. Invoke another script directly **only when an orchestrator STOP
+**`migrate-tableau.rb` and `migrate-tableau.py` compose the selected profile**
+(STEP 1) — run exactly the entrypoint recorded in `doctor.json`. Invoke another
+script directly **only when an orchestrator STOP
 tells you to**. *(Redirect — E9 diet: the one-line index AND full per-script
 contracts live in **`refs/script-map.md`**.)*
 
-### The final gate (`assert-phase6-ran.rb`)
+### The final gate (`assert-phase6-ran.rb` / `assert-phase6-ran.py`)
 
 The conversion hard gate. *(Redirect — E9 diet: the full exit-code table moved
 verbatim to **`refs/gates.md`**.)* Subagent flows MUST call this gate as their
@@ -224,7 +247,7 @@ phase by hand or need to understand why it stopped.
 |---|---|---|---|---|
 | −1 | Mission intake | write `mission.json` | inferred fields confirmed | `MIGRATION_REQUEST.md` |
 | 0 | Preflight + intake | `bootstrap.sh`; `doctor.sh`; `intake.rb` | `bootstrap.json` + `doctor.json` + `connection.json` | `refs/environment.md`, `refs/model-fit.md`, `refs/orchestration.md` (contexts) |
-| 0a | **Gap scan** (mandatory) | `scan-workbook-gaps.rb` | `gaps.json` — ❌ features → scout or `--force` | `refs/phase-0-scope.md`, `refs/coverage-matrix.md`, `refs/blending.md` (blends) |
+| 0a | **Gap scan** (mandatory) | `scan-workbook-gaps.rb` | `gaps.json` + `formula-audit.json` + `source-object-census.json` — ❌ features → scout or `--force`; every source formula/object starts an accounting row | `refs/phase-0-scope.md`, `refs/coverage-matrix.md`, `refs/blending.md` (blends) |
 | 0b | Destination + mode (ask) | `pick-destination.rb` | folder id + conversion mode | `refs/phase-0-scope.md` |
 | 0c | Scope/cost sign-off | `estimate-cost.rb --workdir` | `cost-estimate.json` + run-state ack (`cost_estimate_acknowledged`) | `refs/phase-0-scope.md`, `refs/model-fit.md` §3, `refs/performance.md` |
 | 1 | Discover the source | `tableau-discover.rb` (PAT) or MCP | `get-workbook.json`, `views/*.csv`, `.twb` | `refs/phase-1-discover.md`, `refs/tableau-rest.md`, `refs/multi-datasource.md`, `refs/object-model.md`, `refs/story-points.md`, `refs/extract-landing.md` |
@@ -235,7 +258,7 @@ phase by hand or need to understand why it stopped.
 | 3 | Build the DM spec | author → `validate-spec.rb --type datamodel` | clean `dm-spec.json` + `join-plan.json` probed (exit 23) + `semantic-edits.json` proven (exit 27) | `refs/phase-3-datamodel.md`, `refs/data-model-spec.md`, `refs/window-functions.md`, `refs/blending.md`, `refs/multi-datasource.md` |
 | 4 | POST the DM + **read back** | `post-and-readback.rb --type datamodel` | `dm-ids.json` (server ids) | `refs/phase-4-post-dm.md` |
 | 5 | Build workbook | `build-charts-from-signals.rb` → `post-and-readback` → `build-dashboard-layout.rb` → `put-layout.rb` | `preflight_lint` clean; body = metadata + `document{pages(metadata only),elements(flat),layout(required)}`; layout owns pages, places each element once, and is the **LAST write**; LOD/aggregation audits resolved | `refs/phase-5-workbook.md`, `refs/workbook-code-release-gaps.md`, `refs/chart-patterns.md`, `refs/layout-grid.md`, `refs/story-points.md` |
-| 6 | **🚧 Parity + anchors + ground truth + visual** | `phase6-parity.rb`; `verify-anchors.rb`; ground-truth trio; then the gate sequence | 🚧 `parity-final.json` PASS + `anchors-verdict.json` + per-tile `numeric_parity` (exit 25) + recorded visual verdict + full `run-state.json` | `refs/phase-6-parity.md`, `refs/source-anchors.md`, `refs/ground-truth-oracle.md`, `refs/gates.md`, `refs/blind-grader-brief.md`, `refs/visual-similarity.md`, `refs/control-parity.md`, `refs/orchestration.md` (verifier) |
+| 6 | **🚧 Parity + anchors + ground truth + visual** | `phase6-parity.rb`; `verify-anchors.rb`; ground-truth trio; then finalization and the gate sequence | 🚧 `parity-final.json` PASS + `anchors-verdict.json` + per-tile `numeric_parity` (exit 25) + recorded visual verdict + full `run-state.json` + `MIGRATION_REPORT.md` / `migration-result.json` with complete source-object and formula accounting | `refs/phase-6-parity.md`, `refs/source-anchors.md`, `refs/ground-truth-oracle.md`, `refs/gates.md`, `refs/migration-report-format.md`, `refs/blind-grader-brief.md`, `refs/visual-similarity.md`, `refs/control-parity.md`, `refs/orchestration.md` (verifier) |
 | 5g | **RCF fidelity loop** | `fidelity-loop.rb` render → compare → fix until clean | 🚧 (default-on) `fidelity-ledger.json` no unresolved spec-fixable deltas (gate 8d) | `refs/phase-5g-rcf.md`, `refs/fidelity-rubric.md`, `refs/fidelity-recipes.md`, `refs/layout-visual-qa.md` |
 | E | Enhance (opt-in) | `enhance-scan.rb` → `enhance-apply.rb` | cloned "— Enhanced" workbook | `refs/phase-e-enhance.md`, `refs/postpublish-interactivity.md` |
 | — | Security RLS/CLS | detect always; apply opt-in | `apply_sigma_rls.py` | `refs/security-rls.md` |

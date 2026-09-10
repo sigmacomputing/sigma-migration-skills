@@ -29,6 +29,22 @@ def run_vc(vc, wd, wb: nil)
   [$?.exitstatus, out]
 end
 
+def write_source_accounting(wd, status: 'migrated', verdict: 'GREEN', result_status: nil)
+  object = {
+    'type' => 'dashboard', 'id' => 'dashboard:Sales', 'name' => 'Sales',
+    'status' => status, 'evidence' => [{ 'artifact' => 'wb-readback.json', 'detail' => 'fixture' }]
+  }
+  counts = %w[migrated approximated needs-review skipped not-applicable]
+           .to_h { |terminal| [terminal, terminal == status ? 1 : 0] }
+  summary = { 'total' => 1, 'accounted' => 1, 'complete' => true, 'counts' => counts }
+  File.write(File.join(wd, 'source-object-census.json'),
+             JSON.generate('summary' => summary, 'objects' => [object]))
+  result_object = object.reject { |key, _| key == 'evidence' }.merge('status' => result_status || status)
+  File.write(File.join(wd, 'migration-result.json'),
+             JSON.generate('verdict' => verdict, 'summary' => summary,
+                           'source_objects' => [result_object]))
+end
+
 Dir.mktmpdir do |wd|
   # State 1 — PASS 1 only (pending present) => exit 3, NOT DONE
   File.write(File.join(wd, 'parity-pending.json'),
@@ -46,6 +62,7 @@ Dir.mktmpdir do |wd|
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate('workbookId' => 'wb-1', 'gates' => 'all-pass',
                            'generatedAt' => '2026-07-09T00:00:00Z'))
+  write_source_accounting(wd)
   code, out = run_vc(VC, wd)
   check(code == 0, "success + no pending => exit 0 (got #{code})", fails)
   check(out.include?('DONE') && out.include?('wb-1'), 'done message names the workbook', fails)
@@ -74,6 +91,7 @@ def success_marker(wd, extra = {})
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate({ 'workbookId' => 'wb-1', 'gates' => 'all-pass',
                              'generatedAt' => '2026-07-19T00:00:00Z' }.merge(extra)))
+  write_source_accounting(wd)
 end
 
 # Clean workdir → DONE with VERDICT: GREEN and an explicitly-empty ledger.
@@ -159,6 +177,49 @@ Dir.mktmpdir do |wd|
   code, out = run_vc(VC, wd)
   check(code == 6, "hand-emptied degradation-ledger.json => exit 6 (got #{code})", fails)
   check(out.include?('does not match a fresh derivation'), 'tampered ledger is named', fails)
+end
+
+# Source accounting is a separate completion contract (exit 7): a gate marker
+# cannot vouch for an absent, RED, incomplete, or census-drifted migration report.
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  File.delete(File.join(wd, 'migration-result.json'))
+  code, out = run_vc(VC, wd)
+  check(code == 7, "missing migration-result.json => distinct exit 7 (got #{code})", fails)
+  check(out.include?('SOURCE ACCOUNTING INVALID') && out.include?('migration-result.json is missing'),
+        'missing report failure names the source accounting contract', fails)
+end
+
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  write_source_accounting(wd, verdict: 'RED')
+  code, out = run_vc(VC, wd)
+  check(code == 7, "RED migration report => exit 7 (got #{code})", fails)
+  check(out.include?('verdict is RED'), 'RED report verdict is named', fails)
+end
+
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  result = JSON.parse(File.read(File.join(wd, 'migration-result.json')))
+  result['summary']['complete'] = false
+  result['summary']['accounted'] = 0
+  File.write(File.join(wd, 'migration-result.json'), JSON.generate(result))
+  code, out = run_vc(VC, wd)
+  check(code == 7, "incomplete source accounting => exit 7 (got #{code})", fails)
+  check(out.include?('summary.complete is not true') && out.include?('accounted'),
+        'incomplete report identifies completeness and arithmetic', fails)
+end
+
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  result = JSON.parse(File.read(File.join(wd, 'migration-result.json')))
+  result['source_objects'][0]['status'] = 'approximated'
+  result['summary']['counts']['migrated'] = 0
+  result['summary']['counts']['approximated'] = 1
+  File.write(File.join(wd, 'migration-result.json'), JSON.generate(result))
+  code, out = run_vc(VC, wd)
+  check(code == 7, "migration-result/census status drift => exit 7 (got #{code})", fails)
+  check(out.include?('1 status drift'), 'status disagreement is counted', fails)
 end
 
 puts

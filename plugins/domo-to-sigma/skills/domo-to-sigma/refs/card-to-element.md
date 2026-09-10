@@ -83,8 +83,8 @@ off the render, and infer the aggregate from the label ("Total …" → Sum,
 
 Load-bearing details (each has burned a prior build):
 - **`value` takes `{"columnId": …}`, not `{"id": …}`.** Posting `value.id` is
-  rejected at POST (`value.columnId: Invalid string: undefined`). Donut/pie use
-  `value.id`; KPI is the exception. See `feedback_sigma_kpi_value_columnid`.
+  rejected at POST (`value.columnId: Invalid string: undefined`). Donut/pie
+  channel pointers now use `columnId` too. See `feedback_sigma_kpi_value_columnid`.
 - **Hide the title** when the Domo tile has no label (or you want the number to
   dominate): set `"name": " "` — a single space. `""` re-derives a title from
   the column. See `feedback_sigma_kpi_hide_title`.
@@ -128,17 +128,13 @@ exists for the companion (independent of whether the primary built), the
 headline value is dropped with a named warning rather than silently emitted
 as a broken `Count([Master/])`.
 
-**Layout placement:** `build-domo-layout.rb` gives the companion its own
-zone via the same synthesis mechanism it already uses for an orphan control
-(a page-level filter with no backing card) — see `load_chart_specs_companions`
-/ `load_chart_specs_controls`. The companion lands wherever that page's
-kind-aware composition puts any other `kpi-chart` element (the page's shared
-KPI band, or — for a page with real pixel geometry — appended below the
-primary content), **not** guaranteed immediately adjacent to its own specific
-primary chart/table: the kind-grouped composition model buckets every KPI
-element on a page into one band together, regardless of which card produced
-it. Landing in the KPI band is the honest, tractable placement this
-converter can make today.
+**Layout placement:** `build-domo-layout.rb` gives the companion its own zone.
+When source geometry is known (API geometry or `layout-observed.json`), the
+companion is rendered as a compact title/summary text header and nested with its
+primary chart in one source-card container, just as Domo renders it. When geometry is unknown,
+the fallback kind-aware composition still places companions in a shared KPI
+band; that fallback is intentionally reasonable rather than presented as
+pixel-faithful.
 
 ### Row limit → Sigma top-n filter (bead 2ef7)
 
@@ -274,7 +270,7 @@ instance (2026-07-30 validation, 48 cards / 22 distinct chartTypes). Sigma
 | `badge_two_trendline` | `line-chart` | ✅ kind verified | two series on one line chart. |
 | `badge_xyscatterplot` | `scatter-chart` | ✅ kind verified, **confirmed live by card creation** | both axes are measures; see `sigma-workbooks/reference/specification/charts.md` — a scatter must bind to a **grouping**, or every point collapses to one x. |
 | `badge_bubble` | `scatter-chart` | ✅ kind verified | scatter + `size` channel; bind the `BUBBLESIZE`-mapped column to `size`. |
-| `badge_pie` | `pie-chart` | ✅ kind verified | Sigma has a **distinct** `pie-chart` kind (not just `donut-chart`) — `value`+`color`, no hole/holeValue/innerRadius. `value` uses `value.id` (NOT `columnId`) — opposite of a KPI. `pie-chart` does **not** support native `trellis` (silently stripped) — emit `donut-chart` if faceting is required. |
+| `badge_pie` | `pie-chart` | ✅ kind verified | Sigma has a **distinct** `pie-chart` kind (not just `donut-chart`) — `value`+`color`, no hole/holeValue/innerRadius. `value`/`color` use `{ columnId }` (same pointer key as KPI). `pie-chart` does **not** support native `trellis` (silently stripped) — emit `donut-chart` if faceting is required. |
 | `badge_donut` | `donut-chart` | ✅ kind verified, **confirmed live by card creation** | same `value`/`color` shape as pie, plus optional `holeValue`/`innerRadius`. Supports native `trellis`. |
 | `badge_singlevalue` | `kpi-chart` | ✅ kind verified, **confirmed live by card creation** | Rule 0. |
 | `badge_table` | `table` | ✅ kind verified, **confirmed live by card creation** | the REAL table token — `badge_datagrid` does not exist. |

@@ -397,7 +397,7 @@ region, quarter all match to the cent). Per-run ids land in `<workdir>/migrate_o
 ## Notes
 - The vendored bundle (`converter/thoughtspot.mjs`) is the local, default path for
   conversion. It's built from the same `convert_thoughtspot_to_sigma` logic as the
-  hosted MCP (github.com/converter-source) and the browser
+  hosted MCP (github.com/sigmacomputing/converter-source) and the browser
   sigma-data-model-manager — keep all three in lockstep; the MCP tool itself is only
   a manual fallback when the local bundle is unavailable.
 - **Rename gotcha**: `PATCH /v2/workbooks/{id}` silently no-ops for renames

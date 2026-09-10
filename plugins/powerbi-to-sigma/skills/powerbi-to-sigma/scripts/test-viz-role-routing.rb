@@ -199,6 +199,113 @@ ctl4 = els4.find { |e| e['kind'] == 'control' }
 check(ctl4 && (ctl4['filters'] || []).any? { |f| f['columnId'] == 'mc-name' },
       'DECLARED: an empty Values=[] role falls through to Category (control wired to T.Name, not dropped)', fails)
 
+# =============================================================================
+# Scenario 5: Azure Maps encodes longitude/latitude as X/Y. Older persisted
+# signals retain those raw roles, so the builder must normalize them before map
+# resolution, never use latitude as bubble size, and retain Series as category
+# color. A real Size role remains independently available.
+# =============================================================================
+geo_mmap = {
+  'masters' => { 'G' => {
+    'id' => 'master-geo', 'element_id' => 'el-geo', 'data_model' => 'dm-1',
+    'columns' => [
+      { 'id' => 'mc-lng', 'name' => 'Coordinate A', 'formula' => '[G/Coordinate A]' },
+      { 'id' => 'mc-lat', 'name' => 'Coordinate B', 'formula' => '[G/Coordinate B]' },
+      { 'id' => 'mc-group', 'name' => 'Group', 'formula' => '[G/Group]' },
+      { 'id' => 'mc-metric', 'name' => 'Metric', 'formula' => '[G/Metric]' }
+    ]
+  } },
+  'fields' => {
+    'G.Coordinate A' => { 'master' => 'G', 'ref' => '[master-geo/Coordinate A]', 'agg' => nil },
+    'G.Coordinate B' => { 'master' => 'G', 'ref' => '[master-geo/Coordinate B]', 'agg' => nil },
+    'G.Group' => { 'master' => 'G', 'ref' => '[master-geo/Group]', 'agg' => nil },
+    'G.Metric' => { 'master' => 'G', 'ref' => '[master-geo/Metric]', 'agg' => 'Sum' }
+  }
+}
+azure_visual = lambda do |id, title, bindings|
+  { 'visual_id' => id, 'visual_type' => 'azureMap', 'title' => title,
+    'sigma_kind' => 'map', 'role_class' => 'chart', 'sigma_target' => 'map',
+    'viz_guidance' => nil, 'viz_catalog' => 'viz-kind', 'approximate' => false,
+    'orientation' => nil, 'x' => 0, 'y' => 0, 'w' => 400, 'h' => 300, 'z' => 0,
+    'parent_group' => nil, 'bindings' => bindings, 'sort' => nil, 'stacking' => nil,
+    'formats' => {}, 'data_labels' => nil, 'legend' => true }
+end
+azure_signals = {
+  'source' => 'powerbi', 'pages' => [{
+    'page_id' => 'p0', 'page_title' => 'Coordinate Maps', 'page_w' => 1280, 'page_h' => 720,
+    'interactions' => [], 'visuals' => [
+      azure_visual.call('map-no-size', 'Coordinate Map', {
+                          'X' => ['G.Coordinate A'], 'Y' => ['G.Coordinate B'],
+                          'Series' => ['G.Group']
+                        }),
+      azure_visual.call('map-sized', 'Sized Coordinate Map', {
+                          'X' => ['G.Coordinate A'], 'Y' => ['G.Coordinate B'],
+                          'Series' => ['G.Group'], 'Size' => ['G.Metric']
+                        })
+    ]
+  }]
+}
+out5, cov5 = run_builder(sig: azure_signals, mmap: geo_mmap)
+els5 = out5.dig('document', 'elements')
+plain_map = els5.find { |e| e['name'] == 'Coordinate Map' }
+sized_map = els5.find { |e| e['name'] == 'Sized Coordinate Map' }
+check(plain_map && sized_map && [plain_map, sized_map].all? { |e| e['kind'] == 'point-map' },
+      'raw legacy azureMap X/Y signals build native Sigma point maps', fails)
+check(plain_map && plain_map.dig('latitude', 'columnId') && plain_map.dig('longitude', 'columnId'),
+      'Azure Y binds latitude and X binds longitude', fails)
+plain_lat = plain_map && plain_map['columns'].find { |c| c['id'] == plain_map.dig('latitude', 'columnId') }
+plain_lng = plain_map && plain_map['columns'].find { |c| c['id'] == plain_map.dig('longitude', 'columnId') }
+check(plain_lat && plain_lat['formula'] == '[master-geo/Coordinate B]' &&
+      plain_lng && plain_lng['formula'] == '[master-geo/Coordinate A]',
+      'coordinate role normalization is semantic and independent of column naming', fails)
+check(plain_map && !plain_map.key?('size'),
+      'latitude Y is never reused as bubble size when no Size role exists', fails)
+size_col = sized_map && sized_map['columns'].find { |c| c['id'] == sized_map.dig('size', 'columnId') }
+check(size_col && size_col['formula'] == 'Sum([master-geo/Metric])',
+      'an explicit Azure Size role independently drives bubble size', fails)
+color_col = plain_map && plain_map['columns'].find { |c| c['id'] == plain_map.dig('color', 'column') }
+check(plain_map && plain_map.dig('color', 'by') == 'category' &&
+      color_col && color_col['formula'] == '[master-geo/Group]' &&
+      plain_map.dig('legend', 'visibility') == 'shown',
+      'Azure Series becomes categorical point color with a visible legend', fails)
+check(Array(cov5['unresolved']).none? { |u| %w[Coordinate\ Map Sized\ Coordinate\ Map].include?(u['visual']) },
+      'correctly bound Azure Maps emit no false bar-approximation coverage entry', fails)
+check(cov5.dig('summary', 'sourceBindings') == 7 && cov5.dig('summary', 'resolvedBindings') == 7,
+      'all seven source coordinate/size/series bindings are honestly resolved', fails)
+
+# =============================================================================
+# Scenario 6: Azure Map without coordinates/geocodable metadata downgrades to a
+# DATA-PRESERVING bar. Series becomes the category and Size becomes Y; the
+# consumed Series must not also emit a color legend/control.
+# =============================================================================
+fallback_signals = {
+  'source' => 'powerbi', 'pages' => [{
+    'page_id' => 'p0', 'page_title' => 'Fallback Map', 'page_w' => 1280, 'page_h' => 720,
+    'interactions' => [], 'visuals' => [
+      azure_visual.call('map-fallback', 'Group Magnitude', {
+                          'Series' => ['G.Group'], 'Size' => ['G.Metric']
+                        })
+    ]
+  }]
+}
+out6, cov6 = run_builder(sig: fallback_signals, mmap: geo_mmap)
+els6 = out6.dig('document', 'elements')
+fallback = els6.find { |e| e['name'] == 'Group Magnitude' }
+check(fallback && fallback['kind'] == 'bar-chart',
+      'coordinate-less Azure Map uses the documented bar fallback', fails)
+fallback_y = fallback && fallback['columns'].find { |c| Array(fallback.dig('yAxis', 'columnIds')).include?(c['id']) }
+check(fallback_y && fallback_y['formula'] == 'Sum([master-geo/Metric])',
+      "Azure Size survives downgrade as the bar measure (got #{fallback_y && fallback_y['formula']})", fails)
+fallback_x = fallback && fallback['columns'].find { |c| c['id'] == fallback.dig('xAxis', 'columnId') }
+check(fallback_x && fallback_x['formula'] == '[master-geo/Group]' && !fallback.key?('color'),
+      'Azure Series is consumed as the bar category, not duplicated as color', fails)
+check(els6.none? { |e| e['kind'] == 'control' && e['controlType'] == 'legend' },
+      'no dependent legend control is emitted for the consumed Series role', fails)
+fallback_cov = Array(cov6['unresolved']).find { |u| u['visual'] == 'Group Magnitude' }
+check(fallback_cov && fallback_cov['severity'] == 'approximated' &&
+      Array(cov6['unresolved']).none? { |u| u['visual'] == 'Group Magnitude' && u['detail'].to_s.include?('no measure') },
+      'coverage records only the honest map→bar approximation, not a missing-measure defect', fails)
+
 puts
 puts(fails.empty? ? 'ALL PASS' : "#{fails.size} FAILURE(S)")
 fails.each { |f| puts "  - #{f}" }

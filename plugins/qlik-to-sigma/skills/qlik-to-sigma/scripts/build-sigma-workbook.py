@@ -277,6 +277,7 @@ def build_control(lb, resolve, mcol_id, raw_of, warnings, scope, unbound, seen_f
     # GLOBAL associative reach.
     scope.append({"controlId": ctl_id, "sourceName": sig, "status": "wired",
                   "controlType": el["controlType"], "scope": "page", "mustReach": [],
+                  "synthesized": bool(lb.get("_synth")),
                   "wired": [{"elementId": MASTER_ID, "columnId": cid}]})
     return el
 
@@ -663,19 +664,19 @@ def build_element(c, resolve, warnings, metrics=None):
         if rtype is None:
             warnings.append(f"skip '{title}' (map): region grain '{dims_raw[0]}' not recognized (us-state/country)")
             return None
-        el["region"] = {"id": dim_ids[0], "regionType": rtype}
+        el["region"] = {"columnId": dim_ids[0], "regionType": rtype}
         el["color"] = {"by": "scale", "column": mids[0]}
         return apply_presentation(el, c)
     if kind == "pivot-table":
         # cross-tab: first dim -> rowsBy, remaining dims -> columnsBy,
-        # measures -> values (bare column-id strings; rowsBy/columnsBy = {id})
+        # measures -> values (bare column-id strings; shelves use {columnId})
         el["values"] = mids
-        el["rowsBy"] = [{"id": dim_ids[0]}]
+        el["rowsBy"] = [{"columnId": dim_ids[0]}]
         if len(dim_ids) > 1:
-            el["columnsBy"] = [{"id": d} for d in dim_ids[1:]]
+            el["columnsBy"] = [{"columnId": d} for d in dim_ids[1:]]
         return apply_presentation(el, c)
     if kind in ("pie-chart", "donut-chart"):
-        el["value"] = {"id": mids[0]}; el["color"] = {"id": dim_ids[0]}
+        el["value"] = {"columnId": mids[0]}; el["color"] = {"columnId": dim_ids[0]}
         el["dataLabel"] = {"labels": "shown"}
         return apply_presentation(el, c)
     if kind == "combo-chart":
@@ -689,7 +690,7 @@ def build_element(c, resolve, warnings, metrics=None):
         el["xAxis"] = {"columnId": dim_ids[0]}
         el["yAxis"] = {"columnIds": mids}
         if len(dim_ids) > 1:
-            el["splitBy"] = {"id": dim_ids[1]}
+            el["splitBy"] = {"columnId": dim_ids[1]}
         if vt == "distributionplot":
             el["boxShape"] = {"points": "all-points"}
         return apply_presentation(el, c)
@@ -724,7 +725,7 @@ def build_element(c, resolve, warnings, metrics=None):
                   "xAxis": {"columnId": s_x["id"]}, "yAxis": {"columnIds": [s_y["id"]]},
                   "color": {"by": "category", "column": s_dim["id"]}}
             if len(mids) >= 3:
-                s_sz = _raw(mids[2]); scols.append(s_sz); sc["size"] = {"id": s_sz["id"]}
+                s_sz = _raw(mids[2]); scols.append(s_sz); sc["size"] = {"columnId": s_sz["id"]}
             sc["columns"] = scols
             cc = qlik_color(c.get("color"), [s_dim["id"]], [s_x["id"], s_y["id"]], sc)
             if cc: sc["color"] = cc
@@ -1052,6 +1053,16 @@ def main():
                           "(default: control-scope.json next to --spec-out)")
     ap.add_argument("--coverage-out", default=None,
                     help="source-visual coverage report (default: workbook-coverage.json next to --spec-out)")
+    ap.add_argument("--synth-controls", choices=["auto", "all", "off"], default="auto",
+                    help="Cross-filter controls to approximate Qlik's GLOBAL associative model when the "
+                         "source app lacks filter widgets (Sigma has no authorable chart-mark click-filter, "
+                         "so controls are the mechanism). auto (default): synthesize a control bar from the "
+                         "most-used chart DIMENSION fields ONLY when the app has zero filterpanes/listboxes "
+                         "(no regression to apps that already have them — e.g. fills QlikView -prj + "
+                         "filterpane-less Sense). all: also top up apps that have some filters, to "
+                         "--synth-controls-max. off: strict port (only real Qlik filter widgets).")
+    ap.add_argument("--synth-controls-max", type=int, default=6,
+                    help="Cap on synthesized cross-filter controls (default 6).")
     a = ap.parse_args()
 
     charts = {c["id"]: c for c in json.load(open(a.charts))}
@@ -1146,6 +1157,67 @@ def main():
                                             scope, unbound, seen_fields)
                               for lb in lbs) if el]
 
+    # --- Synthesize cross-filter controls (associative-model approximation) ------
+    # Qlik cross-filters on ANY field via the global associative model; Sigma has
+    # no authorable chart-mark click-filter, so we recreate the "select anywhere,
+    # filter everywhere" UX with controls on the shared master. We fabricate a
+    # filterpane + child listboxes INTO `charts` (from the most-used chart
+    # dimension fields) so the normal controls_for/grid_layout/placement paths and
+    # control_lint handle them unchanged. auto: only when the app has zero real
+    # filter widgets (no regression); all: also top up; off: skip. Chart-mark
+    # click-filter stays a Sigma UI step (documented, not spec-authorable).
+    n_synth = 0
+    if a.synth_controls != "off":
+        real_fields, real_signals = set(), 0
+        for c in charts.values():
+            vt = c.get("vizType")
+            if vt == "listbox":
+                real_signals += 1
+                f = (c.get("listbox") or {}).get("field")
+                if f: real_fields.add(f)
+            elif vt == "filterpane":
+                real_signals += 1
+                for ch in (c.get("children") or []):
+                    f = ((charts.get(ch) or {}).get("listbox") or {}).get("field")
+                    if f: real_fields.add(f)
+        if a.synth_controls == "all" or real_signals == 0:
+            usage, labels = {}, {}
+            for c in charts.values():
+                if c.get("vizType") not in CHARTY:
+                    continue
+                dlabs = c.get("dimLabels") or []
+                for i, grp in enumerate(c.get("dimensions") or []):
+                    f = grp[0] if isinstance(grp, list) else grp
+                    if not f or not re.match(r"^[A-Za-z_][\w ]*$", str(f)):
+                        continue                                   # skip expression dims
+                    if f in real_fields or re.search(r"(^|_)(KEY|ID)$", str(f).upper()):
+                        continue                                   # already filtered / join-key
+                    dn = resolve(f)
+                    if dn is None or dn not in mcol_id:
+                        continue                                   # must resolve to a master column
+                    usage[f] = usage.get(f, 0) + 1
+                    labels.setdefault(f, dlabs[i] if i < len(dlabs) and dlabs[i] else f)
+            ranked = sorted(usage, key=lambda f: (-usage[f], str(f)))[:max(0, a.synth_controls_max)]
+            if ranked:
+                kids = []
+                for f in ranked:
+                    lid = "synth-lb-" + re.sub(r"[^a-z0-9]", "", str(f).lower())
+                    charts[lid] = {"id": lid, "vizType": "listbox", "title": labels[f],
+                                   "_synth": True,
+                                   "listbox": {"field": f, "label": labels[f], "state": None}}
+                    kids.append(lid)
+                charts["synth-fp"] = {"id": "synth-fp", "vizType": "filterpane", "title": "Filters",
+                                      "_synth": True, "children": kids}
+                n_synth = len(kids)
+                if sheets:
+                    sheets[0].setdefault("cells", []).insert(
+                        0, {"objectId": "synth-fp", "col": 0, "row": 0, "colspan": 24, "rowspan": 2})
+                warnings.append(
+                    f"synthesized {n_synth} cross-filter control(s) from chart dimensions "
+                    f"(associative-model approximation; --synth-controls={a.synth_controls}): "
+                    + ", ".join(labels[f] for f in ranked)
+                    + " - in-chart mark-click filtering remains a Sigma UI step (not spec-authorable)")
+
     # Base children owned by a trellis-container are emitted THROUGH the
     # container (one faceted element), never standalone.
     tr_children = trellis_child_ids(charts)
@@ -1164,7 +1236,7 @@ def main():
                 if cell["objectId"] in tr_children: continue   # emitted via its container
                 if cell["objectId"] in container_children: continue  # emitted in its parent's tab
                 if c["vizType"] in ("filterpane", "listbox"):
-                    n_signals += 1
+                    if not c.get("_synth"): n_signals += 1   # synthesized controls aren't source signals
                     ctls = controls_for(c)
                     for i, ctl in enumerate(ctls):
                         elems.append(ctl)
@@ -1200,7 +1272,7 @@ def main():
             nav = None
             if len(sheets) > 1:
                 nav = {"id": f"nav-{pid}", "kind": "navigation", "mode": "auto",
-                       "pageLabels": {}}
+                       "pageLabels": []}
                 elems.insert(0, nav)
                 nav_elements.append(nav)
             xml, extra = grid_layout(pid, sheet, placed,
@@ -1221,7 +1293,7 @@ def main():
             if c["id"] in tr_children or c["id"] in container_children:
                 continue   # child emitted through its owning composition object
             if c["vizType"] == "filterpane" or (c["vizType"] == "listbox" and c["id"] not in child_ids):
-                n_signals += 1
+                if not c.get("_synth"): n_signals += 1   # synthesized controls aren't source signals
                 ctls = controls_for(c)
                 elems.extend(ctls)
                 layout_elems.extend(ctls)
@@ -1258,8 +1330,8 @@ def main():
         page_elements[pid] = page_els
         layout_pages.append(xml)
 
-    page_labels = {page["id"]: page["name"] for page in pages
-                   if page["id"] != "page-data"}
+    page_labels = [{"pageId": page["id"], "label": page["name"]} for page in pages
+                   if page["id"] != "page-data"]
     for nav in nav_elements:
         nav["pageLabels"] = page_labels
 
@@ -1336,6 +1408,7 @@ def main():
     scope_path = a.control_scope_out or os.path.join(
         os.path.dirname(os.path.abspath(a.spec_out)), "control-scope.json")
     json.dump({"version": 1, "source": "qlik", "sourceFilterSignals": n_signals,
+                "synthesizedCount": sum(1 for sc in scope if sc.get("synthesized")),
                 "controls": scope, "unbound": unbound},
                open(scope_path, "w"), indent=2)
 

@@ -98,6 +98,7 @@ Tableau wb `<workbook-luid>`, Sigma DM `<dm-id>`.
     {"path": "workbook-content.twb", "format": "xml"},
     {"path": "get-workbook.json", "format": "json"},
     {"path": "master-columns.json", "format": "json"},
+    {"path": "checks.sh", "format": "text"},
     {"path": "views/939579b7-3a5e-4eef-8d4e-7be678adefeb.csv", "format": "text"},
     {"path": "views/446cd366-7aba-4c64-8dd0-75633d0c4b92.csv", "format": "text"},
     {"path": "views/20340dc0-4194-4530-8317-d72a24a1bcaa.csv", "format": "text"},

@@ -11,11 +11,15 @@ optimistically — a function with no Sigma equivalent surfaces as a type=error 
 when the workbook is read back. Use this to confirm a candidate replacement resolves.
 
     python3 scout-validate.py \
-      --formula 'CumulativeSum([Master/Net Revenue])' \
+      --formula 'CumulativeSum([Orders/Net Revenue])' \
       --data-model-id <dm> --element-id <denorm-elem-id> --folder-id <folder> \
       --feature 'RunningSum' --pattern '\\bRunningSum\\s*\\(' \
-      --template 'CumulativeSum([Master/\\1])' --hint 'date-grouped element' \
+      --template 'CumulativeSum([Orders/\\1])' --hint 'date-grouped element' \
       --description 'MSTR RunningSum -> Sigma CumulativeSum' --home ~/.microstrategy-to-sigma
+
+`Orders` is the converter's default `--join-element-name`. Replace it in both
+formula arguments when the conversion used another join-element name; formula
+prefixes are element names, never ids or a generic `Master` alias.
 
 To feed the run-each-time gap-scout gate (), also pass the
 error column's gate id and the conversion working dir — the result is appended to

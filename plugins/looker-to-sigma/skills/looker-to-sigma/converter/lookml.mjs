@@ -1,4 +1,4 @@
-// ../../../tmp/converter-source/build/sigma-ids.js
+// ../../../tmp/converter-src/converter-source/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
 var _idCounter = 0;
@@ -130,7 +130,7 @@ function makeRlsSecurity(opts) {
   };
 }
 
-// ../../../tmp/converter-source/build/formulas.js
+// ../../../tmp/converter-src/converter-source/build/formulas.js
 function stripOuterParens(s) {
   s = s.trim();
   while (s.length > 1 && s.startsWith("(") && s.endsWith(")")) {
@@ -931,7 +931,7 @@ function lookSigmaMetric(measureType, colName) {
   return map[(measureType || "").toLowerCase()] || `CountIf(IsNotNull([${dn}]))`;
 }
 
-// ../../../tmp/converter-source/build/lookml.js
+// ../../../tmp/converter-src/converter-source/build/lookml.js
 function lookmlNamedFormat(name) {
   const n = name.trim().toLowerCase();
   const CUR = { usd: "$", gbp: "\xA3", eur: "\u20AC", cad: "$", aud: "$" };
@@ -1390,10 +1390,14 @@ function lookFindColId(elementResult, colName) {
 }
 function lookParseFilterExpr(expr, columnId) {
   expr = (expr || "").trim();
-  if (/^NULL$/i.test(expr))
+  if (/^(?:IS\s+)?NULL$/i.test(expr))
     return { id: sigmaShortId(), columnId, kind: "list", mode: "include", values: [null] };
-  if (/^NOT\s+NULL$/i.test(expr))
+  if (/^(?:(?:IS\s+)?NOT\s+NULL|-NULL)$/i.test(expr))
     return { id: sigmaShortId(), columnId, kind: "list", mode: "exclude", values: [null] };
+  if (/^EMPTY$/i.test(expr))
+    return { id: sigmaShortId(), columnId, kind: "list", mode: "include", values: [null, ""] };
+  if (/^(?:(?:IS\s+)?NOT\s+EMPTY|-EMPTY)$/i.test(expr))
+    return { id: sigmaShortId(), columnId, kind: "list", mode: "exclude", values: [null, ""] };
   if (/^\d+\s+(second|minute|hour|day|week|month|quarter|year)s?$/i.test(expr))
     return null;
   if (/^(this|last|next|current)\s+/i.test(expr))
@@ -1405,10 +1409,10 @@ function lookParseFilterExpr(expr, columnId) {
   if (/^[\[(]/.test(expr))
     return null;
   if (expr.startsWith("-")) {
-    const vals2 = expr.slice(1).split(/\s*,\s*-?\s*/).map((v) => v.replace(/^"|"$/g, "").trim()).filter(Boolean);
+    const vals2 = expr.slice(1).split(/\s*,\s*-?\s*/).map((v) => v.replace(/^"|"$/g, "").trim()).filter(Boolean).flatMap((v) => /^NULL$/i.test(v) ? [null] : /^EMPTY$/i.test(v) ? [null, ""] : [v]);
     return { id: sigmaShortId(), columnId, kind: "list", mode: "exclude", values: vals2 };
   }
-  const vals = expr.split(",").map((v) => v.replace(/^"|"$/g, "").trim()).filter(Boolean);
+  const vals = expr.split(",").map((v) => v.replace(/^"|"$/g, "").trim()).filter(Boolean).flatMap((v) => /^NULL$/i.test(v) ? [null] : /^EMPTY$/i.test(v) ? [null, ""] : [v]);
   if (vals.length > 0)
     return { id: sigmaShortId(), columnId, kind: "list", mode: "include", values: vals };
   return null;
@@ -1565,6 +1569,74 @@ function lookResolveParamSubst(sql, paramDefaults) {
     return full;
   });
   return { sql: out, resolved: changed };
+}
+function lookCollectDynamicParameters(views) {
+  const out = [];
+  for (const [viewName, view] of Object.entries(views)) {
+    const params = view.parameter ? Array.isArray(view.parameter) ? view.parameter : [view.parameter] : [];
+    const defaults = /* @__PURE__ */ new Map();
+    for (const p of params) {
+      if (p?._name && p.default_value != null)
+        defaults.set(p._name.toLowerCase(), String(p.default_value));
+    }
+    const fields = [];
+    for (const [kind, raw] of [["dimension", view.dimension], ["dimension_group", view.dimension_group], ["measure", view.measure]]) {
+      const entries = raw ? Array.isArray(raw) ? raw : [raw] : [];
+      for (const field of entries) {
+        if (field?._name && typeof field.sql === "string")
+          fields.push({ kind, field });
+      }
+    }
+    for (const p of params) {
+      if (!p?._name)
+        continue;
+      const allowedRaw = p.allowed_value ? Array.isArray(p.allowed_value) ? p.allowed_value : [p.allowed_value] : [];
+      const allowedValues = allowedRaw.map((entry) => ({
+        label: String(entry?.label ?? entry?.value ?? entry?._name ?? ""),
+        value: String(entry?.value ?? entry?._name ?? "")
+      })).filter((entry) => entry.value);
+      const affectedFields = [];
+      for (const { kind, field } of fields) {
+        const sourceSql = field.sql;
+        const escaped = p._name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const liquidRef = new RegExp(`\\b${escaped}(?:\\._parameter_value)?\\b`, "i");
+        const substRef = new RegExp(`\\$\\{${escaped}\\}`, "i");
+        if (!liquidRef.test(sourceSql) && !substRef.test(sourceSql))
+          continue;
+        const branches = {};
+        for (const allowed of allowedValues) {
+          const values = new Map(defaults);
+          values.set(p._name.toLowerCase(), allowed.value);
+          const liquid = lookResolveLiquidIf(sourceSql, values);
+          let branchSql = liquid.resolved ? liquid.sql : sourceSql;
+          const substituted = lookResolveParamSubst(branchSql, values);
+          if (substituted.resolved)
+            branchSql = substituted.sql;
+          if (!/\{%|\{\{|\$\{(?!TABLE\})[A-Za-z_][A-Za-z0-9_]*\}/i.test(branchSql))
+            branches[allowed.value] = branchSql.replace(/\s+/g, " ").trim();
+        }
+        affectedFields.push({
+          field: `${viewName}.${field._name}`,
+          label: field.label || sigmaDisplayName(field._name),
+          kind,
+          sourceSql,
+          branches,
+          deterministic: allowedValues.length > 0 && Object.keys(branches).length === allowedValues.length
+        });
+      }
+      if (affectedFields.length) {
+        out.push({
+          view: viewName,
+          name: p._name,
+          type: p.type || "string",
+          defaultValue: p.default_value != null ? String(p.default_value) : allowedValues[0]?.value,
+          allowedValues,
+          affectedFields
+        });
+      }
+    }
+  }
+  return out;
 }
 function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap, ndtContext) {
   if (!view) {
@@ -2284,6 +2356,7 @@ function convertLookMLToSigma(files, options = {}) {
       throw new Error(`Parse error in ${file.name}: ${e.message}`);
     }
   }
+  const dynamicParameters = lookCollectDynamicParameters(views);
   let exploreName = options.exploreName;
   const exploreNames = Object.keys(explores);
   if (exploreNames.length === 0) {
@@ -2306,6 +2379,7 @@ function convertLookMLToSigma(files, options = {}) {
     return {
       model,
       warnings,
+      ...dynamicParameters.length ? { dynamicParameters } : {},
       ...security.length ? { security } : {},
       stats: {
         views: viewNames.length,
@@ -2641,6 +2715,7 @@ function convertLookMLToSigma(files, options = {}) {
   return {
     model: sigmaModel,
     warnings,
+    ...dynamicParameters.length ? { dynamicParameters } : {},
     ...security.length ? { security } : {},
     stats: {
       views: Object.keys(views).length,

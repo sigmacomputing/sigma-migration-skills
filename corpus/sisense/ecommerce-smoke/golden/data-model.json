@@ -1,0 +1,244 @@
+{
+  "name": "Sample ECommerce (from Sisense)",
+  "pages": [
+    {
+      "id": "id0001",
+      "name": "Model",
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "table",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "SISENSE_ECOMMERCE",
+              "COUNTRY"
+            ]
+          },
+          "columns": [
+            {
+              "id": "id0003",
+              "formula": "[COUNTRY/Country]",
+              "name": "Country"
+            },
+            {
+              "id": "id0004",
+              "formula": "[COUNTRY/Country ID]",
+              "name": "Country ID"
+            }
+          ],
+          "name": "Country",
+          "order": [
+            "id0003",
+            "id0004"
+          ]
+        },
+        {
+          "id": "id0005",
+          "kind": "table",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "SISENSE_ECOMMERCE",
+              "CATEGORY"
+            ]
+          },
+          "columns": [
+            {
+              "id": "id0006",
+              "formula": "[CATEGORY/Category]",
+              "name": "Category"
+            },
+            {
+              "id": "id0007",
+              "formula": "[CATEGORY/Category ID]",
+              "name": "Category ID"
+            }
+          ],
+          "name": "Category",
+          "order": [
+            "id0006",
+            "id0007"
+          ]
+        },
+        {
+          "id": "id0008",
+          "kind": "table",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "SISENSE_ECOMMERCE",
+              "BRAND"
+            ]
+          },
+          "columns": [
+            {
+              "id": "id0009",
+              "formula": "[BRAND/Brand]",
+              "name": "Brand"
+            },
+            {
+              "id": "id0010",
+              "formula": "[BRAND/Brand ID]",
+              "name": "Brand ID"
+            }
+          ],
+          "name": "Brand",
+          "order": [
+            "id0009",
+            "id0010"
+          ],
+          "metrics": [
+            {
+              "name": "Distinct Brands",
+              "formula": "CountDistinct([Brand])"
+            }
+          ]
+        },
+        {
+          "id": "id0011",
+          "kind": "table",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "DEMO_DB",
+              "SISENSE_ECOMMERCE",
+              "COMMERCE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "id0012",
+              "formula": "[COMMERCE/Age Range]",
+              "name": "Age Range"
+            },
+            {
+              "id": "id0013",
+              "formula": "[COMMERCE/Cost]",
+              "name": "Cost"
+            },
+            {
+              "id": "id0014",
+              "formula": "[COMMERCE/Brand ID]",
+              "name": "Brand ID"
+            },
+            {
+              "id": "id0015",
+              "formula": "[COMMERCE/Category ID]",
+              "name": "Category ID"
+            },
+            {
+              "id": "id0016",
+              "formula": "[COMMERCE/Condition]",
+              "name": "Condition"
+            },
+            {
+              "id": "id0017",
+              "formula": "[COMMERCE/Country ID]",
+              "name": "Country ID"
+            },
+            {
+              "id": "id0018",
+              "formula": "[COMMERCE/Date]",
+              "name": "Date"
+            },
+            {
+              "id": "id0019",
+              "formula": "[COMMERCE/Gender]",
+              "name": "Gender"
+            },
+            {
+              "id": "id0020",
+              "formula": "[COMMERCE/Quantity]",
+              "name": "Quantity"
+            },
+            {
+              "id": "id0021",
+              "formula": "[COMMERCE/Revenue]",
+              "name": "Revenue"
+            },
+            {
+              "id": "id0022",
+              "formula": "[COMMERCE/Visit ID]",
+              "name": "Visit ID"
+            }
+          ],
+          "name": "Commerce",
+          "order": [
+            "id0012",
+            "id0013",
+            "id0014",
+            "id0015",
+            "id0016",
+            "id0017",
+            "id0018",
+            "id0019",
+            "id0020",
+            "id0021",
+            "id0022"
+          ],
+          "relationships": [
+            {
+              "id": "id0023",
+              "targetElementId": "id0005",
+              "keys": [
+                {
+                  "sourceColumnId": "id0015",
+                  "targetColumnId": "id0007"
+                }
+              ],
+              "name": "CATEGORY"
+            },
+            {
+              "id": "id0024",
+              "targetElementId": "id0002",
+              "keys": [
+                {
+                  "sourceColumnId": "id0017",
+                  "targetColumnId": "id0004"
+                }
+              ],
+              "name": "COUNTRY"
+            },
+            {
+              "id": "id0025",
+              "targetElementId": "id0008",
+              "keys": [
+                {
+                  "sourceColumnId": "id0014",
+                  "targetColumnId": "id0010"
+                }
+              ],
+              "name": "BRAND"
+            }
+          ],
+          "metrics": [
+            {
+              "name": "Total Revenue",
+              "formula": "Sum([Revenue])"
+            },
+            {
+              "name": "Total Quantity",
+              "formula": "Sum([Quantity])"
+            },
+            {
+              "name": "Avg Order Value",
+              "formula": "Sum([Revenue])/Count([Visit ID])"
+            },
+            {
+              "name": "Revenue per Unit",
+              "formula": "Sum([Revenue])/Sum([Quantity])"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

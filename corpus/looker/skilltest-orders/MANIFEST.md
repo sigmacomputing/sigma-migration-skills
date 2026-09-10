@@ -37,7 +37,8 @@ for the model + both view files, empty explore_name/join_strategy/connection_id.
     {"path": "../../../plugins/looker-to-sigma/skills/looker-to-sigma/fixtures/skilltest-orders/skilltest_orders.model.lkml", "format": "text"},
     {"path": "../../../plugins/looker-to-sigma/skills/looker-to-sigma/fixtures/skilltest-orders/views/order_fact.view.lkml", "format": "text"},
     {"path": "../../../plugins/looker-to-sigma/skills/looker-to-sigma/fixtures/skilltest-orders/views/customer_dim.view.lkml", "format": "text"},
-    {"path": "../../../plugins/looker-to-sigma/skills/looker-to-sigma/fixtures/skilltest-orders/skilltest_orders.dashboard.lookml", "format": "text"}
+    {"path": "../../../plugins/looker-to-sigma/skills/looker-to-sigma/fixtures/skilltest-orders/skilltest_orders.dashboard.lookml", "format": "text"},
+    {"path": "checks.sh", "format": "text"}
   ],
   "goldens": {
     "data-model.json": {

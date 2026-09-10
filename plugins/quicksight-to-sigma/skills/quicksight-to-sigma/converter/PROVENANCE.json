@@ -4,7 +4,7 @@
   "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
   "local_patches": [
     {
-      "commit": "undocumented \u2014 predates this ledger; discovered 2026-07-31",
+      "commit": "undocumented — predates this ledger; discovered 2026-07-31",
       "upstream_pr": null,
       "summary": "Native Sigma window-function lowering for SELF-CONTAINED (unpartitioned) rank / denseRank / percentileRank / percentOfTotal. Present ONLY in this vendored bundle: upstream src/quicksight.ts lists these in its cannot-be-lower-to-DM set and has never had the mapping (git log -S denseRank shows a single commit, the original converter). A naive re-vendor DROPS this feature and breaks scripts/test-window-native.rb (rank/denseRank/percentileRank/percentOfTotal all fall to Null). Verified 2026-07-31 by re-vendoring at 2f8c6cd and observing exactly those failures. Port the mapping upstream, then re-vendor and retire this entry.",
       "changes": [
@@ -14,6 +14,5 @@
         "unpartitioned percentOfTotal -> PercentOfTotal(..., \"grand_total\")"
       ]
     }
-  ],
-  "bundle_sha256": "ccd0441144205caee026542111c2a6430545beb228c4297854a6643c7a1f0ae6"
+  ]
 }

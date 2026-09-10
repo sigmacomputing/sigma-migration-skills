@@ -47,6 +47,19 @@ def green_workdir(dir)
   File.write(File.join(dir, 'parity-final.json'), JSON.pretty_generate(parity))
   File.binwrite(File.join(dir, 'sigma-render.png'), "\x89PNG\r\n\x1a\n".b + ("\x00".b * 6000))
   BlindFixture.install(dir) # PR-9: gate 8b refuses a self-attested visual pass
+  object = {
+    'type' => 'dashboard', 'id' => 'dashboard:fixture', 'name' => 'Fixture',
+    'status' => 'migrated',
+    'evidence' => [{ 'artifact' => 'wb-readback.json', 'detail' => 'sentinel fixture' }]
+  }
+  counts = %w[migrated approximated needs-review skipped not-applicable]
+           .to_h { |status| [status, status == 'migrated' ? 1 : 0] }
+  summary = { 'total' => 1, 'accounted' => 1, 'complete' => true, 'counts' => counts }
+  File.write(File.join(dir, 'source-object-census.json'),
+             JSON.generate('summary' => summary, 'objects' => [object]))
+  File.write(File.join(dir, 'migration-result.json'),
+             JSON.generate('verdict' => 'GREEN', 'summary' => summary,
+                           'source_objects' => [object.reject { |key, _| key == 'evidence' }]))
 end
 
 # Loopback Sigma stub: /spec returns a one-band workbook whose layout lints

@@ -29,7 +29,7 @@
 #                       in a workbook spec's pages[].elements[]
 #
 # Per chart zone, the script reads the matching view CSV's first two headers
-# (dim + measure). It then:
+# (dim + measure); flat tables retain every header. It then:
 #   - Maps each header to a master column using the regex map.
 #   - Picks the Sigma element `kind` from chart_kind (with `automatic` → bar
 #     fallback + a warning to verify against the PNG). A VERIFIED per-tile kind
@@ -74,6 +74,9 @@ require_relative 'lib/kpi_comparison_detect' # Task 5: prior/target comparison-m
 require_relative 'lib/action_ledger' # workbook-wide action id registry + validate/manifest
 require_relative 'lib/action_column_resolver' # Task 5: raw Tableau source-field ref -> emitted Sigma column name
 require 'erb'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 opts = { master_id: 'master' }
 OptionParser.new do |p|
@@ -81,6 +84,7 @@ OptionParser.new do |p|
   p.on('--layout PATH')             { |v| opts[:layout] = v }
   p.on('--meta PATH', 'parse-twb-layout sister meta file (worksheets+shared_filters)') { |v| opts[:meta] = v }
   p.on('--master-map PATH')         { |v| opts[:mmap] = v }
+  p.on('--grain-plan PATH', 'Single-datasource logical-table grain plan (worksheet -> DM source routing)') { |v| opts[:grain_plan] = v }
   p.on('--master-element-id ID')    { |v| opts[:master_id] = v }
   p.on('--controls PATH', 'JSON file: array of control specs to emit alongside the chart elements') { |v| opts[:controls] = v }
   p.on('--title STR',     'Dashboard title text element to emit (e.g., "Orders Dashboard")')         { |v| opts[:title] = v }
@@ -243,6 +247,34 @@ PNG_KIND = begin
     end
   else
     {} # absent / draft / waived read ⇒ no overrides; shelf inference stands
+  end
+rescue StandardError
+  {}
+end
+
+# Optional source-image-confirmed small-multiple/facet signal. Keep `title` as
+# the Tableau worksheet caption; operators may add `worksheet` explicitly when
+# the rendered title differs. String form means one column facet; object form
+# can choose rows/cols/grid:
+#   {"title":"Sheet 2","trellis":"Department"}
+#   {"worksheet":"Sheet 2","trellis":{"field":"Department","orientation":"cols"}}
+PNG_TRELLIS = begin
+  pr = (JSON.parse(File.read(DashboardRead.path(opts[:tab]))) rescue nil)
+  if pr.is_a?(Hash) && pr['verified'] != false && pr['tiles'].is_a?(Array)
+    pr['tiles'].each_with_object({}) do |tile, out|
+      next unless tile.is_a?(Hash) && tile['trellis']
+      key = (tile['worksheet'] || tile['title']).to_s.downcase.strip
+      next if key.empty?
+      raw = tile['trellis']
+      out[key] =
+        if raw.is_a?(Hash)
+          { 'field' => raw['field'] || raw['column'], 'orientation' => raw['orientation'] || 'cols' }
+        else
+          { 'field' => raw.to_s, 'orientation' => 'cols' }
+        end
+    end
+  else
+    {}
   end
 rescue StandardError
   {}
@@ -1189,6 +1221,36 @@ views  = gw.dig('views', 'view') || []
 views  = [views] unless views.is_a?(Array)
 view_by_name = views.each_with_object({}) { |v, h| h[v['name']] = v }
 
+# Single-datasource logical-table grain routing. The orchestrator provides the
+# converter-derived source registry; CSV headers identify the worksheet grain
+# without guessing. Tableau's generated "Count of <logical table>" header is
+# authoritative because it names the table whose row grain Tableau counted.
+grain_plan = opts[:grain_plan] && File.exist?(opts[:grain_plan]) ?
+               (JSON.parse(File.read(opts[:grain_plan])) rescue nil) : nil
+if grain_plan && grain_plan['datasources'].is_a?(Array)
+  grain_plan['datasources'].each { |grain| grain['worksheets'] = [] }
+  views.each do |view|
+    csv_path = File.join(opts[:tab], 'views', "#{view['id']}.csv")
+    next unless File.exist?(csv_path)
+    headers = begin
+      CSV.open(csv_path, 'r', headers: true, encoding: 'bom|utf-8') { |csv| csv.first&.headers || [] }
+    rescue StandardError
+      []
+    end
+    hits = grain_plan['datasources'].select do |grain|
+      pattern = grain['count_pattern']
+      pattern && headers.any? { |header| Regexp.new(pattern).match?(header.to_s.strip) }
+    end
+    if hits.one?
+      hits.first['worksheets'] << view['name']
+    elsif hits.size > 1
+      warn "multi-grain: worksheet '#{view['name']}' has generated table-count headers for " \
+           "#{hits.map { |grain| grain['table'] }.join(', ')} — routing is ambiguous; left on default master"
+    end
+  end
+  File.write(opts[:grain_plan], JSON.pretty_generate(grain_plan))
+end
+
 # Translate a Tableau format-value string into a Sigma format hash. PR-12:
 # delegates to the shared lib/format_map.rb (the parser's translate_format
 # delegates there too — the old duplicated minimal translator had already
@@ -1771,8 +1833,8 @@ def enrich_window_calcs!(records, elements, ds_plan)
     cols_by_id = (el['columns'] || []).each_with_object({}) { |c, h| h[c['id']] = c }
     dim_ids = []
     dim_ids << el.dig('xAxis', 'columnId') if el.dig('xAxis', 'columnId')
-    dim_ids.concat(Array(el['rowsBy']).map { |x| x.is_a?(Hash) ? x['id'] : x })
-    dim_ids.concat(Array(el['columnsBy']).map { |x| x.is_a?(Hash) ? x['id'] : x })
+    dim_ids.concat(Array(el['rowsBy']).map { |x| x.is_a?(Hash) ? (x['columnId'] || x['id']) : x })
+    dim_ids.concat(Array(el['columnsBy']).map { |x| x.is_a?(Hash) ? (x['columnId'] || x['id']) : x })
     r['dims'] = dim_ids.compact.uniq.map { |cid| cols_by_id[cid] }.compact
                        .reject { |c| c['id'] == r['column_id'] }
                        .map { |c| { 'caption' => c['name'] } }
@@ -2761,8 +2823,8 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
                    'raw' => (field['column'] || field['raw']).to_s,
                    'shelf' => shelf } if target == :value && %w[usr user].include?(deriv)
     case target
-    when :row   then rows_by    << { 'id' => col_id }
-    when :col   then cols_by    << { 'id' => col_id }
+    when :row   then rows_by    << { 'columnId' => col_id }
+    when :col   then cols_by    << { 'columnId' => col_id }
     when :value then values_arr << col_id
     end
   end
@@ -2930,7 +2992,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       addr = ws_calc['ordering_field']
       axis_has_addr = lambda do |entries|
         entries.any? do |e|
-          c = cols_array.find { |x| x['id'] == e['id'] }
+          c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
           c && addr && nqs.call(c['name']) == nqs.call(addr)
         end
       end
@@ -2986,8 +3048,8 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
     inner_formulas = win_stage.map { |w| w['plan']['value_formula'] }.uniq
     non_window_vals = values_arr.reject { |vid| win_stage.any? { |w| w['col']['id'] == vid } }
     if inner_formulas.size == 1 && non_window_vals.empty?
-      row_dims = cols_array.select { |c| rows_by.any? { |r| r['id'] == c['id'] } }
-      col_dims = cols_array.select { |c| cols_by.any? { |r| r['id'] == c['id'] } }
+      row_dims = cols_array.select { |c| rows_by.any? { |r| (r['columnId'] || r['id']) == c['id'] } }
+      col_dims = cols_array.select { |c| cols_by.any? { |r| (r['columnId'] || r['id']) == c['id'] } }
       value_name = "#{inner_formulas.first[/\[Master\/([^\]]+)\]/, 1] || header_base(win_stage.first['col']['name'])} Window Base"
       helper, src_name = build_window_helper(
         el_id: el_id, master_id: opts[:master_id],
@@ -3054,7 +3116,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
     addr_cap = (meta['columns_by_guid'] || {}).dig(qc['addressing'].to_s, 'caption') || qc['addressing']
     axis_of = lambda do |entries|
       entries.any? do |e|
-        c = cols_array.find { |x| x['id'] == e['id'] }
+        c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
         c && addr_cap && nq.call(c['name']) == nq.call(addr_cap)
       end
     end
@@ -3085,7 +3147,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
     norm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
     axis = ss['shelf'].to_s == 'columns' ? cols_by : rows_by
     entry = axis.find do |e|
-      col = cols_array.find { |c| c['id'] == e['id'] }
+      col = cols_array.find { |c| c['id'] == (e['columnId'] || e['id']) }
       col && norm.call(col['name']) == norm.call(ss['dimension'])
     end
     next unless entry
@@ -3361,8 +3423,8 @@ def apply_topn_prefilter!(tp, element:, cap:, z:, opts:, warnings:, data_element
     hint = (meta['columns_by_guid'] || {}).dig(tp['entity_ref'], 'caption') || tp['entity_ref']
     entity_col = (element['columns'] || []).find { |c| norm.call(c['name']) == norm.call(hint) }
   end
-  entity_col ||= (element['rowsBy'] || []).map { |r| (element['columns'] || []).find { |c| c['id'] == r['id'] } }.compact.first ||
-                 (element['columnsBy'] || []).map { |r| (element['columns'] || []).find { |c| c['id'] == r['id'] } }.compact
+  entity_col ||= (element['rowsBy'] || []).map { |r| (element['columns'] || []).find { |c| c['id'] == (r['columnId'] || r['id']) } }.compact.first ||
+                 (element['columnsBy'] || []).map { |r| (element['columns'] || []).find { |c| c['id'] == (r['columnId'] || r['id']) } }.compact
                    .reject { |c| c['formula'].to_s =~ /\A\[Master\/Rank/i }.last
   members = topn_members_for(label, entity_col && entity_col['name'], opts, z,
                              element_cols: element['columns'] || [], own_view_id: own_view_id)
@@ -3422,7 +3484,7 @@ def apply_topn_prefilter!(tp, element:, cap:, z:, opts:, warnings:, data_element
     is_pivot = element['kind'] == 'pivot-table'
     shelf_ss = Array(z['shelf_sorts']).find { |ss| norm.call(ss['dimension']) == norm.call(entity_col['name']) }
     so_id = "p-#{element['id']}-sortord"
-    axis_entry = ((element['rowsBy'] || []) + (element['columnsBy'] || [])).find { |r| r['id'] == entity_col['id'] }
+    axis_entry = ((element['rowsBy'] || []) + (element['columnsBy'] || [])).find { |r| (r['columnId'] || r['id']) == entity_col['id'] }
     ordered = nil
     add_sortord = lambda do
       unless (element['columns'] || []).any? { |c| c['id'] == so_id }
@@ -3456,7 +3518,7 @@ def apply_topn_prefilter!(tp, element:, cap:, z:, opts:, warnings:, data_element
     # shares compute over the FULL domain, then marks hide. A share whose scope
     # spans the pruned axis (or the grand total) re-computes over only the kept
     # members here and INFLATES. Scope orthogonal to the entity axis is exact.
-    ent_on_cols = (element['columnsBy'] || []).any? { |r| r['id'] == entity_col['id'] }
+    ent_on_cols = (element['columnsBy'] || []).any? { |r| (r['columnId'] || r['id']) == entity_col['id'] }
     bad_scope = ent_on_cols ? 'row' : 'column'
     value_ids = element['values'] || element.dig('yAxis', 'columnIds') ||
                 # TABLE-kind elements carry values as plain columns (review-
@@ -5419,8 +5481,8 @@ layout.each do |dash|
         element['columns'] << { 'id' => "sz-#{el_id}", 'name' => size_field['name'],
                                 'formula' => "[#{src_name}/#{size_field['name']}]",
                                 'format' => num_fmt.call(size_field['name']) }
-        element['size'] = { 'id' => "sz-#{el_id}" }
-        warnings << "'#{cap}' scatter size shelf carries measure '#{size_field['name']}' — emitted size:{id} " \
+        element['size'] = { 'columnId' => "sz-#{el_id}" }
+        warnings << "'#{cap}' scatter size shelf carries measure '#{size_field['name']}' — emitted size:{columnId} " \
                     'over a grouped calculation on the hidden source (one value per point)'
       end
       unless rows.any? { |r| r[0].nil? || r[0].to_s.strip.empty? }
@@ -5714,11 +5776,78 @@ layout.each do |dash|
       # roll-up). And on a grouped table the sort MUST nest inside the grouping
       # entry — element-level sort 400s with "Sort column not found" (verified
       # shape, see qlik-to-sigma refs/sigma-build-gotchas.md; bead f972).
+      #
+      # Unlike charts, a flat detail table is not a dim+measure pair. Tableau's
+      # CSV contains every displayed field, often all discrete dimensions. Keep
+      # the first two columns built above (they carry the mature calc/format
+      # translation), then add every remaining header in source order.
+      aggregation_for = lambda do |header, column|
+        found = (z['aggregations'] || {}).find do |col_ref, _deriv|
+          token = strip_brackets(col_ref).to_s.strip
+          caption = (meta['columns_by_guid'] || {}).dig(token, 'caption').to_s.strip
+          names = [token, caption].reject(&:empty?)
+          names.any? do |name|
+            name.casecmp?(column['name'].to_s.strip) || name.casecmp?(header_base(header.to_s))
+          end
+        end
+        found&.last || infer_csv_agg(header)
+      end
+      if headers.length > 2 && chart_source_eid == opts[:master_id]
+        headers.drop(2).each_with_index do |header, offset|
+          header = header.to_s.strip
+          mapped = map_column(header, mmap) ||
+                   { 'id' => "m-#{header.downcase.gsub(/\W+/, '-')}", 'name' => header }
+          aliases = (meta['column_aliases'] || {})[mapped['name']] ||
+                    (meta['column_aliases'] || {})[header]
+          formula = if mapped['formula']
+                      mapped['formula']
+                    elsif aliases && !aliases.empty?
+                      parts = ["[Master/#{mapped['name']}]"]
+                      aliases.each { |a| parts << a['key'].inspect << a['value'].inspect }
+                      parts << "[Master/#{mapped['name']}]"
+                      "Switch(#{parts.join(', ')})"
+                    else
+                      "[Master/#{mapped['name']}]"
+                    end
+          agg = aggregation_for.call(header, mapped)
+          if DATE_TRUNC.key?(agg)
+            formula = %(DateTrunc("#{DATE_TRUNC[agg]}", #{formula}))
+          elsif agg && agg != 'None' && agg != 'User'
+            formula = render_agg(SIGMA_AGG[agg], formula)
+          end
+          column = {
+            'id' => "t#{offset + 2}-#{el_id}",
+            'name' => mapped['name'],
+            'formula' => formula
+          }
+          fmt = pick_tableau_format(z['formats'], header) ||
+                pick_column_default_format(mapped['name']) ||
+                (mapped['format'].is_a?(Hash) ? mapped['format'] : nil)
+          column['format'] = fmt if fmt
+          element['columns'] << column
+        end
+        warnings << "'#{cap}' flat table retained all #{headers.length} Tableau CSV columns (the chart-oriented path previously kept only two)"
+      elsif headers.length > 2
+        warnings << "'#{cap}' flat table has #{headers.length} Tableau CSV columns but sources a helper element; " \
+                    'only the first two were emitted because the remaining master refs are not reachable from that helper — rebuild the helper with every displayed column'
+      end
+
+      group_by = []
+      calculations = []
+      element['columns'].each_with_index do |column, index|
+        agg = aggregation_for.call(headers[index], column)
+        if agg.nil? || agg == 'None' || DATE_TRUNC.key?(agg)
+          column.delete('format') unless column['format'].is_a?(Hash) && column['format']['kind'] == 'datetime'
+          group_by << column['id']
+        else
+          calculations << column['id']
+        end
+      end
       grouping = {
         'id'           => "g-#{el_id}",
-        'groupBy'      => [dim_col_obj['id']],
-        'calculations' => [meas_col_obj['id']]
+        'groupBy'      => group_by
       }
+      grouping['calculations'] = calculations unless calculations.empty?
       if z['sort']
         dir = z.dig('sort', 'direction').to_s
         grouping['sort'] = [{
@@ -5729,8 +5858,8 @@ layout.each do |dash|
       end
       element['groupings'] = [grouping]
     elsif kind == 'pie-chart' || kind == 'donut-chart'
-      element['color'] = { 'id' => dim_col_obj['id'] }
-      element['value'] = { 'id' => meas_col_obj['id'] }
+      element['color'] = { 'columnId' => dim_col_obj['id'] }
+      element['value'] = { 'columnId' => meas_col_obj['id'] }
       # PR-12: per-element color.scheme is SILENTLY DROPPED on pie/donut — the
       # only slice-color path is themeOverrides.categoricalScheme, applied
       # positionally in category-sort order. ThemeDerive orders the theme from
@@ -8162,10 +8291,12 @@ unless opts[:pages_mode] == :worksheet
                       'control' => ctl['controlId'],
                       # The HOST element's columnId (not a bare column name):
                       # the live-probed shape is
-                      # {type: "column", column: <columnId>}. Resolved just
+                      # {type: "column", columnId: <columnId>}. Resolved just
                       # above against host_el['columns'] — see the
                       # HOST-COLUMN BINDING note there.
-                      'value'   => { 'type' => 'column', 'column' => col_id } }]
+                      # Renamed from `column` in the 2026-08-26 action field
+                      # rename; the bare `column` key is now rejected.
+                      'value'   => { 'type' => 'column', 'columnId' => col_id } }]
     }
     errs = ActionLedger.validate_action(action)
     raise "emitted an invalid parameter-action on #{host_el['id']}: #{errs.join('; ')}" if errs.any?
@@ -8260,11 +8391,12 @@ def deep_gsub!(node, from, to)
   node
 end
 
-def route_multi_ds!(elements, data_elements, plan, master_id, warnings, controls: [], id2name: {}, cbg: {}, mmap: {})
+def route_multi_ds!(elements, data_elements, plan, master_id, warnings, controls: [], id2name: {}, cbg: {}, mmap: {}, mode: 'multi-DS')
   routed = {}
   return routed unless plan && plan['datasources'].is_a?(Array) && plan['datasources'].size > 1
   norm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
-  dominant = plan['datasources'].max_by { |d| (d['worksheets'] || []).size }
+  dominant = plan['datasources'].find { |d| d['default'] } ||
+             plan['datasources'].max_by { |d| (d['worksheets'] || []).size }
   ws_to_ds = {}
   plan['datasources'].each do |d|
     next if d == dominant
@@ -8365,23 +8497,23 @@ def route_multi_ds!(elements, data_elements, plan, master_id, warnings, controls
             next unless cons.dig('source', 'elementId') == el['id']
             splice_strings.call(cons, wrap_c, "[#{el['name']}/#{cn}]", agg_c)
           end
-          warnings << "NOTE multi-DS: '#{el['_worksheet']}' calc '#{cn}' is an aggregated calc — decomposed " \
+          warnings << "NOTE #{mode}: '#{el['_worksheet']}' calc '#{cn}' is an aggregated calc — decomposed " \
                       "into its consumer chart formulas as #{agg_c[0, 110]} (helper exposes the base columns)"
         else
           # el is a CHART: splice the decomposition at viz level; its
           # [Master/…] base refs are prefix-rewritten with everything below.
           splice_strings.call(el, agg_wrap, "[Master/#{cn}]", agg_t)
-          warnings << "NOTE multi-DS: '#{el['_worksheet']}' calc '#{cn}' is an aggregated calc — decomposed at " \
+          warnings << "NOTE #{mode}: '#{el['_worksheet']}' calc '#{cn}' is an aggregated calc — decomposed at " \
                       "viz level over sub-master columns: #{agg_t.gsub('[Master/', "[#{safe_cap}/")[0, 110]}"
         end
       elsif row_t
         sm['columns'] << { 'id' => "#{sm['id']}-c#{sm['columns'].size}", 'name' => cn,
                            'formula' => row_t.gsub('[Master/', "[#{safe_cap}/") }
-        warnings << "NOTE multi-DS: '#{el['_worksheet']}' calc '#{cn}' emitted as a DERIVED column on " \
+        warnings << "NOTE #{mode}: '#{el['_worksheet']}' calc '#{cn}' emitted as a DERIVED column on " \
                     "sub-master '#{sm['name']}': #{sm['columns'].last['formula'][0, 110]}"
       else
         manual_calcs << cn
-        warnings << "multi-DS STAYS-MANUAL: '#{el['_worksheet']}' references calc '#{cn}' on datasource " \
+        warnings << "#{mode} STAYS-MANUAL: '#{el['_worksheet']}' references calc '#{cn}' on datasource " \
                     "'#{caption}' whose formula could not be auto-translated " \
                     "(#{f.to_s.gsub(/\s+/, ' ')[0, 90]}) — no sub-master column emitted; the pre-POST ref " \
                     'gate will name the broken ref; author it on the sub-master by hand (--master-col)'
@@ -8401,7 +8533,7 @@ def route_multi_ds!(elements, data_elements, plan, master_id, warnings, controls
     deep_gsub!(el, '[Master/', "[Master (#{safe_cap})/")
     el['source'] = { 'kind' => 'table', 'elementId' => sm['id'] }
     routed[el['_worksheet']] = caption
-    warnings << "NOTE multi-DS: '#{el['_worksheet']}' auto-routed to datasource '#{caption}' " \
+    warnings << "NOTE #{mode}: '#{el['_worksheet']}' auto-routed to source '#{caption}' " \
                 "(sub-master #{sm['id']}, #{cols.size} column(s))"
   end
   # A filter on the master does NOT propagate to sub-master-sourced charts
@@ -8421,7 +8553,7 @@ def route_multi_ds!(elements, data_elements, plan, master_id, warnings, controls
           ctl['filters'] << { 'source' => { 'kind' => 'table', 'elementId' => sm['id'] },
                               'columnId' => sm_cols[cname] }
         else
-          warnings << "multi-DS: control '#{ctl['name']}' targets master column '#{cname}' which " \
+          warnings << "#{mode}: control '#{ctl['name']}' targets master column '#{cname}' which " \
                       "'#{sm['name']}' does not expose — routed charts on that datasource are NOT " \
                       'filtered by it (named residue; verify the outlier datasource carries the column)'
         end
@@ -8446,6 +8578,19 @@ begin
   end
 rescue => e
   warnings << "multi-DS routing error (charts left on the master + WARN wall): #{e.message}"
+end
+$grain_routed = {}
+begin
+  if grain_plan
+    id2name = mmap.values.each_with_object({}) { |v, h| h[v['id']] = v['name'] if v['id'] && v['name'] }
+    $grain_routed = route_multi_ds!(
+      elements, data_elements, grain_plan, opts[:master_id], warnings,
+      controls: param_controls + auto_controls + extras, id2name: id2name,
+      cbg: meta['columns_by_guid'] || {}, mmap: mmap, mode: 'multi-grain'
+    )
+  end
+rescue => e
+  warnings << "multi-grain routing error (charts left on the default master + WARN wall): #{e.message}"
 end
 # routing tags on hidden helpers are internal — never emit them in the spec
 data_elements.each { |e| e.delete('_worksheet') }
@@ -8604,6 +8749,52 @@ if $threshold_halo_records.any?
     warnings << "threshold-halo sidecar error (halo coverage unrecorded): #{e.message}"
   end
 end
+
+# ---- Source-image-confirmed single-chart trellis ---------------------------
+# Existing native-trellis collapse below handles N repeated worksheet members.
+# Some Tableau sheets encode one pane-per-value inside ONE worksheet (Workforce:
+# Department panes, Role x-axis). The shelf parser sees the second dimension but
+# cannot distinguish pane vs implicit color, while the source PNG can. Apply the
+# operator-verified png-read signal to that one chart; no signal = byte-identical.
+def apply_verified_trellis!(elements, specs, warnings)
+  norm = ->(value) { value.to_s.downcase.strip }
+  specs.each do |worksheet, spec|
+    field = spec['field'].to_s
+    next if field.empty?
+    element = elements.find do |candidate|
+      norm.call(candidate['_worksheet']) == norm.call(worksheet) ||
+        norm.call(candidate['name']) == norm.call(worksheet)
+    end
+    unless element
+      warnings << "png-read trellis: worksheet #{worksheet.inspect} has no emitted chart — left flat"
+      next
+    end
+    matches = Array(element['columns']).select { |column| norm.call(column['name']) == norm.call(field) }
+    unless matches.one?
+      warnings << "png-read trellis: '#{worksheet}' field '#{field}' matched #{matches.size} columns — " \
+                  'refusing ambiguous facet'
+      next
+    end
+    facet_id = matches.first['id']
+    result = TrellisEmit.apply(
+      element,
+      facet_column_id: facet_id,
+      orientation: spec['orientation'] || 'cols'
+    )
+    unless %i[trellised fallback_donut].include?(result)
+      warnings << "png-read trellis: '#{worksheet}' kind #{element['kind']} does not support native trellis " \
+                  "(#{result}) — left flat"
+      next
+    end
+    # A pane field is structural, not a second color encoding. Keeping both
+    # creates a redundant legend and one color per panel, unlike Tableau.
+    element.delete('color') if element.dig('color', 'column') == facet_id
+    warnings << "NOTE png-read trellis: '#{worksheet}' faceted by '#{field}' " \
+                "(#{spec['orientation'] || 'cols'}; #{result})"
+  end
+end
+
+apply_verified_trellis!(elements, PNG_TRELLIS, warnings) unless PNG_TRELLIS.empty?
 
 # ---- Native trellis collapse (fix/native-trellis, SUPERSEDES #451 B1) --------
 # parse-twb-layout flags a dashboard that repeats one viz across a categorical

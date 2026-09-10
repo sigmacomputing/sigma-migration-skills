@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "source": "looker",
+  "parameters": [
+    {
+      "name": "funnel_metric",
+      "view": "enrollment_metrics",
+      "controlId": "looker-param-enrollment-metrics-funnel-metric",
+      "defaultValue": "enrollments",
+      "allowedValues": [
+        {
+          "label": "Enrollments",
+          "value": "enrollments"
+        },
+        {
+          "label": "Module 1 Completion Rate",
+          "value": "m1_rate"
+        },
+        {
+          "label": "F30D",
+          "value": "f30d"
+        },
+        {
+          "label": "Course Completion Rate",
+          "value": "completion_rate"
+        },
+        {
+          "label": "Freemium Conversion Rate",
+          "value": "conversion_rate"
+        }
+      ],
+      "affectedFields": [
+        "enrollment_metrics.selected_metric"
+      ],
+      "status": "emitted",
+      "reachedElementIds": [
+        "el-p0mpjmim"
+      ]
+    },
+    {
+      "name": "group_by",
+      "view": "enrollment_metrics",
+      "controlId": "looker-param-enrollment-metrics-group-by",
+      "defaultValue": "content_domain",
+      "allowedValues": [
+        {
+          "label": "Content Domain",
+          "value": "content_domain"
+        },
+        {
+          "label": "Country Group",
+          "value": "country_group"
+        }
+      ],
+      "affectedFields": [
+        "enrollment_metrics.selected_group"
+      ],
+      "status": "emitted",
+      "reachedElementIds": [
+        "el-p0mpjmim"
+      ]
+    },
+    {
+      "name": "time_grain",
+      "view": "enrollment_metrics",
+      "controlId": "looker-param-enrollment-metrics-time-grain",
+      "defaultValue": "month",
+      "allowedValues": [
+        {
+          "label": "Month",
+          "value": "month"
+        },
+        {
+          "label": "Week",
+          "value": "week"
+        }
+      ],
+      "affectedFields": [
+        "enrollment_metrics.selected_period"
+      ],
+      "status": "emitted",
+      "reachedElementIds": [
+        "el-p0mpjmim"
+      ]
+    }
+  ]
+}

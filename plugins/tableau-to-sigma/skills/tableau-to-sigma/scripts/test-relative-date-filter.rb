@@ -23,6 +23,10 @@
 
 require 'date'
 require 'time'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 SRC = File.join(__dir__, 'build-charts-from-signals.rb')
 src = File.read(SRC)

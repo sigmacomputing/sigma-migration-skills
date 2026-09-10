@@ -1,6 +1,10 @@
 {
+  "freshness_check": {
+    "checked_at": "2026-09-08",
+    "upstream_head": "21f3167",
+    "result": "no-module-drift"
+  },
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "qlik.mjs",
-  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
-  "bundle_sha256": "26cec9ccd5fa4679301b793b7468973ff5f6ec08928a4db40a6f913d573d9eb4"
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes."
 }

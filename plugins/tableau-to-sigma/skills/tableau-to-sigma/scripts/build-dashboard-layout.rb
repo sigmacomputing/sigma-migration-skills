@@ -55,6 +55,9 @@ require_relative 'lib/layout'
 require_relative 'lib/zone_census'
 require_relative 'lib/arrangement_lint'
 require_relative 'lib/workbook_code'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 include SigmaLayout
 
 # ---- Source-derived header chrome -----------------------------------------

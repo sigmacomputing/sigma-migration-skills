@@ -232,7 +232,7 @@ eq(pct['stacking'], 'normalized', 'badge_horiz_100pct is the percent-stacked var
 donut = build_element({ 'id' => 'c16', 'title' => 'Mix', 'chartType' => 'badge_donut',
                         'columns' => [ { 'column' => 'family' }, { 'column' => 'sales', 'aggregation' => 'SUM' } ] }, {})
 eq(donut['kind'], 'donut-chart', 'badge_donut → donut-chart')
-eq(donut['value'], { 'id' => donut['columns'].last['id'] }, 'donut value uses value.id (opposite of KPI columnId)')
+eq(donut['value'], { 'columnId' => donut['columns'].last['id'] }, 'donut value uses value.columnId')
 ok(!donut.key?('xAxis') && !donut.key?('yAxis'), 'donut/pie carry value/color, NOT xAxis/yAxis (fixes the old broken shape)')
 eq(donut['legend'], { 'position' => 'left', 'fontSize' => 9 },
    'donut legend preserves Domo left-side placement')
@@ -1073,7 +1073,7 @@ eq(scatter['columns'].map { |c| c['id'] },
    'each source role appears once, in source order')
 eq(scatter.dig('xAxis', 'columnId'), 's-delivered', 'XTIME measure binds x')
 eq(scatter.dig('yAxis', 'columnIds'), ['s-opens'], 'VALUE measure binds y')
-eq(scatter.dig('size', 'id'), 's-clicks', 'BUBBLESIZE binds size without a duplicate export column')
+eq(scatter.dig('size', 'columnId'), 's-clicks', 'BUBBLESIZE binds size without a duplicate export column')
 eq(scatter['color'], { 'by' => 'category', 'column' => 's-subject' }, 'SERIES identifies each point')
 helper = $chart_helpers.last
 eq(scatter['source'], { 'kind' => 'table', 'elementId' => helper['id'],
@@ -1158,9 +1158,13 @@ Dir.mktmpdir do |dir|
        'section text follows screenshot y-order, not discovery card order')
     eq(text_els.map { |e| e['body'] }, ['### First', '### Second'],
        'each observed section is visible authored text')
-    eq(divider_els.map { |e| e['id'] },
-       %w[divider-observed-section-0 divider-observed-section-1],
-       'each observed section gets a real divider element')
+    eq(divider_els, [],
+       'observed sections do not emit unplaced divider furniture')
+    title = observed_page_title_element('Observed Dashboard')
+    eq(title['id'], 'title-observed-dashboard',
+       'screenshot-backed page title gets a stable layout-resolvable id')
+    eq(title['body'], '## Observed Dashboard',
+       'screenshot-backed page title reproduces the Domo page title')
   end
 end
 

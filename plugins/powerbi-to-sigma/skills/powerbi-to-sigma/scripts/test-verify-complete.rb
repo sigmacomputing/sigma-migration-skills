@@ -29,33 +29,51 @@ Dir.mktmpdir do |wd|
   check(out.include?('NOT DONE') && out.include?('never hand-author'),
         'empty-workdir message warns against hand-authoring', fails)
 
-  # 2) success marker with real charts → DONE (0)
+  # 2) resolution marker alone is not value parity → NOT DONE (5)
   File.write(File.join(wd, 'phase6-success.json'),
-             JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9, 'gates' => 'parity-pass',
+             JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9, 'gates' => 'resolution-pass',
                            'generatedAt' => '2026-07-10T00:00:00Z'))
   code, out = run_vc(VC, wd)
-  check(code == 0, "success + charts => exit 0 (got #{code})", fails)
-  check(out.include?('DONE') && out.include?('wb-1'), 'done message names the workbook', fails)
+  check(code == 5, "success marker without value parity => exit 5 (got #{code})", fails)
+  check(out.include?('value parity was not run'), 'missing parity message names the required gate', fails)
 
-  # 3) marker present but 0 charts → NOT DONE (3) (empty workbook)
+  # 3) strict parity for every chart → DONE (0)
+  File.write(File.join(wd, 'parity-final.json'),
+             JSON.generate('status' => 'PASS', 'charts_total' => 9,
+                           'charts_pass' => 9, 'charts_fail' => 0))
+  code, out = run_vc(VC, wd)
+  check(code == 0, "success + charts => exit 0 (got #{code})", fails)
+  check(out.include?('DONE') && out.include?('wb-1') && out.include?('9/9 strict matches'),
+        'done message names workbook + strict parity evidence', fails)
+
+  # 4) stale-only parity never claims DONE, even if its writer says PASS.
+  File.write(File.join(wd, 'parity-final.json'),
+             JSON.generate('status' => 'PASS', 'charts_total' => 4,
+                           'charts_pass' => 0, 'charts_fail' => 0,
+                           'charts_stale_explained' => 4))
+  code, out = run_vc(VC, wd)
+  check(code == 5 && out.include?('stale-explained'),
+        'status PASS with 0 strict matches is rejected as stale/inconsistent', fails)
+
+  # 5) marker present but 0 charts → NOT DONE (3) (empty workbook)
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate('workbookId' => 'wb-1', 'chartCount' => 0))
   code, = run_vc(VC, wd)
   check(code == 3, "0-chart marker => exit 3 empty (got #{code})", fails)
 
-  # 4) workbook mismatch → exit 4
+  # 6) workbook mismatch → exit 4
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9))
   code, = run_vc(VC, wd, wb: 'wb-OTHER')
   check(code == 4, "workbook mismatch => exit 4 (got #{code})", fails)
 end
 
-# 5) the orchestrator wires the empty-workbook guard + success stamp.
+# 7) the orchestrator wires the empty-workbook guard + success stamp.
 mt = File.read(File.join(DIR, 'migrate-powerbi.rb'))
 check(mt.include?('built_ok = parity_ok && chart_els.size.positive?'),
       'orchestrator requires real elements for a green (no vacuous empty pass)', fails)
 check(mt.include?('phase6-success.json'), 'orchestrator stamps the success sentinel', fails)
-# 6) missing-input aborts point at the device-code connect, not a bare "missing".
+# 8) missing-input aborts point at the device-code connect, not a bare "missing".
 check(mt.include?('fabric-extract.py') && mt.include?('microsoft.com/devicelogin'),
       'missing --tmsl/--pbir abort prompts device-code Power BI connect', fails)
 

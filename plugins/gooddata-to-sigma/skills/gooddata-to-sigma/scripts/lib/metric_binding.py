@@ -9,6 +9,11 @@ analyst never gets the metric object. This module is the thin, converter-agnosti
 binder that lets a builder prefer a governed ``[Metrics/<name>]`` reference when it
 is provably the same aggregation — and fall back to the inline formula otherwise.
 
+NAMING NOTE (issue #753): ``_walk_chain`` and ``_dedup_by_name`` are internal
+helpers here but public on the Ruby side (its ``module_function`` exports
+everything). They are NOT missing — a ported caller just needs the underscored
+name. tools/lint-twin-parity.rb classifies this as visibility-only.
+
 Pure functions, stdlib only:
 
 - ``available_metrics(element_id, elements_by_id)`` — the metrics REFERENCEABLE on

@@ -71,9 +71,13 @@ never guesses.
 >   migration fails. If you can't reach the Qlik app (no `qlik-cli` context /
 >   auth), **STOP and tell the user to authenticate** (`qlik context` / OAuth) —
 >   do not build a shell.
-> - **"Done" is a file on disk, not "pages exist."** Complete only when
->   `ruby scripts/verify-complete.rb --workdir <WORK>` prints ✅ DONE (the run
->   stamped `phase6-success.json` with real elements). An empty workbook is never done.
+> - **"Done" is evidenced accounting, not "pages exist."** The orchestrator's
+>   `phase6-success.json` is only a supporting sentinel; it is never sufficient
+>   by itself. Complete only after the shared `assert-phase6-ran.rb` exits 0,
+>   the complete app census has one terminal disposition per source object, and
+>   `build-migration-report.rb` writes a non-RED `MIGRATION_REPORT.md` whose
+>   `--check` mode passes. `verify-complete.rb` remains an additional empty-build
+>   guard. An empty or incompletely accounted workbook is never done.
 > - **MCP and direct Snowflake credentials are optional.** Given `--connection`,
 >   the live path browses `GET /v2/connections/paths`, resolves each source with
 >   `POST /v2/connection/<id>/lookup`, and reads all columns through paginated
@@ -177,6 +181,17 @@ Assemble into the converter's input JSON (`refs/example-converter-input.json`):
 `{appName, tables:[{name, noOfRows, fields:[{name}]}], masterMeasures:[{title,qDef}], masterDimensions:[]}`.
 **Use the post-rename Qlik field names** so relationships come out clean.
 
+**Complete app census (mandatory).** Discovery scope is not just the objects the
+builder happened to emit. Run `build-qlik-accounting.py --workdir <WORK>` to
+produce `<WORK>/source-object-census.json` for every
+in-scope app, sheet, chart/object (including recursive inline children), master
+measure, master/calculated dimension, filterpane/listbox, alternate state,
+Section Access finding, and expression/function finding. Each record must finish
+as `migrated`, `approximated`, `needs-review`, `skipped`, or `not-applicable`
+with evidence. Missing, duplicate, or contradictory dispositions block
+completion. See `refs/migration-report-format.md`; durable capability gaps live
+in `refs/open-items.md`, not in the run census.
+
 For a corectl export, `--unbuild` runs `qlik-unbuild-discover.py` first. A sheet
 is a full property tree, so every `qChildren` level is flattened recursively and
 assigned back to its owning sheet before the normal Phase 2-6 pipeline starts.
@@ -262,6 +277,21 @@ MCP tool **manually** (same `model_json → Sigma DM spec` contract) and feed it
 back in as `converter-out.json`. The hosted MCP is a fallback, not the default path.
 Output = Sigma DM spec (warehouse-table elements + relationships on shared keys +
 metrics from measures + auto "Dim View" denormalized elements).
+
+**Scalar-function catalog and formula mapping (mandatory pre-POST evidence).**
+`refs/catalogs/scalar-function.json` is the durable, source-cited catalog (also
+rendered into `refs/qlik-coverage.md`); the examples below are not a complete
+function surface. An `exact` row covers only its documented token-level shape,
+while `needs-review` is fail-closed rather than passthrough. For every expression
+run `normalize-qlik-expressions.py` against `converter-input.json` and the raw
+converter output; build from its patched output, and retain its
+`<WORK>/formula-mapping.json` with each encountered
+function, evaluation context (LOAD script, chart row, aggregation, or selection
+state), source expression, emitted Sigma formula or explicit manual/skip
+disposition, dependency/grain, and validation evidence. Overloaded scalar
+semantics, `Aggr()`, selection-state expressions, and complex Set Analysis remain
+unresolved until this run's mapping proves them; do not infer support from token
+recognition. See `refs/open-items.md`.
 
 **Expression coverage (validated against live Sigma 2026-06-05):** the converter now
 auto-translates the common Qlik idioms instead of dropping them:
@@ -374,6 +404,23 @@ MANUAL. The builder emits the **`control-scope.json` sidecar** (contract:
 `sourceFilterSignals`, per-control `mustReach` over every chart on every page
 (static proof of global reach), and `unbound` entries with reasons.
 
+**Synthesized cross-filter controls (`--synth-controls`).** Qlik cross-filters on
+*any* field via the global associative model — including sheets with **no**
+filterpane, where a user just clicks a bar. Sigma has **no authorable chart-mark
+"Use as filter"** (UI-only), so `build-sigma-workbook.py` recreates that UX with
+controls: when the source app has **zero** filter widgets (e.g. QlikView `-prj`,
+which carries none, or a filterpane-less Sense sheet), it **synthesizes a compact
+control bar** from the most-used chart **dimension** fields (deduped, `*_KEY`/`*_ID`
+and expression dims excluded, capped by `--synth-controls-max`, default 6), each
+filtering the shared master via the *same* `build_control()` shapes + `control_lint`
+reach enforcement. Modes: `auto` (default — synth only when there are no real filter
+widgets, so apps that already have filterpanes are unchanged/golden-safe), `all`
+(also top up apps that have some filters), `off` (strict port — real widgets only).
+Synth controls are tagged `synthesized:true` in the sidecar (`synthesizedCount`),
+and are **not** counted as `sourceFilterSignals`. **Post-publish note:** true
+in-chart mark-click cross-filtering is a one-time Sigma UI step ("Use as filter"),
+not spec-authorable — call it out to the customer.
+
 **Native trellis (small multiples).** A Qlik **chart-level trellis** (a chart
 whose Appearance>Trellis splits it into a panel grid by a dimension) and the
 native **trellis-container** object both collapse to Sigma's **native element
@@ -426,11 +473,43 @@ staleness-explained deltas don't block.)
 ## Phase 5.5 — Visual QA (mandatory gate — never skip)
 A workbook that POSTs 200 and passes numeric/bucket parity can still be visually broken — **overlapping tiles, clipped KPI titles, dead zones, filters floating over charts.** Qlik's associative model floats listboxes/filterpanes on top of charts and Sigma's grid has no z-order; the build script now lifts controls to a top band and de-overlaps (`_decollide_bands`), but novel sheets can still slip through.
 
-1. `migrate-qlik.rb` now **auto-renders** every content page to a full-page PNG (Phase 5b → `<workdir>/visual-qa/<pageId>.png`) so the gate runs by default. To re-render a page manually (token first: `eval "$(scripts/vendor/get-token.sh)"`):
+1. Capture one full-sheet source image per sheet when Qlik can provide it (or a
+   customer screenshot); record unavailable source images and the reason in the
+   census. Per-visual PNGs are useful drill-down evidence but do not prove the
+   whole-sheet composition.
+2. `migrate-qlik.rb` now **auto-renders** every content page to a full-page PNG (Phase 5b → `<workdir>/visual-qa/<pageId>.png`) so the gate runs by default. To re-render a page manually (token first: `eval "$(scripts/vendor/get-token.sh)"`):
    `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600`
-2. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls in their own band, no clipped titles, even heights, right chart kind/format).
-3. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit element files → push) — then **re-render and re-read**.
-4. Declare the migration done on a **clean render**, not on HTTP 200.
+3. Mechanically reject blank/effectively blank source and Sigma PNGs with
+   `python3 scripts/png_health.py <image.png> --json-out <WORK>/render-health/<name>.json`.
+   This is only a decode/ink health check, not visual parity.
+4. **Read each full-page pair and check every tile** against
+   `refs/layout-visual-qa.md`: every source tile must be present, non-blank, in
+   the right chart family, and visually checked; full-page health cannot hide a
+   blank or wrong tile. When normalized percentage tile bounds are available,
+   also run `visual-similarity.py --tiles <bounds.json>` and retain its per-tile
+   evidence. Record the source-vs-target verdict with
+   `record-visual-check.rb`; a missing source image is a named waiver, not PASS.
+5. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit element files → push) — then **re-render and re-read**.
+6. Declare the migration done on a **clean render**, not on HTTP 200.
+
+### Completion accounting (mandatory)
+
+After parity and visual QA, run the shared completion gate and final accounting:
+
+```bash
+python3 scripts/finalize-qlik-report.py --workdir <WORK> [--source-png <sheet.png>]
+ruby scripts/assert-phase6-ran.rb --workdir <WORK> --workbook-id <workbookId>
+ruby scripts/build-migration-report.rb --workdir <WORK> --check
+ruby scripts/verify-complete.rb --workdir <WORK> --workbook-id <workbookId>
+```
+
+All four commands must exit 0. The finalizer refreshes PNG health, visual
+similarity, full-app accounting, the degradation ledger, `MIGRATION_REPORT.md`,
+and `migration-result.json`. `assert-phase6-ran.rb` is the shared,
+converter-neutral gate over `parity-final.json`, live readback, layout/control,
+render, visual, tile, and waiver evidence. The inline
+`phase6-success.json` marker does not replace either the shared gate or the
+complete census/report.
 
 ---
 
@@ -449,13 +528,22 @@ A workbook that POSTs 200 and passes numeric/bucket parity can still be visually
 | `scripts/gap-scout.md` | 2 | Sub-agent guide: for each unhandled Qlik expression (`Aggr`/`Dual`/selection-state/`Range*`/`Class`), spawn a scout to find + validate a Sigma translation and persist it. |
 | `scripts/scout-validate.py` | 2 | Gap-scout primitive: validate a candidate formula via a throwaway test workbook (column-type check) + persist to `~/.qlik-to-sigma/learned-rules.yaml`. **Validated.** |
 | `scripts/learned-rules.py` | 2 | Loader: the build step applies customer-accumulated rules before falling back to a WARN. |
+| `scripts/normalize-qlik-expressions.py` | 2 | Apply only catalog-grounded scalar rewrites to raw converter output, remove unsafe/unknown callable artifacts fail-closed, and write the patched converter output plus `formula-mapping.json`. |
 | `scripts/qlik-screenshot.py` | 1/6 | Export PNGs of a sheet's charts (or specific viz ids) via the Qlik reporting API, for before/after capture. **Validated** (per-viz PNG; whole-sheet is PDF only). |
 | `scripts/sigma-export-png.py` | 5.5 | Render a workbook page/element to PNG via the export API for visual inspection against `refs/layout-visual-qa.md` (the Visual QA gate). |
+| `scripts/png_health.py` | 5.5 | Deterministic PNG decode/ink health check; rejects solid, all-white, or effectively blank exports and can write run-local render-health JSON. It does not judge source fidelity. |
+| `scripts/visual-similarity.py` | 5.5 | Deterministic source-vs-Sigma structural floor; optional normalized tile bounds add per-tile blank detection. Exit 2 is an error, never PASS. |
+| `scripts/record-visual-check.rb` | 5.5 | Record the image-capable source-vs-target verdict and checklist in `parity-final.json` for the shared hard gate; missing source imagery requires a named waiver. |
 | `scripts/build-sigma-dm.py` | 3 | Author + POST the Sigma data model FROM THE PIPELINE ARTIFACTS (converter-out + reconcile + denorm): repointed star + relationships + denorm SQL element + metrics. `--dry-run` for offline. **Proven (generalized 2026-06-10).** |
 | `scripts/build-sigma-workbook.py` | 4 | Author + POST the workbook FROM DISCOVERY (charts.json + layout.json): one page per Qlik sheet, cell-grid layout, sorts, formats, null-suppression filters. `--dry-run` for offline. **Proven (generalized 2026-06-10).** |
 | `scripts/lib/layout_lint.rb` | 5 | **Shared layout-quality lint (gate 6)** — raw-id display names / orphan controls outside containers / generic header-band title; vendored byte-identical across plugins; run automatically by `migrate-qlik.rb` Phase 6 (`--skip-layout-lint` to bypass). |
 | `scripts/lib/control_lint.rb` | 5 | **Shared control-wiring lint (gate 7)** — dead controls / ghost targets / reach / `control-scope.json` coverage; vendored byte-identical across plugins; run automatically by `migrate-qlik.rb` Phase 6e. |
 | `scripts/probe-controls.rb` | 5 | **Shared flip test** — runtime proof a control filters: export an in-closure element with/without `parameters:{controlId: value}`; cross-page exports prove Qlik's global scope. |
+| `scripts/assert-phase6-ran.rb` | 6 | **Shared hard completion gate** over parity, live readback, layout/control, render/visual/tile evidence, and waivers. Must exit 0 before declaring completion. |
+| `scripts/build-qlik-accounting.py` | 6 | Reconcile the complete Qlik app inventory, formula mapping, DM/workbook outputs, controls, layout, tiles, and parity into `source-object-census.json`, `coverage.json`, and Qlik control/layout evidence; fails closed on unaccounted objects. |
+| `scripts/finalize-qlik-report.py` | 6 | Read-only completion finalizer: refresh Qlik accounting, source/target PNG health, visual similarity, degradation evidence, `MIGRATION_REPORT.md`, and `migration-result.json`; attempts every producer and exits nonzero if any contract fails. |
+| `scripts/build-migration-report.rb` | 6 | Consume the complete source-object census and gate artifacts; write `MIGRATION_REPORT.md` + `migration-result.json`. `--check` rejects stale or inconsistent output. |
+| `scripts/verify-complete.rb` | 6 | Additional Qlik empty-build/workbook-id sentinel check. It is supporting evidence and does not replace `assert-phase6-ran.rb` or the migration report. |
 | `refs/control-parity.md` | 5 | The control-parity contract: lint + sidecar schema + the MCP/export-API answer (export `parameters` is the only way to set a control value). |
 | `refs/example-converter-input.json` | 1–2 | The exact convert_qlik_to_sigma input from the first migration. |
 | `fixtures/retail-orders/` | — | Complete offline discovery+converter input set (sanitized demo app) — see `fixtures/README.md` for the offline smoke path. |

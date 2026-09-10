@@ -52,18 +52,24 @@ abort "vendored converter missing: #{VENDORED}" unless File.exist?(VENDORED)
 abort "fixture missing: #{FIXTURE}" unless File.exist?(FIXTURE)
 
 model = nil
+raw_model = nil
 Dir.mktmpdir do |dir|
   conv = MechanicalSpecs.run_converter(
     twb_path: FIXTURE, conn: 'conn-test-1', db: 'ANALYTICS', schema: 'SALES',
     mcp_build: VENDORED, workdir: dir)
   model = conv['model']
+  raw_model = JSON.parse(File.read(File.join(dir, 'dm-raw.json')))
 end
 
-els = (model['pages'] || []).flat_map { |p| p['elements'] || [] }
+els = (raw_model['pages'] || []).flat_map { |p| p['elements'] || [] }
 controls = els.select { |e| e['kind'] == 'control' }
 
-puts 'Part A — structure: parameter controls are emitted'
-check(controls.size >= 2, "at least 2 controls emitted (got #{controls.size})", fails)
+puts 'Part A — raw converter emits controls; migration model moves unreferenced controls to the workbook layer'
+check(controls.size >= 2, "raw artifact contains at least 2 controls (got #{controls.size})", fails)
+normalized_controls = (model['pages'] || []).flat_map { |p| p['elements'] || [] }
+                           .select { |e| e['kind'] == 'control' }
+check(normalized_controls.empty?,
+      "normalized migration DM contains no unreferenced parameter controls (got #{normalized_controls.size})", fails)
 exit 1 unless fails.empty?
 
 CHARSET = /\A[a-zA-Z0-9_-]{1,64}\z/

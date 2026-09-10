@@ -1,11 +1,11 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
-# Regression test for the Qlik completion sentinel (2026-07-10).
+# Regression test for the Qlik completion contract.
 #
-# "Done" is a fact on disk: migrate-qlik.rb stamps phase6-success.json
-# (workbookId + chartCount + parity-pass) only on a real, non-empty, parity-
-# passing build; verify-complete.rb greens ONLY on that. Guards the exact PBI
-# failure where a blocked agent ships empty placeholder pages and calls it done.
+# "Done" is a fact on disk: only shared assert-phase6-ran.rb may stamp an
+# all-pass marker, and the verifier additionally requires strict parity and the
+# census/report/PNG/ledger contract. The fixture-heavy successful path lives in
+# tests/test_completion_contract.py; this file pins early-exit and wiring rules.
 #
 # Usage: ruby scripts/test-verify-complete.rb
 
@@ -26,16 +26,16 @@ Dir.mktmpdir do |wd|
   # 1) nothing → NOT DONE (2)
   code, out = run_vc(VC, wd)
   check(code == 2, "no marker => exit 2 (got #{code})", fails)
-  check(out.include?('NOT DONE') && out.include?('never hand-author'),
-        'empty-workdir message warns against hand-authoring', fails)
+  check(out.include?('NOT DONE') && out.include?('shared Phase 6 gate'),
+        'empty-workdir message names the missing shared hard gate', fails)
 
-  # 2) success marker with real charts → DONE (0)
+  # 2) a legacy marker with charts but no all-pass gate record is insufficient.
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9, 'gates' => 'parity-pass',
                            'generatedAt' => '2026-07-10T00:00:00Z'))
   code, out = run_vc(VC, wd)
-  check(code == 0, "success + charts => exit 0 (got #{code})", fails)
-  check(out.include?('DONE') && out.include?('wb-1'), 'done message names the workbook', fails)
+  check(code == 3, "legacy marker without all-pass => exit 3 (got #{code})", fails)
+  check(out.include?('all-gates'), 'legacy marker failure names the all-gates requirement', fails)
 
   # 3) marker present but 0 charts → NOT DONE (3) (empty workbook)
   File.write(File.join(wd, 'phase6-success.json'),
@@ -45,19 +45,22 @@ Dir.mktmpdir do |wd|
 
   # 4) workbook mismatch → exit 4
   File.write(File.join(wd, 'phase6-success.json'),
-             JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9))
+             JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9, 'gates' => 'all-pass'))
   code, = run_vc(VC, wd, wb: 'wb-OTHER')
   check(code == 4, "workbook mismatch => exit 4 (got #{code})", fails)
 end
 
-# 5) the orchestrator wires the empty-workbook guard + success stamp.
+# 5) the orchestrator wires the empty-workbook guard + shared gate.
 mt = File.read(File.join(DIR, 'migrate-qlik.rb'))
-check(mt.include?('built_ok = parity_ok && layout_ok && control_ok && flip_ok && n_queryable.positive?') &&
-      mt.include?("wb_res['unbuiltSourceVisuals'].to_a.empty?"),
+check(mt.include?('mechanical_ok = parity_ok && layout_ok && control_ok && flip_ok') &&
+      mt.include?("wb_res['unbuiltSourceVisuals'].to_a.empty?") &&
+      mt.include?('built_ok = mechanical_ok && cleanup_ok && pre_finalizer_ok && assert_ok'),
       'orchestrator requires queryable elements and complete source coverage for a green', fails)
 check(mt.include?("require 'flip_gate'") && mt.include?('FlipGate.decide'),
       'orchestrator runs gate 7b (runtime control-flip proof) before a green', fails)
-check(mt.include?('phase6-success.json'), 'orchestrator stamps the success sentinel', fails)
+check(mt.include?("'assert-phase6-ran.rb'") &&
+      !mt.match?(/File\.write\([^)]*phase6-success\.json/),
+      'orchestrator delegates the success sentinel exclusively to the shared gate', fails)
 # 6) SKILL carries THE ONE PATH / no-hand-drive directive.
 sk = File.read(File.join(DIR, '..', 'SKILL.md'))
 check(sk.include?('THE ONE PATH') && sk.downcase.include?('never hand-drive'),

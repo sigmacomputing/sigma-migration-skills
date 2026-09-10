@@ -10,6 +10,10 @@
 # Usage:  ruby scripts/test-styled-text-body.rb
 
 require 'json'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 DIR = __dir__
 SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))

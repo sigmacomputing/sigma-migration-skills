@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""Focused offline regression tests for the Qlik completion contract."""
+
+import importlib.util
+import binascii
+import json
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import zlib
+from pathlib import Path
+
+
+SKILL = Path(__file__).resolve().parents[1]
+SCRIPTS = SKILL / "scripts"
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def write_png(path, width, height, pixel):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = b"".join(
+        b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width))
+        for y in range(height)
+    )
+
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data)) + kind + data
+            + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    payload = b"\x89PNG\r\n\x1a\n"
+    payload += chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    payload += chunk(b"IDAT", zlib.compress(rows))
+    payload += chunk(b"IEND", b"")
+    path.write_bytes(payload)
+
+
+def healthy_png(path, blank_tiles=False):
+    def pixel(x, y):
+        if y < (35 if blank_tiles else 45):
+            return (25, 55, 95)
+        if blank_tiles:
+            return (0, 0, 0) if 49 <= y <= 51 and 20 <= x <= 580 else (255, 255, 255)
+        for bar_x in range(25, 575, 55):
+            if bar_x <= x <= bar_x + 25 and 70 <= y <= 260 - (bar_x % 95):
+                return (50, 120, 190)
+        return (255, 255, 255)
+
+    write_png(path, 600, 300, pixel)
+
+
+def blank_png(path):
+    write_png(path, 600, 300, lambda _x, _y: (255, 255, 255))
+
+
+class CompletionContractTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.workdir = Path(self.temp.name)
+        self.make_complete_workdir()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def run_script(self, name, *args):
+        command = [sys.executable if name.endswith(".py") else "ruby",
+                   str(SCRIPTS / name), *map(str, args)]
+        return subprocess.run(command, text=True, capture_output=True, check=False)
+
+    def make_complete_workdir(self):
+        wd = self.workdir
+        write_json(wd / "converter-input.json", {
+            "appId": "app-1",
+            "appName": "Orders",
+            "tables": [{"name": "Orders", "fields": [{"name": "Country"}]}],
+        })
+        write_json(wd / "charts.json", [{
+            "id": "chart-1", "title": "Sales", "vizType": "barchart",
+            "dimensions": ["Country"], "measures": ["Sum(Sales)"],
+        }])
+        write_json(wd / "layout.json", [{
+            "sheetId": "sheet-1", "title": "Overview", "columns": 24, "rows": 12,
+            "cells": [{"objectId": "chart-1", "col": 0, "row": 0,
+                       "colspan": 24, "rowspan": 12}],
+        }])
+        write_json(wd / "measures.json", [])
+        write_json(wd / "dimensions.json", [])
+        write_json(wd / "app-meta.json", {
+            "id": "app-1", "name": "Orders", "hasSectionAccess": False,
+        })
+        (wd / "script.qvs").write_text(
+            "Orders:\nLOAD Country FROM [lib://orders.qvd];\n", encoding="utf-8"
+        )
+        write_json(wd / "formula-mapping.json", {"formulas": []})
+        write_json(wd / "dm-spec.json", {
+            "pages": [{"elements": [{
+                "id": "dm-orders", "name": "Orders Country", "kind": "table",
+                "columns": [{"id": "country", "name": "Country"}],
+            }]}],
+        })
+        write_json(wd / "wb-spec.json", {
+            "pages": [{"id": "sheet-1", "name": "Overview", "elements": [{
+                "id": "sigma-chart-1", "name": "Sales", "kind": "bar-chart",
+                "columns": [{"id": "country"}, {"id": "sales"}],
+            }]}],
+        })
+        write_json(wd / "workbook-coverage.json", {
+            "sourceVisuals": 1,
+            "sourceVisualIds": ["chart-1"],
+            "queryableElements": 1,
+            "builtSourceVisualIds": ["chart-1"],
+            "unbuiltSourceVisualIds": [],
+            "status": "PASS",
+        })
+        write_json(wd / "control-scope.json", {
+            "version": 1, "source": "qlik", "sourceFilterSignals": 0,
+            "controls": [], "unbound": [], "dropped": [],
+        })
+        write_json(wd / "element-map.json", [{
+            "elementId": "sigma-chart-1", "name": "Sales", "kind": "bar-chart",
+            "qlik": {"objectId": "chart-1", "dims": ["Country"],
+                     "measures": ["Sum(Sales)"]},
+        }])
+        write_json(wd / "parity-final.json", {
+            "status": "PASS", "strict": True, "mode": "live-engine",
+            "verified_against": "qlik-engine", "charts_total": 1,
+            "charts_pass": 1, "charts_fail": 0, "charts_stale_explained": 0,
+            "fail_names": [], "pending_names": [], "divergent": False,
+            "per_chart": [{"chart": "Sales", "status": "MATCH", "pass": True}],
+            "tile_census": {
+                "zones_total": 1, "charts_built": 1, "zones_unmatched": 0,
+                "unmatched_zone_names": [],
+            },
+        })
+        healthy_png(wd / "source-pages" / "sheet-1.png")
+        healthy_png(wd / "visual-qa" / "sheet-1.png")
+
+    def finalize(self):
+        return self.run_script("finalize-qlik-report.py", "--workdir", self.workdir)
+
+    def stamp_shared_gate_success(self):
+        write_json(self.workdir / "phase6-success.json", {
+            "workbookId": "wb-1", "chartCount": 1, "gates": "all-pass",
+            "waivers": [], "generatedAt": "2026-08-20T00:00:00Z",
+        })
+
+    def test_unaccounted_source_object_fails_closed(self):
+        dm = json.loads((self.workdir / "dm-spec.json").read_text())
+        dm["pages"][0]["elements"][0]["columns"] = []
+        dm["pages"][0]["elements"][0]["name"] = "Orders"
+        write_json(self.workdir / "dm-spec.json", dm)
+        result = self.run_script(
+            "build-qlik-accounting.py", "--workdir", self.workdir
+        )
+        self.assertNotEqual(result.returncode, 0)
+        census = json.loads((self.workdir / "source-object-census.json").read_text())
+        self.assertFalse(census["summary"]["complete"])
+        self.assertIn("field:Orders.Country", census["diagnostics"]["unaccounted"])
+
+    def test_missing_and_blank_source_or_target_render_fail(self):
+        (self.workdir / "visual-qa" / "sheet-1.png").unlink()
+        missing = self.finalize()
+        self.assertNotEqual(missing.returncode, 0)
+        health = json.loads((self.workdir / "render-health.json").read_text())
+        self.assertEqual(health["status"], "FAIL")
+        self.assertEqual(health["sigma_pages"][0]["status"], "ERROR")
+
+        healthy_png(self.workdir / "visual-qa" / "sheet-1.png")
+        blank_png(self.workdir / "source-pages" / "sheet-1.png")
+        blank = self.finalize()
+        self.assertNotEqual(blank.returncode, 0)
+        health = json.loads((self.workdir / "render-health.json").read_text())
+        self.assertEqual(health["sources"][0]["status"], "FAIL")
+
+    def test_tile_aware_majority_blank_fails(self):
+        source = self.workdir / "source.png"
+        render = self.workdir / "render.png"
+        healthy_png(source, blank_tiles=True)
+        healthy_png(render, blank_tiles=True)
+        tiles = [
+            {"name": "A", "kind": "chart", "x_pct": 0, "y_pct": 20,
+             "w_pct": 33, "h_pct": 80},
+            {"name": "B", "kind": "chart", "x_pct": 33, "y_pct": 20,
+             "w_pct": 34, "h_pct": 80},
+            {"name": "C", "kind": "chart", "x_pct": 67, "y_pct": 20,
+             "w_pct": 33, "h_pct": 80},
+        ]
+        write_json(self.workdir / "tiles.json", tiles)
+        out = self.workdir / "similarity.json"
+        result = self.run_script(
+            "visual-similarity.py", "--source", source, "--render", render,
+            "--tiles", self.workdir / "tiles.json", "--json-out", out,
+        )
+        self.assertEqual(result.returncode, 1)
+        verdict = json.loads(out.read_text())
+        self.assertEqual(verdict["tiles_measured"], 3)
+        self.assertGreater(len(verdict["tiles_blank"]), 1)
+        self.assertFalse(verdict["pass"])
+
+    def test_qlik_screenshot_rejects_valid_blank_png(self):
+        module_path = SCRIPTS / "qlik-screenshot.py"
+        spec = importlib.util.spec_from_file_location("qlik_screenshot", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        blank = self.workdir / "download.png"
+        blank_png(blank)
+        blank_bytes = blank.read_bytes()
+        real_run = module.subprocess.run
+
+        def fake_qlik(*args, **kwargs):
+            if args[:3] == ("raw", "post", "v1/reports"):
+                return "", "reports/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/status"
+            return {"status": "done", "results": [{"location": "/api/download"}]}
+
+        def fake_run(command, *args, **kwargs):
+            if command[:3] == ["qlik", "raw", "get"]:
+                return subprocess.CompletedProcess(command, 0, stdout=blank_bytes, stderr=b"")
+            return real_run(command, *args, **kwargs)
+
+        module.qlik = fake_qlik
+        module.subprocess.run = fake_run
+        path, error, health = module.export_png("app", "viz", str(self.workdir))
+        self.assertIsNone(path)
+        self.assertIn("PNG health FAIL", error)
+        self.assertEqual(health["status"], "FAIL")
+
+    def test_orchestrator_orders_full_assert_and_never_stamps_success(self):
+        text = (SCRIPTS / "migrate-qlik.rb").read_text(encoding="utf-8")
+        normalize = text.index("normalize-qlik-expressions.py")
+        lint = text.index("blank-risk-elements.json")
+        post = text.index("run!(wb_cmd) unless opts[:dry_run]")
+        parity = text.index("'parity-final.json'")
+        cleanup = text.index("'cleanup-orphan-workbooks.rb'")
+        shared_assert = text.index("'assert-phase6-ran.rb'")
+        terminal_report = text.index(
+            "Qlik accounting and report finalization (terminal)"
+        )
+        self.assertLess(normalize, lint)
+        self.assertLess(lint, post)
+        self.assertLess(post, parity)
+        self.assertLess(parity, cleanup)
+        self.assertLess(cleanup, shared_assert)
+        self.assertLess(shared_assert, terminal_report)
+        self.assertNotRegex(
+            text, r"File\.write\([^)]*phase6-success\.json"
+        )
+        self.assertIn("assert_ok = run_terminal.call", text)
+        self.assertIn("mechanical_ok && cleanup_ok && pre_finalizer_ok && assert_ok", text)
+
+    def test_report_contradiction_fails_completion(self):
+        final = self.finalize()
+        self.assertEqual(final.returncode, 0, final.stdout + final.stderr)
+        self.stamp_shared_gate_success()
+        report = json.loads((self.workdir / "migration-result.json").read_text())
+        report["source_objects"][0]["status"] = "skipped"
+        write_json(self.workdir / "migration-result.json", report)
+        result = self.run_script(
+            "verify-complete.rb", "--workdir", self.workdir,
+            "--workbook-id", "wb-1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CONTRADICTION", result.stderr)
+
+    def test_complete_success(self):
+        final = self.finalize()
+        self.assertEqual(final.returncode, 0, final.stdout + final.stderr)
+        self.stamp_shared_gate_success()
+        result = self.run_script(
+            "verify-complete.rb", "--workdir", self.workdir,
+            "--workbook-id", "wb-1",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("strict parity", result.stdout)
+        census = json.loads((self.workdir / "source-object-census.json").read_text())
+        self.assertTrue(census["summary"]["complete"])
+        self.assertTrue(all(
+            row["status"] in {
+                "migrated", "approximated", "needs-review", "skipped",
+                "not-applicable",
+            }
+            and row["source_provenance"] in {
+                "live", "engine-export", "inferred",
+            }
+            and row["evidence"]
+            for row in census["objects"]
+        ))
+        tiles = json.loads((self.workdir / "qlik-tile-layout.json").read_text())
+        self.assertEqual(tiles[0]["kind"], "chart")
+        similarity = json.loads((self.workdir / "visual-similarity.json").read_text())
+        self.assertEqual(similarity["pages"][0]["tiles_measured"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

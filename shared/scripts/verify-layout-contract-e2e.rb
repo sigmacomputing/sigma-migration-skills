@@ -29,7 +29,12 @@ require 'json'
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__)
 require 'sigma_rest'
 
-def log(m) = puts("[layout-contract] #{m}")
+# NOT an endless def (`def log(m) = ...`): that is Ruby 3.0+ syntax and a hard
+# SyntaxError on the macOS system ruby 2.6 this repo targets. `ruby -c` under
+# CI's 3.3 parses it happily, which is how it landed. See tools/lint-ruby-floor.rb.
+def log(m)
+  puts("[layout-contract] #{m}")
+end
 def skip!(m)
   puts("SKIP: #{m}")
   exit 0

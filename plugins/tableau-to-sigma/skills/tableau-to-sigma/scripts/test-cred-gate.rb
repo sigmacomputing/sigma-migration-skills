@@ -92,7 +92,8 @@ Dir.mktmpdir do |home|
     File.write(File.join(work, 'discovery-stamp.json'), '{}')
     code, out = run_no_creds(MT, home, work, sigma)
     check(!out.include?('no Tableau credentials resolvable'), 'reused discovery (stamp present) skips the Tableau gate', fails)
-    File.delete(File.join(work, 'discovery-stamp.json'))
+    stamp = File.join(work, 'discovery-stamp.json')
+    File.delete(stamp) if File.exist?(stamp)
 
     # (7) Tableau PAT present in env => Tableau gate passes. SIGMA_SKIP_CRED_SMOKE
     #     bypasses the new live sign-in preflight so this stays a pure presence-gate test.

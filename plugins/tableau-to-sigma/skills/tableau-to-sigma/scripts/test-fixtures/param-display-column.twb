@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2024.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Orders' inline='true' name='federated.orders'>
+      <connection class='federated' dbname='TEST_DB' schema='TEST_SCHEMA'>
+        <relation name='ORDERS' table='[TEST_DB].[TEST_SCHEMA].[ORDERS]' type='table'>
+          <columns>
+            <column datatype='string' name='REGION' ordinal='0' />
+            <column datatype='string' name='CUSTOMER_NAME' ordinal='1' />
+          </columns>
+        </relation>
+      </connection>
+      <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+      <column caption='Customer Name' datatype='string' name='[CUSTOMER_NAME]' role='dimension' type='nominal' />
+      <column caption='Display Column' datatype='string' name='[Calculation_Display]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN 1 THEN [Region] WHEN 2 THEN [Customer Name] END' />
+      </column>
+    </datasource>
+    <datasource hasconnection='false' inline='true' name='Parameters'>
+      <column caption='Choose Display Column' datatype='integer' name='[Parameter 1]' param-domain-type='list' role='measure' type='quantitative' value='1'>
+        <members>
+          <member value='1' />
+          <member value='2' />
+        </members>
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Dynamic Table'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.orders' />
+          </datasources>
+          <datasource-dependencies datasource='federated.orders'>
+            <column caption='Display Column' datatype='string' name='[Calculation_Display]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN 1 THEN [Region] WHEN 2 THEN [Customer Name] END' />
+            </column>
+            <column-instance column='[Calculation_Display]' derivation='None' name='[none:Calculation_Display:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.orders].[none:Calculation_Display:nk]</rows>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

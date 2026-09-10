@@ -6,7 +6,7 @@ Every documented source construct maps to a real, current Sigma target or a loud
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 41 documented constructs across 5 dimensions; 12 live-verified.
+**Coverage:** 77 documented constructs across 6 dimensions; 12 live-verified.
 
 ## Visualization / chart kind
 
@@ -90,6 +90,62 @@ Authoritative source: <https://help.qlik.com/en-US/sense/Subsystems/Hub/Content/
 | | | | | _Field the date_field() predicate tags as date/timestamp — a datetime-bound list control is silently stripped by Sigma._ |
 | `field` | [doc](https://help.qlik.com/en-US/sense/Subsystems/Hub/Content/Sense_Hub/Visualizations/Filterpane/filter-pane.htm) | `list` | ✅ y · 2026-07-13 | n/a |
 | | | | | _Categorical list control (documented default)._ |
+
+## scalar-function
+
+_Qlik scalar and string-aggregate expression grounding used by normalize-qlik-expressions.py after the vendored converter runs. `translation_status=exact` rows are safe token-level mappings; `approximated` rows are retained only with an explicit warning; `needs-review` rows are removed from the patched converter output. Qlik row-level `&` is exact concatenation and is intentionally distinct from aggregate Concat(), which is not safe to auto-port because DISTINCT/TOTAL/set scope and ordering require chart context._
+
+Authoritative source: <https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/Functions/FunctionsInScriptsAndChartExpressions.htm>
+
+| construct | doc ref | Sigma target | sigma_verified | on-unmapped |
+|---|---|---|---|---|
+| `row_concat_&` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/Operators/StringOperators.htm) | `&` | 🟡 n | n/a |
+| | | | | _Row-level text concatenation. This is not Qlik's aggregate Concat() function._ |
+| `Upper` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Upper.htm) | `Upper` | 🟡 n | needs-review |
+| `Lower` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Lower.htm) | `Lower` | 🟡 n | needs-review |
+| `Trim` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Trim.htm) | `Trim` | 🟡 n | needs-review |
+| `LTrim` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/LTrim.htm) | `Ltrim` | 🟡 n | needs-review |
+| `RTrim` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/RTrim.htm) | `Rtrim` | 🟡 n | needs-review |
+| `Left` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Left.htm) | `Left` | 🟡 n | needs-review |
+| `Right` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Right.htm) | `Right` | 🟡 n | needs-review |
+| `Replace` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Replace.htm) | `Replace` | 🟡 n | needs-review |
+| `Len` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Len.htm) | `Len` | 🟡 n | needs-review |
+| `Repeat` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Repeat.htm) | `Repeat` | 🟡 n | needs-review |
+| `Mid` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Mid.htm) | — (no Sigma equivalent) | 🟡 n | needs-review |
+| | | | | _Qlik's start argument is 1-based. The vendored converter leaves Mid() verbatim, so no target is emitted without an explicit index-base proof._ |
+| `Index` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/Index.htm) | `IndexOf (candidate only)` | 🟡 n | needs-review |
+| | | | | _Qlik is 1-based, returns 0 when absent, supports nth and negative occurrences. A direct IndexOf() rename is not semantically grounded._ |
+| `SubStringCount` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/StringFunctions/SubStringCount.htm) | `RegexpCount (candidate only)` | 🟡 n | needs-review |
+| | | | | _Qlik searches a literal substring; Sigma RegexpCount interprets the second argument as a regular expression. Metacharacters cannot be passed through unchanged._ |
+| `Year` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Year.htm) | `Year` | 🟡 n | needs-review |
+| `Month` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Month.htm) | `Month` | 🟡 n | warn+retain numeric month |
+| | | | | _Both expose month number 1-12, but Qlik also carries the MonthNames text as a dual display value. The numeric date part is retained with an explicit approximation warning._ |
+| `Day` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Day.htm) | `Day` | 🟡 n | needs-review |
+| `Hour` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Hour.htm) | `Hour` | 🟡 n | needs-review |
+| `Minute` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Minute.htm) | `Minute` | 🟡 n | needs-review |
+| `Second` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/DateAndTimeFunctions/Second.htm) | `Second` | 🟡 n | needs-review |
+| `Fabs` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/NumericFunctions/Fabs.htm) | `Abs` | 🟡 n | needs-review |
+| `Sqrt` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/NumericFunctions/Sqrt.htm) | `Sqrt` | 🟡 n | needs-review |
+| `Pow` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/NumericFunctions/Pow.htm) | `Power` | 🟡 n | needs-review |
+| `Log` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/ExponentialAndLogarithmicFunctions/Log.htm) | `Ln` | 🟡 n | needs-review |
+| `Log10` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/ExponentialAndLogarithmicFunctions/Log10.htm) | `Log10` | 🟡 n | needs-review |
+| `Exp` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/ExponentialAndLogarithmicFunctions/Exp.htm) | `Exp` | 🟡 n | needs-review |
+| `Ceil` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/GeneralNumericFunctions/Ceil.htm) | `Ceiling` | 🟡 n | needs-review |
+| `Floor` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/GeneralNumericFunctions/Floor.htm) | `Floor` | 🟡 n | needs-review |
+| `Round` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/GeneralNumericFunctions/Round.htm) | `Round` | 🟡 n | needs-review |
+| `Fmod` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/GeneralNumericFunctions/Fmod.htm) | `Mod` | 🟡 n | needs-review |
+| `Dual` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/FormattingFunctions/Dual.htm) | `numeric argument only (converter approximation)` | 🟡 n | needs-review |
+| | | | | _The vendored converter keeps only the numeric argument. That silently loses Qlik's text representation and is therefore removed._ |
+| `MinString` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/ChartFunctions/StringAggregationFunctions/minstring.htm) | `Min (candidate only)` | 🟡 n | needs-review |
+| | | | | _Qlik performs alphabetical text ordering and returns a dual value; numeric Min is not an automatic equivalent._ |
+| `MaxString` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/ChartFunctions/StringAggregationFunctions/maxstring.htm) | `Max (candidate only)` | 🟡 n | needs-review |
+| | | | | _Qlik performs alphabetical text ordering and returns a dual value; numeric Max is not an automatic equivalent._ |
+| `Concat` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/ChartFunctions/StringAggregationFunctions/concat.htm) | `ListAgg (candidate only)` | 🟡 n | needs-review |
+| | | | | _Aggregate Concat() depends on DISTINCT/TOTAL/set scope and Qlik sort-weight semantics. It is not row-level `&`, and a token-only ListAgg rename cannot prove ordering or scope._ |
+| `Only` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/ChartFunctions/BasicAggregationFunctions/only.htm) | — (no Sigma equivalent) | 🟡 n | needs-review |
+| | | | | _Qlik returns the sole possible value and NULL when cardinality is not exactly one. Passing through the field or guessing Min/Max changes semantics._ |
+| `<unknown-function>` | [doc](https://help.qlik.com/en-US/sense/May2026/Subsystems/Hub/Content/Sense_Hub/Scripting/Functions/FunctionsInScriptsAndChartExpressions.htm) | — (no Sigma equivalent) | 🟡 n | needs-review |
+| | | | | _Fail closed: an uncataloged callable is removed from patched output and reported; it is never passed through as if Sigma supported it._ |
 
 ## workbook-feature
 

@@ -33,6 +33,12 @@
 # Sigma kinds with the table in refs/workbook-layout.md.
 
 require 'json'
+# F5 crash class (issue #752). The .twb read below already passes
+# encoding: 'UTF-8', but --dashboard / --dashboard-filter / --page-filter names
+# arrive via ARGV, which an unset/C locale tags ASCII-8BIT; those names are
+# JSON-written into the layout, so a curly quote or em-dash in a Tableau caption
+# crashes the emit. Only ARGV re-tagging fixes that.
+require_relative 'lib/cli_encoding'
 # Nokogiri-backed REXML drop-in — REXML is O(n^2) on large .twb files; twb_xml.rb
 # parses a 5 MB / 95-worksheet workbook in well under a second. See lib/twb_xml.rb.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)

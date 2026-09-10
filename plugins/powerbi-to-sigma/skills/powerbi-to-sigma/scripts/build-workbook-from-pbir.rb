@@ -57,6 +57,9 @@ require_relative 'lib/coverage_catalog'
 require_relative 'lib/trellis_emit' # shared native-trellis emitter (supported-kind gate + fallbacks)
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 require_relative 'lib/pbi_reportbuild' # report-build hardening: one-base-table-per-page, boolean controls, friendly names
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 include SigmaLayout
 
 # ---------------------------------------------------------------------------
@@ -1122,7 +1125,21 @@ $sort_by_column ||= {}
 # Resolve a 'map' visual to region-map / point-map / bar-chart fallback.
 # Mutates rec['bindings'] for the fallback (legend becomes the bar category,
 # matching the old downgrade behavior).
+def normalize_azure_map_bindings!(rec)
+  return unless rec['visual_type'].to_s.casecmp('azureMap').zero?
+
+  bindings = rec['bindings'] ||= {}
+  { 'X' => 'Longitude', 'Y' => 'Latitude' }.each do |source, target|
+    raw = Array(bindings.delete(source)).compact
+    next if raw.empty?
+    bindings[target] = (Array(bindings[target]) + raw).compact.uniq
+  end
+end
+
 def resolve_map_kind(rec, name)
+  # Extraction now emits canonical roles, but runs can resume from a signals.json
+  # written by an older plugin. Normalize here too before kind/master resolution.
+  normalize_azure_map_bindings!(rec)
   b = rec['bindings'] || {}
   lat = (b['Latitude'] || []).first
   lng = (b['Longitude'] || []).first
@@ -1144,7 +1161,21 @@ def resolve_map_kind(rec, name)
                     action: 'Supply a region-typed column (country/state/county/zip/place) via --bim dataCategory, ' \
                             'or lat+long bindings, to render a real Sigma map — or accept the bar approximation.')
   series = (b['Series'] || b['Legend'] || []).first
-  b['Category'] = [series] if series  # old downgrade kept the legend as the bar category
+  # Native maps use Size for magnitude; the bar fallback reads Y/Values. Carry
+  # the same measure across the downgrade instead of emitting an empty yAxis.
+  if Array(b['Y']).empty? && Array(b['Values']).empty? && !Array(b['Size']).empty?
+    b['Y'] = Array(b.delete('Size')).compact
+  end
+  # A non-geocodable Location still makes a useful bar category.
+  b['Category'] = Array(b['Location']).compact if Array(b['Category']).empty? && !Array(b['Location']).empty?
+  if Array(b['Category']).empty? && series
+    # The old downgrade uses the legend/series as the bar category. Consume the
+    # role: leaving it behind colors by the same column and emits a redundant
+    # interactive legend control targeting a chart that may not be queryable.
+    b['Category'] = [series]
+    b.delete('Series')
+    b.delete('Legend')
+  end
   'bar-chart'
 end
 
@@ -1423,6 +1454,13 @@ def prepare_legend_control!(el, rec, fields, masters, master, legend_qr, target_
   # waterfall charts. Waterfall splitBy keeps its chart-local legend instead.
   return unless %w[bar-chart line-chart area-chart combo-chart scatter-chart
                    pie-chart donut-chart].include?(el['kind'])
+  # A cartesian target without a measure is not queryable and may be stripped
+  # during spec readback. Never emit a dependent control until the target has a
+  # real series; otherwise the control becomes a ghost/dead legend.
+  if %w[bar-chart line-chart area-chart combo-chart scatter-chart].include?(el['kind']) &&
+     Array(el.dig('yAxis', 'columnIds')).empty?
+    return
+  end
 
   # Pie/donut legends are presentation-first and already render in-panel in
   # Sigma. A separate legend control consumes chart canvas height and shrinks the
@@ -1914,7 +1952,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     dcid = "#{eid}-r"
     cols << { 'id' => dcid, 'formula' => dfs['ref'], 'name' => qr_leaf(loc, 'Region') }
     qr_cids[loc] = dcid
-    el['region'] = { 'id' => dcid, 'regionType' => rec['_region_type'] }
+    el['region'] = { 'columnId' => dcid, 'regionType' => rec['_region_type'] }
     if meas
       fs = field_spec(meas, fields, master)
       vcid = "#{eid}-v"
@@ -1939,15 +1977,30 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     lcid = "#{eid}-lat"; gcid = "#{eid}-lng"
     cols << { 'id' => lcid, 'formula' => lfs['ref'], 'name' => qr_leaf(latq, 'Latitude') }
     cols << { 'id' => gcid, 'formula' => gfs['ref'], 'name' => qr_leaf(lngq, 'Longitude') }
-    el['latitude'] = { 'id' => lcid }
-    el['longitude'] = { 'id' => gcid }
-    if (szq = (b['Size'] || b['Y'] || b['Values'] || []).first)
+    el['latitude'] = { 'columnId' => lcid }
+    el['longitude'] = { 'columnId' => gcid }
+    # Azure Maps Y is latitude, never bubble size. The normalization above
+    # removes it, and this visual-type guard keeps the invariant explicit.
+    size_bindings = if rec['visual_type'].to_s.casecmp('azureMap').zero?
+                      b['Size'] || b['Values'] || []
+                    else
+                      b['Size'] || b['Y'] || b['Values'] || []
+                    end
+    if (szq = size_bindings.first)
       fs = field_spec(szq, fields, master)
       scid = "#{eid}-sz"
       col = { 'id' => scid, 'formula' => measure_formula(fs), 'name' => qr_leaf(szq, 'Size') }
       apply_fmt(col, szq, fields, vfmts)
       cols << col
-      el['size'] = { 'id' => scid }
+      el['size'] = { 'columnId' => scid }
+    end
+    if (srs = (b['Series'] || b['Legend'] || []).first)
+      fs = field_spec(srs, fields, master)
+      ccid = "#{eid}-color"
+      cols << { 'id' => ccid, 'formula' => fs['ref'], 'name' => qr_leaf(srs, 'Category') }
+      qr_cids[srs] = ccid
+      el['color'] = { 'by' => 'category', 'column' => ccid }
+      el['legend'] = { 'visibility' => rec['legend'] == false ? 'hidden' : 'shown' }
     end
   when 'bar-chart', 'line-chart', 'area-chart', 'waterfall-chart'
     # b['Group'] is the treemap/funnel category role (1zh9) — alias it to the dim
@@ -2041,7 +2094,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       cols << { 'id' => scid, 'formula' => sfs['ref'], 'name' => qr_leaf(series, 'Series') }
       qr_cids[series] = scid
       if kind == 'waterfall-chart'
-        el['splitBy'] = { 'id' => scid }
+        el['splitBy'] = { 'columnId' => scid }
       else
         el['color'] = { 'by' => 'category', 'column' => scid }
         prepare_legend_control!(el, rec, fields, masters, master, series, scid)
@@ -2175,7 +2228,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       if szname
         szcid = "#{eid}-s"
         cols << apply_fmt({ 'id' => szcid, 'formula' => "[#{src_name}/#{szname}]", 'name' => szname }, sizeqr, fields, vfmts)
-        el['size'] = { 'id' => szcid }
+        el['size'] = { 'columnId' => szcid }
       end
     else
       warn "[build-workbook] WARN scatter '#{name}': measure X with no Details/Category dim — " \
@@ -2257,7 +2310,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       'id' => dcid,
       'sort' => { 'by' => dcid, 'direction' => 'ascending' }
     }
-    el['value'] = { 'id' => vcid }
+    el['value'] = { 'columnId' => vcid }
     prepare_drill_control!(el, rec, fields, masters, master, dim, dcid, cols)
     prepare_legend_control!(el, rec, fields, masters, master, dim, dcid,
                             blank_safe_source_id)
@@ -2335,7 +2388,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       if rec['show_totals']
         el['kind'] = 'pivot-table'
         el.delete('groupings')
-        el['rowsBy'] = group_ids.map { |id| { 'id' => id } }
+        el['rowsBy'] = group_ids.map { |id| { 'columnId' => id } }
         el['columnsBy'] = []
         el['values'] = calc_ids
         el['totals'] = pbi_totals_block
@@ -2368,8 +2421,8 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     # rowsBy + values REQUIRED or the pivot collapses to one grand-total cell
     # (memory: feedback_sigma_pivot_rowsby_columnsby). columnsBy is the PBI
     # Columns role (bead 14w(d)) — without it a Rows×Columns matrix flattens.
-    el['rowsBy'] = rowids.map { |id| { 'id' => id } }
-    el['columnsBy'] = colids.map { |id| { 'id' => id } } unless colids.empty?
+    el['rowsBy'] = rowids.map { |id| { 'columnId' => id } }
+    el['columnsBy'] = colids.map { |id| { 'columnId' => id } } unless colids.empty?
     el['values'] = valids
     # Style fidelity: PBI matrices show a Grand Total row/column by default.
     # Reproduce it (bold, last) unless the source explicitly turned totals off.
@@ -3176,8 +3229,10 @@ theme_overrides = PbiTheme.overrides($pbi_theme).merge(
   'space' => { 'unit' => 'small', 'showElementPadding' => 'hidden' }
 )
 if page_background && page_background != 'transparent'
+  existing = Array(theme_overrides['colorOverrides'])
+  existing = existing.reject { |entry| entry.is_a?(Hash) && entry['name'] == 'backgroundCanvas' }
   theme_overrides['colorOverrides'] =
-    (theme_overrides['colorOverrides'] || {}).merge('backgroundCanvas' => page_background)
+    existing + [{ 'name' => 'backgroundCanvas', 'color' => page_background }]
 end
 
 document = {

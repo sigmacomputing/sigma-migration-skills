@@ -159,23 +159,24 @@ Dir.mktmpdir do |d|
     check(eff['effect'] == 'set-control-value', 'the effect is set-control-value')
     check(eff.dig('value', 'type') == 'column', 'the value binds to the clicked column')
     # The design's VERIFIED SIGMA SHAPES section pins
-    # `value: {type: "column", column: <columnId>}` — a columnId, NOT a bare
-    # column name. The id is the HOST element's own column id, which is what
+    # `value: {type: "column", columnId: <columnId>}` — a columnId, NOT a bare
+    # column name. (The key itself was `column` before the 2026-08-26 action
+    # field rename; the bare `column` key is now rejected by the API.) The id is the HOST element's own column id, which is what
     # makes the binding real: a name that no column of the clicked element
     # carries would set the control to nothing (or to the wrong thing).
-    check(eff.dig('value', 'column') == 'x-el-metric-buttons',
+    check(eff.dig('value', 'columnId') == 'x-el-metric-buttons',
           "the value binds to the HOST element's columnId, not a bare name " \
-          "(got #{eff.dig('value', 'column').inspect})")
+          "(got #{eff.dig('value', 'columnId').inspect})")
     check(!eff['control'].to_s.empty?, 'the effect names a control')
 
-    puts '== HOST-COLUMN BINDING: value.column is a column OF THE HOST ============'
+    puts '== HOST-COLUMN BINDING: value.columnId is a column OF THE HOST ==========='
     host_el_spec = spec['pages'].flat_map { |p| p['elements'] || [] }
                      .find { |e| e['id'] == pa_entry['hostElementId'] }
     check(!host_el_spec.nil?,
           "the manifest's hostElementId #{pa_entry['hostElementId'].inspect} names a real posted element")
-    host_col = host_el_spec && Array(host_el_spec['columns']).find { |c| c['id'] == eff.dig('value', 'column') }
+    host_col = host_el_spec && Array(host_el_spec['columns']).find { |c| c['id'] == eff.dig('value', 'columnId') }
     check(!host_col.nil?,
-          "value.column #{eff.dig('value', 'column').inspect} is an id carried by the HOST element " \
+          "value.columnId #{eff.dig('value', 'columnId').inspect} is an id carried by the HOST element " \
           "(host columns: #{host_el_spec ? Array(host_el_spec['columns']).map { |c| c['id'] }.inspect : 'n/a'})")
     check(host_col && host_col['name'] == 'Metric Button',
           "that host column is the one the Tableau source-field resolved to, 'Metric Button' " \

@@ -37,6 +37,9 @@ require 'rexml/xpath'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
 require_relative 'lib/theme_derive' # shared theme derivation/emission (v5.0)
 require_relative 'lib/sql_ident_check' # #685-C: calc-masquerading-as-physical fixup reuses its scanner/catalog check
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 module MechanicalSpecs
   module_function
@@ -258,6 +261,69 @@ module MechanicalSpecs
     return nil if base.empty?
     facts = base.reject { |e| dim_like?(elem_name(e)) }
     (facts.empty? ? base : facts).max_by { |e| (e['columns'] || []).size }
+  end
+
+  # Build the single-datasource logical-table grain registry consumed by the
+  # workbook router. Tableau relationships preserve each logical table's grain;
+  # one dashboard can therefore contain a child-fact chart (Absence Records)
+  # beside a parent-grain chart (Employees). A single hidden workbook master
+  # cannot represent both without Lookup undercount or fan-out.
+  #
+  # The converter emits a derived "<Table> View" for every relationship carrier
+  # (the many side) and leaves a target-only unique table as its base element.
+  # This registry names the correct queryable DM source per physical table and a
+  # relationship-key column that can represent Tableau's generated
+  # "Count of <logical table>" measure at that table's own row grain.
+  def object_grain_plan(model, default_element_name: nil)
+    els = all_elements(model)
+    by_id = els.each_with_object({}) { |e, h| h[e['id']] = e if e['id'] }
+    derived_by_base = els.select { |e| e.dig('source', 'kind') == 'table' && e.dig('source', 'elementId') }
+                         .each_with_object({}) { |e, h| h[e.dig('source', 'elementId')] = e }
+    incoming_keys = Hash.new { |h, k| h[k] = [] }
+    els.each do |carrier|
+      Array(carrier['relationships']).each do |rel|
+        Array(rel['keys']).each { |key| incoming_keys[rel['targetElementId']] << key['targetColumnId'] }
+      end
+    end
+
+    base_elements = els.select { |element| %w[warehouse-table sql].include?(element.dig('source', 'kind')) }
+                       .group_by { |element| [element.dig('source', 'kind'), Array(element.dig('source', 'path'))] }
+                       .values
+                       .map do |copies|
+      copies.max_by do |element|
+        participation = Array(element['relationships']).size + incoming_keys[element['id']].size
+        [participation, Array(element['columns']).size]
+      end
+    end
+
+    grains = base_elements.filter_map do |base|
+      table = Array(base.dig('source', 'path')).last.to_s
+      table = elem_name(base) if table.empty?
+      next if table.to_s.empty?
+
+      source = derived_by_base[base['id']] || base
+      key_ids = Array(base['relationships']).flat_map { |rel| Array(rel['keys']).map { |key| key['sourceColumnId'] } }
+      key_ids.concat(incoming_keys[base['id']])
+      key_names = key_ids.filter_map do |id|
+        col = Array(base['columns']).find { |candidate| candidate['id'] == id }
+        col_display(col) if col
+      end.uniq
+      count_key = key_names.one? ? key_names.first : nil
+      source_name = elem_name(source)
+      base_name = elem_name(base)
+      aliases = [table, base_name, source_name, display_name(table)].compact.map(&:to_s).reject(&:empty?).uniq
+      {
+        'table' => table,
+        'caption' => source_name,
+        'base_element' => base_name,
+        'aliases' => aliases,
+        'columns' => Array(source['columns']).filter_map { |column| col_display(column) }.uniq,
+        'count_key' => count_key,
+        'default' => [source_name, base_name].any? { |name| name.to_s.casecmp?(default_element_name.to_s) }
+      }
+    end
+    return nil if grains.size < 2
+    { 'version' => 1, 'datasources' => grains.sort_by { |grain| grain['default'] ? 0 : 1 } }
   end
 
   # Fact-table hint for a SINGLE-datasource multi-table (object-model /
@@ -878,6 +944,99 @@ module MechanicalSpecs
     pruned.map { |e| e['name'].to_s }
   end
 
+  # Converter parameter output is workbook metadata, not data-model content.
+  # Keep the raw converter artifact unchanged for diagnostics, but normalize the
+  # result consumed by the orchestrator before it writes conv-meta.json / posts
+  # the DM:
+  #   * simple CASE-on-parameter field/measure switches become param-switch
+  #     workbookPatterns (the converter parser currently accepts quoted WHEN
+  #     values only, while Tableau commonly serializes integer members bare);
+  #   * parameter controls not referenced by any DM formula are removed. A
+  #     genuinely DM-bound control such as parameterized Top-N is preserved.
+  PARAM_CASE_VALUE_RE = /(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[-+]?(?:\d+(?:\.\d*)?|\.\d+)|true|false)/i
+
+  def parameter_case_value(raw)
+    s = raw.to_s.strip
+    return s unless (s.start_with?('"') && s.end_with?('"')) || (s.start_with?("'") && s.end_with?("'"))
+    s[1...-1].gsub(/\\(.)/, '\\1')
+  end
+
+  def parameter_switch_pattern(pattern)
+    return nil unless pattern.is_a?(Hash) && pattern['kind'] == 'param-filter'
+    source = pattern['source'].to_s.gsub(%r{//[^\r\n]*}, '').gsub(/\s+/, ' ').strip
+    match = source.match(/\ACASE\s+\[Parameters?\]\s*\.\s*\[([^\]]+)\]\s+(.+)\s+END\z/i)
+    return nil unless match
+
+    param_name, body = match[1], match[2].strip
+    # Nested CASE/IF branches need a real expression parser; never partially
+    # promote them with this deliberately narrow mechanical recovery.
+    return nil if body.match?(/\b(?:CASE|IF|ELSEIF)\b/i)
+
+    pair_re = /\bWHEN\s+(#{PARAM_CASE_VALUE_RE})\s+THEN\s+(.+?)(?=\s+\bWHEN\b|\s+\bELSE\b|\z)/i
+    cases = body.scan(pair_re).map do |when_value, then_expr|
+      { 'when' => parameter_case_value(when_value), 'then' => then_expr.strip }
+    end
+    return nil if cases.empty?
+
+    consumed = body.gsub(pair_re, '').sub(/\bELSE\s+.+\z/i, '').strip
+    return nil unless consumed.empty?
+    else_expr = body[/\bELSE\s+(.+)\z/i, 1]&.strip
+
+    pattern.merge(
+      'kind' => 'param-switch',
+      'paramName' => pattern['paramName'] || param_name,
+      'cases' => cases,
+      'elseExpr' => else_expr,
+      'requires' => 'WORKBOOK element: a single-select control + a Switch formula on the chart/grouping column; not a data-model control or calculated column.',
+      'note' => "Tableau parameter field switch -> Sigma workbook control-driven Switch (#{cases.size} case(s))."
+    )
+  end
+
+  def normalize_converter_parameters!(result)
+    return result unless result.is_a?(Hash) && result['model'].is_a?(Hash)
+
+    promoted = 0
+    result['workbookPatterns'] = Array(result['workbookPatterns']).map do |pattern|
+      replacement = parameter_switch_pattern(pattern)
+      promoted += 1 if replacement
+      replacement || pattern
+    end
+
+    controls = []
+    data_elements = []
+    (result['model']['pages'] || []).each do |page|
+      Array(page['elements']).each do |element|
+        if element['kind'] == 'control'
+          controls << [page, element]
+        else
+          data_elements << element
+        end
+      end
+    end
+
+    dm_text = JSON.generate(data_elements)
+    preserved = controls.select do |_page, control|
+      id = control['controlId'].to_s
+      !id.empty? && dm_text.include?("[#{id}]")
+    end
+    preserved_ids = preserved.map { |_page, control| control.object_id }.to_set
+    (result['model']['pages'] || []).each do |page|
+      page['elements'] = Array(page['elements']).reject do |element|
+        element['kind'] == 'control' && !preserved_ids.include?(element.object_id)
+      end
+    end
+    removed = controls.size - preserved.size
+
+    stats = result['stats'] ||= {}
+    stats['controls'] = preserved.size
+    warnings = result['warnings'] ||= []
+    warnings << "ℹ Promoted #{promoted} bare-value Tableau parameter CASE calc(s) to workbook param-switch patterns; none were emitted as DM fields." if promoted.positive?
+    if removed.positive?
+      warnings << "ℹ Moved #{removed} unreferenced Tableau parameter control(s) out of the data model; the workbook builder materializes them from parameter metadata."
+    end
+    result
+  end
+
   # Run the Tableau→Sigma converter. Two backends, same output contract
   # ({ model, warnings, stats, security }):
   #   - mcp_build present → node shim importing a LOCAL build/tableau.(m)js
@@ -953,7 +1112,9 @@ module MechanicalSpecs
     JS
     o, e, st = Open3.capture3('node', shim)
     raise "converter failed: #{e}#{o}" unless st.success?
-    JSON.parse(File.read(meta_out))
+    result = normalize_converter_parameters!(JSON.parse(File.read(meta_out)))
+    File.write(meta_out, JSON.pretty_generate(result))
+    result
   end
 
   # Hosted backend: POST the .twb to the convert_tableau_to_sigma tool on the
@@ -991,6 +1152,7 @@ module MechanicalSpecs
                'stats' => out['stats'] || {}, 'security' => out['security'] || [],
                'workbookPatterns' => out['workbookPatterns'] || [], 'parameters' => out['parameters'] || [],
                'relationshipCoverage' => out['relationshipCoverage'] || nil }
+    normalize_converter_parameters!(result)
     File.write(meta_out, JSON.pretty_generate(result))
     result
   end

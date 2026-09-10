@@ -1,6 +1,6 @@
-msal>=1.28,<1.32
+msal>=1.37.0,<1.38
 requests
-truststore>=0.9,<0.11
+truststore>=0.10.4,<0.11
 
 # OPTIONAL — LOCAL .pbix model extraction ONLY (extract-model-pbix.py /
 # migrate-powerbi.rb --pbix). Deliberately NOT installed by the default
@@ -17,5 +17,5 @@ truststore>=0.9,<0.11
 # Phase 5e source render: rasterize the ExportToFile PDF -> per-page PNGs in
 # export-pbi-pages.py so the agent's `Read` needs no poppler/pdftoppm. pypdfium2
 # ships portable abi3 wheels (BSD/Apache); Pillow writes the PNGs.
-pypdfium2>=4.30,<5
-Pillow>=10.4,<12
+pypdfium2>=5.13.0,<6
+Pillow>=12.3.0,<13

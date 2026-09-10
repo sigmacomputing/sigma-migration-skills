@@ -28,6 +28,9 @@ require 'date'
 require 'optparse'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'code_rep'
+# Ruby 2.6 floor (macOS system ruby): this file uses Enumerable#tally (2.7+).
+# Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 opts = {}
 OptionParser.new do |p|

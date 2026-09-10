@@ -1,6 +1,10 @@
 {
+  "freshness_check": {
+    "checked_at": "2026-09-08",
+    "upstream_head": "21f3167",
+    "result": "no-module-drift"
+  },
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "thoughtspot.mjs",
-  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes.",
-  "bundle_sha256": "b5caec526ffa9d4a35b52826eb0e7b6c3ca0fc439f260b74f39376652a100526"
+  "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes."
 }

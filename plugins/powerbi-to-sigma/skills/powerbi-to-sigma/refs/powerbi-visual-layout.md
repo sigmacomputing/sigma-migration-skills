@@ -319,7 +319,8 @@ Inner `gridRow` matches the container's outer span (`3 / 8`) per the
 | `tableEx` | `table` | |
 | `pivotTable`, `matrix` | `pivot-table` | Use `rowsBy`/`columnsBy`/`values` shape |
 | `slicer` | `control` | Type derived from slicer mode (list/dropdown/range/date-range) |
-| `map`, `filledMap`, `shapeMap`, `azureMap` | `bar-chart` | Sigma has no map; degrade to sorted bar-chart per the existing Tableau pattern |
+| `azureMap` with `X`/`Y` | `point-map` | Azure roles become longitude/latitude; optional `Size` and `Series` become bubble size and categorical color. |
+| `map`, `filledMap`, `shapeMap` | `region-map` / `point-map` / `bar-chart` | Direct coordinates become a point map; TMSL `dataCategory` can resolve a region map; only unresolvable geocoded locations degrade to a bar. |
 | `groupVisualContainer` / `visualGroup` | `container` | Wraps children via `<Container>` |
 | `funnel`, `treemap`, `ribbonChart`, `decompositionTreeVisual`, `keyInfluencersVisual`, `qnaVisual` | (no equivalent) | Approximate with `bar-chart` or skip with warning |
 

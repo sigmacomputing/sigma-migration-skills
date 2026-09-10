@@ -21,19 +21,22 @@ metric→SQL for AE-emulation sql elements.
 ## Candidates to scout (MSTR metric function → Sigma)
 | MSTR function | Why it errors | Candidate Sigma translation to validate |
 |---|---|---|
-| `RunningSum / RunningAvg / RunningMax` | window/running calc | `CumulativeSum([Master/Col])` in a date-grouped element |
-| `Rank / RankByValue` | window rank | `Rank([Master/Col])` (grouped-element context) |
-| `Lag / Lead / OffsetValue` | offset | `Lag([Master/Col], n)` in a sorted/date-grouped element |
-| `Median / Percentile / Mode` | distribution | `Median([Master/Col])` / `Percentile([Master/Col], p)` |
-| `StdDev / Variance` | stats | `Stdev([Master/Col])` / `Var([Master/Col])` |
+| `RunningSum / RunningAvg / RunningMax` | window/running calc | `CumulativeSum([Orders/Col])` in a date-grouped element |
+| `Rank / RankByValue` | window rank | `Rank([Orders/Col])` (grouped-element context) |
+| `Lag / Lead / OffsetValue` | offset | `Lag([Orders/Col], n)` in a sorted/date-grouped element |
+| `Median / Percentile / Mode` | distribution | `Median([Orders/Col])` / `Percentile([Orders/Col], p)` |
+| `StdDev / Variance` | stats | `Stdev([Orders/Col])` / `Var([Orders/Col])` |
 | `NTile / Quartile` | bucketing | derived bins or `Rank` + ratio; escalate if no 1:1 |
 | `FirstInRange / LastInRange` | windowed first/last | `First`/`Last` in a sorted grouped element |
 | MSTR-specific (`ApplySimple`, `BannerNumber`, …) | passthrough/raw SQL | translate via the warehouse SQL, else escalate |
 
 Spawn ONE scout per distinct error column; run them in parallel (independent).
 
-**Point the scout at the denormalized join element** (e.g. `Orders`), referencing
-columns as `[Master/<Display Name>]`.
+**Point the scout at the denormalized join element** and qualify columns with
+that element's actual `name`. The converter default is `Orders`, so the default
+form is `[Orders/<Display Name>]`. If conversion used
+`--join-element-name <other-name>`, replace `Orders` in every candidate formula;
+never use an element id or a generic `Master` prefix.
 
 ## How to spawn (Agent tool, subagent_type 'general-purpose')
 ```

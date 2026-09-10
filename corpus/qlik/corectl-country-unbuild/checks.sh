@@ -5,4 +5,5 @@ REPO_ROOT="$(cd "$CASE_DIR/../../.." && pwd)"
 SKILL="$REPO_ROOT/plugins/qlik-to-sigma/skills/qlik-to-sigma"
 
 python3 "$SKILL/tests/test_corectl_unbuild.py"
+python3 "$SKILL/tests/test_completion_contract.py"
 ruby "$SKILL/scripts/test-preflight-warehouse.rb"

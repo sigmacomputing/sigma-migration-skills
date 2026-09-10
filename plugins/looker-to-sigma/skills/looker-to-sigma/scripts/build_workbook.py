@@ -59,6 +59,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import code_rep                 # noqa: E402  workbook document/envelope adapter
 import coverage_catalog as _cc  # noqa: E402
 import trellis_emit as _te      # noqa: E402  shared native-trellis emitter (supported-kind gate + fallbacks)
+from looker_filter_expr import parse_filter_expr  # noqa: E402
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 VIZ_CAT  = _cc.load(_CAT_DIR, "viz-kind")        # Looker vis type   -> Sigma element kind
 FMT_CAT  = _cc.load(_CAT_DIR, "number-format")   # value_format_name -> Sigma number format (D3)
@@ -361,12 +362,32 @@ def main():
     ap.add_argument("--master-name", default="Data")
     ap.add_argument("--folder-id", default="<FOLDER_ID>")
     ap.add_argument("--out", default="/tmp/workbook.spec.json")
+    ap.add_argument("--dynamic-parameters", default=None,
+                    help="converter dynamic-parameter sidecar; finite enums become "
+                         "workbook-local controls + [controlId] formulas")
+    ap.add_argument("--allow-static-dynamic", action="store_true",
+                    help="allow a referenced LookML parameter to remain frozen at its "
+                         "default (recorded in dynamic-controls.json)")
     ap.add_argument("--strict", action="store_true",
                     help="exit non-zero when a dashboard filter cannot be bound "
                          "(default: drop the control with a loud warning)")
     a = ap.parse_args()
 
     dash = json.load(open(a.contract))
+    dynamic_meta = {"version": 1, "parameters": []}
+    if a.dynamic_parameters and os.path.exists(a.dynamic_parameters):
+        dynamic_meta = json.load(open(a.dynamic_parameters))
+    dynamic_params = dynamic_meta.get("parameters") or []
+    for param in dynamic_params:
+        param["controlId"] = "looker-param-" + re.sub(
+            r"[^a-z0-9]+", "-", f"{param.get('view', '')}-{param.get('name', '')}".lower()
+        ).strip("-")
+    dynamic_by_field = {
+        field["field"]: (param, field)
+        for param in dynamic_params
+        for field in (param.get("affectedFields") or [])
+        if field.get("field")
+    }
     # Item 1 — authoritative dim/measure classification. A Look (fetch_looker_look.py)
     # carries `fieldMeta` = {field: {category, aggType?, baseColumn?, valueFormat?, sql?}}
     # pulled from Looker's explore metadata + dynamic_fields hints. Dashboards emit no
@@ -651,6 +672,64 @@ def main():
         return conds[0] if len(conds) == 1 else " And ".join(f"({c})" for c in conds)
 
     def formula_for(f, explore):
+        if f in dynamic_by_field:
+            param, affected = dynamic_by_field[f]
+            if affected.get("deterministic") and param.get("allowedValues"):
+                branch_formulas = {}
+                view = f.split(".")[0]
+                for allowed in param["allowedValues"]:
+                    value = str(allowed.get("value", ""))
+                    sql = (affected.get("branches") or {}).get(value)
+                    if not sql:
+                        continue
+                    expr = str(sql).strip().rstrip(";").strip()
+
+                    def table_col(match):
+                        display = disp(match.group(1).replace('"', ""))
+                        need(display, explore)
+                        return f"[{master_of(explore)['name']}/{display}]"
+
+                    expr = re.sub(
+                        r"\$\{TABLE\}\s*\.\s*([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\")",
+                        table_col,
+                        expr,
+                        flags=re.I,
+                    )
+
+                    def field_ref(match):
+                        ref = match.group(1)
+                        fq = ref if "." in ref else f"{view}.{ref}"
+                        display = col_display(fq, explore)
+                        if not display:
+                            return match.group(0)
+                        need(display, explore)
+                        return f"[{master_of(explore)['name']}/{display}]"
+
+                    expr = re.sub(r"\$\{([^}]+)\}", field_ref, expr)
+                    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr):
+                        display = disp(expr)
+                        need(display, explore)
+                        expr = f"[{master_of(explore)['name']}/{display}]"
+                    expr = re.sub(
+                        r"\bDATE_TRUNC\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*([^)]+)\)",
+                        lambda match: f'DateTrunc("{match.group(1).lower()}", {match.group(2).strip()})',
+                        expr,
+                        flags=re.I,
+                    )
+                    expr = re.sub(r"\bNULLIF\s*\(", "NullIf(", expr, flags=re.I)
+                    if re.search(r"\{%|\{\{|\$\{|;|\bSELECT\b", expr, re.I):
+                        continue
+                    branch_formulas[value] = expr
+                default = str(param.get("defaultValue") or param["allowedValues"][0].get("value", ""))
+                fallback = branch_formulas.get(default)
+                if fallback and len(branch_formulas) == len(param["allowedValues"]):
+                    result = fallback
+                    for allowed in reversed(param["allowedValues"]):
+                        value = str(allowed.get("value", ""))
+                        if value == default:
+                            continue
+                        result = f'If([{param["controlId"]}] = "{value}", {branch_formulas[value]}, {result})'
+                    return result
         if is_measure(f) and is_ratio(f):
             return ratio_formula(f, explore)
         cd = col_display(f, explore)
@@ -1231,7 +1310,7 @@ def main():
                 base["xAxis"] = {"columnId": r_x["id"]}; base["yAxis"] = {"columnIds": [r_y["id"]]}
                 base["color"] = {"by": "category", "column": r_dim["id"]}
                 if src_sz is not None:
-                    r_sz = _raw(src_sz); scols.append(r_sz); base["size"] = {"id": r_sz["id"]}
+                    r_sz = _raw(src_sz); scols.append(r_sz); base["size"] = {"columnId": r_sz["id"]}
                 base["columns"] = scols
                 for mf in [m for m in (xf, yf, sf) if m]: _warn_count(mf, el)
             else:
@@ -1293,7 +1372,7 @@ def main():
                 pcid = sid("clr")
                 cols.append({"id": pcid, "formula": formula_for(pf, ex), "name": col_display(pf, ex)})
                 if kind == "waterfall-chart":
-                    base["splitBy"] = {"id": pcid}
+                    base["splitBy"] = {"columnId": pcid}
                 else:
                     base["color"] = {"by": "category", "column": pcid}
                 pal = looker_cat_palette(el.get("color"))
@@ -1331,8 +1410,8 @@ def main():
                  "name": (col_display(catf, ex) if catf else None) or "Category"},
                 valcol,
             ]
-            base["value"] = {"id": valid}      # donut/pie use value.id (KPI uses value.columnId)
-            base["color"] = {"id": catid}
+            base["value"] = {"columnId": valid}  # donut/pie channel pointers use columnId
+            base["color"] = {"columnId": catid}
             pal = looker_cat_palette(el.get("color"))
             if pal: base["color"]["colors"] = pal
             if catf: field2cid[catf] = catid
@@ -1434,14 +1513,15 @@ def main():
                     f"({', '.join(sorted(leaf(h) for h in hidden))}) hidden in Sigma but "
                     "KEPT in the query so the pivot grain is preserved.")
             base["values"] = val_ids
-            base["rowsBy"] = [{"id": i} for i in row_ids]
-            base["columnsBy"] = [{"id": i} for i in col_ids]
+            base["rowsBy"] = [{"columnId": i} for i in row_ids]
+            base["columnsBy"] = [{"columnId": i} for i in col_ids]
 
         # merged-results auto-join (Looker merge_result_id) — adds the secondary
         # explore's measure(s) as Max(Lookup(...)) columns now that base is built.
         attach_merge(el, base, kind, ex)
 
-        # tile-level hard filters → element filters (string values; date/numeric → warn)
+        # tile-level hard filters → element filters. Looker null sentinels are
+        # operators, not literal strings ("NOT NULL" must never become a value).
         for fld, val in (el.get("filters") or {}).items():
             if kind == "progress":
                 warnings.append(
@@ -1459,9 +1539,13 @@ def main():
                 # carry it hidden so the filter works without adding a visible column.
                 col = {"id": sid("c"), "formula": f"[{master_of(ex)['name']}/{d}]", "name": d, "hidden": True}
                 base["columns"].append(col)
-            vals = [v.strip() for v in str(val).split(",") if v.strip()]
-            base.setdefault("filters", []).append(
-                {"id": sid("f"), "columnId": col["id"], "kind": "list", "mode": "include", "values": vals})
+            sigma_filter = parse_filter_expr(val, col["id"], sid("f"))
+            if sigma_filter is None:
+                warnings.append(
+                    f"tile '{el['name']}': filter {fld}={val!r} uses an unsupported "
+                    "Looker expression — add manually in Sigma")
+                continue
+            base.setdefault("filters", []).append(sigma_filter)
         # tile sorts: -> Sigma sort. Verified shapes (live POST + readback + render,
         # 2026-06-10):
         #   bar/line/area/scatter : xAxis.sort  = {by: <colId>, direction}
@@ -1759,6 +1843,74 @@ def main():
         place_on_page(ctrl["id"], content_pages[0]["id"])
         control_scope.append(entry)
 
+    dynamic_records = []
+    for param in dynamic_params:
+        affected = [field for field in (param.get("affectedFields") or [])
+                    if field.get("field") in {
+                        f for element in dash["elements"] for f in (element.get("fields") or [])
+                    }]
+        reached = sorted({
+            emitted["id"]
+            for element in dash["elements"]
+            if any(field.get("field") in (element.get("fields") or []) for field in affected)
+            for emitted in (element.get("_emitted") or [])
+            if emitted.get("id")
+        })
+        deterministic = bool(affected) and all(field.get("deterministic") for field in affected)
+        allowed = param.get("allowedValues") or []
+        record = {
+            "name": param.get("name"),
+            "view": param.get("view"),
+            "controlId": param.get("controlId"),
+            "defaultValue": param.get("defaultValue"),
+            "allowedValues": allowed,
+            "affectedFields": [field.get("field") for field in affected],
+            "status": "emitted" if deterministic and allowed and reached else "static_default",
+            "reachedElementIds": reached,
+        }
+        dynamic_records.append(record)
+        if record["status"] != "emitted":
+            if affected:
+                warnings.append(
+                    f"🔶 LookML parameter '{param.get('name')}' remains frozen at its "
+                    f"default '{param.get('defaultValue')}' — branch translation was not deterministic")
+                control_scope.append({
+                    "source_signal": f"LookML parameter {param.get('view')}.{param.get('name')}",
+                    "controlId": param.get("controlId"),
+                    "status": "dropped",
+                    "reason": "referenced parameter could not be translated deterministically",
+                })
+            continue
+        cid = param["controlId"]
+        ctrl = {
+            "kind": "control",
+            "id": sid("ctrl"),
+            "controlId": cid,
+            "name": disp(param.get("name")),
+            "controlType": "segmented",
+            "source": {
+                "kind": "manual",
+                "valueType": "text",
+                "values": [str(item.get("value", "")) for item in allowed],
+                "labels": [item.get("label") or None for item in allowed],
+            },
+            "value": str(param.get("defaultValue") or allowed[0].get("value", "")),
+        }
+        controls.append(ctrl)
+        place_on_page(ctrl["id"], content_pages[0]["id"])
+        control_scope.append({
+            "source_signal": f"LookML parameter {param.get('view')}.{param.get('name')}",
+            "sourceName": f"{param.get('view')}.{param.get('name')}",
+            "controlId": cid,
+            "status": "emitted",
+            "mechanism": "formula",
+            "intended": [{"element_id": eid} for eid in reached],
+            "excluded": [],
+            "unresolved": [],
+            "mustReach": reached,
+            "scope": reached,
+        })
+
     # ── flat elements + authoritative required layout ───────────────────────
     # Workbook pages are metadata only. Every element is declared exactly once
     # in document.elements and assigned to a page exclusively through one
@@ -1947,9 +2099,10 @@ def main():
     if dashboard_style:
         code_rep.set_theme(
             doc, name="Light",
-            overrides={"colorOverrides": {
-                "backgroundCanvas": dashboard_style["backgroundColor"],
-            }},
+            overrides={"colorOverrides": [{
+                "name": "backgroundCanvas",
+                "color": dashboard_style["backgroundColor"],
+            }]},
         )
     doc.setdefault("settings", {}).setdefault("navigation", {})[
         "pageTabsInViewMode"
@@ -1998,17 +2151,24 @@ def main():
         e["mustReach"] = reach_ids
         e["scope"] = "page" if not e["excluded"] and not e["unresolved"] else reach_ids
     sidecar = {"version": 1, "source": "looker",
-               "sourceFilterSignals": len(dash["filters"]),
+               "sourceFilterSignals": len(dash["filters"])
+                                      + sum(bool(r["affectedFields"]) for r in dynamic_records),
                "controls": [e for e in control_scope if e["status"] == "emitted"],
                "dropped": [e for e in control_scope if e["status"] != "emitted"]}
     scope_path = os.path.join(os.path.dirname(os.path.abspath(a.out)), "control-scope.json")
     json.dump(sidecar, open(scope_path, "w"), indent=2)
+    dynamic_path = os.path.join(os.path.dirname(os.path.abspath(a.out)), "dynamic-controls.json")
+    json.dump({"version": 1, "source": "looker", "parameters": dynamic_records},
+              open(dynamic_path, "w"), indent=2)
     print(f"wrote {a.out}")
     print(f"  masters: {len(master_elements)} ({', '.join(m['name'] + ':' + str(len(m['columns'])) + ' cols' for m in master_elements)})  tiles: {len(elements)}  controls: {len(controls)}"
           + (f"  listen-scope tables: {len(scope_elements)}" if scope_elements else ""))
     print(f"  control-scope: {scope_path} ({len(controls)} emitted"
           + (f", {len(dropped_controls)} DROPPED: {', '.join(dropped_controls)}" if dropped_controls else "")
           + ")")
+    print(f"  dynamic-controls: {dynamic_path} "
+          f"({sum(r['status'] == 'emitted' for r in dynamic_records)} emitted, "
+          f"{sum(r['status'] != 'emitted' for r in dynamic_records)} static-default)")
     for e in elements:
         print(f"    {e['kind']:11} {e.get('name', '(text)')}")
     if warnings:
@@ -2017,6 +2177,14 @@ def main():
     if a.strict and dropped_controls:
         sys.exit(f"--strict: {len(dropped_controls)} dashboard filter(s) could not be bound: "
                  + ", ".join(dropped_controls))
+    static_dynamic = [record for record in dynamic_records
+                      if record["status"] != "emitted" and record["affectedFields"]]
+    if static_dynamic and not a.allow_static_dynamic:
+        sys.exit(
+            "dynamic-parameter gate: referenced LookML parameter(s) remain static: "
+            + ", ".join(record["name"] for record in static_dynamic)
+            + ". Fix branch translation or pass --allow-static-dynamic for a recorded degradation."
+        )
 
 if __name__ == "__main__":
     main()

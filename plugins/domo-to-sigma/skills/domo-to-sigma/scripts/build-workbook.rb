@@ -24,6 +24,9 @@ require 'json'
 require 'fileutils'
 require 'base64'
 require_relative 'lib/domo_sigma_util'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 include DomoSigma
 
 OUT = ENV['DOMO_DISCOVERY_DIR'] || File.expand_path('../discovery', __dir__)
@@ -219,9 +222,15 @@ CHART_TYPE_MAP = {
 # is tracked as a Sigma CUSTOM PLUGIN follow-up (see the sigma-plugin-development
 # skill) — building one is NOT this converter's job today.
 NO_NATIVE_EQUIVALENT = {
-  'badge_treemap' => 'Domo treemap — no treemap `kind` was found in the Sigma workbook spec ' \
-                      '(verified against the sigma-workbooks skill); degraded to a bar-chart sorted ' \
-                      'descending by measure, which loses the area-proportional hierarchy.',
+  # CORRECTED 2026-08-26: Sigma DOES have a native `treemap-chart` (live-verified:
+  # source + columns + `category: {id: <dim col>}` returns valid:true, creates, and
+  # reads back intact). This converter still degrades, because re-routing needs the
+  # builder to emit `category` instead of the bar axis/stacking/orientation props --
+  # swapping the kind token alone produces an invalid element. Tracked follow-up.
+  'badge_treemap' => 'Domo treemap — degraded to a bar-chart sorted descending by measure, which ' \
+                      'loses the area-proportional hierarchy. NOTE: Sigma now HAS a native ' \
+                      'treemap-chart (as of 2026-08-26); this converter has not been re-routed to it ' \
+                      'yet — see sigma-workbooks reference/specification/charts.md.',
   'badge_word_cloud' => 'Domo word cloud — no word-cloud `kind` exists in Sigma; degraded to a flat ' \
                          'term + frequency table.',
   'badge_calendar' => 'Domo calendar heatmap — no calendar `kind` exists in Sigma; degraded to a flat ' \
@@ -507,29 +516,32 @@ def apply_chart_axis_override!(card, element)
   path = File.join(OUT, 'chart-axis-overrides.json')
   all = (JSON.parse(File.read(path)) rescue {}) if File.exist?(path)
   rule = all && all[card['id'].to_s]
-  return element unless rule.is_a?(Hash) && rule['scale'].to_f.nonzero?
+  return element unless rule.is_a?(Hash)
   measure_ids = Array(element.dig('yAxis', 'columnIds'))
   return element if measure_ids.empty?
 
-  raw = Marshal.load(Marshal.dump(element))
-  raw['id'] = "#{element['id']}-verify"
-  raw['name'] = "#{element['name']} (Parity)"
-  $chart_verification_elements << raw
+  if rule['scale'].to_f.nonzero?
+    raw = Marshal.load(Marshal.dump(element))
+    raw['id'] = "#{element['id']}-verify"
+    raw['name'] = "#{element['name']} (Parity)"
+    $chart_verification_elements << raw
 
-  decimals = rule['decimals'].to_i
-  Array(element['columns']).each do |column|
-    next unless measure_ids.include?(column['id'])
-    column['formula'] = "(#{column['formula']}) / #{rule['scale'].to_f}"
-    column['format'] = {
-      'kind' => 'number',
-      'formatString' => "#{rule['prefix']},.#{decimals}f",
-      'suffix' => rule['suffix'].to_s
-    }
+    decimals = rule['decimals'].to_i
+    Array(element['columns']).each do |column|
+      next unless measure_ids.include?(column['id'])
+      column['formula'] = "(#{column['formula']}) / #{rule['scale'].to_f}"
+      column['format'] = {
+        'kind' => 'number',
+        'formatString' => "#{rule['prefix']},.#{decimals}f",
+        'suffix' => rule['suffix'].to_s
+      }
+    end
+    element['visibleAsSource'] = false
   end
   element['yAxis']['format'] = {
-    'marks' => 'none', 'labels' => { 'fontSize' => 9 }
+    'marks' => 'none',
+    'labels' => rule['hideLabels'] ? 'hidden' : { 'fontSize' => 9 }
   }
-  element['visibleAsSource'] = false
   element
 end
 
@@ -697,7 +709,7 @@ def build_scatter_chart(card, dims, meas)
     'columns' => ordered,
     'xAxis' => xcol ? { 'columnId' => xcol['id'], 'format' => AXIS_OFF } : nil,
     'yAxis' => ycol ? { 'columnIds' => [ycol['id']], 'format' => AXIS_OFF } : nil,
-    'size' => size_col ? { 'id' => size_col['id'] } : nil,
+    'size' => size_col ? { 'columnId' => size_col['id'] } : nil,
     'color' => identity_col ? { 'by' => 'category', 'column' => identity_col['id'] } : nil,
     '_scatterHelper' => helper,
   }.compact
@@ -850,9 +862,9 @@ def build_pie_or_donut(card, kind)
     'id' => eid(card), 'kind' => kind, 'name' => card['title'],
     'source' => { 'kind' => 'table', 'elementId' => 'master' },
     'columns' => [dcol, mcol].compact,
-    'value' => mcol ? { 'id' => mcol['id'] } : nil,   # ⚠ donut/pie use value.id, NOT columnId
+    'value' => mcol ? { 'columnId' => mcol['id'] } : nil,
     'color' => dcol ? {
-      'id' => dcol['id'],
+      'columnId' => dcol['id'],
       'sort' => (mcol ? { 'by' => mcol['id'], 'direction' => 'descending' } :
                          { 'direction' => 'ascending' })
     } : nil,
@@ -973,7 +985,7 @@ def build_map(card)
     'id' => eid(card), 'kind' => 'region-map', 'name' => card['title'],
     'source' => { 'kind' => 'table', 'elementId' => 'master' },
     'columns' => [gcol, mcol].compact,
-    'region' => { 'id' => gcol['id'], 'regionType' => region_type },
+    'region' => { 'columnId' => gcol['id'], 'regionType' => region_type },
     'color' => mcol ? { 'by' => 'scale', 'column' => mcol['id'] } : nil,
   }.compact
 end
@@ -1092,8 +1104,8 @@ def build_pivot(card)
     'id' => eid(card), 'kind' => 'pivot-table', 'name' => card['title'],
     'source' => { 'kind' => 'table', 'elementId' => 'master' },
     'columns' => (dims + meas).map { |c| meas.include?(c) ? measure_col(c, card) : dim_col(c, card) },
-    'rowsBy' => dims.first(1).map { |d| dim_col(d, card)['id'] },
-    'columnsBy' => dims.drop(1).map { |d| dim_col(d, card)['id'] },   # pivot REQUIRES both (feedback_sigma_pivot_rowsby_columnsby)
+    'rowsBy' => dims.first(1).map { |d| { 'columnId' => dim_col(d, card)['id'] } },
+    'columnsBy' => dims.drop(1).map { |d| { 'columnId' => dim_col(d, card)['id'] } },
     'values' => meas.map { |m| measure_col(m, card)['id'] },
   }
 end
@@ -1130,7 +1142,7 @@ end
 def build_image(card)
   path = png_path(card)
   return nil unless path && File.exist?(path.to_s)
-  { 'id' => eid(card), 'kind' => 'image', 'alt' => card['title'],
+  { 'id' => eid(card), 'kind' => 'image', 'name' => card['title'], 'alt' => card['title'],
     'source' => { 'kind' => 'url',
                   'url' => "data:image/png;base64,#{Base64.strict_encode64(File.binread(path))}" } }
 end
@@ -2406,19 +2418,23 @@ def observed_section_elements(cards)
     [rec['section'].to_s, rec['y'].to_f]
   end
   sections.group_by(&:first).map { |name, members| [name, members.map(&:last).min] }
-          .sort_by(&:last).each_with_index.flat_map do |(name, _y), i|
-    [
-      {
-        'id' => "text-observed-section-#{i}", 'kind' => 'text',
-        'name' => name, 'body' => "### #{name}",
-      },
-      {
-        'id' => "divider-observed-section-#{i}", 'kind' => 'divider',
-        'direction' => 'horizontal',
-        'style' => { 'color' => '#D9DEE5', 'width' => 1, 'strokeStyle' => 'solid' }
-      }
-    ]
+          .sort_by(&:last).each_with_index.map do |(name, _y), i|
+    {
+      'id' => "text-observed-section-#{i}", 'kind' => 'text',
+      'name' => name, 'body' => "### #{name}",
+    }
   end
+end
+
+def observed_page_title_element(page_name)
+  return nil unless File.exist?(File.join(OUT, 'layout-observed.json'))
+  slug = page_name.to_s.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/\A-+|-+\z/, '')[0, 40]
+  {
+    'id' => "title-#{slug}",
+    'kind' => 'text',
+    'name' => page_name,
+    'body' => "## #{page_name}"
+  }
 end
 
 if $PROGRAM_NAME == __FILE__
@@ -2436,6 +2452,8 @@ if $PROGRAM_NAME == __FILE__
     before = $companion_elements.length
     els = pcards.map { |c| build_element(c, overrides, master_ds) }.compact
     els += $companion_elements[before..]
+    title_element = observed_page_title_element(pname)
+    els.unshift(title_element) if title_element
     els += build_controls(pcards, master_ds)
     source_page = pages.find { |page| page_name(page) == pname }
     els += page_layout_elements(source_page || {})

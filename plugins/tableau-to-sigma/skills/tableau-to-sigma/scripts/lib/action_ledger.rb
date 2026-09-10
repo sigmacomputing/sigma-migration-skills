@@ -20,19 +20,101 @@ module ActionLedger
   # effect => required property names (beyond "effect" itself).
   # NOTE: open-url's `url` is NOT required by the API — a missing url is
   # schema-valid and does nothing. We require it anyway; that is deliberate.
+  #
+  # ACTION FIELD RENAME (live since 2026-08-26, probe-verified): identifier
+  # properties now carry the referenced resource type and an `Id` suffix. The
+  # names below are the post-rename ones; the pre-rename spellings (`table`,
+  # `tabbedContainer`, `document`) are REJECTED by the API.
+  #
+  # `set-control-value` keeps a bare `control`, and `navigate`/`refresh-element`
+  # keep a bare `target` — those were deliberately NOT renamed (probe-confirmed
+  # that the `*Id` form 400s). Don't "regularise" them.
+  # Required top-level properties per effect, DERIVED FROM the canonical OpenAPI
+  # asset (assets.sigmacomputing.com/openapi/public-rest-api/...) on 2026-08-26,
+  # the day the action field rename went live. All 23 effects the API accepts are
+  # listed: the previous table had 12, so any converter emitting one of the other
+  # 11 was rejected by our own validator as an "unknown effect".
+  #
+  # `open-url` is deliberately STRICTER than the spec, which requires only
+  # openTarget: an open-url with no `url` is schema-valid, persists, and does
+  # NOTHING. A generator bug that drops the url ships a healthy-looking button
+  # that is inert, so assert it here.
   EFFECT_REQUIRED = {
-    'navigate'          => %w[target],
-    'set-control-value' => %w[control value],
-    'clear-control'     => %w[scope],
-    'open-url'          => %w[openTarget url],
-    'open-overlay'      => %w[overlayId],
-    'close-overlay'     => [],
-    'select-tab'        => %w[tabbedContainer selectedTab],
-    'refresh-element'   => %w[target],
-    'insert-rows'       => %w[table values],
-    'update-rows'       => %w[table whichRows values],
-    'delete-rows'       => %w[table whichRows],
-    'open-document'     => %w[document documentType openTarget]
+    'call-agent'                  => %w[agentId prompt],
+    'call-api'                    => %w[connectorId],
+    'call-stored-procedure'       => %w[storedProcedure],
+    'clear-chat-element-messages' => %w[chatElementId],
+    'clear-control'               => %w[scope],
+    'close-overlay'               => [],
+    'custom-sort'                 => %w[elementId sort],
+    'delete-rows'                 => %w[tableElementId whichRows],
+    'export'                      => %w[channel source uri],
+    'if-else'                     => %w[if],
+    'insert-rows'                 => %w[tableElementId values],
+    'navigate'                    => %w[target],
+    'open-document'               => %w[documentId documentType openTarget],
+    'open-overlay'                => %w[overlayId],
+    'open-url'                    => %w[openTarget url],
+    'refresh-element'             => %w[target],
+    'reset-form'                  => [],
+    'run-python-element'          => %w[codeElementId],
+    'select-tab'                  => %w[tabbedContainerElementId selectedTab],
+    'set-control-value'           => %w[control value],
+    'set-form-values'             => %w[formElementId values],
+    'trigger-plugin'              => %w[pluginElementId pluginEffectId],
+    'update-rows'                 => %w[tableElementId whichRows values]
+  }.freeze
+
+  # ---- the 2026-08-26 action field rename -----------------------------------
+  #
+  # Sigma renamed identifier fields to an explicit *Id shape. Every old name now
+  # hard-400s EXCEPT ONE, which is why this table exists rather than a code
+  # comment: `clear-control` `scope:{type:page, page:}` returns 200 OK and
+  # SILENTLY DROPS the key -- readback is a bare `scope:{type:page}` and the
+  # button clears nothing. A generator still emitting `page:` looks completely
+  # healthy. Status codes are not evidence here; the emitted shape is.
+  #
+  # Nested paths matter as much as top-level ones and had NO coverage before:
+  # a value source, a whichRows selector, a custom-sort key and a column-range
+  # bound are all places the old bare name still parsed fine locally.
+  DEAD_KEYS = {
+    'table'            => 'tableElementId',
+    'form'             => 'formElementId',
+    'tabbedContainer'  => 'tabbedContainerElementId',
+    'document'         => 'documentId',
+    'pluginElement'    => 'pluginElementId',
+    'pluginEffect'     => 'pluginEffectId',
+    'column'           => 'columnId',
+    'min'              => 'minColumnId',
+    'max'              => 'maxColumnId'
+  }.freeze
+
+  # Renames that apply ONLY inside a discriminated union member, because the
+  # bare name is still the ONLY accepted form elsewhere. The rename is
+  # deliberately selective -- these three were probed and NOT renamed, so
+  # "fixing" them to *Id is itself a 400:
+  #   set-control-value.control                  stays `control`
+  #   navigate         target{type:page}.page    stays `page`
+  #   refresh-element  target{type:element}.element stays `element`
+  # So `page`/`element`/`control` are dead only under a clear-control scope.
+  DEAD_KEYS_IN_CLEAR_CONTROL_SCOPE = {
+    'page'      => 'pageId',
+    'control'   => 'controlId',
+    'container' => 'containerElementId'
+  }.freeze
+
+  # Union members whose required keys we can check once we see `type`.
+  # Spec-derived; `column-range` is listed with NO required keys on purpose --
+  # minColumnId/maxColumnId are both OPTIONAL in the API, so a range that lost
+  # its bounds is schema-valid and silently unbounded. Warned about separately.
+  UNION_REQUIRED = {
+    'column'       => %w[columnId],
+    'column-match' => %w[columnId],
+    'column-range' => [],
+    'control'      => %w[controlId],
+    'container'    => %w[containerElementId],
+    'constant'     => %w[value],
+    'formula'      => %w[formula]
   }.freeze
 
   # Action ids must be unique across the ENTIRE workbook, not per element:
@@ -66,6 +148,55 @@ module ActionLedger
           errs << "effects[#{i}] (#{name}): missing required property `#{req}`"
         end
       end
+      # Nested shapes. Before this, EFFECT_REQUIRED only saw the top level, so a
+      # values[]/whichRows/sort/scope still carrying a pre-rename key passed
+      # validation here and then 400'd live (or, for clear-control page,
+      # succeeded and silently did nothing).
+      errs.concat(deep_errors(eff, "effects[#{i}] (#{name})", name))
+    end
+    errs
+  end
+
+  # Walks an effect looking for (a) dead pre-rename keys, (b) union members
+  # missing their required *Id, and (c) the two shapes that are schema-valid but
+  # inert. Path-aware because the SAME key name can be live or dead depending on
+  # where it sits: `control` is correct under set-control-value and dead under a
+  # clear-control scope.
+  def self.deep_errors(node, path, effect_name, in_clear_control_scope = false)
+    errs = []
+    case node
+    when Hash
+      node.each_key do |key|
+        if (replacement = DEAD_KEYS[key])
+          errs << "#{path}.#{key}: `#{key}` was renamed to `#{replacement}` " \
+                  '(Sigma action field rename, 2026-08-26) — the old key is rejected'
+        end
+        next unless in_clear_control_scope && (replacement = DEAD_KEYS_IN_CLEAR_CONTROL_SCOPE[key])
+        errs << "#{path}.#{key}: under a clear-control scope `#{key}` was renamed to " \
+                "`#{replacement}`" + (key == 'page' ? ' — and the old key is dropped SILENTLY (200 OK, clears nothing)' : '')
+      end
+
+      type = node['type']
+      if type.is_a?(String) && UNION_REQUIRED.key?(type)
+        UNION_REQUIRED[type].each do |req|
+          if node[req].nil? || node[req].to_s.empty?
+            errs << "#{path}: {type: #{type.inspect}} requires `#{req}`"
+          end
+        end
+        # Both bounds optional in the API, so an empty range is accepted and
+        # silently matches everything. Almost always a dropped/renamed key.
+        if type == 'column-range' && node['minColumnId'].to_s.empty? && node['maxColumnId'].to_s.empty?
+          errs << "#{path}: {type: \"column-range\"} has neither minColumnId nor maxColumnId — " \
+                  'the API accepts this and the range silently matches everything'
+        end
+      end
+
+      node.each do |key, val|
+        scope_now = in_clear_control_scope || (effect_name == 'clear-control' && key == 'scope')
+        errs.concat(deep_errors(val, "#{path}.#{key}", effect_name, scope_now))
+      end
+    when Array
+      node.each_with_index { |val, idx| errs.concat(deep_errors(val, "#{path}[#{idx}]", effect_name, in_clear_control_scope)) }
     end
     errs
   end

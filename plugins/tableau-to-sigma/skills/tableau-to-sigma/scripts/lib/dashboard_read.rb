@@ -23,6 +23,9 @@
 #       { "title":    "Revenue by Region",
 #         "kind":     "bar-chart",                   # a valid Sigma element kind
 #         "orientation": "horizontal",               # REQUIRED for bar-chart/combo-chart
+#         "worksheet": "Sheet 2",                    # optional when rendered title differs
+#         "trellis": {"field":"Department",           # optional source-confirmed pane/facet
+#                     "orientation":"cols"},          # rows|cols|grid; string field also accepted
 #         "measure":  "Gross Revenue",               # the metric column (multi-metric recipe:
 #                                                    #   rebuilds a copy-calc/obscured bar measure)
 #         "measures": ["Gross Revenue"],             # optional

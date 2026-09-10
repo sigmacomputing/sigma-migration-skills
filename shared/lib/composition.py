@@ -2,6 +2,14 @@
 
 kind -> role inference (used when an element has no explicit role). Chart
 kinds default to "supporting"; callers wanting a "hero" must tag it explicitly.
+
+NAMING NOTE (issue #753): nine helpers the Ruby twin exposes publicly are
+underscore-private here — ``_le``, ``_band``, ``_roleize``, ``_indent``,
+``_render_bands``, ``_check_pattern_roles``, ``_compose_exec``,
+``_compose_master_detail``, ``_compose_overview``. They are NOT missing; the Ruby
+module just has no ``private`` marker, so its blanket ``module_function`` exports
+its internals too. Porting a Ruby caller means using the underscored name.
+tools/lint-twin-parity.rb reports this as visibility-only rather than a gap.
 """
 ROLES = ["control", "kpi", "insight", "hero", "supporting", "table", "master", "detail",
          "header", "kpi2", "trend", "pivot", "base"]

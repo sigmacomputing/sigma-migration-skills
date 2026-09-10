@@ -26,6 +26,9 @@
 require 'json'
 require 'digest'
 require_relative 'code_rep'
+# Ruby 2.6 floor (macOS system ruby): this file uses Enumerable#tally (2.7+).
+# Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
+require_relative 'ruby_compat'
 
 module BlindGrade
   # The six checklist dimensions a visual verdict attests (kept in lockstep

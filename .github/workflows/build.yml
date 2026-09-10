@@ -25,8 +25,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install offline Python deps (looker dashboard parser)
-        run: python3 -m pip install --quiet pyyaml
+      - name: Install offline Python deps (looker dashboard parser + qlik PNG-health contract tests)
+        run: python3 -m pip install --quiet pyyaml pillow numpy
       - name: Governance checks (shared-lib drift, skill lint, hygiene, tree-litter, ESM/encoding, agent-variants, bundle freshness)
         run: bash .githooks/run-governance-checks.sh
       - name: Corpus regression (creds-free goldens)

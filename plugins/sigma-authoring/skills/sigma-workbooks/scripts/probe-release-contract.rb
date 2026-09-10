@@ -11,6 +11,9 @@ require 'json'
 require 'net/http'
 require 'time'
 require 'uri'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 BASE_URL = ENV.fetch('SIGMA_BASE_URL').sub(%r{/$}, '')
 TOKEN = ENV.fetch('SIGMA_API_TOKEN')

@@ -142,6 +142,30 @@ check(e['right_table'] == 'ANALYTICS.PUBLIC.STATE_REF',
 check(e['status'] == 'unprobed' && e['grain_assumption'] == 'right unique on keys',
       'relationship joins carry the same grain assumption (Tableau culls per-viz; Sigma fans out)', fails)
 
+puts "\n== object-graph ledger follows the converter's reversed many→one orientation =="
+reverse_dm = {
+  'pages' => [{ 'elements' => [
+    { 'id' => 'act', 'kind' => 'table',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[ANALYTICS PUBLIC ACT_BASE] },
+      'columns' => [{ 'id' => 'act-key', 'formula' => '[ACT_BASE/ENTITY_ID]', 'name' => 'Entity Id' }] },
+    { 'id' => 'state', 'kind' => 'table',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[ANALYTICS PUBLIC STATE_REF] },
+      'columns' => [{ 'id' => 'state-key', 'formula' => '[STATE_REF/ENTITY_ID]', 'name' => 'Entity Id' }],
+      'relationships' => [{
+        'id' => 'state-to-act', 'name' => 'ACT_BASE', 'targetElementId' => 'act',
+        'derivedVia' => 'serialized',
+        'keys' => [{ 'sourceColumnId' => 'state-key', 'targetColumnId' => 'act-key' }]
+      }] }
+  ] }]
+}
+reversed = JoinPlan.derive(reverse_dm, File.read(FIX5, encoding: 'UTF-8')).first || {}
+check(reversed['left'] == 'STATE_REF' && reversed['right'] == 'ACT_BASE',
+      "ledger uses the actual DM carrier/target, not TWB authoring order (got #{reversed['left']}/#{reversed['right']})", fails)
+check(reversed['right_table'] == 'ANALYTICS.PUBLIC.ACT_BASE' && reversed['probe_keys'] == ['ENTITY_ID'],
+      'reversed ledger probes uniqueness on the actual Sigma target', fails)
+check(JoinPlan.object_table_key('CHILD_EVENTS (DEMO.CHILD_EVENTS)') == 'CHILD_EVENTS',
+      'VC relation label normalizes to its physical table token for DM orientation matching', fails)
+
 puts "\n== object-graph duplicate-table role resolves its suffixed GUID + physical VC table =="
 role_guid = '737611ae-3a14-349a-8fa8-d92dd0bb0432'
 role_name = 'DATE_DIM (DEMO_SCHEMA.DATE_DIM)1'
