@@ -43,6 +43,13 @@
 #                 printed; gate 19 will refuse GREEN, exit 26).
 
 require 'json'
+# F5 crash class (issue #752). --reason carries agent/operator prose that is
+# echoed into a UTF-8 literal and JSON-written; under an unset/C locale ARGV is
+# tagged ASCII-8BIT, so the first em-dash raises
+# `incompatible character encodings: UTF-8 and ASCII-8BIT` here (ruby 3.3) or
+# Encoding::UndefinedConversionError inside JSON.generate (ruby 2.6).
+# `encoding: 'UTF-8'` on the reads below cannot fix this — only ARGV can.
+require_relative 'lib/cli_encoding'
 require 'optparse'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'agg_semantics_lint'

@@ -188,7 +188,7 @@ This skill requires `layout` whenever `elements` is non-empty. See
 ./scripts/validate-spec.sh /tmp/workbook-spec.yaml
 ```
 
-Then do the manual formula pass and final shape checks per `reference/workflows/validate.md`. Fix everything reported before continuing.
+Then do the manual formula pass and final shape checks per `reference/workflows/validate.md`. The validator rejects bare self-references such as `name: Region` + `formula: "[Region]"`, and list/segmented controls that have `filters` but no value-list `source` (the API accepts that control shape, but the picker renders empty). Fix everything reported before continuing.
 
 ### Step 7 — Create the workbook
 
@@ -216,6 +216,10 @@ If creation fails, read the error, fix the spec, re-validate, retry. See `refere
 ```
 
 If any element reports `[FAIL]`, fix the column formulas in the spec (most often a missing source prefix, a self-referencing column, or a friendly-name mismatch with the warehouse — see `reference/specification/formulas.md`), `PUT` the corrected spec, and re-verify.
+
+Also run `./scripts/validate-spec.sh` against the GET readback. This catches a
+list/segmented value-list `source` that is absent from the live document after
+the write; a surviving `filters` target does not populate the picker.
 
 ### Step 8 — Iterate
 

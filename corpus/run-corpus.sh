@@ -10,6 +10,41 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# A UTF-8 locale is NOT optional (issue #752). The corpus is the creds-free
+# oracle -- a differential harness or a bisect built on it needs the same verdict
+# on every machine -- but its verdict used to depend on the developer's shell:
+# LANG unset gave 11/12 (tableau/preagg-kpi FAILed), LANG=en_US.UTF-8 gave 12/12.
+# The fixtures are full of em-dashes, and under a US-ASCII default external
+# encoding ruby dies three different ways on them.
+#
+# This pin fixes the one of those three that NOTHING else can: the inline
+# `ruby -rjson -e '...'` assertions inside tableau/*/checks.sh, whose SOURCE text
+# holds em-dashes. A `-e` script's encoding comes from the locale, so it cannot
+# `require_relative 'lib/cli_encoding'` and -- verified -- RUBYOPT=-EUTF-8 does
+# NOT help either (-E sets external/internal, not the script encoding). The other
+# two mechanisms are fixed at the source in the scripts themselves, deliberately,
+# so this pin can never mask a crash a real migration would hit.
+#
+# C.UTF-8 first: it needs no locale generation and is present on modern glibc and
+# on macOS. en_US.UTF-8 is the fallback (and what corpus-check.yml pins).
+#
+# Capture `locale -a` ONCE into a variable rather than piping it into grep -q:
+# under the `set -o pipefail` above, grep -q exits on its first match, `locale`
+# then dies of SIGPIPE (141), and pipefail promotes that to the pipeline's status
+# -- so a locale that IS present reads as absent and the pin silently no-ops.
+# (Cost me a debugging round: the corpus stayed at 11/12 with the warning firing
+# on a machine that has both locales.)
+_locales="$(locale -a 2>/dev/null || true)"
+case $'\n'"$_locales"$'\n' in
+  *$'\nC.UTF-8\n'*)     export LANG=C.UTF-8 LC_ALL=C.UTF-8 ;;
+  *$'\nen_US.UTF-8\n'*) export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ;;
+  *)
+    echo "WARNING: no C.UTF-8 or en_US.UTF-8 locale found; corpus cases with non-ASCII" >&2
+    echo "         fixtures may fail spuriously (issue #752). Install a UTF-8 locale." >&2
+    ;;
+esac
+unset _locales
+
 MODE="--check"
 FILTER=""
 CONVERTED=""
@@ -32,6 +67,18 @@ cases() {
 }
 
 if [ "$MODE" = "--check" ]; then
+  # json >= 2.8 pretty-prints empty containers as `[]` / `{}` where earlier
+  # versions emitted `[\n\n]` / `{\n\n}`. Every byte-compared golden here was
+  # generated with the older form, so a newer json turns each `cmp` into an
+  # opaque "differ: byte N" with no hint at the cause. Warn up front instead.
+  if command -v ruby >/dev/null 2>&1 &&
+     [ "$(ruby -rjson -e 'print JSON.pretty_generate([]) == "[]"' 2>/dev/null)" = "true" ]; then
+    echo "WARNING: ruby json $(ruby -rjson -e 'print JSON::VERSION') pretty-prints empty containers"
+    echo "         compactly ([] not [<newline><newline>]); goldens were generated with the older"
+    echo "         form, so JSON cmp checks will report byte-level differences. CI pins ruby 3.3"
+    echo "         (.github/workflows/corpus-check.yml) — use the same locally to reproduce."
+  fi
+
   fail=0; total=0
   for c in $(cases); do
     total=$((total + 1))

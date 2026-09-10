@@ -8,6 +8,9 @@ require 'tmpdir'
 require 'rbconfig'
 require_relative 'lib/layout_lint'
 require_relative 'lib/layout'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 BUILD = File.join(__dir__, 'build-workbook-from-pbir.rb')
 ASSEMBLE = File.join(__dir__, 'build-workbook-spec.rb')
@@ -103,7 +106,7 @@ Dir.mktmpdir('pbi-workbook-code') do |dir|
   ok('every element is placed exactly once', ids.sort == placed.sort && placed.uniq.length == placed.length)
 
   waterfall = doc['elements'].find { |e| e['kind'] == 'waterfall-chart' }
-  ok('waterfall uses native kind and splitBy', waterfall && waterfall.dig('splitBy', 'id') &&
+  ok('waterfall uses native kind and splitBy', waterfall && waterfall.dig('splitBy', 'columnId') &&
      waterfall.dig('waterfallShape', 'connectorLine') == 'shown')
   ok('legend visibility applies to native waterfall',
      waterfall && waterfall['legend'] == { 'visibility' => 'hidden' })
@@ -152,7 +155,7 @@ Dir.mktmpdir('pbi-workbook-code') do |dir|
   ok('feature-gated workbook navigation setting is omitted',
      !doc.fetch('settings', {}).key?('navigation'))
   ok('background and spacing survive', waterfall.dig('style', 'backgroundColor') == '#F8FAFC' &&
-     doc.dig('settings', 'theme', 'overrides', 'colorOverrides', 'backgroundCanvas') == '#EEF2F7' &&
+     Array(doc.dig('settings', 'theme', 'overrides', 'colorOverrides')).any? { |e| e.is_a?(Hash) && e['name'] == 'backgroundCanvas' && e['color'] == '#EEF2F7' } &&
      doc.dig('settings', 'theme', 'overrides', 'space', 'unit') == 'small')
   multiline_header = SigmaLayout.header_text_el('header', "Title\nSubtitle")
   ok('multiline source header preserves a muted subtitle',

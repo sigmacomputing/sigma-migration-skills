@@ -349,6 +349,42 @@ def _match(items, needle):
     return next((it for it in items if n in (it.get("name") or "").lower()), None)
 
 
+def _model_owner(estate, model_id):
+    """Return (model, workspace) for a semantic-model id in an estate map."""
+    if not estate or not model_id:
+        return None, None
+    for ws in estate.get("workspaces", []):
+        model = next((m for m in ws.get("models", []) if m.get("id") == model_id), None)
+        if model:
+            return model, ws
+    return None, None
+
+
+def locate_semantic_model(tok, model_id, estate=None, *, use_cache=True,
+                          timings=None, log=lambda s: None):
+    """Locate a semantic model's owning workspace, independent of report scope.
+
+    Shared semantic models can live in a different workspace from the report.
+    Fabric getDefinition requires the MODEL workspace GUID; guessing the report
+    workspace produces a misleading EntityNotFound 404.
+    """
+    model, workspace = _model_owner(estate, model_id)
+    if model:
+        return model, workspace
+
+    if use_cache:
+        cached = load_estate_cache()
+        model, workspace = _model_owner(cached, model_id)
+        if model:
+            return model, workspace
+
+    log(f"[model] semantic model {model_id} is outside the report workspace; "
+        "enumerating accessible workspaces to locate its owner")
+    full_estate = enumerate_estate(tok, timings=timings)
+    save_estate_cache(full_estate)
+    return _model_owner(full_estate, model_id)
+
+
 def resolve_targets(tok, model_name=None, workspace=None, report=None,
                     use_cache=True, timings=None, log=lambda s: None):
     """Resolve (workspace, model, report) using the session estate cache,
@@ -388,13 +424,16 @@ def resolve_targets(tok, model_name=None, workspace=None, report=None,
             # Bind the report's own semantic model (GET reports/{id} -> datasetId).
             dsid = report_dataset_id((r_ws or {}).get("id"), rep["id"])
             if dsid:
-                for w in scope:
-                    m = next((mm for mm in w["models"] if mm.get("id") == dsid), None)
-                    if m:
-                        model, m_ws = m, w
-                        break
-                if not model:  # dataset not in the enumerated estate — use its id directly
-                    model, m_ws = {"id": dsid, "name": None}, r_ws
+                model, m_ws = locate_semantic_model(
+                    tok, dsid, estate=estate, use_cache=use_cache,
+                    timings=timings, log=log)
+                if not model:
+                    raise LookupError(
+                        f"report '{rep.get('name')}' binds semantic model {dsid}, "
+                        "but that model was not found in any accessible workspace")
+                if r_ws and m_ws and r_ws.get("id") != m_ws.get("id"):
+                    log(f"[model] report workspace '{r_ws.get('name')}' uses semantic model "
+                        f"'{model.get('name') or dsid}' from workspace '{m_ws.get('name')}'")
             if not model and scope and scope[0]["models"]:
                 log("[model] WARNING: could not bind the report to its dataset (datasetId "
                     "unavailable) — falling back to the workspace's FIRST model. Pass "
@@ -402,7 +441,8 @@ def resolve_targets(tok, model_name=None, workspace=None, report=None,
                 model, m_ws = scope[0]["models"][0], scope[0]
         elif scope and scope[0]["models"]:
             model, m_ws = scope[0]["models"][0], scope[0]
-        return {"workspace": m_ws or r_ws, "model": model,
+        return {"workspace": m_ws or r_ws, "model_workspace": m_ws,
+                "model": model,
                 "report": rep, "report_workspace": r_ws}
 
     if use_cache:

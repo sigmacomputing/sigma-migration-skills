@@ -38,6 +38,9 @@ FileUtils.mkdir_p(opts[:workdir])
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'    : '/v2/workbooks/spec'
 GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : '/v2/workbooks/%s/spec'

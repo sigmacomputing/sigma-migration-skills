@@ -119,6 +119,41 @@ check(epb._role_bindings(pbir_hierarchy) == {"Category": ["D.Month"]},
 check(epb._drill_signal(pbir_hierarchy) == {
           "role": "Category", "levels": ["D.Year", "D.Month"], "active": "D.Month"
       }, "PBIR extractor separately preserves full hierarchy for native drill")
+
+print("\n3. Azure Maps roles are canonicalized without touching scatter axes")
+azure_roles = {
+    "X": {"projections": [{"queryRef": "G.Coordinate A"}]},
+    "Y": {"projections": [{"queryRef": "G.Coordinate B"}]},
+    "Size": {"projections": [{"queryRef": "G.Metric"}]},
+    "Series": {"projections": [{"queryRef": "G.Group"}]},
+}
+expected_azure = {
+    "Longitude": ["G.Coordinate A"],
+    "Latitude": ["G.Coordinate B"],
+    "Size": ["G.Metric"],
+    "Series": ["G.Group"],
+}
+check(epb._role_bindings(azure_roles, "azureMap") == expected_azure,
+      "PBIR azureMap maps X/Y to Longitude/Latitude and preserves Size/Series")
+check(epb._role_bindings(azure_roles, "scatterChart") == {
+          "X": ["G.Coordinate A"], "Y": ["G.Coordinate B"],
+          "Size": ["G.Metric"], "Series": ["G.Group"]
+      }, "PBIR scatter keeps genuine X/Y axes")
+
+classic_azure = {
+    "projections": {
+        "X": [{"queryRef": "G.Coordinate A"}],
+        "Y": [{"queryRef": "G.Coordinate B"}],
+        "Size": [{"queryRef": "G.Metric"}],
+        "Series": [{"queryRef": "G.Group"}],
+    }
+}
+check(erc._projections(classic_azure, "azureMap") == expected_azure,
+      "classic/PBIX azureMap uses the same canonical role contract")
+check(erc._projections(classic_azure, "scatterChart") == {
+          "X": ["G.Coordinate A"], "Y": ["G.Coordinate B"],
+          "Size": ["G.Metric"], "Series": ["G.Group"]
+      }, "classic/PBIX scatter keeps genuine X/Y axes")
 rich_textbox = {
     "objects": {
         "general": [{

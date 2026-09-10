@@ -258,6 +258,10 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
   - bar/line: `xAxis:{columnId}`, `yAxis:{columnIds:[...]}`
   - pie/donut: `color:{id}`, `value:{id}`
   - waterfall/gauge: native `waterfall-chart` / ring `progress`; never coerce them to bar/KPI.
+  - maps: Azure Maps `X`/`Y` roles become longitude/latitude on a native
+    `point-map`; `Size` controls bubble size and `Series`/`Legend` controls
+    categorical color. Other map types use explicit coordinates or TMSL
+    `dataCategory` metadata for point/region-map resolution.
   - a proven chart hierarchy emits `controlType:drill`; a visible categorical legend on a supported chart emits `controlType:legend`. Emit neither unless every source/target column resolves.
   - text: `{kind:text, body:"## ..."}`
   - measure formula wraps the master col: `CountDistinct([Master/Col])`, `Sum([Master/Col])`, date dim `DateTrunc("month",[Master/Col])`.
@@ -405,9 +409,11 @@ ruby scripts/migrate-powerbi.rb ... --yes \
 Power BI–specific detector notes (on top of the shared catalog):
 
 - **grain switcher** restores the PBI date-hierarchy drill intent.
-- **map restoration** — `azureMap`/`filledMap` approximated as a bar →
+- **map restoration** — a map that genuinely lacks coordinates and a
+  region-typed field, and was therefore approximated as a bar, can become a
   point-map with `Switch()` centroid synthesis (medium risk; centroids must
-  be filled into the patch before apply).
+  be filled into the patch before apply). Azure Maps with bound `X`/`Y`
+  coordinates already become point maps during the normal Phase 5 build.
 - **freshness note** is fed by the Phase 2.5 freshness preflight
   (`freshness.json`).
 - DM-metric promotion is not an enhancement candidate here: the normal

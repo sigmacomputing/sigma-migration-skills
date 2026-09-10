@@ -106,7 +106,7 @@ Authoritative source: <https://www.gooddata.com/docs/cloud/create-dashboards/fil
 | `relativeDateFilter (last N periods)` | [doc](https://www.gooddata.com/docs/cloud/create-dashboards/filters/date-filters/) | `date-range` | 🟡 n | flag |
 | | | | | _granularity+from==to==-n -> Sigma date-range control, mode 'last', value n, includeToday false._ |
 
-## Released workbook features
+## workbook-feature
 
 _Audit of released Sigma workbook-as-code surfaces against documented GoodData Cloud semantics. The builder emits only from equivalent source evidence. Dashboard tabs become metadata pages plus auto navigation; chart legend and literal background style are allowlisted; native waterfall and data-bound repeater have prerequisite gates. Drill, page-break, progress, panels, and box stay explicit gaps where GoodData or Sigma does not provide an authorable equivalent._
 

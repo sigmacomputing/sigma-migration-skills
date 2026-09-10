@@ -108,7 +108,7 @@ end
 
 # rel: [first, second, keys] — keys = [[l, r], ...], [] = empty expression,
 # :computed = computed-only clause, :range = inequality-only clause.
-def rel_xml(first, second, keys)
+def rel_xml(first, second, keys, db_unique = nil)
   expr =
     case keys
     when :computed
@@ -118,11 +118,20 @@ def rel_xml(first, second, keys)
     else
       keys.map { |l, r| "<expression op='='><expression op='[#{l}]'/><expression op='[#{r}]'/></expression>" }.join
     end
+  first_attrs = db_unique == :first ? " unique-key='true' is-db-set-unique-key='true'" : ''
+  second_attrs =
+    if db_unique == :first
+      ''
+    elsif db_unique == :second
+      " unique-key='true' is-db-set-unique-key='true'"
+    else
+      ''
+    end
   <<~XML
     <relationship>
       #{expr}
-      <first-end-point object-id='#{TBL[first][:obj]}' />
-      <second-end-point object-id='#{TBL[second][:obj]}' unique-key='true' />
+      <first-end-point object-id='#{TBL[first][:obj]}'#{first_attrs} />
+      <second-end-point object-id='#{TBL[second][:obj]}'#{second_attrs} />
     </relationship>
   XML
 end
@@ -148,7 +157,7 @@ def noodle_ds(tables:, rels:, calcs: [], filters: [], caption_overrides: {}, ds_
           #{tables.map { |t| "<object caption='#{t}' id='#{TBL[t][:obj]}' />" }.join("\n          ")}
         </objects>
         <relationships>
-          #{rels.map { |f, s, k| rel_xml(f, s, k) }.join("\n          ")}
+          #{rels.map { |rel| rel_xml(*rel) }.join("\n          ")}
         </relationships>
       </object-graph>
       #{calcs.join("\n      ")}
@@ -372,6 +381,10 @@ FIXTURES = {
   'b-happy' => { xml: wb(noodle_ds(
     tables: %w[FACT_VISITS DIM_DATES DIM_SITES DIM_PROVIDERS ENTITLEMENTS],
     rels: FACT_FIRST_RELS, filters: [CAT_FILTER]), params: true) },
+  'db-unique-hub' => { xml: wb(noodle_ds(
+    tables: %w[DIM_SITES FACT_VISITS ENTITLEMENTS],
+    rels: [['DIM_SITES', 'FACT_VISITS', [%w[SITE_KEY SITE_KEY]], :first],
+           ['DIM_SITES', 'ENTITLEMENTS', [%w[SITE_KEY SITE_KEY]], :first]])) },
   'c-nokeys' => { xml: wb(noodle_ds(
     tables: %w[FACT_VISITS DIM_DATES DIM_SITES],
     rels: [['FACT_VISITS', 'DIM_DATES', []], ['FACT_VISITS', 'DIM_SITES', []]])) },
@@ -528,6 +541,15 @@ end
 ovr = results['e-override']
 check(ovr['warnings'].any? { |w| w =~ /set by factTable override/ && w =~ /DIM_DATES/i },
       'factTable override wins and is announced', fails)
+hub = results['db-unique-hub']
+hub_parent = hub['elements'].find { |e| e['name'] == 'DIM_SITES' && e['kind'] != 'sql' }
+hub_children = hub['elements'].select { |e| %w[FACT_VISITS ENTITLEMENTS].include?(e['name']) && e['kind'] != 'sql' }
+check(hub_parent && rels_of.call(hub_parent).empty?,
+      "database-unique hub carries no one-to-many Lookup relationships (got #{rels_of.call(hub_parent).inspect})", fails)
+check(hub_children.map { |e| [e['name'], rels_of.call(e)] }.sort ==
+        [['ENTITLEMENTS', ['DIM_SITES']], ['FACT_VISITS', ['DIM_SITES']]],
+      "database-backed unique hint orients both children many→one into DIM_SITES " \
+      "(got #{hub_children.map { |e| [e['name'], rels_of.call(e)] }.inspect})", fails)
 
 puts 'Part 2 — helper ownership guards: no wrong-FROM SQL, off-fact groupings refuse loud'
 e = results['e-worst']

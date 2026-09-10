@@ -49,11 +49,18 @@
 #      ledger derived fresh from the artifacts; the report is lying about the
 #      run's degradations. Fix the report (or the tampered artifact), never
 #      the ledger.
+#   7  SOURCE ACCOUNTING INVALID — migration-result.json is absent/malformed,
+#      RED/incomplete, or disagrees with source-object-census.json. Rebuild the
+#      census and migration report from the run artifacts.
 
 require 'json'
 require 'optparse'
 require_relative 'lib/offramp'
 require_relative 'lib/degradation_ledger'
+
+TERMINAL_SOURCE_STATUSES = %w[
+  migrated approximated needs-review skipped not-applicable
+].freeze
 
 # Print the off-ramp trail + any gate waivers for this workdir — the "where did
 # this run leave the golden path" readout. Advisory; shown under every verdict.
@@ -136,6 +143,125 @@ if opts[:wb] && !sj['workbookId'].to_s.empty? && sj['workbookId'] != opts[:wb]
   warn "⛔ DONE marker is for a DIFFERENT workbook (#{sj['workbookId']}) than --workbook-id #{opts[:wb]}."
   warn '   You are likely looking at a stale workdir or the wrong run.'
   exit 4
+end
+
+# Completion now requires the deterministic migration report and exact
+# agreement with its Tableau source census. phase6-success.json proves the gate
+# battery ran; it does not prove every source object was represented in the
+# completion report.
+result_path = File.join(wd, 'migration-result.json')
+census_path = File.join(wd, 'source-object-census.json')
+accounting_errors = []
+result = nil
+census_doc = nil
+begin
+  result = JSON.parse(File.read(result_path))
+rescue Errno::ENOENT
+  accounting_errors << 'migration-result.json is missing'
+rescue JSON::ParserError => e
+  accounting_errors << "migration-result.json is malformed: #{e.message}"
+rescue SystemCallError => e
+  accounting_errors << "migration-result.json is unreadable: #{e.message}"
+end
+begin
+  census_doc = JSON.parse(File.read(census_path))
+rescue Errno::ENOENT
+  accounting_errors << 'source-object-census.json is missing'
+rescue JSON::ParserError => e
+  accounting_errors << "source-object-census.json is malformed: #{e.message}"
+rescue SystemCallError => e
+  accounting_errors << "source-object-census.json is unreadable: #{e.message}"
+end
+
+if result.is_a?(Hash)
+  verdict = result['verdict'].to_s.upcase
+  accounting_errors << "migration-result.json verdict is #{verdict.empty? ? 'missing' : verdict} (must be non-RED)" \
+    unless %w[GREEN YELLOW].include?(verdict)
+  summary = result['summary']
+  result_objects = result['source_objects']
+  unless summary.is_a?(Hash) && result_objects.is_a?(Array)
+    accounting_errors << 'migration-result.json lacks summary/source_objects accounting'
+  else
+    total = summary['total']
+    accounted = summary['accounted']
+    accounting_errors << "migration-result.json total #{total.inspect} != #{result_objects.length}" \
+      unless total.to_i == result_objects.length
+    accounting_errors << "migration-result.json accounted #{accounted.inspect} != total #{total.inspect}" \
+      unless accounted.to_i == total.to_i
+    accounting_errors << 'migration-result.json summary.complete is not true' unless summary['complete'] == true
+    bad = result_objects.reject do |object|
+      object.is_a?(Hash) && TERMINAL_SOURCE_STATUSES.include?(object['status'].to_s)
+    end
+    accounting_errors << "#{bad.length} migration-result source object(s) lack exactly one terminal status" unless bad.empty?
+  end
+elsif !result.nil?
+  accounting_errors << 'migration-result.json must contain a JSON object'
+end
+
+if census_doc.is_a?(Hash)
+  census_objects = census_doc['objects'] || census_doc['source_objects']
+  summary = census_doc['summary']
+  unless census_objects.is_a?(Array) && summary.is_a?(Hash)
+    accounting_errors << 'source-object-census.json lacks summary/objects accounting'
+  else
+    census_total = summary['total']
+    accounting_errors << "source-object-census.json total #{census_total.inspect} != #{census_objects.length}" \
+      unless census_total.to_i == census_objects.length
+    accounting_errors << 'source-object-census.json summary.complete is not true' unless summary['complete'] == true
+    bad = census_objects.reject do |object|
+      object.is_a?(Hash) &&
+        TERMINAL_SOURCE_STATUSES.include?(object['status'].to_s) &&
+        object['evidence'].is_a?(Array) && !object['evidence'].empty?
+    end
+    accounting_errors << "#{bad.length} census object(s) lack one terminal status and evidence" unless bad.empty?
+
+    if result.is_a?(Hash) && result['source_objects'].is_a?(Array)
+      identity = lambda do |object|
+        [object['type'].to_s, object['id'].to_s, object['name'].to_s]
+      end
+      census_rows = census_objects.each_with_object({}) do |object, rows|
+        key = identity.call(object)
+        accounting_errors << "duplicate census identity #{key.join(':')}" if rows.key?(key)
+        rows[key] = object['status'].to_s
+      end
+      result_rows = result['source_objects'].each_with_object({}) do |object, rows|
+        key = identity.call(object)
+        accounting_errors << "duplicate migration-result identity #{key.join(':')}" if rows.key?(key)
+        rows[key] = object['status'].to_s
+      end
+      unless census_rows == result_rows
+        missing = census_rows.keys - result_rows.keys
+        extra = result_rows.keys - census_rows.keys
+        drift = (census_rows.keys & result_rows.keys).select { |key| census_rows[key] != result_rows[key] }
+        accounting_errors << "migration-result/census disagree: #{missing.length} missing, " \
+                             "#{extra.length} extra, #{drift.length} status drift"
+      end
+
+      expected_counts = TERMINAL_SOURCE_STATUSES.to_h do |status|
+        [status, census_objects.count { |object| object['status'].to_s == status }]
+      end
+      [census_doc, result].each do |doc|
+        label = doc.equal?(census_doc) ? 'source-object-census.json' : 'migration-result.json'
+        counts = doc.dig('summary', 'counts')
+        next unless counts.is_a?(Hash)
+        expected_counts.each do |status, count|
+          accounting_errors << "#{label} count #{status}=#{counts[status].inspect} != #{count}" \
+            unless counts[status].to_i == count
+        end
+      end
+    end
+  end
+elsif !census_doc.nil?
+  accounting_errors << 'source-object-census.json must contain a JSON object'
+end
+
+unless accounting_errors.empty?
+  warn '⛔ SOURCE ACCOUNTING INVALID — completion requires a non-RED migration report'
+  warn '   with complete, census-consistent source-object accounting:'
+  accounting_errors.uniq.each { |error| warn "   • #{error}" }
+  warn '   Re-run build-source-object-census.rb, then build-migration-report.rb.'
+  print_offramps(wd)
+  exit 7
 end
 
 # ---------------------------------------------------------------------------

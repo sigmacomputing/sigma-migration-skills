@@ -14,6 +14,10 @@ SRC = File.read(File.join(DIR, 'post-and-readback.rb'))
 m = SRC.match(/^def ensure_theme!.*?\n^end$/m) or abort('could not extract ensure_theme!')
 require_relative 'lib/theme_derive'
 require_relative 'lib/workbook_code'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 # require_relative cannot infer a basepath inside eval — the lib is preloaded.
 eval(m[0].sub(/require_relative\s+'lib\/theme_derive'/, 'nil')) # rubocop:disable Security/Eval
 
@@ -62,7 +66,7 @@ Dir.mktmpdir do |d|
   # theme via the pages-mode 'theme' key of chart-specs.json
   File.write(File.join(d, 'chart-specs.json'), JSON.generate('pages' => [], 'theme' => THEME))
   out = ensure_theme!(JSON.generate(SPEC), d)
-  check(JSON.parse(out).dig('document', 'settings', 'theme', 'overrides', 'colorOverrides', 'backgroundCanvas') == '#FFFFFF',
+  check(Array(JSON.parse(out).dig('document', 'settings', 'theme', 'overrides', 'colorOverrides')).any? { |e| e.is_a?(Hash) && e['name'] == 'backgroundCanvas' && e['color'] == '#FFFFFF' },
         "builder-output 'theme' key applied", fails)
 end
 

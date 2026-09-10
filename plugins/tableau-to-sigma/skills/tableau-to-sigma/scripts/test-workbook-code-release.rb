@@ -8,6 +8,9 @@ require 'tmpdir'
 require 'rbconfig'
 require_relative 'lib/workbook_code'
 require_relative 'mechanical-specs'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 RUBY = RbConfig.ruby
 STORIES = File.join(__dir__, 'build-story-pages.rb')

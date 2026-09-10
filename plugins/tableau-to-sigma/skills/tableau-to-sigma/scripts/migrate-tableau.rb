@@ -1031,6 +1031,39 @@ def run!(cmd, allow_fail: false, env: nil)
   [out, st]
 end
 
+# Persist the render-only health record consumed by build-migration-report.rb.
+# visual-similarity.py already runs png_health over the target render, so reuse
+# that measured object when present. Otherwise analyze the canonical
+# sigma-render.png directly. No image or an unreadable artifact is left for the
+# report's render check to fail closed; this helper never fabricates health.
+def refresh_render_health(work)
+  output = File.join(work, 'render-health.json')
+  FileUtils.rm_f(output)
+  similarity = File.join(work, 'visual-similarity.json')
+  if File.file?(similarity)
+    begin
+      doc = JSON.parse(File.read(similarity, encoding: 'UTF-8'))
+      health = doc['render_health'] if doc.is_a?(Hash)
+      if health.is_a?(Hash)
+        temporary = "#{output}.tmp.#{$$}"
+        File.write(temporary, JSON.pretty_generate(health) + "\n")
+        File.rename(temporary, output)
+        return [true, 'extracted visual-similarity.json render_health']
+      end
+    rescue JSON::ParserError, SystemCallError => e
+      warn "WARN: could not extract render_health from visual-similarity.json: #{e.message}"
+    ensure
+      File.delete(temporary) if defined?(temporary) && temporary && File.exist?(temporary)
+    end
+  end
+
+  render = File.join(work, 'sigma-render.png')
+  return [false, 'no visual-similarity render_health or sigma-render.png'] unless File.file?(render)
+  _, status = run!(['python3', File.join(HERE, 'png_health.py'), render,
+                    '--json-out', output], allow_fail: true)
+  [status.success?, "png_health.py #{status.success? ? 'PASS' : "exit #{status.exitstatus}"}"]
+end
+
 # Return a Sigma bearer token that is live RIGHT NOW, minting IN-PROCESS (pure
 # Ruby net/http via the Sigma lib) — no bash, no `eval "$(get-token.sh)"`, so
 # this works identically under PowerShell / cmd / a Cowork sandbox.
@@ -1531,10 +1564,39 @@ if opts[:finalize]
     puts '============================================================================='
   end
 
+  # Refresh source accounting from the FINAL built/readback, coverage, control,
+  # formula, and parity artifacts. Remove the preliminary discovery census
+  # first: a failed refresh must never let a stale pre-build inventory vouch for
+  # completion.
+  source_census_path = File.join(WORK, 'source-object-census.json')
+  FileUtils.rm_f(source_census_path)
+  census_out, census_st = run!(
+    ['ruby', File.join(HERE, 'build-source-object-census.rb'), '--workdir', WORK],
+    allow_fail: true
+  )
+  line "source-object census: #{census_st.success? ? 'PASS' : "FAIL (exit #{census_st.exitstatus})"}"
+
+  render_health_ok, render_health_note = refresh_render_health(WORK)
+  line "render health: #{render_health_note}"
+
+  # The shared/vendored report is the terminal accounting authority. It always
+  # runs on finalize (GREEN and non-GREEN gate batteries alike), before the
+  # result banner. Exit 1 means it wrote a diagnostic RED report; that RED is a
+  # real all_green input, not advisory output.
+  report_out, report_st = run!(
+    ['ruby', File.join(HERE, 'build-migration-report.rb'), '--workdir', WORK],
+    allow_fail: true
+  )
+  report_doc = (JSON.parse(File.read(File.join(WORK, 'migration-result.json'))) rescue {})
+  report_verdict = report_doc['verdict'] || 'unavailable'
+  line "migration report: #{report_verdict}#{report_st.success? ? '' : " (exit #{report_st.exitstatus})"}"
+
   # With an explicit --min-pass-rate (honest NAMED divergences), the census-
   # aware gate is the parity authority — phase6's own exit stays strict-100%.
   parity_ok = p6st.success? || (opts[:min_pass_rate] && gst.success?)
-  all_green = parity_ok && clst.success? && gst.success? && dsfst.success? && agst.success?
+  accounting_ok = census_st.success? && report_st.success? && report_verdict != 'RED'
+  all_green = parity_ok && clst.success? && gst.success? && dsfst.success? &&
+              agst.success? && accounting_ok
 
   # ---------------------------------------------------------------------------
   # Phase E (OPT-IN) — Enhance. Runs ONLY when --enhance was passed (here or on
@@ -1670,7 +1732,7 @@ if opts[:finalize]
   else
     puts "PARITY      : #{pf['status'] || '?'} (#{pf['charts_pass']}/#{pf['charts_total']} charts#{state['extract_mode'] ? ', extract-mode' : ''})"
   end
-  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"}"
+  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"} source-census=#{census_st.success? ? 'PASS' : "FAIL(#{census_st.exitstatus})"} report=#{report_verdict}#{report_st.success? ? '' : "(#{report_st.exitstatus})"}"
   puts "ENHANCE     : #{enhance_line}" if enhance_line
   puts "PUNCH LIST  : #{_pl_note}" if _pl_note
   puts "STATUS      : #{all_green ? 'GREEN' : 'NOT GREEN'}"
@@ -1679,20 +1741,23 @@ if opts[:finalize]
               'workbook_id' => wb_id, 'data_model_id' => state['data_model_id'],
               'gates' => { 'phase6' => p6st.exitstatus, 'cleanup' => clst.exitstatus,
                            'assert_phase6_ran' => gst.exitstatus, 'ds_filters' => dsfst.exitstatus,
-                           'action_gates' => agst.exitstatus })
+                           'action_gates' => agst.exitstatus, 'source_census' => census_st.exitstatus,
+                           'migration_report' => report_st.exitstatus,
+                           'migration_report_verdict' => report_verdict })
   phase_summary
   # ── Same-failure loop breaker (signature + attempt cap) ────────────────────
   # A NOT-GREEN finalize records its gate signature; re-running --finalize into
   # the SAME failure a second time is grinding, not converging — hard-STOP and
   # hand control to the operator instead of looping toward a forced green
   # (refs/operating-contract.md: "don't spin, don't fake").
-  # The signature keys ALL FIVE gate statuses that decide all_green — phase6,
+  # The signature keys every gate status that decides all_green — phase6,
   # cleanup, the census gate, assert-datasource-filters (PR-507 N1: the
   # ds-filters status was in all_green but absent here, so a ds-filter-only
   # NOT-GREEN signed as a tuple naming three PASSING gates — the exact
   # pathology the cleanup-key note below records), AND assert-action-gates
   # (Task 6 restructure — same reasoning: an action-gates-only NOT-GREEN must
-  # not sign as a tuple naming four PASSING gates) — PLUS a digest of the
+  # not sign as a tuple naming four PASSING gates), source census, and the
+  # terminal migration report — PLUS a digest of the
   # first FAILING child's error region. Exit codes alone collapse distinct
   # root causes (assert-phase6-ran.rb folds 84 exit sites into 31 codes; exit
   # 18 alone carries 6 causes), so a sub-cause flip used to read as "the EXACT
@@ -1709,6 +1774,8 @@ if opts[:finalize]
                 elsif !parity_ok then p6out # p6 failure NOT excused by --min-pass-rate
                 elsif !dsfst.success? then dsfout
                 elsif !agst.success? then agout
+                elsif !census_st.success? then census_out
+                elsif !report_st.success? then report_out
                 else clout
                 end
     _fregion = Offramp.error_region(_fail_out)
@@ -1716,7 +1783,10 @@ if opts[:finalize]
                                       exit_code: { phase6: p6st.exitstatus, gate: gst.exitstatus,
                                                    cleanup: clst.exitstatus,
                                                    dsfilters: dsfst.exitstatus,
-                                                   actiongates: agst.exitstatus },
+                                                   actiongates: agst.exitstatus,
+                                                   census: census_st.exitstatus,
+                                                   report: report_st.exitstatus,
+                                                   report_verdict: report_verdict },
                                       error_region: _fregion)
     _fverdict = Offramp.loop_check(WORK, signature: _fsig, scope: 'migrate-tableau:finalize')
     if _fverdict != :first
@@ -3296,6 +3366,19 @@ if have_twb
   end
 end
 
+# Source accounting starts as soon as the required discovery facts exist. This
+# preliminary census is deliberately conservative: before a built spec/parity
+# exists, in-scope objects remain needs-review rather than being guessed
+# migrated. Phase 6 finalize refreshes it from the gate artifacts.
+_source_census_path = File.join(WORK, 'source-object-census.json')
+FileUtils.rm_f(_source_census_path)
+_, _source_census_discovery_st = run!(
+  ['ruby', File.join(HERE, 'build-source-object-census.rb'), '--workdir', WORK],
+  allow_fail: true
+)
+line "WARN: preliminary source-object census failed (exit #{_source_census_discovery_st.exitstatus})" \
+  unless _source_census_discovery_st.success?
+
 # GAP-SCAN HARD GATE: ❌-unhandled features mean part of the workbook cannot be
 # migrated by this skill yet. Abort WITH the report unless the human accepts the
 # degradation explicitly via --force. (auto/hint/manual statuses flow into the
@@ -3887,22 +3970,11 @@ end # ═══ unless FASTPATH (full discovery → gates → decisions pipeline
 # ---------------------------------------------------------------------------
 if opts[:folder].to_s.empty?
   require 'sigma_rest'
+  require 'destination_resolver'
   begin
-    uid = Sigma.request(:get, '/v2/whoami')['userId']
-    # list_entries: both file lists paginate (default page 50) — a busy account
-    # with 50+ root files used to lose My Documents past the first page.
-    entry = Sigma.list_entries("/v2/members/#{uid}/files")
-                 .find { |e| e['path'] == 'My Documents' }
-    folder_id = entry && entry['parentId']
-    unless folder_id
-      entry2 = Sigma.list_entries('/v2/files?typeFilters=folder')
-                    .find { |e| e['path'] == 'My Documents' && e['ownerId'] == uid }
-      folder_id = entry2 && entry2['parentId']
-    end
-    abort "FATAL: could not resolve the caller's My Documents folder id (the DM POST requires folderId) — pass --folder <id>" unless folder_id
-    opts[:folder] = folder_id
-    line "folderId default: resolved caller's My Documents = #{folder_id} (no --folder supplied)"
-  rescue Sigma::Error => e
+    opts[:folder] = DestinationResolver.my_documents_id
+    line "folderId default: resolved caller's My Documents = #{opts[:folder]} (no --folder supplied)"
+  rescue Sigma::Error, DestinationResolver::Error => e
     abort "FATAL: My Documents folder resolution failed (#{e.message.lines.first&.strip}) — pass --folder <id>"
   end
 end
@@ -4620,6 +4692,39 @@ if mechanical
       { 'id' => id, 'name' => nm }
     line "master-col override: '#{nm}' = #{fx[0, 80]}"
   end
+  # A Tableau object-model dashboard can mix logical-table grains on one page
+  # (for example child-fact Absence Records beside parent Employees). Build a
+  # registry of the converter's grain-correct DM sources and teach the CSV
+  # header mapper that Tableau's generated "Count of <logical table>" means a
+  # Count() over that table's relationship key AT THAT TABLE'S GRAIN. The chart
+  # router below consumes the same registry and repoints only the affected
+  # worksheets to a hidden sub-master.
+  grain_plan = MechanicalSpecs.object_grain_plan(conv['model'], default_element_name: fact['name'])
+  grain_plan_path = File.join(WORK, 'grain-plan.json')
+  if grain_plan
+    grain_plan['datasources'].each do |grain|
+      Array(grain['columns']).each do |column_name|
+        next if mmap.values.any? { |entry| entry['name'].to_s.casecmp?(column_name.to_s) }
+        synthetic_id = "m-grain-#{MechanicalSpecs.slug(column_name)}"
+        mmap[MechanicalSpecs.header_regex(column_name)] = {
+          'id' => synthetic_id,
+          'name' => column_name,
+          'grain_element' => grain['caption']
+        }
+      end
+      next if grain['count_key'].to_s.empty?
+      key_entry = mmap.values.find { |entry| entry['name'].to_s.casecmp?(grain['count_key'].to_s) }
+      next unless key_entry
+      table = Regexp.escape(grain['table'].to_s)
+      display = Regexp.escape(MechanicalSpecs.display_name(grain['table'].to_s))
+      pattern = "(?i)^Count of (?:#{table}|#{display})(?:\\s*\\([^)]*#{table}\\))?$"
+      mmap[pattern] = key_entry.merge('grain_element' => grain['caption'], 'generated_table_count' => true)
+      grain['count_pattern'] = pattern
+    end
+    File.write(grain_plan_path, JSON.pretty_generate(grain_plan))
+    line "grain plan: #{grain_plan['datasources'].size} logical table source(s); " \
+         "#{grain_plan['datasources'].count { |grain| grain['count_pattern'] }} generated table-count mapping(s)"
+  end
   mmap_path = File.join(WORK, 'master-map.json')
   File.write(mmap_path, JSON.pretty_generate(mmap))
   line "master-map: #{master_columns.size} master column(s) (fact element '#{fact['name']}', #{real_labels ? real_labels.size : 0} readback labels)"
@@ -4700,6 +4805,7 @@ if mechanical
   build_cmd += ['--meta', layout_json.sub(/\.json$/, '-meta.json')] if File.exist?(layout_json.sub(/\.json$/, '-meta.json'))
   build_cmd += ['--auto-controls'] if File.exist?(layout_json.sub(/\.json$/, '-meta.json'))
   build_cmd += ['--detected-actions', detected_actions_path] if File.exist?(detected_actions_path)
+  build_cmd += ['--grain-plan', grain_plan_path] if grain_plan && File.exist?(grain_plan_path)
   # Per-dashboard scope (defensive — the layout is already pre-scoped, so a single
   # dashboard yields exactly one page; passing the flags keeps a standalone build
   # honest if it's ever handed a full layout).
@@ -4805,6 +4911,19 @@ if mechanical
         c['formula'] = c['formula'].gsub(/\[#{Regexp.escape(real)}\/([^\]]+)\]/) do
           col = Regexp.last_match(1)
           exact = labels.include?(col) ? col : by_norm[nrmc.call(col)]
+          # Related columns on a derived grain view round-trip with the target
+          # element suffix ("Employment Type (EMPLOYEES)"). The builder asks
+          # for the unsuffixed Tableau caption. Accept ONLY a unique
+          # prefix+parenthetical match; two role-played/duplicate candidates
+          # remain unresolved rather than guessing.
+          unless exact
+            stem = nrmc.call(col)
+            suffixed = labels.select do |label|
+              label.match?(/\A#{Regexp.escape(col)}\s+\([^)]+\)\z/i) ||
+                (nrmc.call(label).start_with?(stem) && label.include?('('))
+            end
+            exact = suffixed.first if suffixed.one?
+          end
           if exact
             fixed += 1 if exact != col
             "[#{real}/#{exact}]"

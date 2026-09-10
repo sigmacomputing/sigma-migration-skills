@@ -3,6 +3,9 @@
 # and the workbook column references — a mismatch compiles Sigma columns to type
 # "error" (case-sensitive same-element refs).
 
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'ruby_compat'
 module DomoSigma
   module_function
 

@@ -1,0 +1,270 @@
+{
+  "sigmaDataModel": {
+    "name": "Enrollment Metrics",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Page 1",
+        "elements": [
+          {
+            "id": "id0002",
+            "kind": "table",
+            "name": "Period Bridge",
+            "source": {
+              "connectionId": "fixture",
+              "statement": "SELECT\n        period_date,\n        content_domain,\n        SUM(enrollments) AS period_enrollments,\n        LAG(SUM(enrollments)) OVER (\n          PARTITION BY content_domain\n          ORDER BY period_date\n        ) AS prior_period_enrollments\n      FROM FIXTURE.COURSE_FUNNEL\n      GROUP BY period_date, content_domain",
+              "kind": "sql"
+            },
+            "columns": [
+              {
+                "id": "id0003",
+                "formula": "[Custom SQL/PERIOD_DATE]",
+                "name": "Period Date"
+              },
+              {
+                "id": "id0004",
+                "formula": "[Custom SQL/CONTENT_DOMAIN]",
+                "name": "Content Domain"
+              },
+              {
+                "id": "id0005",
+                "formula": "[Custom SQL/PERIOD_ENROLLMENTS]",
+                "name": "Period Enrollments"
+              },
+              {
+                "id": "id0006",
+                "formula": "[Custom SQL/PRIOR_PERIOD_ENROLLMENTS]",
+                "name": "Prior Period Enrollments"
+              }
+            ],
+            "order": [
+              "id0003",
+              "id0004",
+              "id0005",
+              "id0006"
+            ]
+          },
+          {
+            "id": "id0007",
+            "kind": "table",
+            "name": "Enrollment Metrics",
+            "source": {
+              "connectionId": "fixture",
+              "statement": "SELECT\n        period_date,\n        content_domain,\n        country_group,\n        SUM(enrollments) AS enrollments,\n        SUM(module_1_completions) AS module_1_completions,\n        SUM(course_completions) AS course_completions,\n        SUM(freemium_conversions) AS freemium_conversions,\n        AVG(active_days_30) AS active_days_30,\n        MAX(overall_revenue_rank) AS overall_revenue_rank\n      FROM FIXTURE.COURSE_FUNNEL\n      GROUP BY period_date, content_domain, country_group",
+              "kind": "sql"
+            },
+            "columns": [
+              {
+                "id": "id0008",
+                "formula": "[Custom SQL/PERIOD_DATE]",
+                "name": "Period Date"
+              },
+              {
+                "id": "id0009",
+                "formula": "[Custom SQL/CONTENT_DOMAIN]",
+                "name": "Content Domain"
+              },
+              {
+                "id": "id0010",
+                "formula": "[Custom SQL/COUNTRY_GROUP]",
+                "name": "Country Group"
+              },
+              {
+                "id": "id0011",
+                "formula": "[Custom SQL/OVERALL_REVENUE_RANK]",
+                "name": "Overall Revenue Rank"
+              },
+              {
+                "id": "id0012",
+                "formula": "[Custom SQL/ENROLLMENTS]",
+                "name": "Enrollments"
+              },
+              {
+                "id": "id0013",
+                "formula": "[Custom SQL/MODULE_1_COMPLETIONS]",
+                "name": "Module 1 Completions"
+              },
+              {
+                "id": "id0014",
+                "formula": "[Custom SQL/COURSE_COMPLETIONS]",
+                "name": "Course Completions"
+              },
+              {
+                "id": "id0015",
+                "formula": "[Custom SQL/FREEMIUM_CONVERSIONS]",
+                "name": "Freemium Conversions"
+              },
+              {
+                "id": "id0016",
+                "formula": "[Custom SQL/ACTIVE_DAYS_30]",
+                "name": "Active Days 30"
+              },
+              {
+                "id": "id0017",
+                "formula": "DateTrunc(\"MONTH\", period_date)",
+                "name": "Selected Period"
+              }
+            ],
+            "metrics": [
+              {
+                "id": "id0018",
+                "formula": "Sum([Enrollments])",
+                "name": "Enrollments Total"
+              }
+            ],
+            "order": [
+              "id0008",
+              "id0009",
+              "id0010",
+              "id0011",
+              "id0012",
+              "id0013",
+              "id0014",
+              "id0015",
+              "id0016",
+              "id0017"
+            ],
+            "relationships": [
+              {
+                "id": "id0019",
+                "targetElementId": "id0002",
+                "keys": [
+                  {
+                    "sourceColumnId": "id0008",
+                    "targetColumnId": "id0003"
+                  }
+                ],
+                "name": "period_bridge",
+                "relationshipType": "N:1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "views": 2,
+    "explores": 1,
+    "elements": 2,
+    "columns": 14,
+    "metrics": 1,
+    "relationships": 1
+  },
+  "warnings": [
+    "ℹ \"course_performance.model.lkml\": contains include: directive(s) — views/*.view.lkml — cross-file resolution is not supported. Pass all referenced view files explicitly.",
+    "ℹ View \"enrollment_metrics\" → Custom SQL element. Review the SQL before saving.",
+    "ℹ View \"enrollment_metrics\": contains Liquid templating ({% if %} blocks). Parameter-driven dimensions are resolved to their DEFAULT branch (see per-dimension 🔶 notes); any unresolved Liquid is skipped — review in Sigma.",
+    "🔶 \"selected_metric\": Liquid {% if %} field-picker resolved to the parameter DEFAULT branch (→ ${TABLE}.enrollments). To reproduce the dynamic dropdown, add a Sigma parameter control and a Switch()/If() over its value.",
+    "🔶 \"selected_group\": Liquid {% if %} field-picker resolved to the parameter DEFAULT branch (→ ${TABLE}.content_domain). To reproduce the dynamic dropdown, add a Sigma parameter control and a Switch()/If() over its value.",
+    "🔶 \"selected_period\": Liquid {% if %} field-picker resolved to the parameter DEFAULT branch (→ DATE_TRUNC('MONTH', ${TABLE}.period_date)). To reproduce the dynamic dropdown, add a Sigma parameter control and a Switch()/If() over its value.",
+    "ℹ \"selected_period\" → calculated column: DateTrunc(\"MONTH\", period_date)",
+    "⚠ \"selected_metric_sum\": measure sql \"${selected_metric}\" could not be resolved to a column — add this metric manually in Sigma.",
+    "ℹ View \"period_bridge\" → Custom SQL element. Review the SQL before saving."
+  ],
+  "dynamicParameters": [
+    {
+      "view": "enrollment_metrics",
+      "name": "funnel_metric",
+      "type": "unquoted",
+      "defaultValue": "enrollments",
+      "allowedValues": [
+        {
+          "label": "Enrollments",
+          "value": "enrollments"
+        },
+        {
+          "label": "Module 1 Completion Rate",
+          "value": "m1_rate"
+        },
+        {
+          "label": "F30D",
+          "value": "f30d"
+        },
+        {
+          "label": "Course Completion Rate",
+          "value": "completion_rate"
+        },
+        {
+          "label": "Freemium Conversion Rate",
+          "value": "conversion_rate"
+        }
+      ],
+      "affectedFields": [
+        {
+          "field": "enrollment_metrics.selected_metric",
+          "label": "Selected Funnel Metric",
+          "kind": "dimension",
+          "sourceSql": "{% if funnel_metric._parameter_value == 'm1_rate' %}\n        1.0 * ${TABLE}.module_1_completions / NULLIF(${TABLE}.enrollments, 0)\n      {% elsif funnel_metric._parameter_value == 'f30d' %}\n        ${TABLE}.active_days_30\n      {% elsif funnel_metric._parameter_value == 'completion_rate' %}\n        1.0 * ${TABLE}.course_completions / NULLIF(${TABLE}.enrollments, 0)\n      {% elsif funnel_metric._parameter_value == 'conversion_rate' %}\n        1.0 * ${TABLE}.freemium_conversions / NULLIF(${TABLE}.enrollments, 0)\n      {% else %}\n        ${TABLE}.enrollments\n      {% endif %}",
+          "branches": {
+            "enrollments": "${TABLE}.enrollments",
+            "m1_rate": "1.0 * ${TABLE}.module_1_completions / NULLIF(${TABLE}.enrollments, 0)",
+            "f30d": "${TABLE}.active_days_30",
+            "completion_rate": "1.0 * ${TABLE}.course_completions / NULLIF(${TABLE}.enrollments, 0)",
+            "conversion_rate": "1.0 * ${TABLE}.freemium_conversions / NULLIF(${TABLE}.enrollments, 0)"
+          },
+          "deterministic": true
+        }
+      ]
+    },
+    {
+      "view": "enrollment_metrics",
+      "name": "group_by",
+      "type": "unquoted",
+      "defaultValue": "content_domain",
+      "allowedValues": [
+        {
+          "label": "Content Domain",
+          "value": "content_domain"
+        },
+        {
+          "label": "Country Group",
+          "value": "country_group"
+        }
+      ],
+      "affectedFields": [
+        {
+          "field": "enrollment_metrics.selected_group",
+          "label": "Selected Group",
+          "kind": "dimension",
+          "sourceSql": "{% if group_by._parameter_value == 'country_group' %}\n        ${TABLE}.country_group\n      {% else %}\n        ${TABLE}.content_domain\n      {% endif %}",
+          "branches": {
+            "content_domain": "${TABLE}.content_domain",
+            "country_group": "${TABLE}.country_group"
+          },
+          "deterministic": true
+        }
+      ]
+    },
+    {
+      "view": "enrollment_metrics",
+      "name": "time_grain",
+      "type": "unquoted",
+      "defaultValue": "month",
+      "allowedValues": [
+        {
+          "label": "Month",
+          "value": "month"
+        },
+        {
+          "label": "Week",
+          "value": "week"
+        }
+      ],
+      "affectedFields": [
+        {
+          "field": "enrollment_metrics.selected_period",
+          "label": "Selected Period",
+          "kind": "dimension",
+          "sourceSql": "{% if time_grain._parameter_value == 'week' %}\n        DATE_TRUNC('WEEK', ${TABLE}.period_date)\n      {% else %}\n        DATE_TRUNC('MONTH', ${TABLE}.period_date)\n      {% endif %}",
+          "branches": {
+            "month": "DATE_TRUNC('MONTH', ${TABLE}.period_date)",
+            "week": "DATE_TRUNC('WEEK', ${TABLE}.period_date)"
+          },
+          "deterministic": true
+        }
+      ]
+    }
+  ]
+}

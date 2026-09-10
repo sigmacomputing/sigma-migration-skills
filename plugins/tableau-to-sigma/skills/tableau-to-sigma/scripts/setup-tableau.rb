@@ -44,7 +44,9 @@ end
 # any other vars already there (e.g. Sigma creds from setup.rb).
 def upsert_neutral_env(pairs)
   FileUtils.mkdir_p(File.dirname(NEUTRAL_PATH), mode: 0o700)
-  body = File.exist?(NEUTRAL_PATH) ? File.read(NEUTRAL_PATH) : ""
+  # encoding: 'UTF-8' — body is regexp-matched below; see shared/scripts/setup.rb.
+  # F5 crash class, #752.
+  body = File.exist?(NEUTRAL_PATH) ? File.read(NEUTRAL_PATH, encoding: 'UTF-8') : ""
   pairs.each do |k, v|
     line = "export #{k}='#{v}'"
     if body =~ /^export #{Regexp.escape(k)}=.*$/

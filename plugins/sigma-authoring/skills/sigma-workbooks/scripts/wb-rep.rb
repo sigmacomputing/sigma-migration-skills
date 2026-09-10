@@ -53,6 +53,9 @@ require 'fileutils'
 require 'time'
 require 'tmpdir'
 require_relative 'lib/code_rep'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 RESPONSE_ONLY = %w[workbookId url documentVersion latestDocumentVersion ownerId
                    createdBy updatedBy createdAt updatedAt].freeze

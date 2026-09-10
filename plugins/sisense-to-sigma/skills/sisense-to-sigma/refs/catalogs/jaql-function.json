@@ -1,0 +1,230 @@
+{
+  "dimension": "jaql-function",
+  "source_tool": "sisense",
+  "authoritative_doc": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+  "sigma_target_doc": "https://help.\u0073igmacomputing.com/docs/function-index",
+  "on_unmapped_default": "raise Unsupported with SISENSE-JAQL-FUNC-UNKNOWN -> flag",
+  "description": "Sisense callable names found inside JAQL formula strings. `safe` rows are same-argument-order token rewrites; `flag` rows are recognized but require grouping, ordering, filter-scope, or multipass semantics that this compositional parser cannot safely infer; `unsupported` is the fail-closed unknown-function contract. jaql_expr.py derives its runtime safe and flag maps from these rows. Date levels and expression/context composition remain code because they are not flat function-name mappings.",
+  "rows": [
+    {
+      "source": "SUM",
+      "sigma": "Sum",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-SUM",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "y", "date": "2026-06-17", "method": "Sample ECommerce live run: SUM formula calls in ratio measures were converted and verified at exact Sisense/Sigma data parity."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order; function-name case is normalized by the runtime."
+    },
+    {
+      "source": "COUNT",
+      "sigma": "Count",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-COUNT",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "y", "date": "2026-06-17", "method": "Sample ECommerce live run: SUM([r])/COUNT([v]) was converted from live dashboard JAQL and verified at exact Sisense/Sigma data parity."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order; Count retains null-skipping column semantics."
+    },
+    {
+      "source": "AVG",
+      "sigma": "Avg",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-AVG",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; not exercised as a formula call by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order; distinct from a flat JAQL agg value handled by aggregation.json."
+    },
+    {
+      "source": "MIN",
+      "sigma": "Min",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-MIN",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; not exercised as a formula call by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order."
+    },
+    {
+      "source": "MAX",
+      "sigma": "Max",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-MAX",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; not exercised as a formula call by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order."
+    },
+    {
+      "source": "COUNTDISTINCT",
+      "sigma": "CountDistinct",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-COUNTDISTINCT",
+      "doc_ref": "https://developer.sisense.com/guides/sdk/modules/sdk-data/factories/namespace.measureFactory/functions/function.countDistinct.html",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; Sample ECommerce exercised countDistinct as an agg value, not as a formula call."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order; the separate agg-value path is cataloged in aggregation.json."
+    },
+    {
+      "source": "ABS",
+      "sigma": "Abs",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-ABS",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; not exercised by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order."
+    },
+    {
+      "source": "ROUND",
+      "sigma": "Round",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-ROUND",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented mapping only; not exercised by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Same argument order; decimal and tie behavior still require a live edge-case oracle."
+    },
+    {
+      "source": "RANK",
+      "sigma": "Rank",
+      "behavior": "safe",
+      "warning_id": "SISENSE-JAQL-FUNC-RANK",
+      "doc_ref": "https://developer.sisense.com/guides/sdk/modules/sdk-data/factories/namespace.measureFactory/functions/function.rank.html",
+      "sigma_verified": {"status": "n", "date": null, "method": "Documented candidate mapping only; partition, sort, and tie modes were not proven by the 2026-06-17 Sample ECommerce live run."},
+      "on_unmapped": "n/a",
+      "notes": "Token rewrite preserves arguments, but callers must verify grouped partition, direction, and tie semantics."
+    },
+    {
+      "source": "PREV",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-PREV",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; requires an ordered grouping."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "A Sigma Lag-style implementation requires explicit ordering and partition context that a token rename cannot infer."
+    },
+    {
+      "source": "PAST",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-PAST",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; prior-period grain and date grouping are required."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Prior-period behavior must be rebuilt against an explicit date-grouped element."
+    },
+    {
+      "source": "GROWTH",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-GROWTH",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; comparison period and null/zero behavior require a grouped oracle."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Requires a current/prior dependency chain and explicit zero-denominator semantics."
+    },
+    {
+      "source": "GROWTHPAST",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-GROWTHPAST",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; comparison period and date grouping are required."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Past-period growth is structural and cannot be represented by a same-argument-order rename."
+    },
+    {
+      "source": "RSUM",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-RSUM",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; running order, partition, and continuous mode are required."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "CumulativeSum is only a candidate after the widget's ordering and partition semantics are established."
+    },
+    {
+      "source": "DIFF",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-DIFF",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; comparison ordering is required."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Difference calculations require an explicit comparison row or period."
+    },
+    {
+      "source": "DIFFPAST",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-DIFFPAST",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free rewrite verified; prior-period grain and date grouping are required."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Past-period difference is structural and cannot be safely token-renamed."
+    },
+    {
+      "source": "QUARTILE",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-QUARTILE",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No matching argument/aggregation semantics live-verified."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Sisense supports basic and multipass forms; a context-free scalar rename would conflate them."
+    },
+    {
+      "source": "PERCENTILE",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-PERCENTILE",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No matching percentile convention and argument semantics live-verified."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Percentile convention, grouping, and database-dependent behavior require an explicit oracle."
+    },
+    {
+      "source": "CONTRIBUTION",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-CONTRIBUTION",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/quick-functions.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No context-free percentage-of-total rewrite verified."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Contribution depends on the grouping and filter scope used for the total."
+    },
+    {
+      "source": "ALL",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-ALL",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/creating-formulas-based-on-criteria-and-conditions-filters.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No faithful scalar filter-scope equivalent live-verified."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "ALL changes dimensional filter scope; dropping or renaming it would change the denominator."
+    },
+    {
+      "source": "LISTAGG",
+      "sigma": null,
+      "behavior": "flag",
+      "warning_id": "SISENSE-JAQL-FUNC-LISTAGG",
+      "doc_ref": "https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm",
+      "sigma_verified": {"status": "n", "date": null, "method": "No ordering, distinctness, delimiter, and scope semantics live-verified."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Retained from the prior runtime denylist; aggregate string concatenation needs explicit ordering and grouping proof."
+    },
+    {
+      "source": "<unknown-function>",
+      "sigma": null,
+      "behavior": "unsupported",
+      "warning_id": "SISENSE-JAQL-FUNC-UNKNOWN",
+      "doc_ref": "https://developer.sisense.com/guides/querying/jaqlSyntax/",
+      "sigma_verified": {"status": "n", "date": null, "method": "Fail-closed fallback contract; an uncataloged callable has no verified Sigma translation."},
+      "on_unmapped": "raise Unsupported->flag",
+      "notes": "Any callable absent from this catalog is rejected with this stable warning id; it is never passed through as if Sigma supported it."
+    }
+  ]
+}

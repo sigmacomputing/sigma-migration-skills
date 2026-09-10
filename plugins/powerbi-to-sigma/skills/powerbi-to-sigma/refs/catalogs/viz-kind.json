@@ -4,7 +4,7 @@
   "authoritative_doc": "https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-types-for-reports-and-q-and-a",
   "sigma_target_doc": "https://help.sigmacomputing.com/docs/visualization-types",
   "on_unmapped_default": "resolve via viz-kind.json then custom-visual.json (regex) then the generic slicer/filter heuristic; a still-unresolved token is recorded role_class=unsupported with guidance and NEVER coerced to a chart. The historical `VISUAL_KIND.get(vt,'bar')` silent default is GONE.",
-  "description": "Power BI visual -> Sigma workbook element kind + ROLE CLASS. `source` is the coarse kind token the builder consumes (rec['sigma_kind']); `sigma` is the Sigma element kind; `pbi_visual_types` enumerates the raw PBI visualTypes feeding that token; `role_class` (control|kpi|chart|table|text|image|decoration|unsupported) says what the visual DOES, so the coverage gate can tell a functional loss (a lost slicer = the page lost its filter) from a cosmetic one (a lost decorative shape) from a DIFFERENT cosmetic one that still builds a real element when it can (a logo/banner `image`, which — unlike `decoration` — is never routed to a bare 'nothing built' skip; PbiVizKind.functional? still treats it as non-functional). Both the Ruby builder AND the Python extractors resolve through this one file via lib/pbi_viz_kind.{rb,py} — the previously-duplicated Python VISUAL_KIND dict is gone, so the two maps can no longer drift. Third-party/custom visuals live in custom-visual.json.",
+  "description": "Power BI visual -> Sigma workbook element kind + ROLE CLASS. `source` is the coarse kind token the builder consumes (rec['sigma_kind']); `sigma` is the Sigma element kind; `pbi_visual_types` enumerates the raw PBI visualTypes feeding that token; `role_class` (control|kpi|chart|table|text|image|decoration|unsupported) says what the visual DOES, so the coverage gate can tell a functional loss (a lost slicer = the page lost its filter) from a cosmetic one (a lost decorative shape) from a DIFFERENT cosmetic one that still builds a real element when it can (a logo/banner `image`, which \u2014 unlike `decoration` \u2014 is never routed to a bare 'nothing built' skip; PbiVizKind.functional? still treats it as non-functional). Both the Ruby builder AND the Python extractors resolve through this one file via lib/pbi_viz_kind.{rb,py} \u2014 the previously-duplicated Python VISUAL_KIND dict is gone, so the two maps can no longer drift. Third-party/custom visuals live in custom-visual.json. NOTE 2026-08-26: Sigma now has NATIVE treemap-chart, sankey-chart, funnel-chart and gauge-chart (live-verified against a real org). The rows below still route treemap/funnel into `bar`, leave sankeyDiagram in `unsupported` (dropped entirely), and map gauge to `progress`. Re-routing is tracked follow-up work: it requires the builder to emit each kind's own pointer (treemap `category`, sankey `stages`+`value`, funnel `stage`+`series`, gauge `value`) -- changing only the `sigma` token here would emit an invalid element. See sigma-workbooks reference/specification/charts.md for the verified shapes.",
   "rows": [
     {
       "source": "kpi",
@@ -40,7 +40,7 @@
         "status": "n"
       },
       "on_unmapped": "n/a",
-      "notes": "PBI gauge -> native Sigma progress with shape:ring and mode:value. Value and optional min/max/target roles become progress formula strings. Sigma's ring is circular rather than Power BI's semicircle, so shape fidelity still requires visual review, but this is no longer a KPI fallback.",
+      "notes": "PBI gauge -> native Sigma progress with shape:ring and mode:value. Value and optional min/max/target roles become progress formula strings. Sigma's ring is circular rather than Power BI's semicircle, so shape fidelity still requires visual review, but this is no longer a KPI fallback. A native gauge-chart NOW EXISTS (2026-08-26) -- still mapped to progress here; re-route pending.",
       "role_class": "chart"
     },
     {
@@ -81,7 +81,7 @@
         "method": "LIVE demo-warehouse run (fresh DM): workbook POST clean, 0 type=error, render verified (KPI 127,513.88 = warehouse; column->vertical + bar->horizontal orientation correct)"
       },
       "on_unmapped": "n/a",
-      "notes": "*Bar* families render horizontal (orientation:horizontal), *Column* families vertical (omit orientation). Stacking none|stacked|normalized from the type name. hundredPercentStackedBarChart is now mapped explicitly (it previously fell through the Python `VISUAL_KIND.get(vt,'bar')` default). funnel/treemap/ribbon/histogram are DATA-PRESERVING bar approximations -> approximate:true, so they are reported as approximated, not as losses. Waterfall has its own native row.",
+      "notes": "*Bar* families render horizontal (orientation:horizontal), *Column* families vertical (omit orientation). Stacking none|stacked|normalized from the type name. hundredPercentStackedBarChart is now mapped explicitly (it previously fell through the Python `VISUAL_KIND.get(vt,'bar')` default). funnel/treemap/ribbon/histogram are DATA-PRESERVING bar approximations -> approximate:true, so they are reported as approximated, not as losses. Waterfall has its own native row. treemap/funnel: native treemap-chart and funnel-chart NOW EXIST (2026-08-26) -- still folded into bar-chart here; re-route pending.",
       "role_class": "chart",
       "approximate_types": [
         "funnel",
@@ -265,7 +265,7 @@
         "status": "n"
       },
       "on_unmapped": "n/a",
-      "notes": "Resolved to a Sigma region-map or point-map by resolve_map_kind using the model.bim geo dataCategory.",
+      "notes": "Azure Maps X/Y roles become longitude/latitude and resolve directly to a Sigma point-map, with optional Size and Series roles. Other maps resolve from explicit coordinates or model.bim geo dataCategory; only unresolvable geocoded locations degrade to a bar.",
       "role_class": "chart"
     },
     {
@@ -279,7 +279,7 @@
         "status": "n"
       },
       "on_unmapped": "n/a",
-      "notes": "Set directly by extract-report-classic.py for an imageUrl resource (extract-pbir.py has no 'image' visualType). Sigma images are URL-only: needs --image-map {resource: hostedUrl} or the element is skipped with a note. role_class is its OWN 'image', distinct from 'decoration': an image DOES build a real Sigma element (given --image-map) and has its own dedicated coverage entry when it can't (severity:dropped, recoverable — 'Supply --image-map'), unlike a shape/blank which never builds anything and is genuinely cosmetic. Reusing 'decoration' here made every image visual return nil before ever reaching its own build/coverage logic — a regression caught in review.",
+      "notes": "Set directly by extract-report-classic.py for an imageUrl resource (extract-pbir.py has no 'image' visualType). Sigma images are URL-only: needs --image-map {resource: hostedUrl} or the element is skipped with a note. role_class is its OWN 'image', distinct from 'decoration': an image DOES build a real Sigma element (given --image-map) and has its own dedicated coverage entry when it can't (severity:dropped, recoverable \u2014 'Supply --image-map'), unlike a shape/blank which never builds anything and is genuinely cosmetic. Reusing 'decoration' here made every image visual return nil before ever reaching its own build/coverage logic \u2014 a regression caught in review.",
       "role_class": "image"
     },
     {
@@ -326,8 +326,8 @@
         "method": "no Sigma equivalent by design"
       },
       "on_unmapped": "warn+record-unsupported",
-      "guidance": "No Sigma equivalent that preserves the visual's SEMANTICS. Do NOT approximate as a chart — record it as unsupported with the source fields listed so the user can decide. Closest options: decomposition tree / key influencers -> a Sigma pivot table plus a bar chart per driver (the AI ranking itself has no equivalent); Q&A / smart narrative -> a Sigma AI CallText element; python/R visual -> port the script to a Sigma custom plugin or precompute in the warehouse; scorecard/goals -> a KPI element with a reference mark for the target; sankey / word cloud -> a Sigma plugin; play axis -> a Sigma control (animation is not supported).",
-      "notes": "These previously became bar charts. A bar chart of a decomposition tree is not an approximation, it is a wrong answer — hence role_class unsupported, reported honestly."
+      "guidance": "No Sigma equivalent that preserves the visual's SEMANTICS. Do NOT approximate as a chart \u2014 record it as unsupported with the source fields listed so the user can decide. Closest options: decomposition tree / key influencers -> a Sigma pivot table plus a bar chart per driver (the AI ranking itself has no equivalent); Q&A / smart narrative -> a Sigma AI CallText element; python/R visual -> port the script to a Sigma custom plugin or precompute in the warehouse; scorecard/goals -> a KPI element with a reference mark for the target; sankey / word cloud -> a Sigma plugin; play axis -> a Sigma control (animation is not supported).",
+      "notes": "These previously became bar charts. A bar chart of a decomposition tree is not an approximation, it is a wrong answer \u2014 hence role_class unsupported, reported honestly. sankeyDiagram: a native sankey-chart NOW EXISTS (2026-08-26) -- this row still drops it; re-route pending."
     }
   ]
 }

@@ -14,6 +14,7 @@ Run: python3 tests/test_metric_reference.py   (exit 0 = pass)
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -83,8 +84,38 @@ def test_no_false_positive():
     print("[ok] no [Metrics/<name>] ref points at a non-existent metric")
 
 
+def test_workbook_formula_and_control_contract():
+    """Workbook source refs stay qualified and selectable controls stay populated."""
+    wb, _ = _convert()
+    elements = wb["document"]["elements"]
+    for el in elements:
+        for col in el.get("columns", []):
+            refs = re.findall(r"\[([^\]]+)\]", str(col.get("formula") or ""))
+            bare = [ref for ref in refs if "/" not in ref]
+            assert not bare, (
+                f"{el.get('name')}/{col.get('name')} emitted bare workbook "
+                f"reference(s) {bare}: {col.get('formula')}"
+            )
+
+    controls = [el for el in elements
+                if el.get("kind") == "control"
+                and el.get("controlType") in ("list", "segmented")]
+    assert controls, "fixture must exercise list/segmented control wiring"
+    for ctl in controls:
+        src = ctl.get("source")
+        assert isinstance(src, dict), (
+            f"{ctl.get('controlId')} has filters but no value-list source"
+        )
+        assert src.get("kind") == "source" and isinstance(src.get("source"), dict), src
+        assert src["source"].get("kind") == "table", src
+        assert src["source"].get("elementId") and src.get("columnId"), src
+        assert ctl.get("filters"), f"{ctl.get('controlId')} has no filter targets"
+    print("[ok] workbook refs qualified; list controls carry value sources + targets")
+
+
 if __name__ == "__main__":
     test_matched_measures_bind_to_metrics()
     test_ratio_metric_stays_inline()
     test_no_false_positive()
+    test_workbook_formula_and_control_contract()
     print("ALL PASS")

@@ -46,6 +46,7 @@ require 'optparse'
 require 'open3'
 require 'time'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
+require_relative 'lib/pbi_stale_parity'
 
 opts = { extract: false, tol: 0.02 }
 OptionParser.new do |p|
@@ -65,7 +66,8 @@ OptionParser.new do |p|
   p.on('--extract-tol F', Float){ |v| opts[:tol] = v }
   # bead fmte — freshness.json from pbi-freshness.py. When present, the
   # SOURCE-FRESHNESS banner leads both passes, and finalize classifies each
-  # chart MATCH / STALE-EXPLAINED / DIVERGENT (only DIVERGENT blocks).
+  # chart MATCH / STALE-EXPLAINED / DIVERGENT. STALE is reported honestly but
+  # stays non-GREEN until the source model refreshes and strict parity can run.
   p.on('--freshness PATH')      { |v| opts[:fresh] = v }
 end.parse!
 
@@ -88,7 +90,8 @@ def freshness_banner
   end
   if sd && sd >= 1
     puts "⚠ source is ~#{sd.ceil} day(s) stale — Sigma reads the LIVE warehouse and is"
-    puts '  EXPECTED to show more data; staleness-shaped deltas classify as STALE-EXPLAINED.'
+    puts '  EXPECTED to show different data. Shape-safe deltas may report STALE-EXPLAINED,'
+    puts '  but the run stays non-GREEN until Power BI refreshes and strict parity passes.'
   end
   puts
 end
@@ -232,21 +235,6 @@ if opts[:emit]
   exit 0
 end
 
-# bead fmte — does this chart's delta look like "Sigma shows MORE/newer data"?
-# (extra Sigma-only buckets with none missing, or a larger Sigma total) — the
-# shape a stale import snapshot produces, as opposed to a conversion error.
-def sigma_shows_more?(exp_rows, act_rows)
-  numify = ->(v) { v.is_a?(Numeric) ? v.to_f : (v.to_s.gsub(/[$,%\s]/, '') =~ /\A-?\d+(\.\d+)?\z/ ? v.to_s.gsub(/[$,%\s]/, '').to_f : nil) }
-  exp = exp_rows || []
-  act = act_rows || []
-  exp_dims = exp.map { |r| r[0] }
-  act_dims = act.map { |r| r[0] }
-  return true if (act_dims - exp_dims).any? && (exp_dims - act_dims).empty?
-  exp_sum = exp.map { |r| numify.call(r[1]) }.compact.sum
-  act_sum = act.map { |r| numify.call(r[1]) }.compact.sum
-  act.size >= exp.size && act_sum > exp_sum
-end
-
 if opts[:finalize]
   %i[plan actuals outdir].each { |k| abort("missing --#{k}") unless opts[k] }
   plan = JSON.parse(File.read(opts[:plan]))
@@ -267,14 +255,15 @@ if opts[:finalize]
   failed = out.scan(/^DIVERGE\s+\[[^\]]+\]\s+(.+)$/).flatten
 
   # bead fmte — classify every chart MATCH / STALE-EXPLAINED / DIVERGENT.
-  # A DIVERGE whose delta is "Sigma shows more/newer data" while the source is
-  # stale (or its refresh is failing) is EXPLAINED, not a conversion error.
-  # Only DIVERGENT blocks. Without --freshness, DIVERGE stays DIVERGENT.
+  # A stale explanation is allowed only when every source dimension bucket is
+  # still present at the SAME canonical type/grain. It never excuses schema
+  # drift such as integer Year vs ISO date. Even shape-safe stale deltas remain
+  # non-GREEN: refresh the source and rerun strict parity.
   classes = plan['charts'].map do |c|
     name = c['chart']
     cls = if passed.include?(name)
             'MATCH'
-          elsif fresh_stale? && sigma_shows_more?(c['expected'], c.dig('actual', 'rows'))
+          elsif fresh_stale? && PbiStaleParity.value_only_stale?(c['expected'], c.dig('actual', 'rows'))
             'STALE-EXPLAINED'
           else
             'DIVERGENT'
@@ -285,15 +274,22 @@ if opts[:finalize]
   divergent  = classes.values.count('DIVERGENT')
   if FRESH.any? || stale_expl.positive?
     puts
-    puts 'classification (only DIVERGENT blocks):'
+    puts 'classification (STALE-EXPLAINED is shape-safe but remains non-GREEN):'
     classes.each { |name, cls| puts format('  %-15s %s', cls, name) }
     if stale_expl.positive?
-      puts "  → #{stale_expl} delta(s) are EXPLAINED by the stale PBI snapshot" \
-           "#{FRESH['credsSuspect'] ? ' (refresh failing — creds)' : ''}, not a conversion error."
+      puts "  → #{stale_expl} delta(s) have matching dimension shape and are explained by the stale PBI snapshot" \
+           "#{FRESH['credsSuspect'] ? ' (refresh failing — creds)' : ''}; refresh PBI before claiming exact parity."
     end
   end
 
-  status = total.positive? && divergent.zero? && (passed.size + stale_expl) == total ? 'PASS' : 'FAIL'
+  status =
+    if total.positive? && passed.size == total
+      'PASS'
+    elsif total.positive? && divergent.zero? && (passed.size + stale_expl) == total
+      'STALE'
+    else
+      'FAIL'
+    end
   summary = {
     'workbook_id' => plan.dig('charts', 0, 'workbook_id'),
     'ran_at' => Time.now.utc.iso8601,
@@ -301,7 +297,10 @@ if opts[:finalize]
     'mode' => opts[:extract] ? 'extract' : 'strict',
     'charts_total' => total, 'charts_pass' => passed.size, 'charts_fail' => divergent,
     'charts_stale_explained' => stale_expl,
-    'pass_names' => passed, 'fail_names' => failed,
+    'charts_verified' => passed.size,
+    'pass_names' => passed,
+    'stale_explained_names' => classes.select { |_name, cls| cls == 'STALE-EXPLAINED' }.keys,
+    'fail_names' => classes.select { |_name, cls| cls == 'DIVERGENT' }.keys,
     'classifications' => classes,
     'freshness' => FRESH.empty? ? nil : {
       'lastSuccessfulRefresh' => FRESH.dig('lastSuccessfulRefresh', 'endTime'),

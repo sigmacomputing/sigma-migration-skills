@@ -18,8 +18,13 @@ COVERAGE = {
   'unresolved' => [
     { 'visual' => 'Profit Margin (gauge)', 'source_type' => 'gauge', 'sigma_kind' => 'kpi-chart',
       'severity' => 'approximated', 'recoverable' => false,
-      'detail' => 'gauge has no native Sigma element kind — approximated as kpi-chart',
-      'action' => 'Sigma has no native gauge; accept or pick a different chart.' },
+      # STALE AS OF 2026-08-26: `gauge-chart` IS a native Sigma kind (live-verified
+      # valid:true with `value: {id: <measure col>}`). This fixture still describes
+      # the kpi-chart approximation the converters currently emit; re-routing to
+      # gauge-chart is tracked follow-up work. See sigma-workbooks
+      # reference/specification/charts.md.
+      'detail' => 'gauge approximated as kpi-chart (native gauge-chart exists as of 2026-08-26 — re-route pending)',
+      'action' => 'Native gauge-chart now exists; until this converter emits it, accept the kpi-chart approximation or author the gauge by hand.' },
     { 'visual' => 'Sub-Cat table', 'source_type' => 'table', 'sigma_kind' => 'table',
       'severity' => 'degraded', 'recoverable' => true,
       'detail' => "field(s) Sales Rank not reachable on master 'SUPERSTORE' — dropped",

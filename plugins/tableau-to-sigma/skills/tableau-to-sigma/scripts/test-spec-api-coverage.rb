@@ -5,6 +5,10 @@
 # (plain bar/line/KPI). Extracts the function from build-charts-from-signals.rb
 # (it's an inline top-level def, like test-param-measure-picker.rb does).
 require 'json'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 SRC = File.read(File.join(__dir__, 'build-charts-from-signals.rb'))
 fn  = SRC[/^def spec_api_limit_entries.*?^end/m] or abort('could not extract spec_api_limit_entries')

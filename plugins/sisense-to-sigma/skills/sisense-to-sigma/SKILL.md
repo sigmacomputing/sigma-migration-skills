@@ -92,17 +92,56 @@ vendored `.mjs` bundle, no `convert_sisense_to_sigma` MCP tool, and no
 `--converter` / `*_MCP_DIR` override** — those concepts do not apply here. Nothing
 about the model conversion leaves your machine.
 
+`migrate-sisense.py` is the one-command wrapper for these phases. Use it for a
+full migration; the individual scripts remain intervention/resume tools:
+
+```bash
+python3 scripts/migrate-sisense.py --cube "Sample ECommerce" \
+  --connection-id <sigma-connection-id> --database <DB> --schema <SCHEMA> \
+  --folder-id <sigma-folder-id> --workdir /tmp/sisense-run
+# Existing REST export / offline fixture:
+python3 scripts/migrate-sisense.py --from-discovery <dir> \
+  --connection-id <id> --database <DB> --schema <SCHEMA> \
+  --folder-id <id> --workdir /tmp/sisense-run [--dry-run]
+```
+
+It retains every phase artifact, requires explicit RLS and visual-waiver
+decisions, and declares completion only after strict JAQL parity, readback,
+render health, shared hard gates, and the census-backed migration report are
+GREEN. Exit 10 is an unresolved RLS decision; exit 2 is a failed migration.
+
+### Core scripts
+
+| Script | Role |
+|---|---|
+| `migrate-sisense.py` | One-command discovery → conversion → POST/readback → layout/parity/render → security/accounting/report/shared-gate orchestration. |
+| `discover.py` | Pull model and dashboard source artifacts. |
+| `scan_gaps.py` | Human coverage report plus deterministic structured object/gap census. |
+| `convert.py` | Convert model (`model`) and dashboards (`dashboard`). |
+| `post-sisense-spec.py` | Idempotent Sigma DM/workbook POST-or-readback helper; writes authoritative IDs/readbacks and tracks posted workbooks. |
+| `build-sisense-parity.py` | Build grounded JAQL/warehouse checks and normalize `verify_parity.py` output into `parity-final.json`; zero executable checks is RED. |
+| `build-sisense-accounting.py` / `build-sisense-control-scope.py` | Reconcile every model/dashboard object and source filter into the census, coverage, control census, and static control-scope contracts. |
+| `finalize-sisense-report.py` / `verify-complete.rb` | All-page PNG health + tile-aware similarity, degradation/report freshness, and final all-pass completion verification. |
+| `verify_parity.py` | Data-value parity gate. |
+| `verify_layout.py` | Structural layout parity gate. |
+| `detect_rls.py` / `apply_sigma_rls.py` | Discover and explicitly provision row-level security. |
+
 ## Phase 0 — Assess (optional)
 Run the `sisense-assessment` skill for an estate inventory + converter-coverage
 scoring before committing to conversions.
 
-**Gap scout (run each time).** `scan_gaps.py <dashboards.json>` measures
-converter coverage (AUTO/HINT/MANUAL/UNHANDLED + flagged JAQL) and appends every
-gap to a `learned-rules.json` ledger. It is the **flag-never-fake gate**: run it
-at convert time and again at the done-gate (`--strict` exits non-zero while any
-MANUAL/UNHANDLED/flagged gap is unresolved). For a gap with no clean Sigma
-translation, `escalate-gap.py` (opt-in, dry-run by default) drafts a tracking
-issue — file it only on `--yes`.
+**Gap scout (run each time).** `scan_gaps.py <dashboards.json> --model
+<model.json> --out gap-report.json` measures converter coverage and accounts for
+every source model table/column/relation/transformation plus every
+dashboard/widget/filter. The deterministic report contains stable object ids,
+status, evidence, provenance, summary counts, and unresolved gaps; the existing
+human stdout and `learned-rules.json` append ledger remain available. It is the
+**flag-never-fake gate**: run it at convert time and again at the shared
+done-gate (`--strict` exits non-zero while any MANUAL/UNHANDLED/flagged gap is
+unresolved). For a gap with no clean Sigma translation, `escalate-gap.py`
+(opt-in, dry-run by default) drafts a tracking issue — file it only on `--yes`.
+Durable support boundaries and evidence requirements live in
+`refs/open-items.md`.
 
 ## Phase 1 — Discover  ✅ working
 ```sh
@@ -210,8 +249,11 @@ Two gates, both must be **GREEN** before claiming done:
 - **Visual QA** — structural-green is not visually-correct. Render each page with
   `sigma-export-png.py` and read it against `refs/layout-visual-qa.md` (compare
   to the Sisense source PNG). Declare done on a clean render, not an HTTP 200.
-- **Gap scout** — re-run `scan_gaps.py --strict`; no unresolved MANUAL/UNHANDLED/
-  flagged gap may remain unaccounted-for.
+- **Gap scout** — re-run `scan_gaps.py <dashboards.json> --model <model.json>
+  --out gap-report.json --strict`; no unresolved MANUAL/UNHANDLED/flagged gap
+  may remain unaccounted-for. Preserve `gap-report.json` and the other phase
+  artifacts; the forthcoming one-command wrapper must use the same shared
+  hard-gate completion contract rather than a parallel success path.
 
 ## Phase 5 — Repoint + enhance
 Wire workbook → DM. Layout is already ported by `convert.py dashboard` (Phase 3)

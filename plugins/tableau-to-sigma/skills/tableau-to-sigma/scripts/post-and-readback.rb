@@ -67,6 +67,9 @@ require 'sigma_rest'
 require 'dm_quarantine'
 require 'code_rep'
 require 'workbook_code'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 begin
   require 'offramp' # off-ramp trail (waiver observability); optional — never load-bearing
 rescue LoadError

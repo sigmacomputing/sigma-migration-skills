@@ -1,9 +1,27 @@
 """Sigma REST API wrapper with automatic 401 retry + token refresh.
 
-Python twin of sigma_rest.rb (P1 runtime-shrink: Ruby -> Python). Byte-for-byte
-behaviour parity with the Ruby module is enforced by test_sigma_rest.py and the
-cross-impl parity harness. Stdlib only (urllib) — no third-party deps, matching
-the repo's "no Gemfile / no pip install" contract.
+Python twin of sigma_rest.rb (P1 runtime-shrink: Ruby -> Python). Stdlib only
+(urllib) — no third-party deps, matching the repo's "no Gemfile / no pip install"
+contract.
+
+WHAT ACTUALLY ENFORCES PARITY (corrected, issue #753). This docstring used to
+claim "byte-for-byte behaviour parity ... enforced by test_sigma_rest.py and the
+cross-impl parity harness". There is no cross-impl parity harness — the phrase
+appeared nowhere but in this file and tableau_rest.py — and test_sigma_rest.py
+never invokes ruby; it hand-encodes the Ruby module's observable behaviour in
+Python. Two real guards exist:
+  * tools/lint-twin-parity.rb — every public name in the .rb has a counterpart
+    here (API surface, not behaviour).
+  * test_sigma_rest.py — this module's behaviour against hand-written expectations.
+Behavioural equivalence is NOT machine-checked. Treat a change to either twin as
+a change to both.
+
+DELIBERATE NON-PORT: `Sigma.list_entries` (sigma_rest.rb) has no twin here. Its
+`nextPage`/`page` pagination is documented as WRONG for the columns endpoints,
+which use nextPageToken/pageToken — see discover-columns.rb and
+discover-warehouse-columns.rb, which hand-roll the loop for exactly that reason.
+Port the endpoint-correct loop, not this function. Recorded in ALLOWED in
+tools/lint-twin-parity.rb.
 
 Sigma OAuth bearer tokens expire after ~1 hour; long runs outlive a single
 token. This module provides:

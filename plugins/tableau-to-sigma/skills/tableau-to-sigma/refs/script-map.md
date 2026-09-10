@@ -14,9 +14,12 @@ you to.
 | Script | One line |
 |---|---|
 | `migrate-tableau.rb` | The one command — chains the whole gated spine; stops with exact instructions |
+| `migrate-tableau.py` | Supported no-Ruby command — strict reuse/extract routing, automatic workbook build, REST parity collection, and Python gates |
 | `verify-complete.rb` | The single offline "are we done?" check — ✅ DONE only on gate-green; re-derives the verdict ledger (exit 6 on contradiction) |
+| `verify-complete.py` | Python completion gate — hash-binds blind visual evidence and refuses incomplete accounting |
 | `lib/offramp.rb` + `offramps.jsonl` | Observability trail of every golden-path exit |
 | `setup.rb` / `setup-tableau.rb` | One-time Sigma / Tableau credential setup (`--from-env` = non-interactive; bootstrap runs them) |
+| `setup.py` / `setup-tableau.py` | No-Ruby Sigma / Tableau credential setup with the same neutral environment contract |
 | `get-token.sh` / `get_token.py` | Sigma token mint (bash / shell-neutral twin → `<WORK>/auth.json`) |
 | `get-tableau-token.sh` / `get-tableau-token.py` | Tableau PAT signin (bash / shell-neutral twin) |
 | `bootstrap.sh` / `bootstrap.ps1` | Step-0 environment bootstrap → doctor-green + sentinel (`--check` dry run) |
@@ -41,6 +44,7 @@ you to.
 | `find-prior-cache.rb` | Reuse cached discovery artifacts from prior runs |
 | `remap-wb-spec-to-dm-ids.rb` | Re-point a cached wb-spec at a re-POSTed DM's new ids |
 | `extract-calc-fields.rb` | Phase 1e calc fields (+ formulas) → `calc-fields.json` |
+| `formula-audit.mjs` | Batch every source formula through the vendored translator → per-formula status, translation, warnings, and coverage counts |
 | `validate-spec.rb` | DM/workbook spec validator (`--type`, `--dm-context`) |
 | `post-and-readback.rb` | POST + GET-back a spec; column-type guard, layout+control lint, same-workbook PUT discipline (exit 7 unless STOP-authorized / `--allow-manual-spec`) |
 | `lib/preflight_lint.rb` | MANDATORY pre-POST lint (T1/T2 grouping, C1–C3 control shapes) |
@@ -71,6 +75,7 @@ you to.
 | Script | Purpose |
 |---|---|
 | `scripts/migrate-tableau.rb` | **The one command** — chains the whole scripted spine (gap gate → DM-reuse scan → DM → workbook → layout → two-pass parity → cleanup + census gate) and stops with exact instructions where agent judgment is required. See "One command" above. |
+| `scripts/migrate-tableau.py` | **Supported no-Ruby command** — chains doctor, Tableau discovery, per-datasource source classification, published-datasource hydration, extract landing/remap, strict Sigma reuse, conversion, automatic workbook construction, readback, source accounting, REST parity collection, rendering, and Python completion gates. Ambiguity and unsupported source shapes are typed stops, never silent substitutions. See `../PYTHON_RUNTIME.md`. |
 | `scripts/verify-complete.rb` | **The single offline "are we done?" check** — exit 0 / ✅ DONE only when `phase6-success.json` is present (stamped by `assert-phase6-ran.rb` exit 0) and no `parity-pending.json` remains. A clean PASS 1 (exit 12) reports NOT DONE. PR-14: re-derives the degradation ledger, prints the verdict (GREEN/YELLOW/PARTIAL) with the ledger inline, and **exits 6 when the report's claims (verdict / waiver census) contradict the derivation** — the anti-"GREEN, 0 waivers" cross-check. Also prints the run's off-ramp trail. Run before claiming success. |
 | `scripts/lib/offramp.rb` + `offramps.jsonl` | **Observability trail** — every point a run leaves the golden path (cred/doctor waiver, PASS-1 stop, converter-stop, workbook-handoff, degraded fast path, manual-spec) appends a structured record to `<WORK>/offramps.jsonl`. Read it (or `verify-complete.rb`) to pinpoint *where* a run defected. |
 | `scripts/setup.rb` | One-time Sigma credential setup |
@@ -104,6 +109,7 @@ you to.
 | `scripts/find-prior-cache.rb` | **Phase 1d-cache (Phase -1):** detect cached Tableau-discovery + Sigma-conversion artifacts from prior `audit-run-*` or `converter-test` runs so re-conversions skip discovery (~3 min saved). |
 | `scripts/remap-wb-spec-to-dm-ids.rb` | When a DM is re-POSTed and element IDs churn, remaps a cached `wb-spec.json` to the new IDs via name-based matching. Optional `--rename` for renamed elements. |
 | `scripts/extract-calc-fields.rb` | Phase 1e: pull every Tableau calc field (with formula) via Metadata API (`POST /api/metadata/graphql`); falls back to `.twb` XML when Metadata API is unavailable. Drops VDS dependency. Caches to `<wb-dir>/calc-fields.json`. |
+| `scripts/formula-audit.mjs` | Deterministic formula-accounting helper: accepts a JSON array or `{formulas:[...]}` from stdin or `--input`, runs each source formula through the vendored Tableau translator and generated function catalog, and writes JSON to stdout with a terminal converter status (`spec`, `verify`, `chart_only`, `rls`, `not_converted`, or `unmapped`), translated formula, warnings, function census, aggregate counts, and coverage percentage. The gap-scan/orchestrator persists this output as `<workdir>/formula-audit.json`; unresolved statuses must be explicitly accounted for before finalization. |
 | `scripts/validate-spec.rb` | DM or workbook spec validator. Accepts `--type` and `--dm-context` |
 | `scripts/post-and-readback.rb` | POST a DM or workbook spec, parse YAML response, GET back the spec, emit element ID map. Also runs a universal **column-type guard** afterward: any column whose formula resolved to type `error` aborts the script with exit 2 and the failing formula. Catches silent-error columns the validator doesn't pattern-match (typo refs, `IsIn`, unsupported functions) without waiting for Phase 6. Then the shared **layout lint** (exit 3) and **control lint** (`scripts/lib/control_lint.rb`, exit 4 — dead controls / ghost targets / partial same-page reach; honors the `<workdir>/control-scope.json` sidecar, `--skip-control-lint` escape). **Same-workbook PUT discipline:** when the workdir already recorded a workbook id (`posted-workbooks.jsonl` / `migrate-state.json`), the spec is PUT to it in place — `--force-new-workbook "<reason>"` is the only way to POST a new one (waiver-counted). **Standalone runs on an orchestrator workdir are refused (exit 7)** unless an orchestrator STOP is on record (`manual-path-authorized.json`) or `--allow-manual-spec "<reason>"` is passed. |
 | `scripts/lib/preflight_lint.rb` | **MANDATORY before any workbook POST** — static lint of the spec that catches the two enterprise-class failure modes with a precise message instead of the opaque `Invalid kind: control` / a silently-detail-rendered table: (T1) a `table` with aggregate columns + dimensions but **no `groupings`** → renders raw 9.6M detail rows; (T2) a grouping calculation that passes through an already-aggregated column → "multiple values"; (C1/C2/C3) a `control` missing `id`/`controlId`/`controlType` nesting value fields under a `value` object (must be FLAT top-level), carrying a non-double-nested `source`, or a list-type control wired to neither `source` nor `filters` (a filters-only list control is valid). `ruby scripts/lib/preflight_lint.rb <spec.json>` (exit 1 on violations). Fix all violations before POST. Verified shapes: `sigma-workbooks` `controls.md`/`tables.md`. |

@@ -3,6 +3,12 @@
 # The subagent MUST run this script before declaring GREEN. It checks seven
 # independent things — failing ANY of them blocks the GREEN declaration:
 #
+#   0. Pre-POST render integrity — when the workdir carries a local workbook
+#      authored code-rep candidate (wb-spec.json or workbook-spec.json), every
+#      chart/KPI/table/pivot/crosstab must have a
+#      usable data binding. Evidence is always written to
+#      blank-risk-elements.json. No local candidate → stated SKIP so legacy
+#      live-only runs remain valid.
 #   1. Phase 6 ran (parity-final.json exists, status=PASS, pass-rate met)
 #      → [bead]. Raw-mode: when the source tool is unreachable,
 #      verify-warehouse.rb writes parity-final.json with
@@ -431,6 +437,10 @@
 #      the ledger waiver IS the sanctioned escape (join-plan/LOD doctrine).
 #      No census file at all → stated SKIP (back-compat: builder predates the
 #      census or ran without --meta; non-adopting converters).
+#  32  Pre-POST render-integrity lint failed — a local workbook code-rep
+#      candidate is unreadable/invalid, or one or more chart/KPI/table/pivot/
+#      crosstab elements has no usable data binding. Inspect
+#      <workdir>/blank-risk-elements.json, fix the local spec, then POST.
 #
 # ANCHORS-ORACLE substitution (charts_total==0, exit 2): when every worksheet is
 # dashboard-embedded (no exportable view CSVs), the anchors oracle may stand in
@@ -472,6 +482,7 @@ require 'uri'
 require 'optparse'
 require 'rbconfig'
 require 'digest'
+require_relative 'lint-render-integrity'
 
 # Degradation ledger (PLAN-v3 PR-14) — vendored at scripts/lib/ in adopting
 # plugins; the canonical checkout resolves it from shared/lib. A checkout
@@ -595,7 +606,7 @@ EXIT_GATE_MAP = {
   9 => '7', 10 => '8', 11 => '9', 13 => '8b', 14 => '8c', 15 => '8d',
   16 => '11', 17 => '12', 18 => '13', 19 => 'waiver-budget', 20 => '14', 21 => '7b',
   22 => '15', 23 => '16', 24 => '17', 25 => '18', 26 => '19', 27 => '20', 28 => '21',
-  29 => '8e', 30 => '4b', 31 => '7c'
+  29 => '8e', 30 => '4b', 31 => '7c', 32 => 'render-integrity'
 }.freeze
 # Primary raw-evidence artifact per gate (workdir-relative) — the punch-list
 # pointer; gates without a stable artifact just omit the field.
@@ -610,6 +621,7 @@ GATE_EVIDENCE_PATHS = {
   '14' => 'visual-similarity.json', '15' => 'manual-residues.json',
   '16' => 'join-plan.json', '17' => 'lod-audit.json', '18' => 'ground-truth-plan.json',
   '19' => 'agg-semantics.json', '20' => 'semantic-edits.json', '21' => 'png-read.json',
+  'render-integrity' => 'blank-risk-elements.json',
   'waiver-budget' => 'waivers.json'
 }.freeze
 # The version-keyed base identity for this run's evidence: workbook id (flag /
@@ -1079,6 +1091,53 @@ end
 # (see the at_exit recorder's A10 guard above).
 gate_context_started = true
 
+# ---------------------------------------------------------------------------
+# Gate 0 — local pre-POST render integrity (exit 32)
+# Prefer the authored spec, then its conventional alternate name. A readback is
+# deliberately not a candidate: this is a pre-POST gate, while readback-only
+# fixtures and legacy runs use the later live-column/render gates. This gate is
+# intentionally conditional on a LOCAL authored candidate; older live-only
+# converter runs never retained one, and their
+# existing live gates remain authoritative. When a candidate exists there is
+# no waiver — a data element with no binding is a deterministic blank-render
+# risk and must be fixed before another POST.
+# ---------------------------------------------------------------------------
+render_spec_path = %w[wb-spec.json workbook-spec.json]
+                   .map { |name| File.join(opts[:tab], name) }
+                   .find { |path| File.exist?(path) }
+render_evidence_path = File.join(opts[:tab], 'blank-risk-elements.json')
+if render_spec_path
+  begin
+    render_report = RenderIntegrity.lint_file(render_spec_path, out_path: render_evidence_path)
+  rescue RenderIntegrity::InputError => e
+    begin
+      RenderIntegrity.write_error_report(render_spec_path, render_evidence_path, e.message)
+    rescue RenderIntegrity::InputError => write_error
+      warn "[FAIL] render-integrity gate could not record evidence: #{write_error.message}"
+    end
+    warn "[FAIL] render-integrity gate: #{e.message}"
+    warn "       Fix #{render_spec_path}; evidence: #{render_evidence_path}"
+    exit 32
+  end
+
+  if render_report['status'] == 'FAIL'
+    warn "[FAIL] render-integrity gate: #{render_report['blank_risk_count']} of " \
+         "#{render_report['elements_checked']} data element(s) have no usable data bindings:"
+    render_report['elements'].each do |element|
+      warn "         - #{element['id']} (#{element['name'].inspect}, #{element['kind']}): " \
+           "#{element['reasons'].join('; ')}"
+    end
+    warn "       Fix #{render_spec_path} before POST; evidence: #{render_evidence_path}"
+    exit 32
+  end
+
+  puts "[OK] render-integrity gate: #{render_report['elements_checked']} data element(s) checked in " \
+       "#{File.basename(render_spec_path)}; 0 blank risks (evidence: blank-risk-elements.json)"
+else
+  puts '[SKIP] render-integrity gate: no local wb-spec.json or workbook-spec.json candidate; ' \
+       'legacy live-only run preserved'
+end
+
 if opts[:skip_parity]
   # CONDITIONAL waiver: --skip-parity-gate is rejected unless the anchors
   # oracle stands in. Parity can be genuinely unavailable (no source workspace
@@ -1325,7 +1384,22 @@ end
 unless opts[:skip_orphan]
   log = File.join(opts[:tab], 'posted-workbooks.jsonl')
   if File.exist?(log)
-    posted = File.readlines(log).map { |l| JSON.parse(l) rescue nil }.compact
+    posted = []
+    invalid_lines = []
+    File.readlines(log).each_with_index do |line, index|
+      next if line.strip.empty?
+      entry = (JSON.parse(line) rescue nil)
+      if entry.is_a?(Hash) && entry['id'].is_a?(String) && !entry['id'].empty?
+        posted << entry
+      else
+        invalid_lines << index + 1
+      end
+    end
+    if invalid_lines.any?
+      warn "[FAIL] gate 2/7: posted-workbooks.jsonl has malformed/unsafe entries at line(s) #{invalid_lines.join(', ')}."
+      warn '       Refusing to infer cleanup state from a partial ledger.'
+      exit 4
+    end
     unique_ids = posted.map { |e| e['id'] }.uniq
     if unique_ids.length > 1
       marker_path = File.join(opts[:tab], 'cleanup-marker.json')
@@ -1333,25 +1407,66 @@ unless opts[:skip_orphan]
         warn "[FAIL] gate 2/7: #{unique_ids.length} workbooks created during this conversion (orphans not cleaned)."
         warn "       posted-workbooks.jsonl entries:"
         unique_ids.each { |id| warn "         - #{id}" }
-        warn "       Run: ruby scripts/cleanup-orphan-workbooks.rb --workdir #{opts[:tab]}"
+        live_id = opts[:wb]
+        if live_id.nil?
+          wb_ids_path = File.join(opts[:tab], 'wb-ids.json')
+          live_id = (JSON.parse(File.read(wb_ids_path))['workbookId'] rescue nil) if File.exist?(wb_ids_path)
+        end
+        warn "       Review: ruby scripts/cleanup-orphan-workbooks.rb --workdir #{opts[:tab]} --keep #{live_id || '<live-workbook-id>'} --dry-run"
+        warn '       Then run without --dry-run in an interactive terminal and confirm each deletion.'
         warn "       See [bead]."
         exit 4
       end
       marker = JSON.parse(File.read(marker_path)) rescue {}
+      unless marker.is_a?(Hash) && marker['kept'].is_a?(String)
+        warn '[FAIL] gate 2/7: cleanup-marker.json is malformed or has no explicit kept workbook ID.'
+        exit 4
+      end
       if marker['failed'] && !marker['failed'].empty?
         warn "[FAIL] gate 2/7: cleanup-marker.json reports #{marker['failed'].length} failed delete(s)."
         warn "       Orphan workbooks are still in the customer's My Documents:"
         marker['failed'].each { |f| warn "         - #{f['id']} (HTTP #{f['status']})" }
         exit 4
       end
-      if marker['dry_run']
-        warn "[FAIL] gate 2/7: cleanup-marker.json is from a --dry-run; orphans were not actually deleted."
-        warn "       Re-run cleanup-orphan-workbooks.rb without --dry-run."
+      if marker['skipped'] && !marker['skipped'].empty?
+        warn "[FAIL] gate 2/7: the user kept #{marker['skipped'].length} cleanup candidate(s)."
+        marker['skipped'].each { |entry| warn "         - #{entry['id']}" }
+        warn '       This is safe, but orphan cleanup is incomplete.'
         exit 4
       end
-      kept = marker['kept'] || '(unknown)'
-      deleted = (marker['deleted'] || []).length
-      puts "[OK] gate 2/7: orphan cleanup ran — kept #{kept}, deleted #{deleted}"
+      if marker['dry_run']
+        warn "[FAIL] gate 2/7: cleanup-marker.json is from a --dry-run; orphans were not actually deleted."
+        warn '       Re-run cleanup-orphan-workbooks.rb without --dry-run in an interactive terminal.'
+        exit 4
+      end
+      kept = marker['kept']
+      unless unique_ids.include?(kept)
+        warn "[FAIL] gate 2/7: cleanup-marker.json kept #{kept}, which is not in the current ledger."
+        warn '       The marker is stale or belongs to another workdir/run.'
+        exit 4
+      end
+      live_id = opts[:wb]
+      if live_id.nil?
+        wb_ids_path = File.join(opts[:tab], 'wb-ids.json')
+        live_id = (JSON.parse(File.read(wb_ids_path))['workbookId'] rescue nil) if File.exist?(wb_ids_path)
+      end
+      if live_id && kept != live_id
+        warn "[FAIL] gate 2/7: cleanup kept #{kept}, but the authoritative live workbook is #{live_id}."
+        warn '       Refusing a marker that could describe deletion of the wrong workbook set.'
+        exit 4
+      end
+      deleted_ids = Array(marker['deleted']).map { |entry| entry.is_a?(Hash) ? entry['id'] : entry }.compact.uniq
+      expected_deleted = unique_ids - [kept]
+      missing = expected_deleted - deleted_ids
+      unexpected = deleted_ids - expected_deleted
+      if missing.any? || unexpected.any?
+        warn '[FAIL] gate 2/7: cleanup-marker.json does not exactly cover the current ledger.'
+        warn "       Missing confirmed deletions: #{missing.join(', ')}" if missing.any?
+        warn "       Unexpected deletion records: #{unexpected.join(', ')}" if unexpected.any?
+        warn '       Re-run the interactive cleanup review; stale markers cannot satisfy this gate.'
+        exit 4
+      end
+      puts "[OK] gate 2/7: user-confirmed orphan cleanup — kept #{kept}, deleted #{deleted_ids.length}"
     else
       puts "[OK] gate 2/7: only one workbook POSTed (#{unique_ids.first}) — no orphan check needed"
     end
@@ -3122,7 +3237,14 @@ end
 # ---------------------------------------------------------------------------
 jp_path = File.join(opts[:tab], 'join-plan.json')
 jp_dm = File.join(opts[:tab], 'dm-spec.json')
-jp_dm_src = File.exist?(jp_dm) ? (File.read(jp_dm) rescue '') : ''
+# encoding: 'UTF-8' is NOT optional (F5 crash class, issue #752). This is the
+# only RAW File.read in this file — every other read feeds JSON.parse, which
+# tolerates locale-tagged bytes. A raw read inherits the locale's default
+# external encoding, so under an unset/C locale a dm-spec.json carrying one
+# em-dash makes the .scan below raise
+# `invalid byte sequence in US-ASCII (ArgumentError)` and the gate exits 1
+# instead of its real verdict. Reproduced on ruby 3.3.12, not just 2.6.
+jp_dm_src = File.exist?(jp_dm) ? (File.read(jp_dm, encoding: 'UTF-8') rescue '') : ''
 jp_dm_join_n = jp_dm_src.scan(/"kind"\s*:\s*"join"/).length
 jp_dm_has_emitted_join = jp_dm_join_n.positive?
 jp_resolved = lambda do |e|

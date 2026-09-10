@@ -139,6 +139,9 @@ OptionParser.new do |o|
   o.on('--dry-run')           {     opts[:dry_run]  = true }
   o.on('--skip-layout-lint')  {     opts[:skip_layout_lint] = true }
   o.on('--skip-control-flip [REASON]') { |v| opts[:skip_control_flip] = v || true } # waive gate 7b (runtime control-flip proof); name the reason in your report
+  o.on('--skip-visual-comparison REASON') { |v| opts[:skip_visual_comparison] = v }
+  o.on('--skip-visual-similarity REASON') { |v| opts[:skip_visual_similarity] = v }
+  o.on('--skip-anchors-gate REASON') { |v| opts[:skip_anchors_gate] = v }
   # Resolve + print which converter would run (vendored vs explicit dev build), then
   # exit 0 — no creds/args needed. Used by the converter-default regression test.
   o.on('--print-converter')   {     opts[:print_converter] = true }
@@ -239,6 +242,9 @@ end
 
 def run!(cmd, env: {})
   out, st = Open3.capture2e(env, *cmd)
+  # Windows consoles hand back cp1252 bytes (e.g. em-dash -> 0x97) that are invalid
+  # UTF-8; scrub so the strip/each_line below never raise Encoding::CompatibilityError.
+  out = out.force_encoding('UTF-8').scrub
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   abort "FATAL: command failed (#{st.exitstatus}): #{cmd.join(' ')}" unless st.success?
   out
@@ -407,8 +413,11 @@ end
 # ---------------------------------------------------------------------------
 hdr(2, TOTAL, 'Convert')
 conv_out_path = File.join(WORK, 'converter-out.json')
-if CONV_MODULE.nil? && File.exist?(conv_out_path)
-  puts "   converter build/bundle not found — reusing existing #{conv_out_path}"
+conv_raw_path = File.join(WORK, 'converter-out.raw.json')
+if CONV_MODULE.nil? && (File.exist?(conv_raw_path) || File.exist?(conv_out_path))
+  resume_path = File.exist?(conv_raw_path) ? conv_raw_path : conv_out_path
+  puts "   converter build/bundle not found — reusing existing #{resume_path}"
+  FileUtils.cp(resume_path, conv_raw_path) unless resume_path == conv_raw_path
 elsif CONV_MODULE.nil?
   abort 'FATAL: no Qlik converter available (vendored converter/qlik.mjs missing and no QLIK_MCP_DIR) and no converter-out.json present'
 else
@@ -434,11 +443,23 @@ else
       database: #{opts[:database].to_json},
       schema: #{opts[:schema].to_json},
     });
-    writeFileSync(#{conv_out_path.to_json}, JSON.stringify(out, null, 2));
+    writeFileSync(#{conv_raw_path.to_json}, JSON.stringify(out, null, 2));
   JS
   c_out, c_err, c_st = Open3.capture3('node', shim)
   abort "FATAL: converter failed:\n#{c_err}#{c_out}" unless c_st.success?
 end
+# Formula normalization is a required post-converter contract. It writes the
+# formula-mapping.json consumed by full source accounting; silently proceeding
+# without it would make variables/master items impossible to reconcile.
+normalizer = File.join(HERE, 'normalize-qlik-expressions.py')
+abort "FATAL: required post-converter normalizer missing: #{normalizer}" unless File.file?(normalizer)
+run!([*PyResolve.argv, normalizer,
+      '--input', File.join(WORK, 'converter-input.json'),
+      '--converter-out', conv_raw_path,
+      '--out', conv_out_path,
+      '--formula-mapping', File.join(WORK, 'formula-mapping.json')])
+abort 'FATAL: normalize-qlik-expressions.py did not write formula-mapping.json' \
+  unless File.file?(File.join(WORK, 'formula-mapping.json'))
 conv = JSON.parse(File.read(conv_out_path))
 conv_warnings = conv['warnings'] || []
 cstats = conv['stats'] || {}
@@ -744,6 +765,9 @@ pre_wb_cmd += ['--folder', (opts[:folder] || candidate_dm_res['folderId'] || pre
   if opts[:folder] || candidate_dm_res['folderId'] || prep[:folder_id]
 run!(pre_wb_cmd)
 run!(['ruby', File.join(HERE, 'lib', 'preflight_lint.rb'), File.join(WORK, 'wb-preflight-spec.json')])
+run!(['ruby', File.join(HERE, 'lint-render-integrity.rb'),
+      '--spec', File.join(WORK, 'wb-preflight-spec.json'),
+      '--out', File.join(WORK, 'blank-risk-preflight.json')])
 coverage = JSON.parse(File.read(File.join(WORK, 'workbook-coverage.json')))
 puts "   ✓ pre-write source coverage: #{coverage['queryableElements']}/#{coverage['sourceVisuals']} " \
      'queryable visual(s); workbook lint clean — safe to write'
@@ -784,11 +808,27 @@ wb_cmd = [*PyResolve.argv, File.join(HERE, 'build-sigma-workbook.py'),
 # so measures stay inline there (unchanged) until a live metric-fetch exists.
 wb_cmd += ['--dm-spec', File.join(WORK, 'dm-spec.json')] unless reuse_denorm_eid
 wb_cmd += ['--folder', (opts[:folder] || dm_res['folderId'] || prep[:folder_id])] if opts[:folder] || dm_res['folderId'] || prep[:folder_id]
-wb_cmd << '--dry-run' if opts[:dry_run]
-run!(wb_cmd)
+if opts[:dry_run]
+  run!(wb_cmd + ['--dry-run'])
+else
+  # Compile the exact final wb-spec with real DM ids, then run the blank-risk
+  # lint BEFORE the builder is allowed to POST it. The second invocation is
+  # deterministic and posts the already-proven shape.
+  run!(wb_cmd + ['--dry-run'])
+end
+run!(['ruby', File.join(HERE, 'lint-render-integrity.rb'),
+      '--spec', File.join(WORK, 'wb-spec.json'),
+      '--out', File.join(WORK, 'blank-risk-elements.json')])
+run!(wb_cmd) unless opts[:dry_run]
 wb_res = JSON.parse(File.read(File.join(WORK, 'wb-result.json')))
 WB_ID = wb_res['workbookId']
 emap  = JSON.parse(File.read(File.join(WORK, 'element-map.json')))
+unless opts[:dry_run]
+  File.open(File.join(WORK, 'posted-workbooks.jsonl'), 'a') do |file|
+    file.puts(JSON.generate('id' => WB_ID, 'name' => "#{base_name} → Sigma"))
+  end
+  File.write(File.join(WORK, 'wb-ids.json'), JSON.pretty_generate('workbookId' => WB_ID))
+end
 puts "   workbookId = #{WB_ID || '(dry-run)'}  (#{wb_res['pages']} page(s), #{wb_res['elements']} element(s), " \
      "#{wb_res['queryableElements']} queryable, #{wb_res['kpis']} KPI(s), #{wb_res['controls'] || 0} control(s))"
 puts "   control scope contract -> #{wb_res['controlScope']}" if (wb_res['controls'] || 0) > 0
@@ -814,6 +854,7 @@ mark('phase5-layout')
 # migration skills' visual-QA gate. Render is non-fatal (a transient export
 # failure must not sink a green migration); the REVIEW is the gate.
 # ---------------------------------------------------------------------------
+render_png = nil
 unless opts[:dry_run]
   vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
   # Page ids come from the LOCAL spec the builder wrote — deterministic. (The
@@ -829,7 +870,12 @@ unless opts[:dry_run]
     _o, st = Open3.capture2e({ 'SIGMA_API_TOKEN' => tok.to_s }, *PyResolve.argv,
                              File.join(HERE, 'sigma-export-png.py'),
                              '--workbook', WB_ID, '--page', pg['id'], '--out', out, '--w', '1800', '--h', '1000')
-    st.success? ? (pngs << out) : (puts "   [warn] visual-QA render failed for page #{pg['id']}")
+    if st.success?
+      pngs << out
+      render_png ||= out
+    else
+      puts "   [warn] visual-QA render failed for page #{pg['id']}"
+    end
   end
   puts "   ✓ rendered #{pngs.size}/#{content_pages.size} full-page PNG(s) for visual QA → #{vqa}"
   if pngs.any?
@@ -927,6 +973,7 @@ end
 # 6c — SOURCE-FRESHNESS BANNER (leads the parity handoff — before any side-by-side)
 kpi_lines = []
 kpi_results = []
+kpi_parity_rows = []
 snapshot_kpis = (snapshot['kpis'] || []).to_h { |k| [k['expr'], k['value']] }
 emap.select { |e| e['kind'] == 'kpi-chart' }.each do |e|
   expr = e['qlik']['measures'].first
@@ -948,6 +995,15 @@ emap.select { |e| e['kind'] == 'kpi-chart' }.each do |e|
              'DIVERGENT'
            end
   kpi_results << status
+  kpi_parity_rows << {
+    'chart' => e['name'].to_s,
+    'source_object_id' => e.dig('qlik', 'objectId'),
+    'kind' => e['kind'],
+    'qlik_value' => qval,
+    'sigma_value' => sval,
+    'status' => status,
+    'pass' => status == 'MATCH'
+  }
   kpi_lines << format('     %-28s Qlik %-18s warehouse %-18s %s',
                       e['name'].to_s[0, 27], qval.to_s[0, 17], sval.to_s[0, 17], status)
 end
@@ -975,6 +1031,7 @@ end
 puts
 puts '   ── BUCKET COUNTS (per chart, Sigma rows vs Qlik engine) ──'
 bucket_warns = 0
+bucket_parity_rows = []
 # Bucket counts were precomputed by the snapshot lane (same expr strings —
 # see qlik-discover.py bucket_expr); live eval is only the fallback.
 snapshot_buckets = (snapshot['buckets'] || []).to_h { |b| [b['expr'], b['value']] }
@@ -995,11 +1052,62 @@ emap.reject { |e| e['kind'] == 'kpi-chart' }.each do |e|
              bucket_warns += 1
              'MISMATCH (check: null-bucket suppression / dim values without facts / staleness)'
            end
+  bucket_parity_rows << {
+    'chart' => e['name'].to_s,
+    'source_object_id' => e.dig('qlik', 'objectId'),
+    'kind' => e['kind'],
+    'qlik_buckets' => qcount,
+    'sigma_buckets' => scount,
+    'status' => status,
+    'pass' => status == 'MATCH'
+  }
   puts format('     %-34s Qlik %-6s Sigma %-6s %s', e['name'].to_s[0, 33], qcount.inspect, scount.inspect, status)
 end
 
 divergent = kpi_results.count('DIVERGENT')
-parity_ok = err_cols.empty? && entries.size.positive? && divergent.zero?
+chart_parity_rows = kpi_parity_rows + bucket_parity_rows
+parity_fail_rows = chart_parity_rows.reject { |row| row['pass'] }
+# Strict completion means source and Sigma match now. Stale-explained and
+# NO-DATA remain useful diagnostics, but they are not passing parity.
+parity_ok = err_cols.empty? && entries.size.positive? && chart_parity_rows.any? &&
+            parity_fail_rows.empty?
+
+# Materialize the shared gate's parity contract from the measurements above.
+# Names are required: a RED result must identify every chart that failed rather
+# than collapse into a workbook-level boolean.
+source_visual_ids = Array(coverage['sourceVisualIds']).map(&:to_s)
+built_visual_ids = Array(coverage['builtSourceVisualIds']).map(&:to_s)
+chart_name_by_id = charts.each_with_object({}) do |chart, out|
+  out[chart['id'].to_s] = (chart['title'] || chart['id']).to_s if chart.is_a?(Hash)
+end
+unmatched_ids = source_visual_ids - built_visual_ids
+parity_final = {
+  'schema_version' => 1,
+  'source' => 'qlik',
+  'status' => parity_ok ? 'PASS' : 'FAIL',
+  'strict' => true,
+  'mode' => 'live-engine',
+  'verified_against' => 'qlik-engine',
+  'charts_total' => chart_parity_rows.length,
+  'charts_pass' => chart_parity_rows.count { |row| row['pass'] },
+  'charts_fail' => parity_fail_rows.length,
+  'charts_stale_explained' => chart_parity_rows.count { |row| row['status'] == 'STALE-EXPLAINED' },
+  'fail_names' => parity_fail_rows.map { |row| row['chart'] }.uniq.sort,
+  'pending_names' => [],
+  'divergent' => parity_fail_rows.any?,
+  'per_chart' => chart_parity_rows,
+  'column_errors' => err_cols.map do |column|
+    { 'element_id' => column['elementId'], 'label' => column['label'], 'formula' => column['formula'] }
+  end,
+  'tile_census' => {
+    'zones_total' => source_visual_ids.length,
+    'charts_built' => built_visual_ids.length,
+    'zones_unmatched' => unmatched_ids.length,
+    'unmatched_zone_names' => unmatched_ids.map { |id| chart_name_by_id[id] || id }.sort
+  },
+  'generated_at' => Time.now.utc.iso8601
+}
+File.write(File.join(WORK, 'parity-final.json'), JSON.pretty_generate(parity_final))
 
 # 6e — control-wiring lint, gate 7 (scripts/lib/control_lint.rb, shared —
 # vendored byte-identical across the migration plugins). Lints the LIVE spec
@@ -1115,27 +1223,81 @@ puts "CONTROLS    : #{control_ok ? 'GREEN' : 'RED'} — gate 7 control lint, #{c
 puts "CONTROL-FLIP: #{flip_ok ? 'GREEN' : 'RED'} — gate 7b runtime flip proof#{opts[:skip_control_flip] ? ' (waived)' : ''}"
 puts "freshness   : Qlik last reload #{app_meta['lastReloadTime'] || '?'} (#{stale_days} days ago)" if stale_days
 puts "warnings    : #{conv_warnings.size} converter, #{(wb_res['warnings'] || []).size} workbook-build" if conv_warnings.any? || (wb_res['warnings'] || []).any?
-# Empty-workbook guard + completion sentinel (parity with tableau/powerbi). A
-# workbook with 0 elements must never be "done" — require real elements, and
-# stamp a run-scoped success marker only on a genuine green so verify-complete.rb
-# (the done-check the SKILL points at) can't green an empty/hand-built result.
+# Empty-workbook guard. Completion is minted only by the shared hard gate below;
+# the orchestrator must never hand-write phase6-success.json.
 n_elements = wb_res['elements'].to_i
 n_queryable = wb_res['queryableElements'].to_i
-built_ok = parity_ok && layout_ok && control_ok && flip_ok && n_queryable.positive? &&
-           wb_res['unbuiltSourceVisuals'].to_a.empty?
+mechanical_ok = parity_ok && layout_ok && control_ok && flip_ok &&
+                n_queryable.positive? && wb_res['unbuiltSourceVisuals'].to_a.empty?
 puts 'ELEMENTS    : 0 queryable workbook elements built — Data-only workbook, NOT done.' if n_queryable.zero?
-begin
-  succ = File.join(WORK, 'phase6-success.json')
-  if built_ok
-    File.write(succ, JSON.pretty_generate('workbookId' => WB_ID, 'chartCount' => n_elements,
-                                          'gates' => 'parity+layout+control+flip',
-                                          'generatedAt' => Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')))
-  elsif File.exist?(succ)
-    File.delete(succ)
-  end
-rescue StandardError
-  nil
+
+run_terminal = lambda do |label, command|
+  puts
+  puts "── #{label} ──"
+  output, status = Open3.capture2e(*command)
+  output.each_line { |line| puts "   #{line.rstrip}" } unless output.strip.empty?
+  puts "   exit=#{status.exitstatus}"
+  status.success?
 end
+
+# Cleanup is a real gate input, not best-effort bookkeeping. It runs on both
+# GREEN and RED parity paths so a failed migration does not leave retry
+# workbooks behind.
+cleanup_ok = run_terminal.call(
+  'Orphan workbook cleanup',
+  ['ruby', File.join(HERE, 'cleanup-orphan-workbooks.rb'),
+   '--workdir', WORK, '--keep', WB_ID]
+)
+
+finalizer_cmd = [*PyResolve.argv, File.join(HERE, 'finalize-qlik-report.py'),
+                 '--workdir', WORK]
+if opts[:skip_visual_comparison]
+  # Qlik reporting exports objects, not whole sheets. This waiver covers the
+  # unavailable full-page source capture only; every object capture that does
+  # exist is still health-checked by the finalizer.
+  finalizer_cmd += ['--skip-source-pages', opts[:skip_visual_comparison]]
+end
+finalizer_cmd += ['--skip-visual-similarity', opts[:skip_visual_similarity]] \
+  if opts[:skip_visual_similarity]
+
+# The first pass materializes accounting/coverage/layout/PNG/similarity inputs
+# consumed by the shared assert. It intentionally runs even when parity is RED.
+pre_finalizer_ok = run_terminal.call('Qlik accounting and report finalization (pre-gate)',
+                                     finalizer_cmd)
+
+assert_cmd = ['ruby', File.join(HERE, 'assert-phase6-ran.rb'),
+              '--workdir', WORK, '--workbook-id', WB_ID,
+              '--control-scope', File.join(WORK, 'control-scope.json'),
+              '--require-control-flip']
+assert_cmd += ['--sigma-render', render_png] if render_png
+assert_cmd += ['--skip-control-flip',
+               opts[:skip_control_flip] == true ? 'explicit migrate-qlik --skip-control-flip' :
+                                                  opts[:skip_control_flip].to_s] \
+  if opts[:skip_control_flip]
+assert_cmd += ['--skip-layout-lint', 'explicit migrate-qlik --skip-layout-lint'] \
+  if opts[:skip_layout_lint]
+assert_cmd += ['--skip-visual-comparison', opts[:skip_visual_comparison]] \
+  if opts[:skip_visual_comparison]
+assert_cmd += ['--skip-visual-similarity', opts[:skip_visual_similarity]] \
+  if opts[:skip_visual_similarity]
+assert_cmd += ['--skip-anchors-gate', opts[:skip_anchors_gate]] \
+  if opts[:skip_anchors_gate]
+
+# This is the only command allowed to stamp phase6-success.json. Its exit code
+# participates directly in built_ok.
+assert_ok = run_terminal.call('Shared Phase 6 hard gate', assert_cmd)
+
+# assert-phase6-ran stamps the final waiver census, verdict, and degradation
+# ledger. Re-run the accounting/report finalizer after it on BOTH terminal paths
+# so migration-result.json and the report exactly reflect the terminal state.
+post_finalizer_ok = run_terminal.call('Qlik accounting and report finalization (terminal)',
+                                      finalizer_cmd)
+
+built_ok = mechanical_ok && cleanup_ok && pre_finalizer_ok && assert_ok &&
+           post_finalizer_ok
+puts "TERMINAL    : #{built_ok ? 'GREEN' : 'RED'} — accounting/report " \
+     "#{post_finalizer_ok ? 'current' : 'failed'}, shared assert " \
+     "#{assert_ok ? 'passed' : 'failed'}"
 puts '======================================='
 phase_summary
 exit(built_ok ? 0 : 3)

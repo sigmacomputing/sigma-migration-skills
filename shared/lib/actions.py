@@ -6,7 +6,7 @@ connect them -- the "Component C" piece of docs/superpowers/specs/
 
     import actions
     btn = actions.button(id="btn-log", text="Log note",
-                          effects=[actions.insert_rows_effect(table="annotations", values={...})])
+                          effects=[actions.insert_rows_effect(table_element_id="annotations", values={...})])
     tbl = actions.input_table_empty(id="annotations", connection_id=WRITE, columns=[...])
 
 Live-verified shape facts (design doc "Live-verified shape facts"; reference
@@ -35,7 +35,7 @@ command-center workbook on a test org:
     entries -- this module does not reshape `values`, callers build it),
     clear-control (an ELEMENT-scoped clear-control masked-failed the button
     live -- only page scope is verified, so this builder only emits
-    scope={type:"page",page:}), set-control-value (constant text value).
+    scope={type:"page",pageId:}), set-control-value (constant text value).
 
 All builders are gated through SURFACES (same discipline as richness.py/
 styling.py): a NO-GO flip on `button`/`input_table_empty`/`input_table_linked`
@@ -146,8 +146,8 @@ def input_table_linked(id, from_, connection_id, columns, name=None, surfaces=No
     return out
 
 
-def insert_rows_effect(table, values, surfaces=None):
-    """Returns an `insert-rows` effect dict: {effect, table, values}.
+def insert_rows_effect(table_element_id, values, surfaces=None):
+    """Returns an `insert-rows` effect dict: {effect, tableElementId, values}.
     `values` is a pass-through dict of colId -> {type:"control",control:} |
     {type:"constant",value:{type:"text",value:}} entries (or any other
     already-shaped value descriptor) -- never reshaped here; system columns
@@ -156,26 +156,26 @@ def insert_rows_effect(table, values, surfaces=None):
     actions: array).
     """
     s = SURFACES if surfaces is None else surfaces
-    if not table:
-        raise ValueError("table required")
+    if not table_element_id:
+        raise ValueError("table_element_id required")
     if not s["effects"]:
         return {}
-    return {"effect": "insert-rows", "table": table, "values": values}
+    return {"effect": "insert-rows", "tableElementId": table_element_id, "values": values}
 
 
-def clear_control_effect(page, surfaces=None):
+def clear_control_effect(page_id, surfaces=None):
     """Returns a `clear-control` effect dict: {effect,
-    scope:{type:"page",page:}, usePublishedValue:True}. Page scope ONLY --
+    scope:{type:"page",pageId:}, usePublishedValue:True}. Page scope ONLY --
     an element-scoped clear-control masked-failed the button live (design
     doc), so this builder never emits any other scope shape. NO-GO
     surface -> {}.
     """
     s = SURFACES if surfaces is None else surfaces
-    if not page:
-        raise ValueError("page required")
+    if not page_id:
+        raise ValueError("page_id required")
     if not s["effects"]:
         return {}
-    return {"effect": "clear-control", "scope": {"type": "page", "page": page}, "usePublishedValue": True}
+    return {"effect": "clear-control", "scope": {"type": "page", "pageId": page_id}, "usePublishedValue": True}
 
 
 def set_control_value_effect(control, text, surfaces=None):

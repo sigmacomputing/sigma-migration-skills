@@ -1,0 +1,911 @@
+{
+  "gaps": [
+    {
+      "category": "manual",
+      "evidence": [
+        "treemap maps to no Sigma element (no native Sigma element — rebuild by hand)"
+      ],
+      "object_id": "6a3341b917884480503a9e64",
+      "object_name": "Revenue by Brand (Treemap)",
+      "object_type": "widget",
+      "reason": "no native Sigma element — rebuild by hand",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/15"
+      }
+    },
+    {
+      "category": "manual",
+      "evidence": [
+        "sunburst maps to no Sigma element (no native Sigma element — rebuild by hand)"
+      ],
+      "object_id": "6a3341ba17884480503a9e66",
+      "object_name": "Category>Gender (Sunburst)",
+      "object_type": "widget",
+      "reason": "no native Sigma element — rebuild by hand",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/16"
+      }
+    },
+    {
+      "category": "flagged",
+      "evidence": [
+        "map/area maps to geography-region (near-equivalent Sigma element — review the substitution)"
+      ],
+      "object_id": "6a3341ba17884480503a9e68",
+      "object_name": "Revenue by Country (Map)",
+      "object_type": "widget",
+      "reason": "classifier suggests a near-equivalent but the converter emits no element",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/17"
+      }
+    }
+  ],
+  "objects": [
+    {
+      "evidence": [
+        "physical source table maps to a Sigma warehouse-table element"
+      ],
+      "id": "1c9c1ee0-cc9f-4585-af87-f217f8f98e21",
+      "name": "Category",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "e9c5bdad-b4d1-43c0-bee7-c8b18b747857",
+        "json_pointer": "/datasets/2/schema/tables/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "auto",
+      "type": "model-table"
+    },
+    {
+      "evidence": [
+        "physical source table maps to a Sigma warehouse-table element"
+      ],
+      "id": "66885815-f865-413f-949b-d91606539bf3",
+      "name": "Commerce",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "auto",
+      "type": "model-table"
+    },
+    {
+      "evidence": [
+        "physical source table maps to a Sigma warehouse-table element"
+      ],
+      "id": "a1f938ef-8654-4dcb-86e0-1baeba1a971d",
+      "name": "Country",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "bf915bf9-5242-42b7-a64d-ec9d0632afe7",
+        "json_pointer": "/datasets/0/schema/tables/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "auto",
+      "type": "model-table"
+    },
+    {
+      "evidence": [
+        "physical source table maps to a Sigma warehouse-table element"
+      ],
+      "id": "c447fc2e-51d1-47fd-bb2d-947975b1bbcf",
+      "name": "Brand",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "ebc6eebd-fc08-479e-a845-dfc774c5929e",
+        "json_pointer": "/datasets/3/schema/tables/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "auto",
+      "type": "model-table"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "0920b26d-91ce-4e22-8817-b646a7a9c6c4",
+      "name": "Country",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "bf915bf9-5242-42b7-a64d-ec9d0632afe7",
+        "json_pointer": "/datasets/0/schema/tables/0/columns/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "a1f938ef-8654-4dcb-86e0-1baeba1a971d"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 5 maps to Sigma number"
+      ],
+      "id": "098260b9-0608-4673-a6d7-756496815fbf",
+      "name": "Revenue",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/9",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "1ad27274-0b7f-43c2-96fe-48c95af8c771",
+      "name": "Quantity",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/8",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "1e238e3a-2408-4681-8fa6-f81286b28da5",
+      "name": "Country ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "bf915bf9-5242-42b7-a64d-ec9d0632afe7",
+        "json_pointer": "/datasets/0/schema/tables/0/columns/1",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "a1f938ef-8654-4dcb-86e0-1baeba1a971d"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "21861c02-df83-4302-b8ff-88dc3b28d1c1",
+      "name": "Brand",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "ebc6eebd-fc08-479e-a845-dfc774c5929e",
+        "json_pointer": "/datasets/3/schema/tables/0/columns/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "c447fc2e-51d1-47fd-bb2d-947975b1bbcf"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "2375029f-b6d0-4de1-a6b5-bcdb4758ee15",
+      "name": "Gender",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/7",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "53175968-694f-4c59-ad18-aaa7ce8e40db",
+      "name": "Category",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "e9c5bdad-b4d1-43c0-bee7-c8b18b747857",
+        "json_pointer": "/datasets/2/schema/tables/0/columns/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "1c9c1ee0-cc9f-4585-af87-f217f8f98e21"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 4 maps to Sigma datetime"
+      ],
+      "id": "59527454-1bb1-4189-920f-b9d5835bba0d",
+      "name": "Date",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/6",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "74a75b92-6747-4290-810f-bbf0bbd78759",
+      "name": "Condition",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/4",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "8190ab95-4723-40e1-a90b-d79443e0cf01",
+      "name": "Category ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/3",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "8fb5272d-dd61-4780-b62f-fbc4e7baa9dc",
+      "name": "Brand ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "ebc6eebd-fc08-479e-a845-dfc774c5929e",
+        "json_pointer": "/datasets/3/schema/tables/0/columns/1",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "c447fc2e-51d1-47fd-bb2d-947975b1bbcf"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 5 maps to Sigma number"
+      ],
+      "id": "97732adc-fd11-43d8-b007-db20d9e055a6",
+      "name": "Cost",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/1",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "a0753f57-fd77-4a19-85fe-29d1f1d8509a",
+      "name": "Category ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "e9c5bdad-b4d1-43c0-bee7-c8b18b747857",
+        "json_pointer": "/datasets/2/schema/tables/0/columns/1",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "1c9c1ee0-cc9f-4585-af87-f217f8f98e21"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 18 maps to Sigma text"
+      ],
+      "id": "e03c6792-c418-496d-911a-be01b41d0ee5",
+      "name": "Age Range",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "ec2c0ae8-5e3c-45e1-87f8-f319fe560580",
+      "name": "Brand ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/2",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "f6125e69-8839-4bf8-8cbb-d1ab31198489",
+      "name": "Country ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/5",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "Sisense type code 8 maps to Sigma number"
+      ],
+      "id": "f7f6da64-1a5f-45f1-995f-95be6668e978",
+      "name": "Visit ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "dataset_id": "b01a091e-fa02-4ba1-988c-584de06d3de9",
+        "json_pointer": "/datasets/1/schema/tables/0/columns/10",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+        "table_id": "66885815-f865-413f-949b-d91606539bf3"
+      },
+      "status": "auto",
+      "type": "model-column"
+    },
+    {
+      "evidence": [
+        "relationship maps after cardinality verifies fact/dimension direction"
+      ],
+      "id": "0e30a09c-6003-4941-8770-bd6b13e63838",
+      "name": "Country.Country ID <-> Commerce.Country ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "json_pointer": "/relations/1",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "hint",
+      "type": "model-relation"
+    },
+    {
+      "evidence": [
+        "relationship maps after cardinality verifies fact/dimension direction"
+      ],
+      "id": "52c3587b-efbd-4c5d-98c0-ca32f9cfd77c",
+      "name": "Category.Category ID <-> Commerce.Category ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "json_pointer": "/relations/0",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "hint",
+      "type": "model-relation"
+    },
+    {
+      "evidence": [
+        "relationship maps after cardinality verifies fact/dimension direction"
+      ],
+      "id": "5b080d72-5075-4723-b81f-087905f3b54a",
+      "name": "Brand.Brand ID <-> Commerce.Brand ID",
+      "source": {
+        "artifact": "model_ecommerce.json",
+        "json_pointer": "/relations/2",
+        "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81"
+      },
+      "status": "hint",
+      "type": "model-relation"
+    },
+    {
+      "evidence": [
+        "dashboard is a source container; widgets and filters are classified separately"
+      ],
+      "id": "6a33404e17884480503a9e36",
+      "name": "ECommerce Overview (Live)",
+      "source": {
+        "artifact": "dashboards.json",
+        "json_pointer": "/0"
+      },
+      "status": "not-applicable",
+      "type": "dashboard"
+    },
+    {
+      "evidence": [
+        "dashboard is a source container; widgets and filters are classified separately"
+      ],
+      "id": "6a3341b417884480503a9e44",
+      "name": "ECommerce — Full Coverage",
+      "source": {
+        "artifact": "dashboards.json",
+        "json_pointer": "/1"
+      },
+      "status": "not-applicable",
+      "type": "dashboard"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406e17884480503a9e38",
+      "name": "Total Revenue",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/0"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406e17884480503a9e3a",
+      "name": "Total Quantity",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/1"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/column maps to bar (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406e17884480503a9e3c",
+      "name": "Revenue by Category",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/2"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/bar maps to bar (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406f17884480503a9e3e",
+      "name": "Revenue by Country (Top 10)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/3"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/line maps to line (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406f17884480503a9e40",
+      "name": "Revenue Trend (Monthly)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/4"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/pie maps to pie (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a33406f17884480503a9e42",
+      "name": "Quantity by Category",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/5"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b417884480503a9e46",
+      "name": "KPI: Total Revenue",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/0"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b517884480503a9e48",
+      "name": "KPI: Gauge AOV",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/1"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b517884480503a9e4a",
+      "name": "KPI: Distinct Brands",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/2"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "indicator maps to kpi (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b517884480503a9e4c",
+      "name": "KPI: Revenue per Unit",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/3"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/column maps to bar (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b617884480503a9e4e",
+      "name": "Revenue by Category",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/4"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/bar maps to bar (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b617884480503a9e50",
+      "name": "Revenue by Country (Top 10)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/5"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/line maps to line (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b617884480503a9e52",
+      "name": "Revenue Trend (Monthly)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/6"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/area maps to area (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b717884480503a9e54",
+      "name": "Quantity Trend (Area)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/7"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/line maps to line (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b717884480503a9e56",
+      "name": "Revenue by Month x Gender",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/8"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/pie maps to pie (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b717884480503a9e58",
+      "name": "Quantity by Category (Pie)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/9"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/polar maps to radar (near-equivalent Sigma element — review the substitution)"
+      ],
+      "id": "6a3341b817884480503a9e5a",
+      "name": "Revenue by Category (Polar)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/10"
+      },
+      "status": "hint",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/funnel maps to bar (near-equivalent Sigma element — review the substitution)"
+      ],
+      "id": "6a3341b817884480503a9e5c",
+      "name": "Revenue by Condition (Funnel)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/11"
+      },
+      "status": "hint",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "chart/scatter maps to scatter (near-equivalent Sigma element — review the substitution)"
+      ],
+      "id": "6a3341b817884480503a9e5e",
+      "name": "Revenue vs Qty by Brand (Scatter)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/12"
+      },
+      "status": "hint",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "pivot2 maps to pivot (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b917884480503a9e60",
+      "name": "Pivot: Category x Gender",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/13"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "tablewidget maps to table (widget + JAQL map cleanly to a Sigma element)"
+      ],
+      "id": "6a3341b917884480503a9e62",
+      "name": "Detail Table",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/14"
+      },
+      "status": "auto",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "treemap maps to no Sigma element (no native Sigma element — rebuild by hand)"
+      ],
+      "id": "6a3341b917884480503a9e64",
+      "name": "Revenue by Brand (Treemap)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/15"
+      },
+      "status": "manual",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "sunburst maps to no Sigma element (no native Sigma element — rebuild by hand)"
+      ],
+      "id": "6a3341ba17884480503a9e66",
+      "name": "Category>Gender (Sunburst)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/16"
+      },
+      "status": "manual",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "map/area maps to geography-region (near-equivalent Sigma element — review the substitution)"
+      ],
+      "id": "6a3341ba17884480503a9e68",
+      "name": "Revenue by Country (Map)",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/17"
+      },
+      "status": "hint",
+      "type": "widget"
+    },
+    {
+      "evidence": [
+        "dashboard filter has a table/column JAQL binding"
+      ],
+      "id": "6a33404e17884480503a9e36/filter/Commerce.Gender/0",
+      "name": "Gender",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/filters/0"
+      },
+      "status": "auto",
+      "type": "filter"
+    },
+    {
+      "evidence": [
+        "dashboard filter has a table/column JAQL binding"
+      ],
+      "id": "6a33404e17884480503a9e36/filter/Country.Country/1",
+      "name": "Country",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/filters/1"
+      },
+      "status": "auto",
+      "type": "filter"
+    },
+    {
+      "evidence": [
+        "JAQL top-N maps to a Sigma top-n filter"
+      ],
+      "id": "6a33406f17884480503a9e3e/filter/Country.Country/0",
+      "name": "Country",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a33404e17884480503a9e36",
+        "json_pointer": "/0/widgets/3/metadata/panels/0/items/0/jaql/filter",
+        "widget_id": "6a33406f17884480503a9e3e"
+      },
+      "status": "auto",
+      "type": "filter"
+    },
+    {
+      "evidence": [
+        "JAQL top-N maps to a Sigma top-n filter"
+      ],
+      "id": "6a3341b617884480503a9e50/filter/Country.Country/0",
+      "name": "Country",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/5/metadata/panels/0/items/0/jaql/filter",
+        "widget_id": "6a3341b617884480503a9e50"
+      },
+      "status": "auto",
+      "type": "filter"
+    },
+    {
+      "evidence": [
+        "JAQL top-N maps to a Sigma top-n filter"
+      ],
+      "id": "6a3341b817884480503a9e5e/filter/Brand.Brand/0",
+      "name": "Brand",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/12/metadata/panels/2/items/0/jaql/filter",
+        "widget_id": "6a3341b817884480503a9e5e"
+      },
+      "status": "auto",
+      "type": "filter"
+    },
+    {
+      "evidence": [
+        "JAQL top-N maps to a Sigma top-n filter"
+      ],
+      "id": "6a3341b917884480503a9e64/filter/Brand.Brand/0",
+      "name": "Brand",
+      "source": {
+        "artifact": "dashboards.json",
+        "dashboard_id": "6a3341b417884480503a9e44",
+        "json_pointer": "/1/widgets/15/metadata/panels/0/items/0/jaql/filter",
+        "widget_id": "6a3341b917884480503a9e64"
+      },
+      "status": "auto",
+      "type": "filter"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "dashboards": {
+      "artifact": "dashboards.json",
+      "dashboard_count": 2
+    },
+    "model": {
+      "artifact": "model_ecommerce.json",
+      "model_id": "5f0cb527-50f2-482b-aece-33e2ece6fe81",
+      "model_name": "Sample ECommerce"
+    }
+  },
+  "summary": {
+    "by_status": {
+      "auto": 45,
+      "hint": 7,
+      "manual": 2,
+      "not-applicable": 2,
+      "unhandled": 0
+    },
+    "by_type": {
+      "dashboard": 2,
+      "filter": 6,
+      "model-column": 17,
+      "model-relation": 3,
+      "model-table": 4,
+      "widget": 24
+    },
+    "gap_categories": {
+      "flagged": 1,
+      "manual": 2,
+      "unhandled": 0
+    },
+    "gaps": 3,
+    "objects": 56
+  }
+}

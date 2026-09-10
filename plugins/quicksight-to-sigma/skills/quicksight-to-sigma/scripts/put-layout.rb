@@ -18,6 +18,9 @@ require 'json'
 require 'yaml'
 require 'date'
 require 'optparse'
+# Ruby 2.6 floor (macOS system ruby): this file uses Enumerable#tally (2.7+).
+# Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 # sigma_rest self-exchanges SIGMA_CLIENT_ID/SECRET (auto-loading
 # ~/.sigma-migration/env) exactly like the phase 1-4 scripts — SIGMA_API_TOKEN
 # is optional, not a hard requirement (bead eqom).
@@ -37,7 +40,11 @@ def http(method, path, body = nil)
   Sigma.request(method, path, body: body, binary: true)
 end
 
-xml = File.read(opts[:layout])
+# encoding: 'UTF-8' is NOT optional — this layout XML is regexp-matched below and
+# carries element titles straight from the source dashboard, so em-dashes and
+# curly quotes are the norm. A raw read inherits the locale's default external
+# encoding and raises `invalid byte sequence in US-ASCII`. F5 crash class, #752.
+xml = File.read(opts[:layout], encoding: 'UTF-8')
 abort "FATAL: empty elementId in layout XML" if xml.match?(/elementId=""/)
 
 raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec"))

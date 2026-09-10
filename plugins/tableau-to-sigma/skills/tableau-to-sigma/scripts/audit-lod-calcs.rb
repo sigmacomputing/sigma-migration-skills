@@ -50,6 +50,11 @@
 #                 (FATAL block printed; gate 17 will refuse GREEN, exit 24).
 
 require 'json'
+# F5 crash class (issue #752) — see audit-agg-semantics.rb. --reason prose from
+# ARGV is tagged ASCII-8BIT under an unset/C locale and then interpolated into a
+# UTF-8 literal / JSON-written. Reads here already pass encoding: 'UTF-8'; that
+# does nothing for ARGV, which is what this require fixes.
+require_relative 'lib/cli_encoding'
 require 'optparse'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'lod_audit'

@@ -4,6 +4,10 @@
 # A selected calculated filter must not bind to a same-named physical/DM
 # passthrough. That passthrough may be NULL or carry different semantics.
 
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 DIR = __dir__
 SOURCE = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
 %w[map_column translate_row_level_calc translate_dim_calc master_calc_filter_override].each do |name|

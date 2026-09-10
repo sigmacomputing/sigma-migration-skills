@@ -38,6 +38,22 @@ GATE = File.join(DIR, 'assert-wb-refs-resolve.rb')
 fails = []
 def check(c, m, fails) fails << m unless c; puts "  #{c ? 'PASS' : 'FAIL'}  #{m}" end
 
+def seed_source_accounting(wd)
+  object = {
+    'type' => 'dashboard', 'id' => 'dashboard:fixture', 'name' => 'Fixture',
+    'status' => 'migrated',
+    'evidence' => [{ 'artifact' => 'wb-readback.json', 'detail' => 'offramp fixture' }]
+  }
+  counts = %w[migrated approximated needs-review skipped not-applicable]
+           .to_h { |status| [status, status == 'migrated' ? 1 : 0] }
+  summary = { 'total' => 1, 'accounted' => 1, 'complete' => true, 'counts' => counts }
+  File.write(File.join(wd, 'source-object-census.json'),
+             JSON.generate('summary' => summary, 'objects' => [object]))
+  File.write(File.join(wd, 'migration-result.json'),
+             JSON.generate('verdict' => 'GREEN', 'summary' => summary,
+                           'source_objects' => [object.reject { |key, _| key == 'evidence' }]))
+end
+
 # Run the REAL ref gate (offline --dm-ids mode) against a spec whose refs to
 # `missing` columns cannot resolve — the exact multi-line
 # [FAIL]-summary-then-✗-detail emission the exit-4 breaker consumes. Detail
@@ -328,6 +344,7 @@ Dir.mktmpdir do |wd|
   check(out.include?(sig), '2-count refusal names the signature', fails)
   # a green reset re-arms the refusal too: same log + reset => DONE
   Offramp.loop_reset(wd)
+  seed_source_accounting(wd)
   IO.popen(['ruby', VC, '--workdir', wd], err: %i[child out], &:read)
   check($?.exitstatus.zero?, 'after a green reset the same loop-log no longer refuses (exit 0)', fails)
 end
@@ -337,6 +354,7 @@ Dir.mktmpdir do |wd|
   File.write(File.join(wd, 'phase6-success.json'),
              JSON.generate('workbookId' => 'wb-1', 'gates' => 'all-pass',
                            'generatedAt' => '2026-07-18T00:00:00Z'))
+  seed_source_accounting(wd)
   IO.popen(['ruby', VC, '--workdir', wd], err: %i[child out], &:read)
   check($?.exitstatus.zero?, 'no loop-log => verify-complete still exits 0', fails)
 end
@@ -652,6 +670,7 @@ Dir.mktmpdir do |wd|
   check($?.exitstatus == 5, "verify-complete refuses a stop-stamped trail without any 2-count (got #{$?.exitstatus})", fails)
   check(out.include?('no-progress'), 'the refusal names the stop rule', fails)
   Offramp.loop_reset(wd)
+  seed_source_accounting(wd)
   IO.popen(['ruby', VC, '--workdir', wd], err: %i[child out], &:read)
   check($?.exitstatus.zero?, 'a green reset re-arms the stop-stamp refusal (exit 0)', fails)
 end

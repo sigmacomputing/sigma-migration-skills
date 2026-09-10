@@ -1,0 +1,394 @@
+{
+  "workbook": {
+    "name": "SKILLTEST Course Performance Diagnostic (from Looker)",
+    "folderId": "id0001",
+    "document": {
+      "schemaVersion": 1,
+      "kind": "workbook",
+      "pages": [
+        {
+          "id": "id0002",
+          "name": "Data",
+          "visibility": "hidden"
+        },
+        {
+          "id": "id0003",
+          "name": "SKILLTEST Course Performance Diagnostic"
+        }
+      ],
+      "elements": [
+        {
+          "id": "id0004",
+          "name": "Data",
+          "kind": "table",
+          "source": {
+            "dataModelId": "id0005",
+            "elementId": "id0006",
+            "kind": "data-model"
+          },
+          "columns": [
+            {
+              "id": "id0007",
+              "formula": "[<DM_ELEMENT_NAME>/Selected Period]",
+              "name": "Selected Period"
+            },
+            {
+              "id": "id0008",
+              "formula": "[<DM_ELEMENT_NAME>/Selected Group]",
+              "name": "Selected Group"
+            },
+            {
+              "id": "id0009",
+              "formula": "[<DM_ELEMENT_NAME>/Selected Funnel Metric]",
+              "name": "Selected Funnel Metric"
+            },
+            {
+              "id": "id0010",
+              "formula": "[<DM_ELEMENT_NAME>/Period Date]",
+              "name": "Period Date"
+            },
+            {
+              "id": "id0011",
+              "formula": "[<DM_ELEMENT_NAME>/Content Domain]",
+              "name": "Content Domain"
+            },
+            {
+              "id": "id0012",
+              "formula": "[<DM_ELEMENT_NAME>/period_bridge/Period Enrollments]",
+              "name": "Period Enrollments (period_bridge)"
+            },
+            {
+              "id": "id0013",
+              "formula": "[<DM_ELEMENT_NAME>/period_bridge/Prior Period Enrollments]",
+              "name": "Prior Period Enrollments (period_bridge)"
+            },
+            {
+              "id": "id0014",
+              "formula": "[<DM_ELEMENT_NAME>/Enrollments]",
+              "name": "Enrollments"
+            },
+            {
+              "id": "id0015",
+              "formula": "[<DM_ELEMENT_NAME>/Country Group]",
+              "name": "Country Group"
+            },
+            {
+              "id": "id0016",
+              "formula": "[<DM_ELEMENT_NAME>/Overall Revenue Rank]",
+              "name": "Overall Revenue Rank"
+            },
+            {
+              "id": "id0017",
+              "formula": "[<DM_ELEMENT_NAME>/Module 1 Completions]",
+              "name": "Module 1 Completions"
+            },
+            {
+              "id": "id0018",
+              "formula": "[<DM_ELEMENT_NAME>/Active Days 30]",
+              "name": "Active Days 30"
+            },
+            {
+              "id": "id0019",
+              "formula": "[<DM_ELEMENT_NAME>/Course Completions]",
+              "name": "Course Completions"
+            },
+            {
+              "id": "id0020",
+              "formula": "[<DM_ELEMENT_NAME>/Freemium Conversions]",
+              "name": "Freemium Conversions"
+            }
+          ]
+        },
+        {
+          "id": "id0021",
+          "kind": "table",
+          "name": "Dimensions View",
+          "source": {
+            "elementId": "id0004",
+            "kind": "table"
+          },
+          "columns": [
+            {
+              "id": "id0022",
+              "formula": "If([looker-param-enrollment-metrics-time-grain] = \"week\", DateTrunc(\"week\", [Data/Period Date]), DateTrunc(\"month\", [Data/Period Date]))",
+              "name": "Selected Period"
+            },
+            {
+              "id": "id0023",
+              "formula": "If([looker-param-enrollment-metrics-group-by] = \"country_group\", [Data/Country Group], [Data/Content Domain])",
+              "name": "Selected Group"
+            },
+            {
+              "id": "id0024",
+              "formula": "If([looker-param-enrollment-metrics-funnel-metric] = \"m1_rate\", 1.0 * [Data/Module 1 Completions] / NullIf([Data/Enrollments], 0), If([looker-param-enrollment-metrics-funnel-metric] = \"f30d\", [Data/Active Days 30], If([looker-param-enrollment-metrics-funnel-metric] = \"completion_rate\", 1.0 * [Data/Course Completions] / NullIf([Data/Enrollments], 0), If([looker-param-enrollment-metrics-funnel-metric] = \"conversion_rate\", 1.0 * [Data/Freemium Conversions] / NullIf([Data/Enrollments], 0), [Data/Enrollments]))))",
+              "name": "Selected Metric"
+            }
+          ]
+        },
+        {
+          "id": "id0025",
+          "kind": "table",
+          "name": "Ratio Bridge",
+          "source": {
+            "elementId": "id0004",
+            "kind": "table"
+          },
+          "columns": [
+            {
+              "id": "id0026",
+              "formula": "[Data/Period Date]",
+              "name": "Period Date"
+            },
+            {
+              "id": "id0027",
+              "formula": "[Data/Content Domain]",
+              "name": "Content Domain"
+            },
+            {
+              "id": "id0028",
+              "formula": "[Data/Period Enrollments (period_bridge)]",
+              "name": "Period Enrollments"
+            },
+            {
+              "id": "id0029",
+              "formula": "[Data/Prior Period Enrollments (period_bridge)]",
+              "name": "Prior Period Enrollments"
+            }
+          ]
+        },
+        {
+          "id": "id0030",
+          "kind": "table",
+          "name": "Volatility",
+          "source": {
+            "elementId": "id0004",
+            "kind": "table"
+          },
+          "columns": [
+            {
+              "id": "id0031",
+              "formula": "[Data/Period Date]",
+              "name": "Period Date"
+            },
+            {
+              "id": "id0032",
+              "formula": "[Data/Content Domain]",
+              "name": "Content Domain"
+            },
+            {
+              "id": "id0033",
+              "formula": "Sum([Data/Enrollments])",
+              "name": "Enrollments Total"
+            },
+            {
+              "id": "id0034",
+              "formula": "moving_average(Sum([Data/Enrollments]), 2)",
+              "name": "Rolling Mean"
+            }
+          ],
+          "groupings": [
+            {
+              "id": "id0035",
+              "groupBy": [
+                "id0031",
+                "id0032"
+              ],
+              "calculations": [
+                "id0033",
+                "id0034"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "id0036",
+          "kind": "table",
+          "name": "Title Level",
+          "source": {
+            "elementId": "id0004",
+            "kind": "table"
+          },
+          "columns": [
+            {
+              "id": "id0037",
+              "formula": "[Data/Content Domain]",
+              "name": "Content Domain"
+            },
+            {
+              "id": "id0038",
+              "formula": "[Data/Country Group]",
+              "name": "Country Group"
+            },
+            {
+              "id": "id0039",
+              "formula": "[Data/Overall Revenue Rank]",
+              "name": "Overall Revenue Rank"
+            },
+            {
+              "id": "id0040",
+              "formula": "Sum([Data/Enrollments])",
+              "name": "Enrollments Total"
+            }
+          ],
+          "groupings": [
+            {
+              "id": "id0041",
+              "groupBy": [
+                "id0037",
+                "id0038",
+                "id0039"
+              ],
+              "calculations": [
+                "id0040"
+              ]
+            }
+          ],
+          "filters": [
+            {
+              "columnId": "id0039",
+              "kind": "list",
+              "mode": "exclude",
+              "values": [
+                null
+              ],
+              "id": "id0042"
+            }
+          ]
+        },
+        {
+          "kind": "control",
+          "id": "id0043",
+          "controlId": "content-domain",
+          "name": "Content Domain",
+          "controlType": "list",
+          "filters": [
+            {
+              "source": {
+                "kind": "table",
+                "elementId": "id0004"
+              },
+              "columnId": "id0011"
+            }
+          ],
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "id0004"
+            },
+            "columnId": "id0011"
+          }
+        },
+        {
+          "kind": "control",
+          "id": "id0044",
+          "controlId": "looker-param-enrollment-metrics-funnel-metric",
+          "name": "Funnel Metric",
+          "controlType": "segmented",
+          "source": {
+            "kind": "manual",
+            "valueType": "text",
+            "values": [
+              "enrollments",
+              "m1_rate",
+              "f30d",
+              "completion_rate",
+              "conversion_rate"
+            ],
+            "labels": [
+              "Enrollments",
+              "Module 1 Completion Rate",
+              "F30D",
+              "Course Completion Rate",
+              "Freemium Conversion Rate"
+            ]
+          },
+          "value": "enrollments"
+        },
+        {
+          "kind": "control",
+          "id": "id0045",
+          "controlId": "looker-param-enrollment-metrics-group-by",
+          "name": "Group By",
+          "controlType": "segmented",
+          "source": {
+            "kind": "manual",
+            "valueType": "text",
+            "values": [
+              "content_domain",
+              "country_group"
+            ],
+            "labels": [
+              "Content Domain",
+              "Country Group"
+            ]
+          },
+          "value": "content_domain"
+        },
+        {
+          "kind": "control",
+          "id": "id0046",
+          "controlId": "looker-param-enrollment-metrics-time-grain",
+          "name": "Time Grain",
+          "controlType": "segmented",
+          "source": {
+            "kind": "manual",
+            "valueType": "text",
+            "values": [
+              "month",
+              "week"
+            ],
+            "labels": [
+              "Month",
+              "Week"
+            ]
+          },
+          "value": "month"
+        },
+        {
+          "id": "id0047",
+          "kind": "container",
+          "style": {
+            "backgroundColor": "#0F172A",
+            "borderRadius": "round"
+          }
+        },
+        {
+          "id": "id0048",
+          "kind": "text",
+          "body": "# <span style=\"color: #FFFFFF\">SKILLTEST Course Performance Diagnostic</span>"
+        },
+        {
+          "id": "id0049",
+          "kind": "container"
+        },
+        {
+          "id": "id0050",
+          "kind": "container"
+        },
+        {
+          "id": "id0051",
+          "kind": "container"
+        },
+        {
+          "id": "id0052",
+          "kind": "container"
+        },
+        {
+          "id": "id0053",
+          "kind": "container"
+        }
+      ],
+      "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"m-master\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-dash\">\n<Container elementId=\"band-dash-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-dash-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-dash-ctl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 7\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"ctrl-bspg0c62\" gridColumn=\"1 / 7\" gridRow=\"1 / 4\"/>\n  <Element elementId=\"ctrl-qb8bq87w\" gridColumn=\"7 / 13\" gridRow=\"1 / 4\"/>\n  <Element elementId=\"ctrl-oavb76pv\" gridColumn=\"13 / 19\" gridRow=\"1 / 4\"/>\n  <Element elementId=\"ctrl-7zdbmpp8\" gridColumn=\"19 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-dash-row-1\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"7 / 19\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-p0mpjmim\" gridColumn=\"1 / 25\" gridRow=\"1 / 13\"/>\n</Container>\n<Container elementId=\"band-dash-row-2\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"19 / 31\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-lf7ziugx\" gridColumn=\"1 / 25\" gridRow=\"1 / 13\"/>\n</Container>\n<Container elementId=\"band-dash-row-3\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"31 / 43\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-usuyz4o2\" gridColumn=\"1 / 25\" gridRow=\"1 / 13\"/>\n</Container>\n<Container elementId=\"band-dash-row-4\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"43 / 55\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-en3n3wh9\" gridColumn=\"1 / 25\" gridRow=\"1 / 13\"/>\n</Container>\n</Page>",
+      "settings": {
+        "navigation": {
+          "pageTabsInViewMode": "hidden"
+        }
+      }
+    }
+  },
+  "warnings": []
+}

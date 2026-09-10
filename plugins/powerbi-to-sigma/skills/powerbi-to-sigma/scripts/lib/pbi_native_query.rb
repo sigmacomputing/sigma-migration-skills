@@ -8,6 +8,9 @@
 #   2. extracts Value.NativeQuery / connector Query= SQL from the original TMSL;
 #   3. restores those source elements to Sigma kind:"sql" after conversion.
 require 'json'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'ruby_compat'
 
 module PbiNativeQuery
   module_function

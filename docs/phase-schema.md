@@ -190,3 +190,37 @@ local mapping:
 | C8 Parity hard gate | Phase 5 — Parity (`verify-parity.rb`, hard-gated by `assert-phase6-ran.rb`); the separate visual-render sub-gate (gate 8) is honestly waived in v1 (`--skip-visual-gate` — no Mode UI render capability), but the parity comparison itself is never skipped |
 | C9 Security/RLS | "Security: RLS/CLS" section — Mode has no row/column-level security on query results; access control is Space/Report visibility only |
 | C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |
+
+### streamlit-to-sigma
+
+Streamlit uses local phase numbering aligned directly to the canonical arc:
+
+| Canonical | streamlit-to-sigma |
+|---|---|
+| C1 Assess | Phase 0 — static feature/security scan; estate mode uses `streamlit-assessment` |
+| C2 Discover | Phase 1 — parse `snowflake.yml`, Python pages/helpers, SQL loaders, dataframe lineage, controls/elements |
+| C3 Reuse-check | Phase 1.5 — `source-signature.json` + `find-or-pick-dm.rb`; posting requires explicit `--reuse-decision` |
+| C4 Convert | Phase 2 — Streamlit IR → DM candidate + wrapped workbook spec |
+| C5 Post-DM gate | Phase 3 — `new-dm` POST + mandatory GET readback; workbook binds only read-back ids |
+| C6 Build workbook | Phase 4 — controls/charts/tables/pages/overlays + hidden sources |
+| C7 Layout | Phase 5 — authoritative layout emitted with workbook and preserved on every write |
+| C8 Parity hard gate | Phase 6 — warehouse/Sigma values, control flips, page/overlay PNGs, `assert-phase6-ran.rb` |
+| C9 Security/RLS | Security section — static detection always, acknowledge/apply explicitly |
+| C10 Enhance | — foundation release defers shared Phase E wiring |
+
+### metabase-to-sigma
+
+Metabase keeps the standalone skill's established local numbering:
+
+| Canonical | metabase-to-sigma |
+|---|---|
+| C1 Assess | `metabase-assessment` skill (read-only inventory, coverage scoring, and shortlist) |
+| C2 Discover | Phase 0 — Metabase REST discovery (cards/models, dashboards, database metadata, and sandbox policies) |
+| C3 Reuse-check | Phase 1.5 — DM signature + `find-or-pick-dm.rb` before creating a new model |
+| C4 Convert | Phase 1 — MBQL/pMBQL cards and models → Sigma data-model spec |
+| C5 Post-DM gate | Phase 2 — POST the data model, read back real element/column ids, and fail on error-typed columns |
+| C6 Build workbook | Phase 3 — dashboard → wrapped workbook document wired to read-back DM ids |
+| C7 Layout | within Phase 3 — complete 24-column layout on create; `apply-layout.mjs` preserves the full document as the LAST write |
+| C8 Parity hard gate | Phase 4 — live Metabase values vs Sigma/warehouse, control flip test, visual check, and `assert-phase6-ran.rb` |
+| C9 Security/RLS | Security section — detect Metabase sandboxing always; port to Sigma user attributes only after explicit review |
+| C10 Enhance | — shared Phase E is not wired in this release |

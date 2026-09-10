@@ -1,0 +1,10 @@
+[
+  {"content_domain":"Arts","period_date":"2026-01-01","enrollments":80,"prior_enrollments":null,"rolling_enrollments":80.0,"module_1_rate":0.5},
+  {"content_domain":"Arts","period_date":"2026-02-01","enrollments":90,"prior_enrollments":80,"rolling_enrollments":85.0,"module_1_rate":0.5333333333},
+  {"content_domain":"Arts","period_date":"2026-03-01","enrollments":70,"prior_enrollments":90,"rolling_enrollments":80.0,"module_1_rate":0.5},
+  {"content_domain":"Arts","period_date":"2026-04-01","enrollments":110,"prior_enrollments":70,"rolling_enrollments":90.0,"module_1_rate":0.6},
+  {"content_domain":"Data","period_date":"2026-01-01","enrollments":100,"prior_enrollments":null,"rolling_enrollments":100.0,"module_1_rate":0.6},
+  {"content_domain":"Data","period_date":"2026-02-01","enrollments":120,"prior_enrollments":100,"rolling_enrollments":110.0,"module_1_rate":0.65},
+  {"content_domain":"Data","period_date":"2026-03-01","enrollments":150,"prior_enrollments":120,"rolling_enrollments":123.3333333333,"module_1_rate":0.7},
+  {"content_domain":"Data","period_date":"2026-04-01","enrollments":130,"prior_enrollments":150,"rolling_enrollments":133.3333333333,"module_1_rate":0.7}
+]

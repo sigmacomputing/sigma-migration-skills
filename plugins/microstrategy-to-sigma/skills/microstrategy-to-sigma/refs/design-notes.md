@@ -25,6 +25,19 @@ MSTR REST ──extract.py──> bundle.json ──convert.py──> sigma_dm_s
   derived from semantics (count/quantity → integer, pct/margin/ratio →
   percent, money-named facts → currency).
 
+## Path B — super-cube (Quick Cube) rehost is a SEPARATE flow
+
+The pipeline above is the **classic-schema** path (a live warehouse-backed
+dossier). A **super-cube / Quick Cube** (`subtype 779`, a file import) has no
+warehouse semantic model, so `extract.py`/`convert.py` do **not** apply — you
+rehost the cube's data into the warehouse and rebuild by hand. That flow (its
+own extractor `scripts/extract-cube.py`, the multi-table Cartesian trap and the
+grand-total membership/fan-out invariant, `sql`-source-over-`warehouse-table`
+for fresh tables, the connection grant + schema-sync, dossier-level derived-
+metric recovery+verification, and the MSTR-viz → Sigma fidelity recipes proven
+on a live rebuild) lives in **`refs/path-b-rehost.md`**. Keep the two paths
+distinct in any writeup — don't claim `convert.py` drove a super-cube.
+
 ## Validated scope (live trial, exact parity)
 
 - Classic-schema path: star schema (fact + dims, incl. heterogeneous key

@@ -4,6 +4,20 @@ Buttons wire a user click to one or more **effects** — insert rows into an
 input table, reset a control, set a control's value, or open/close a modal.
 They live in flat `document.elements[]`; layout places them.
 
+> **Action identifier fields — which ones carry an `Id` suffix.** The
+> 2026-08-26 rename gave identifier properties the referenced resource type
+> plus an `Id` suffix (verified by A/B creates plus `GET .../spec` readback
+> diffs against a live org). The renamed ones are documented per-effect below.
+>
+> **These were deliberately NOT renamed** — the bare name is still the only
+> accepted spelling and the `*Id` form is **rejected**, so don't "regularise"
+> them: `set-control-value.control`, `navigate` `target: {type: page, page:}`,
+> `refresh-element` `target: {type: element, element:}`, and the value source
+> `{type: control, control:}`.
+>
+> `clear-control`'s scope *does* use `controlId` while `set-control-value`
+> keeps a bare `control`. That asymmetry is real, not a documentation slip.
+
 ## Button shape
 
 ```yaml
@@ -16,7 +30,7 @@ actions:
     trigger: on-click
     effects:
       - effect: insert-rows
-        table: annotations
+        tableElementId: annotations
         values:
           an-note: { type: control, control: NoteCtl }
 ```
@@ -43,14 +57,14 @@ build:
 
 ```yaml
 effect: insert-rows
-table: annotations             # an input-table element's id
+tableElementId: annotations             # an input-table element's id
 values:
   an-note: { type: control, control: NoteCtl }
   an-tag:  { type: constant, value: { type: text, value: "manual" } }
 ```
 
 `values` is a map of the input table's **own column ids** to a value descriptor:
-- `{ type: control, control: <controlId> }` — the current value of a control.
+- `{ type: control, controlId: <controlId> }` — the current value of a control.
 - `{ type: constant, value: { type: text, value: <literal> } }` — a hard-coded
   literal.
 
@@ -62,18 +76,19 @@ pattern* below.
 
 ```yaml
 effect: clear-control
-scope: { type: page, page: pg }
+scope: { type: page, pageId: pg }
 usePublishedValue: true
 ```
 
 The OpenAPI's `scope` discriminator actually has **three** shapes —
-`{ type: control, control: <controlId> }` (clear one control), `{ type:
-container, container: <containerElementId> }` (clear every control in a
-container), and `{ type: page, page: <pageId> }` (clear every control on a
-page). **Only `page` scope is live-verified here** — an element/container-scoped
-`clear-control` masked-failed the button in live testing (the button silently
-didn't work; no clear error pointed at the cause). Until `control`/`container`
-scope is independently re-verified, build resets around `page` scope only.
+`{ type: control, controlId: <controlId> }` (clear one control), `{ type:
+container, containerElementId: <containerElementId> }` (clear every control in a
+container), and `{ type: page, pageId: <pageId> }` (clear every control on a
+page). **All three are now live-verified** (2026-08-26). The earlier
+"an element/container-scoped `clear-control` masked-failed the button" finding
+was an artefact of the PRE-RENAME key names: what masked-failed was the rejected
+key (`control` / `container`), not the scope type. All three create and read back
+cleanly with the `*Id` spellings above.
 
 ### `set-control-value` — set a control programmatically
 
@@ -179,7 +194,7 @@ Use this for in-workbook page jumps rather than an `open-url` to a page URL.
 
 ```yaml
 effect: select-tab
-tabbedContainer: tc            # the tabbed-container ELEMENT's id
+tabbedContainerElementId: tc            # the tabbed-container ELEMENT's id
 selectedTab: { type: tab, index: 1 }              # 0-BASED index into tabs[]
 # or:        { type: direction, direction: next } # next | previous
 ```
@@ -205,7 +220,7 @@ selector; `update-rows` also takes the same `values` map as `insert-rows`.
 ```yaml
 # Update every row matching a formula
 effect: update-rows
-table: itbl
+tableElementId: itbl
 whichRows: { type: formula, formula: '[note] = "x"' }
 values:
   amount: { type: constant, value: { type: number, value: 1 } }
@@ -214,7 +229,7 @@ values:
 ```yaml
 # Update exactly one row by primary key
 effect: update-rows
-table: itbl
+tableElementId: itbl
 whichRows:
   type: single-row
   primaryKeys:
@@ -226,7 +241,7 @@ values:
 ```yaml
 # Delete every row matching a formula
 effect: delete-rows
-table: itbl
+tableElementId: itbl
 whichRows: { type: formula, formula: '[note] = "x"' }
 ```
 
@@ -252,7 +267,7 @@ derived table/chart that reads from the input table; Sigma may report those as
 
 ```yaml
 effect: open-document
-document: <inodeId>            # the target workbook/report inode id
+documentId: <inodeId>            # the target workbook/report inode id
 documentType: workbook         # workbook | report  (REQUIRED — selects the route)
 openTarget: _blank             # _self | _blank | _parent  (REQUIRED)
 targetControls:                # optional: seed the target's controls
@@ -293,7 +308,7 @@ to capture what the user types, and a **button** that inserts a row.
       trigger: on-click
       effects:
         - effect: insert-rows
-          table: annotations
+          tableElementId: annotations
           values:
             an-note: { type: control, control: NoteCtl }
 
@@ -327,7 +342,7 @@ listed cause **first** before assuming the element kind itself is unsupported.
 |---|---|---|
 | `Invalid kind: "input-table"` | `inputMode` was omitted. | Always set `inputMode: edit` (or `explore`/`view` — see `input-tables.md`). It's technically documented as required in `tables.md`, but omitting it produces this generic message rather than a field-specific one. |
 | `Invalid kind: "control"` (on a `text`/`text-area` control used for **entry**, not filtering) | One or more of `mode`, `case`, `includeNulls`, `showOperators` was omitted. | Set all four — see `controls.md`'s "Entry (write) text controls" section. |
-| Button silently does nothing on click | An element/container-scoped `clear-control`. | Use `scope: { type: page, page: <id> }` only (see above). |
+| Button silently does nothing on click | A `clear-control` still using the pre-rename `scope: { type: page, page: <id> }`. This is the ONE old name that does **not** 400: Sigma returns 200 and DROPS the key, leaving a bare `scope: {type: page}` that clears nothing. | Use `pageId:`, and assert on the `GET .../spec` readback rather than the status code. |
 | `document.pages[0]: Invalid type: "page"` | An invalid entry in some element's `columns[]` — e.g. trying to author a row-action `kind: button` as an input-table column. The mismatch is reported against the **page** schema, not the offending column. | Check the `columns[]` you last touched, not the page `type`. Row-scoped action hosts aren't spec-authorable (see `delete-rows` / `current-row` above). |
 | `Duplicate layout element id '<id>'` | The layout **XML string**, not the elements — usually an unbounded `replace("</Page>", …)` that spliced the same element into every `<Page>`. | Bound the replacement (`count=1`) or append overlay pages after all element splicing. See the overlay layout gotcha above. |
 | `page-break 'X' must span exactly one grid row (got height N)` | A `page-break` given a multi-row `gridRow`. | Page breaks are fixed at height 1 — use a one-row span, e.g. `gridRow="24 / 25"`. |
@@ -339,8 +354,8 @@ listed cause **first** before assuming the element kind itself is unsupported.
 - `scripts/lib/actions.rb` — `Actions.button(id:, text:, effects:,
   appearance:)`, `Actions.input_table_empty(id:, connection_id:, columns:,
   name:)`, `Actions.input_table_linked(id:, from:, connection_id:, columns:,
-  name:)`, and the three effect builders `Actions.insert_rows_effect(table:,
-  values:)` / `Actions.clear_control_effect(page:)` /
+  name:)`, and the three effect builders `Actions.insert_rows_effect(table_element_id:,
+  values:)` / `Actions.clear_control_effect(page_id:)` /
   `Actions.set_control_value_effect(control:, text:)` build exactly the shapes
   above (`inputMode: "edit"` always emitted; `clear_control_effect` only ever
   emits page scope). Gated behind `Actions::SURFACES`; a NO-GO flip returns

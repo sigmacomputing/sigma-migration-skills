@@ -30,7 +30,7 @@ columns:
 
 > **`<SourceName>` is the element's `name`, not its `id`.** An element with `id: master` but `name: Orders` is referenced as `[Orders/Net Revenue]` — `[Master/Net Revenue]` resolves to nothing. The trap: **a wrong element-name prefix is NOT caught at POST** — the spec saves `200` and the error only appears in the rendered output as `Invalid Query: Unknown column`. So if you rename an element (or set `id` ≠ `name`), update every formula that references it, and **always render-check after POST** — a clean `200` is not proof the formulas resolve. (Live-verified 2026-06-26.)
 
-Before publishing, run `./scripts/validate-spec.sh <spec.yaml>` — it catches the missing-prefix mistake (but not a wrong-name prefix; only a render does).
+Before publishing, run `./scripts/validate-spec.sh <spec.yaml>` — it catches the missing-prefix mistake, including the common passthrough-shaped self-reference (`name: Region`, `formula: "[Region]"`). It cannot prove that a qualified prefix names the right source; compile verification and a render do that.
 
 ---
 
@@ -170,7 +170,7 @@ References a column already defined in this element by its `name` field.
 Sum([Revenue])           // valid — aggregation over a sibling column
 ```
 
-**A column cannot reference itself** — that is a circular reference error. This trips up copy-paste: if a column's `name` field matches any bracketed reference inside its own `formula`, the server treats it as circular even when you meant to reference a different column. Rename one side to break the cycle.
+**A column cannot reference itself** — that is a circular reference error. This trips up copy-paste and source passthroughs: `name: Region` plus `formula: "[Region]"` does not bind the source's Region column; it refers back to the column being defined. Use the qualified source form (`[Orders/Region]`), or rename one side when you truly intended another sibling.
 
 ### Common mistakes
 

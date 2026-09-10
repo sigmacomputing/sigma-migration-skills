@@ -18,7 +18,9 @@ end.parse!
 abort('--out required') unless opts[:out]
 
 template_path = opts[:template] || File.expand_path('../refs/readout-template.md', __dir__)
-tpl = File.read(template_path)
+# encoding: 'UTF-8' — the template is gsub'd below and ships prose (em-dashes,
+# arrows), so a raw read crashes under an unset/C locale. F5 crash class, #752.
+tpl = File.read(template_path, encoding: 'UTF-8')
 
 inv_path        = File.join(opts[:out], 'inventory.json')
 complexity_path = File.join(opts[:out], 'complexity.json')

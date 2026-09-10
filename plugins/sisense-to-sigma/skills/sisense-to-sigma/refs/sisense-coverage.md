@@ -6,7 +6,7 @@ Every documented source construct maps to a real, current Sigma target or a loud
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 50 documented constructs across 5 dimensions; 0 live-verified.
+**Coverage:** 72 documented constructs across 6 dimensions; 2 live-verified.
 
 ## Visualization / chart kind
 
@@ -64,7 +64,7 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/formatting-num
 
 ## Aggregation
 
-_Sisense JAQL `agg` value -> Sigma aggregate function. Extracted verbatim from jaql_expr.AGG; jaql_expr.translate_agg() derives this dict from these rows and raises Unsupported (which the converter turns into a FLAG) on any agg not listed here. The full JAQL aggregation-type enumeration is documented at the cited Sisense reference. Compositional surfaces stay as cited CODE, not this flat table: the JAQL formula function translator (jaql_expr.SAFE_FUNC / FLAG_FUNC — arithmetic + scalar/agg function-name rewriting, with PREV/PAST/RSUM/GROWTH/QUARTILE/CONTRIBUTION etc. flagged) and the date-level DateTrunc map (jaql_expr.LEVEL). See refs/jaql-mapping.md._
+_Sisense JAQL `agg` value -> Sigma aggregate function. Extracted verbatim from jaql_expr.AGG; jaql_expr.translate_agg() derives this dict from these rows and raises Unsupported (which the converter turns into a FLAG) on any agg not listed here. The full JAQL aggregation-type enumeration is documented at the cited Sisense reference. Formula callable names are cataloged separately in jaql-function.json and loaded into jaql_expr.SAFE_FUNC / FLAG_FUNC. The compositional parser and date-level DateTrunc map (jaql_expr.LEVEL) stay as cited code. See refs/jaql-mapping.md._
 
 Authoritative source: <https://developer.sisense.com/reference/jaql/>
 
@@ -110,6 +110,59 @@ Authoritative source: <https://docs.sisense.com/main/SisenseLinux/configuring-ho
 | | | | | _Alias of `numeric`._ |
 | `*` | [doc](https://docs.sisense.com/main/SisenseLinux/configuring-how-filters-affect-the-dashboard-and-widgets.htm) | `list` | 🟡 n | n/a |
 | | | | | _DOCUMENTED DEFAULT: an unrecognized filter datatype becomes a categorical list control (Sisense's own default filter kind for descriptive fields). Not a silent wrong-default — the fallback is the documented categorical control._ |
+
+## jaql-function
+
+_Sisense callable names found inside JAQL formula strings. `safe` rows are same-argument-order token rewrites; `flag` rows are recognized but require grouping, ordering, filter-scope, or multipass semantics that this compositional parser cannot safely infer; `unsupported` is the fail-closed unknown-function contract. jaql_expr.py derives its runtime safe and flag maps from these rows. Date levels and expression/context composition remain code because they are not flat function-name mappings._
+
+Authoritative source: <https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm>
+
+| construct | doc ref | Sigma target | sigma_verified | on-unmapped |
+|---|---|---|---|---|
+| `SUM` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Sum` | ✅ y · 2026-06-17 | n/a |
+| | | | | _Same argument order; function-name case is normalized by the runtime._ |
+| `COUNT` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Count` | ✅ y · 2026-06-17 | n/a |
+| | | | | _Same argument order; Count retains null-skipping column semantics._ |
+| `AVG` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Avg` | 🟡 n | n/a |
+| | | | | _Same argument order; distinct from a flat JAQL agg value handled by aggregation.json._ |
+| `MIN` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Min` | 🟡 n | n/a |
+| | | | | _Same argument order._ |
+| `MAX` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Max` | 🟡 n | n/a |
+| | | | | _Same argument order._ |
+| `COUNTDISTINCT` | [doc](https://developer.sisense.com/guides/sdk/modules/sdk-data/factories/namespace.measureFactory/functions/function.countDistinct.html) | `CountDistinct` | 🟡 n | n/a |
+| | | | | _Same argument order; the separate agg-value path is cataloged in aggregation.json._ |
+| `ABS` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Abs` | 🟡 n | n/a |
+| | | | | _Same argument order._ |
+| `ROUND` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | `Round` | 🟡 n | n/a |
+| | | | | _Same argument order; decimal and tie behavior still require a live edge-case oracle._ |
+| `RANK` | [doc](https://developer.sisense.com/guides/sdk/modules/sdk-data/factories/namespace.measureFactory/functions/function.rank.html) | `Rank` | 🟡 n | n/a |
+| | | | | _Token rewrite preserves arguments, but callers must verify grouped partition, direction, and tie semantics._ |
+| `PREV` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _A Sigma Lag-style implementation requires explicit ordering and partition context that a token rename cannot infer._ |
+| `PAST` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Prior-period behavior must be rebuilt against an explicit date-grouped element._ |
+| `GROWTH` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Requires a current/prior dependency chain and explicit zero-denominator semantics._ |
+| `GROWTHPAST` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Past-period growth is structural and cannot be represented by a same-argument-order rename._ |
+| `RSUM` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _CumulativeSum is only a candidate after the widget's ordering and partition semantics are established._ |
+| `DIFF` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Difference calculations require an explicit comparison row or period._ |
+| `DIFFPAST` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Past-period difference is structural and cannot be safely token-renamed._ |
+| `QUARTILE` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Sisense supports basic and multipass forms; a context-free scalar rename would conflate them._ |
+| `PERCENTILE` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Percentile convention, grouping, and database-dependent behavior require an explicit oracle._ |
+| `CONTRIBUTION` | [doc](https://docs.sisense.com/main/SisenseLinux/quick-functions.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Contribution depends on the grouping and filter scope used for the total._ |
+| `ALL` | [doc](https://docs.sisense.com/main/SisenseLinux/creating-formulas-based-on-criteria-and-conditions-filters.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _ALL changes dimensional filter scope; dropping or renaming it would change the denominator._ |
+| `LISTAGG` | [doc](https://docs.sisense.com/main/SisenseLinux/dashboard-functions-reference.htm) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Retained from the prior runtime denylist; aggregate string concatenation needs explicit ordering and grouping proof._ |
+| `<unknown-function>` | [doc](https://developer.sisense.com/guides/querying/jaqlSyntax/) | — (no Sigma equivalent) | 🟡 n | raise Unsupported->flag |
+| | | | | _Any callable absent from this catalog is rejected with this stable warning id; it is never passed through as if Sigma supported it._ |
 
 ## workbook-feature
 

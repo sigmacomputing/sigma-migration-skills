@@ -118,3 +118,15 @@
     col: 0
     width: 24
     height: 8
+
+  - name: Dynamic Metric Detail
+    title: Dynamic Metric Detail
+    model: skilltest_orders
+    explore: order_fact
+    type: table
+    fields: [order_fact.order_channel, order_fact.selected_metric, order_fact.dynamic_revenue_col]
+    limit: 50
+    row: 20
+    col: 0
+    width: 24
+    height: 8

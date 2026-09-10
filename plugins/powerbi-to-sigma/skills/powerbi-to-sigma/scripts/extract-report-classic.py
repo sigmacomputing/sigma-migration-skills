@@ -74,15 +74,26 @@ def _stacking(vtype):
 HBAR_TYPES = {"barChart", "clusteredBarChart", "stackedBarChart",
               "hundredPercentStackedBarChart"}
 
-# Geo/map visuals bind Series(=location dim) + Size(=measure). The bar branch of
-# the builder reads Category/Axis/X (dim) and Y/Values (measure), so remap —
-# but ONLY for map visuals (bead ry0n): on a scatterChart, Size is the real
-# bubble-size role and Series the legend; remapping them corrupts the scatter.
+# Legacy geo/map visuals bind Location + Size. The bar fallback reads Category
+# + Y, so retain that historical remap for those map types. Azure Maps has a
+# distinct schema: X=longitude and Y=latitude, while Size and Series keep their
+# literal meanings. Never apply either mapping to scatter charts.
 ROLE_REMAP = {
     "Size": "Y",
     "Location": "Category",
 }
 MAP_TYPES = {"map", "filledMap", "shapeMap", "azureMap"}
+AZURE_MAP_ROLE_REMAP = {
+    "X": "Longitude",
+    "Y": "Latitude",
+    "Location": "Category",
+}
+
+
+def _map_role(role, visual_type):
+    if visual_type == "azureMap":
+        return AZURE_MAP_ROLE_REMAP.get(role, role)
+    return ROLE_REMAP.get(role, role) if visual_type in MAP_TYPES else role
 
 
 # Aggregation.Function enum -> modern queryRef wrapper (Sum(Table.Col)).
@@ -142,7 +153,7 @@ def _projections(sv, vt=None):
                   f"(of {len(refs)} level(s))", file=sys.stderr)
             refs = arefs
         if refs:
-            key = ROLE_REMAP.get(role, role) if vt in MAP_TYPES else role
+            key = _map_role(role, vt)
             out[key] = refs
     return out
 
@@ -169,7 +180,7 @@ def _drill_signal(sv, vt=None):
         # and also identifies the saved drill level.
         if role not in ("Category", "Axis", "X") and not active_refs:
             continue
-        mapped_role = ROLE_REMAP.get(role, role) if vt in MAP_TYPES else role
+        mapped_role = _map_role(role, vt)
         return {
             "role": mapped_role,
             "levels": levels,

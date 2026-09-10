@@ -28,7 +28,12 @@ user-invocable: true
 
 ## Preflight the workbook spec before POST (mandatory)
 
-Before POSTing any workbook spec, run `ruby scripts/lib/preflight_lint.rb <spec.json>` — it exits 1 with a precise message on the two migration-killer bugs: a `table` with aggregate columns + dimensions but **no `groupings`** (renders raw detail rows), and a malformed `control` (missing `id`/`controlId`/`controlType` or nesting value fields under a `value` object instead of flat, a non-double-nested `source`, or a list control wired to neither `source` nor `filters` — a filters-only list control is valid). Fix every violation first — never POST past it, and **never conclude a feature is "unsupported" from an `Invalid kind` error** (it means the inner fields are wrong). Verified shapes: `sigma-workbooks` `controls.md` / `tables.md`.
+Before POSTing any workbook spec, run **both** validators:
+
+1. `ruby scripts/lib/preflight_lint.rb <spec.json>` catches grouping and control grammar failures.
+2. From the companion `sigma-workbooks` skill, run `./scripts/validate-spec.sh <absolute-spec-path>` to reject bare source-column self-references and list/segmented controls without a value-list `source`.
+
+The API accepts a filters-only list control, but the picker is empty: `filters` names what changes; `source` supplies the values a user can select. API acceptance is not a shipping criterion. Date-range controls are different and correctly use `filters` without a separate value-list source. Fix every violation first — never POST past it, and **never conclude a feature is "unsupported" from an `Invalid kind` error** (it means the inner fields are wrong). Verified shapes: `sigma-workbooks` `controls.md` / `tables.md`.
 
 ## Converter architecture (read if you know the other migration skills)
 
@@ -75,7 +80,9 @@ logic.
 > REST gotcha — changesets, locks, lowercase response headers, session-bound
 > dossier flows), `ae-row-collapse.md` (the one MSTR behavior no clean SQL
 > reproduces, and the pinning workflow), `viz-type-mapping.md` (dossier viz →
-> Sigma element lookup), `design-notes.md` (architecture + modeling gotchas +
+> Sigma element lookup), `plugin-tier.md` (what to do when a source viz has NO
+> native Sigma analog — `heat_map` is a treemap, and Sigma has none: match it
+> with a plugin, never a shaded table), `design-notes.md` (architecture + modeling gotchas +
 > roadmap), `control-parity.md` (shared control-targeting contract: the
 > control lint, the control-scope.json sidecar, and the flip test). For
 > canonical Sigma spec shapes, defer to the companion `sigma-data-models` /
@@ -128,10 +135,10 @@ Check what backs the dossier's dataset before extracting. `GET /objects/{dataset
 
   **Decide first (ask the customer):** if the cube has a real upstream system of record, prefer pointing Sigma at that live warehouse source. **Rehosting the cube copies a point-in-time snapshot** into the customer's warehouse — it does not stay fresh unless something re-feeds it. Only rehost when there's no live source (demo/prototype cubes, locked-down trials, managed metrics without formulas).
 
-  **If rehosting**, the cube's *data* still extracts cleanly even though its model doesn't:
-  1. Pull all rows via the cube instance API — `POST /v2/cubes/{id}/instances?offset&limit` for page 1 (returns `instanceId` + `definition.grid` + `data`), then `GET /v2/cubes/{id}/instances/{iid}?offset` to page. Element lists in each response are page-scoped. Flatten attributes-on-rows + metrics-on-columns into one table.
-  2. `COPY` it into the warehouse the Sigma connection reaches (quote identifiers to preserve display names; `DATE_FORMAT`/`FIELD_OPTIONALLY_ENCLOSED_BY` for messy CSV; `GRANT SELECT` to the connection role + schema sync — see `sigma-data-models`).
-  3. **Rejoin the normal flow at Phase 3** with a `warehouse-table` source. Skip Phase 1/2 (no bundle to extract) — build the DM + workbook directly, and lean hard on Phase 1.1's source-PDF capture + execute-instance value truth (a cube's KPIs are often a latest-period stat, and a chapter date filter drives the row subsets).
+  **If rehosting** — full depth, fidelity recipes, and the exact shapes are in **`refs/path-b-rehost.md`** — the cube's *data* still extracts cleanly even though its model doesn't:
+  1. **A multi-sheet import is MANY tables in one cube.** Pulling every attribute + metric at once cross-joins them (`Cartesian Join Governing` abort); the auto `Row Count - <name>` metrics **enumerate the source tables**. Run `python3 scripts/extract-cube.py <cubeId> <outDir>` — one CSV per table, with membership decided by the **grand-total invariant** (an attribute/measure is native to a table only if grouping that table's Row Count by it *preserves the total* — a foreign/conformed dim repeats rows), **page-scoped** label resolution while paging (`POST /v2/cubes/{id}/instances` then `GET …/instances/{iid}?offset`), and a **fan-out guard** (`SUM(row-count)==table total`, `SUM(measure)==grand total`) that fails loudly on cross-join inflation. A single-table cube (no `Row Count -` metrics) is the simple flatten-to-one-table case.
+  2. `COPY` each CSV into the warehouse the Sigma connection reaches (quote identifiers to preserve display names; `DATE_FORMAT`/`FIELD_OPTIONALLY_ENCLOSED_BY` for messy CSV). **The connection reads as a service role, not your loader's role**, so the new tables stay invisible until you `GRANT SELECT … TO ROLE <the connection's role>` **and** schema-level sync: `POST /v2/connections/{connectionId}/sync {"path":["DB","SCHEMA"]}` (table-level sync 404s until the table is already discovered — sync the schema first). See `refs/path-b-rehost.md` / `sigma-data-models`.
+  3. **Rejoin the normal flow at Phase 3.** **Prefer a `sql` DM source over `warehouse-table` for these freshly-loaded tables** — it runs live against the connection and resolves immediately, skipping the catalog-sync dependency (the role still needs `SELECT`; it also lets you alias clean display names). Skip Phase 1/2 (no bundle to extract) — build the DM + workbook directly, and lean hard on Phase 1.1's source capture + execute-instance value truth (a cube's KPIs are often a latest-period stat, and a chapter date filter drives the row subsets).
   4. **Emit REAL charts, not labeled-table stubs.** Path B is the legacy Quick
      Cube hand-build fallback, not evidence that every classic-converter chart
      family is validated. Reuse released Sigma kinds only when the recovered
@@ -142,7 +149,7 @@ Check what backs the dossier's dataset before extracting. `GET /objects/{dataset
      insufficiently grounded type, and you say so.
   5. **Gates:** `assert-phase6-ran.rb` is wired for the classic path — in path B it does not apply, but you still MUST run the **parity gate** and the **source-fidelity Visual QA gate** (compare the render to `source_dossier.pdf`, every page). Don't declare done on HTTP 200.
 
-  > **Known ceiling — be honest in the writeup:** a cube's *derived* metrics (e.g. an "Inventory Performance" ratio, or non-additive aggregations) carry their formula only inside the cube — they do NOT reduce from the rehosted base columns. Recover exact definitions via Workstation export / ODBC, or approximate and **label the approximation**. Never silently ship a guessed metric as exact.
+  > **Derived metrics — recover, then VERIFY across every period:** a dossier's headline metrics (Revenue / Cost / margin %, or non-additive aggregations) are often *dossier-level derived* metrics that are **not** in the cube's `availableObjects`, so they do NOT reduce from the rehosted base columns. Recover them rather than guess: pull their ids from an **executed viz** (`definition.grid.columns[templateMetrics].elements`), reverse-engineer the definition from the statement structure (which base rows they aggregate), and **verify the formula against the executed viz values across EVERY period** — not one — before trusting it. Reproduce as a Sigma DM metric; otherwise (Workstation export / ODBC, or approximate) **label the approximation**. Never silently ship a guessed metric as exact. (`refs/path-b-rehost.md` §3.)
 
 ## Phase 1 — Extract the bundle
 
@@ -176,6 +183,24 @@ python3 scripts/microstrategy-render-source.py <dossierId> --workdir <WORK>   # 
 element arrangement (columns/rows, what sits next to what), each viz's real
 chart KIND (a "microcharts" or "kpi" type is not a bar table), branding/header
 bands, and any controls/selector panels.
+
+> **Read the dossier's own "Dashboard Details" / "About" chapter if it has one —
+> it is a design spec handed to you.** Polished dossiers frequently ship a
+> documentation page describing each chapter's chart kinds, filters, and
+> interactions ("panel stack with a panel selector", "grids with outline mode",
+> "heat map … filters the horizontal stacked bar to the right",
+> "synchronized-axis bar chart", "default dynamic selection filter set to the
+> last 4 quarters", "linked text boxes"). Those phrases map directly to Sigma
+> shapes (tabbed-container, pivot hierarchy, backgroundScale + cross-filter,
+> trellis, last-N filter, navigate buttons) — see `refs/path-b-rehost.md` §5.
+>
+> **PDF-export limits (`export-dossier-pdf.py`):** it tends to render only the
+> *active/default* chapter and **blocks external images** (whitelist) — the
+> branding logo comes back empty and other chapters may be absent. So don't
+> treat the PDF as the whole dashboard: execute every viz (below), and ask the
+> customer for the logo asset (Sigma `image` needs a hosted URL — no upload API).
+> Match the source **theme** too (a dark dossier → `settings.theme.name: Dark`),
+> not the default light canvas.
 
 ```bash
 # (b) Execute the dossier instance and pull each visualization's grid + DISPLAYED values.
@@ -351,7 +376,11 @@ curl -s -X POST "$SIGMA_BASE_URL/v2/workbooks/spec" \
 # UNSCOUTED error column — spawn a gap-scout per the printed --gap-id (see
 # scripts/gap-scout.md), re-run the gate, and only proceed when it exits 0.
 python3 scripts/scout-gate-readback.py --workbook-id <workbookId> --workdir <out-dir>
-# Read back and confirm document.layout + flat document.elements survived.
+# Read back, validate, and confirm document.layout + flat document.elements survived.
+curl -s "$SIGMA_BASE_URL/v2/workbooks/<workbookId>/spec" \
+  -H "Authorization: Bearer $SIGMA_API_TOKEN" > <out-dir>/workbook-readback.yaml
+# Run from the companion sigma-workbooks skill directory:
+./scripts/validate-spec.sh <absolute-out-dir>/workbook-readback.yaml
 # put-layout.rb is now a repair/reapply tool, not the normal create path:
 # ruby scripts/put-layout.rb --workbook <workbookId> --layout layout.xml
 ```
@@ -460,6 +489,12 @@ explicit-value progress gauges; allowlisted styling; and explicit repeaters.
 Every partial panel/repeater/style translation is recorded in
 `feature-gaps.json`. Box plots remain capability-gated and default to a loud
 table fallback.
+
+**Plugin tier:** viz types with **no native Sigma analog** (`heat_map` — a
+treemap — plus `sankey`, `network`, sunburst) are matched with a bespoke plugin
+element, not degraded to a table; see `refs/plugin-tier.md`. If you do ship a
+degraded tile, the visual-QA report must NAME it as an approximation and say
+what encoding was lost — never fold it into "matches".
 
 **Flagged / roadmap:** unmapped or unwired viz types → flagged table fallback
 (`refs/viz-type-mapping.md`); KPI/pie/combo/scatter and other non-axis-generic

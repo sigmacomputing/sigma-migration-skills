@@ -38,13 +38,18 @@ persistence.
 ```
 
 This checks the wrapper, required arrays, forbidden nested elements, formula
-qualification heuristics, and bidirectional layout coverage.
+qualification heuristics (including bare self-references), list/segmented
+value-list sources, and bidirectional layout coverage. Run it on the submitted
+spec and again on the GET readback so a control source absent from the live
+document cannot escape as an empty picker.
 
 ## 4. Manual formula pass
 
 For every formula:
 
-1. A bare `[Column]` must resolve to a column declared on the same element.
+1. A bare `[Column]` must resolve to a different column declared on the same
+   element. A column cannot reference itself; source passthroughs need the
+   qualified `[Source/Column]` form.
 2. A qualified reference uses the applicable prefix:
    - warehouse table: source table name;
    - workbook element: source element `name`;
@@ -62,6 +67,9 @@ For every formula:
 - `pages`, `overlays`, and `panels` contain metadata only.
 - Every literal element appears once in `document.elements`.
 - Every element is placed in `document.layout`.
+- Every `list` / `segmented` control has a value-list `source`; `filters` alone
+  can POST but leave the picker empty. Date/range controls legitimately derive
+  their column from `filters` without a separate `source`.
 - Layout references only declared elements and known page/overlay/panel IDs.
 - Container children use canonical `<Container>` / `<Element>` tags; tabbed
   containers use `<TabbedContainer>` / `<Tab>`.

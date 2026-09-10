@@ -110,13 +110,18 @@ def main():
                     "report": {"id": r["id"], "name": r["name"]}, "model": None}
         ds = tm.timed(f"bind:{sl}", lambda w=w, r=r: fab.report_dataset_id(w["id"], r["id"]))
         model = None
+        model_ws = None
         if ds:
-            model = next((m for m in w["models"] if m["id"] == ds), None)
+            model, model_ws = fab.locate_semantic_model(
+                tok, ds, estate=estate, use_cache=not ARGS.no_cache,
+                timings=tm, log=lambda message: print(f"  [{r['name']}] {message}", flush=True))
         if not model:  # fallback: display-name match within the workspace
             model = fab._match(w["models"], r["name"])
+            model_ws = w if model else None
         if model:
-            meta[sl]["model"] = model
-            jobs.append({"name": f"model:{sl}", "ws": w["id"], "kind": "semanticModels",
+            meta[sl]["model"] = dict(model, workspace_id=model_ws["id"],
+                                     workspace_name=model_ws.get("name"))
+            jobs.append({"name": f"model:{sl}", "ws": model_ws["id"], "kind": "semanticModels",
                          "id": model["id"], "fmt": "TMSL"})
         else:
             print(f"  WARN [{r['name']}] no bound semantic model resolved — report-only", flush=True)

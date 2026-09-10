@@ -32,6 +32,7 @@
 require 'json'
 require 'set'
 require 'csv'
+require 'open3'
 # Nokogiri-backed REXML drop-in — REXML is O(n^2) on large .twb files. See lib/twb_xml.rb.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'twb_xml'
@@ -339,7 +340,9 @@ def detect_blends(xml)
   features = blends.group_by { |b| b['route'] }.map do |route, rs|
     {
       name:   "Data blending (#{route})",
-      status: route == 'same-warehouse-repoint' ? :hint : :manual,
+      # A secondary that must be landed or cannot be reached is not merely
+      # advisory: neither runtime can build faithful Sigma semantics yet.
+      status: route == 'same-warehouse-repoint' ? :hint : :unhandled,
       count:  rs.length,
       blurb:  "#{ROUTE_BLURB[route]}. Worksheets: #{rs.map { |b| b['worksheet'] }.uniq.join(', ')}. "               'Full linking-field report in blend-plan.json; decision tree in refs/blending.md ([bead]).',
       worksheets: rs.map { |b| b['worksheet'].to_s }.uniq.sort # E9.6/A2 scope attribution
@@ -719,7 +722,253 @@ end
 # inventory (the migration punch-list). `doc` is the TwbXml tree (field defs +
 # worksheet names); `content` is the raw .twb string (used for the reference-
 # region scans, since TwbXml exposes no node serializer).
-def analyze_fields(doc, content)
+FORMULA_AUDIT_STATUSES = %w[spec verify chart_only rls not_converted unmapped].freeze
+FORMULA_AUDIT_TRANSLATED = %w[spec verify chart_only rls].freeze
+FORMULA_AUDIT_HELPER = File.expand_path('formula-audit.mjs', __dir__)
+
+def formula_field_refs(formula)
+  masked, tokens = CalcCoverage.mask(formula.to_s)
+  CalcCoverage.field_refs(masked, tokens)[:fields].uniq
+end
+
+# Build one calculation inventory per real datasource. Dependency resolution is
+# deliberately restricted to calculated-field definitions in the SAME
+# datasource. An ordinary unresolved caption such as [Legacy Revenue] may be a
+# physical warehouse field omitted from the Tableau metadata and is therefore
+# not called an orphan. Only Tableau's generated [Calculation_*] namespace is
+# safe to identify as a missing internal calc definition.
+def calculation_inventory(doc, content)
+  ref_region = content.split('</datasources>', 2)[1] || content
+  inputs = []
+  datasource_rows = []
+
+  doc.elements.to_a('/workbook/datasources/datasource').each_with_index do |ds, ds_index|
+    ds_name = ds.attributes['name'].to_s
+    next if ds_name == 'Parameters' || ds_name.start_with?('Parameters ')
+
+    definitions = {}
+    calcs = []
+    ds.elements.each('column') do |col|
+      internal = col.attributes['name'].to_s
+      next if internal.empty? || internal.include?('__tableau_internal_object_id__')
+      formula = col.elements['calculation']&.attributes&.[]('formula')
+      row = {
+        'internal_name' => internal,
+        'caption' => (col.attributes['caption'] || internal).to_s,
+        'formula' => formula
+      }
+      definitions[internal.downcase] = row
+      definitions["[#{row['caption']}]".downcase] = row
+      calcs << row if formula
+    end
+
+    by_caption = Hash.new { |h, k| h[k] = [] }
+    calcs.each { |calc| by_caption["[#{calc['caption']}]".downcase] << calc }
+    calc_by_internal = {}
+    calcs.each { |calc| calc_by_internal[calc['internal_name'].downcase] = calc }
+    graph = {}
+    orphan_refs = []
+
+    calcs.each_with_index do |calc, calc_index|
+      key = calc['internal_name']
+      graph[key] = []
+      formula_field_refs(calc['formula']).each do |ref|
+        target = calc_by_internal[ref.downcase]
+        target ||= by_caption[ref.downcase].first if by_caption[ref.downcase].length == 1
+        if target
+          graph[key] << target['internal_name']
+        elsif ref =~ /\A\[Calculation[_-]/i && !definitions.key?(ref.downcase)
+          orphan_refs << {
+            'datasource' => ds_name,
+            'calculation' => calc['caption'],
+            'internal_name' => key,
+            'reference' => ref
+          }
+        end
+      end
+      graph[key] = graph[key].uniq.sort
+      inputs << {
+        'id' => "#{ds_index}:#{calc_index}",
+        'datasource_index' => ds_index,
+        'datasource' => ds_name,
+        'datasource_caption' => (ds.attributes['caption'] || ds_name).to_s,
+        'internal_name' => key,
+        'caption' => calc['caption'],
+        'formula' => calc['formula']
+      }
+    end
+
+    # Tarjan SCCs: every multi-node SCC is a cycle; a one-node SCC is a cycle
+    # only when the calculation directly references itself.
+    index = 0
+    indices = {}
+    low = {}
+    stack = []
+    on_stack = {}
+    components = []
+    visit = nil
+    visit = lambda do |node|
+      indices[node] = index
+      low[node] = index
+      index += 1
+      stack << node
+      on_stack[node] = true
+      graph.fetch(node, []).each do |neighbor|
+        unless indices.key?(neighbor)
+          visit.call(neighbor)
+          low[node] = [low[node], low[neighbor]].min
+        end
+        low[node] = [low[node], indices[neighbor]].min if on_stack[neighbor]
+      end
+      return unless low[node] == indices[node]
+      component = []
+      loop do
+        member = stack.pop
+        on_stack.delete(member)
+        component << member
+        break if member == node
+      end
+      components << component
+    end
+    graph.keys.sort.each { |node| visit.call(node) unless indices.key?(node) }
+    captions = calcs.each_with_object({}) { |calc, h| h[calc['internal_name']] = calc['caption'] }
+    cycles = components.select { |c| c.length > 1 || graph.fetch(c.first, []).include?(c.first) }
+                       .map { |c| c.map { |n| captions[n] || n }.sort }
+                       .sort_by { |c| c.join("\0") }
+
+    directly_used = calcs.map { |calc| calc['internal_name'] }
+                         .select { |internal| ref_region.include?(internal) }
+                         .to_set
+    used = directly_used.dup
+    changed = true
+    while changed
+      changed = false
+      used.to_a.each do |node|
+        graph.fetch(node, []).each do |dependency|
+          next if used.include?(dependency)
+          used << dependency
+          changed = true
+        end
+      end
+    end
+    unused = calcs.reject { |calc| used.include?(calc['internal_name']) }.map do |calc|
+      {
+        'datasource' => ds_name,
+        'calculation' => calc['caption'],
+        'internal_name' => calc['internal_name']
+      }
+    end
+
+    datasource_rows << {
+      'datasource_index' => ds_index,
+      'name' => ds_name,
+      'caption' => (ds.attributes['caption'] || ds_name).to_s,
+      'calculation_cycles' => cycles,
+      'orphan_internal_calculation_references' => orphan_refs.sort_by { |r| [r['calculation'], r['reference']] },
+      'unused_calculations' => unused.sort_by { |r| [r['calculation'], r['internal_name']] }
+    }
+  end
+
+  {
+    'inputs' => inputs,
+    'datasources' => datasource_rows,
+    'calculation_cycles' => datasource_rows.flat_map do |ds|
+      ds['calculation_cycles'].map { |cycle| { 'datasource' => ds['name'], 'calculations' => cycle } }
+    end,
+    'orphan_internal_calculation_references' => datasource_rows.flat_map { |ds| ds['orphan_internal_calculation_references'] },
+    'unused_calculations' => datasource_rows.flat_map { |ds| ds['unused_calculations'] }
+  }
+end
+
+def run_formula_audit(inventory)
+  node = ENV['NODE_BIN'].to_s.empty? ? 'node' : ENV['NODE_BIN']
+  stdout, stderr, status = Open3.capture3(
+    node, FORMULA_AUDIT_HELPER,
+    stdin_data: JSON.generate('formulas' => inventory['inputs'])
+  )
+  unless status.success?
+    detail = stderr.to_s.lines.first.to_s.strip
+    raise "formula audit helper failed (exit #{status.exitstatus})#{detail.empty? ? '' : ": #{detail}"}"
+  end
+  batch = JSON.parse(stdout)
+  results_by_ds = batch.fetch('formulas').group_by { |row| row['datasource_index'] }
+
+  datasources = inventory['datasources'].map do |source|
+    rows = results_by_ds[source['datasource_index']] || []
+    counts = FORMULA_AUDIT_STATUSES.each_with_object({}) { |name, h| h[name] = 0 }
+    rows.each { |row| counts[row.fetch('status')] += 1 }
+    converted = rows.count { |row| FORMULA_AUDIT_TRANSLATED.include?(row['status']) }
+    {
+      'name' => source['name'],
+      'caption' => source['caption'],
+      'total' => rows.length,
+      'counts' => counts,
+      'converted' => converted,
+      'coverage_pct' => rows.empty? ? 100.0 : (100.0 * converted / rows.length).round(1),
+      'calculation_cycles' => source['calculation_cycles'],
+      'orphan_internal_calculation_references' => source['orphan_internal_calculation_references'],
+      'unused_calculations' => source['unused_calculations'],
+      'formulas' => rows
+    }
+  end
+
+  batch.merge(
+    'datasources' => datasources,
+    'calculation_cycles' => inventory['calculation_cycles'],
+    'orphan_internal_calculation_references' => inventory['orphan_internal_calculation_references'],
+    'unused_calculations' => inventory['unused_calculations']
+  )
+end
+
+def formula_audit_gap_results(audit)
+  counts = audit.is_a?(Hash) ? audit['counts'] : {}
+  unsupported = counts.to_h['not_converted'].to_i + counts.to_h['unmapped'].to_i
+  review = counts.to_h['verify'].to_i + counts.to_h['chart_only'].to_i
+  rows = []
+  if unsupported.positive?
+    names = Array(audit['formulas']).select { |row| %w[not_converted unmapped].include?(row['status']) }
+                                    .map { |row| "#{row['datasource_caption'] || row['datasource']}: #{row['caption'] || row['internal_name']}" }
+    rows << {
+      name: 'Converter-refused or unmapped calculated fields',
+      status: :unhandled,
+      count: unsupported,
+      blurb: "#{unsupported} actual workbook formula(s) failed the vendored converter path: #{names.first(12).join(', ')}. " \
+             'Rewrite or explicitly account for each before conversion; token-only catalog coverage is not accepted.'
+    }
+  end
+  if review.positive?
+    rows << {
+      name: 'Converter-translated formulas requiring contextual verification',
+      status: :hint,
+      count: review,
+      blurb: "#{review} actual workbook formula(s) translated as verify/chart_only. Build them in the required " \
+             'element context and prove value parity before GREEN.'
+    }
+  end
+  Array(audit['calculation_cycles']).each do |cycle|
+    rows << {
+      name: "Circular calculated-field dependency — #{cycle['datasource']}",
+      status: :unhandled,
+      count: 1,
+      blurb: "Cycle: #{Array(cycle['calculations']).join(' ↔ ')}. Break the source dependency cycle; " \
+             'the converter cannot produce a queryable Sigma column graph from it.'
+    }
+  end
+  orphan_refs = Array(audit['orphan_internal_calculation_references'])
+  if orphan_refs.any?
+    rows << {
+      name: 'Missing internal calculated-field dependencies',
+      status: :unhandled,
+      count: orphan_refs.length,
+      blurb: orphan_refs.first(12).map { |row|
+        "#{row['datasource']}/#{row['calculation']} → #{row['reference']}"
+      }.join(', ')
+    }
+  end
+  rows
+end
+
+def analyze_fields(doc, content, formula_audit = nil, calc_inventory = nil)
   # 1. Field definitions from primary (non-Parameters) datasources. Skip
   #    Tableau internal object-id columns (plumbing, not user fields).
   defs = {}
@@ -821,7 +1070,7 @@ def analyze_fields(doc, content)
   n_defs = defs.size
   n_calc = calc_names.size
   n_param = defs.count { |_, v| v[:is_param] }
-  {
+  stats = {
     'total_fields'       => n_defs,
     'source_fields'      => n_defs - n_calc - n_param,
     'calculated_fields'  => n_calc,
@@ -840,6 +1089,17 @@ def analyze_fields(doc, content)
     'unknown_functions'  => unknown_fns,
     'components'         => components
   }
+  if calc_inventory
+    stats['calculation_cycles'] = calc_inventory['calculation_cycles']
+    stats['orphan_internal_calculation_references'] =
+      calc_inventory['orphan_internal_calculation_references']
+    stats['unused_calculations'] = calc_inventory['unused_calculations']
+  end
+  if formula_audit
+    stats['formula_status_counts'] = formula_audit['counts']
+    stats['formula_coverage_pct'] = formula_audit['coverage_pct']
+  end
+  stats
 end
 
 def render_md(wb_name, summary, results, fields = nil)
@@ -866,6 +1126,29 @@ def render_md(wb_name, summary, results, fields = nil)
     unless (fields['unknown_functions'] || []).empty?
       md << "- ⚠ **#{fields['unknown_functions'].size} function(s) NOT in the official Tableau catalog** "
       md << "(typo / extension — will not translate): #{fields['unknown_functions'].map { |f| "`#{f}`" }.join(', ')}\n"
+    end
+    if fields.key?('formula_coverage_pct')
+      counts = fields['formula_status_counts'] || {}
+      status_text = FORMULA_AUDIT_STATUSES.map { |status| "#{status}=#{counts[status].to_i}" }.join(', ')
+      md << "- **Converter formula coverage:** #{fields['formula_coverage_pct']}% (#{status_text})\n"
+    end
+    unless (fields['calculation_cycles'] || []).empty?
+      md << "- ⚠ **#{fields['calculation_cycles'].size} calculated-field cycle(s):** "
+      md << fields['calculation_cycles'].map { |cycle|
+        "`#{cycle['datasource']}: #{cycle['calculations'].join(' ↔ ')}`"
+      }.join(', ') << "\n"
+    end
+    unless (fields['orphan_internal_calculation_references'] || []).empty?
+      md << "- ⚠ **#{fields['orphan_internal_calculation_references'].size} missing internal calc reference(s):** "
+      md << fields['orphan_internal_calculation_references'].map { |ref|
+        "`#{ref['datasource']}/#{ref['calculation']} → #{ref['reference']}`"
+      }.join(', ') << "\n"
+    end
+    unless (fields['unused_calculations'] || []).empty?
+      md << "- **#{fields['unused_calculations'].size} unused calculated field(s):** "
+      md << fields['unused_calculations'].map { |calc|
+        "`#{calc['datasource']}/#{calc['calculation']}`"
+      }.join(', ') << "\n"
     end
     unless fields['orphan_worksheets'].empty?
       md << "- **#{fields['orphan_worksheets'].size} orphaned worksheet(s)** (on no dashboard): "
@@ -990,10 +1273,44 @@ def main
   end
 
   fields = nil
-  begin
-    fields = analyze_fields(xml, content) if xml
-  rescue StandardError => e
-    warn "  field analysis skipped: #{e.message}"
+  formula_audit = nil
+  if xml
+    begin
+      calc_inventory = calculation_inventory(xml, content)
+      begin
+        formula_audit = run_formula_audit(calc_inventory)
+        results.concat(formula_audit_gap_results(formula_audit))
+      rescue StandardError => e
+        formula_audit = {
+          'status' => 'ERROR',
+          'error' => e.message,
+          'formulas' => [],
+          'counts' => FORMULA_AUDIT_STATUSES.to_h { |name| [name, 0] },
+          'coverage_pct' => 0.0,
+          'calculation_cycles' => calc_inventory['calculation_cycles'],
+          'orphan_internal_calculation_references' =>
+            calc_inventory['orphan_internal_calculation_references'],
+          'unused_calculations' => calc_inventory['unused_calculations']
+        }
+        results << {
+          name: 'Converter-backed formula audit unavailable',
+          status: :unhandled,
+          count: [calc_inventory['inputs'].length, 1].max,
+          blurb: "#{e.message}. Restore Node/the vendored converter and re-run; " \
+                 'the token-only census cannot authorize conversion.'
+        }
+        warn "  formula audit FAILED CLOSED: #{e.message}"
+      end
+      fields = analyze_fields(xml, content, formula_audit, calc_inventory)
+    rescue StandardError => e
+      results << {
+        name: 'Calculated-field dependency analysis unavailable',
+        status: :unhandled,
+        count: 1,
+        blurb: "#{e.message}. Repair the TWB/audit path and re-run before conversion."
+      }
+      warn "  field analysis FAILED CLOSED: #{e.message}"
+    end
   end
 
   File.write(md_path, render_md(File.basename(inp), summary, results, fields))
@@ -1002,6 +1319,7 @@ def main
     'detected_features' => results.map { |r| r.transform_keys(&:to_s) }
   }
   json_payload['field_statistics'] = fields.reject { |k, _| k == 'components' } if fields
+  json_payload['formula_audit'] = formula_audit if formula_audit
   json_payload['multi_datasource'] = multi_ds_detail if multi_ds_detail
   json_payload['object_model'] = object_model_detail if object_model_detail
   File.write(json_path, JSON.pretty_generate(json_payload))

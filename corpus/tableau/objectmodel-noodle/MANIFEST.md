@@ -58,8 +58,10 @@ SQL `FROM` off the wrong table (mass `Dependency not found` at POST).
   pairs, Port strategies) in BOTH goldens — detected from the documented
   structural shape (related table + identity column + datasource-filter
   signal), with zero user-function calcs present; never auto-applied.
-- **Unique-key contradiction warning**: the fixtures' perf-option hints mark
-  the source side unique — the aggregated verify warning is pinned.
+- **Database-backed unique-key hints**: the adverse-order fixture marks the
+  dimension endpoints unique on their relationship keys even though those
+  dimensions appear first in the XML; the converter still emits fact→dimension
+  many-to-one relationships. The non-unique entitlement edge carries no hint.
 
 ## Converter
 
@@ -112,7 +114,7 @@ node -e 'import("file://<repo>/plugins/tableau-to-sigma/skills/tableau-to-sigma/
       "element_kinds": {"control": 1, "table": 6},
       "metric_names": ["Total VISIT_REVENUE"],
       "relationship_names": ["DIM_DATES", "DIM_SITES", "DIM_PROVIDERS", "ENTITLEMENTS"],
-      "warnings": 15
+      "warnings": 14
     },
     "data-model-entitlement.json": {
       "elements": 5,

@@ -25,6 +25,9 @@ require 'optparse'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 opts = {}
 OptionParser.new do |p|
@@ -38,7 +41,11 @@ def http(method, path, body = nil)
   Sigma.request(method, path, body: body, binary: true)
 end
 
-xml = File.read(opts[:layout])
+# encoding: 'UTF-8' is NOT optional — this layout XML is regexp-matched below and
+# carries element titles straight from the source dashboard, so em-dashes and
+# curly quotes are the norm. A raw read inherits the locale's default external
+# encoding and raises `invalid byte sequence in US-ASCII`. F5 crash class, #752.
+xml = File.read(opts[:layout], encoding: 'UTF-8')
 abort "FATAL: empty elementId in layout XML" if xml.match?(/elementId=""/)
 
 raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec"))

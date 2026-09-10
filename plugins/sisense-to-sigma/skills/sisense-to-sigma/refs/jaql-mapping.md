@@ -33,9 +33,9 @@ once a sample dashboard exists — the trial has 0 dashboards.
 |------------------------|-------|
 | arithmetic `+ - * /`   | same |
 | `RANK(...)`            | `Rank(...)` (grouped) — verify partition semantics |
-| `RSUM(...)`            | `CumulativeSum(...)` over an ordered grouping |
-| `PREV(...)` / `PAST`   | `Lag(...)` / DateLookback in a date-grouped element |
-| `GROWTH`, `GROWTHPAST` | derived (current−prev)/prev — verify |
+| `RSUM(...)`            | **Flag** — `CumulativeSum` is only a candidate after order, partition, and continuous-mode semantics are established |
+| `PREV(...)` / `PAST`   | **Flag** — Lag/DateLookback requires explicit order, partition, and date grain |
+| `GROWTH`, `GROWTHPAST` | **Flag** — requires a grouped current/prior dependency chain and verified null/zero behavior |
 | filtered measure (`context` w/ a filter member) | `SumIf`/`CountIf` style |
 
 ## Flag (don't fake)

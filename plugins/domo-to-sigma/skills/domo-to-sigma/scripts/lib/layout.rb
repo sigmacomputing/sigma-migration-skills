@@ -9,8 +9,8 @@
 # Container-based layouts (layout-playbook.md, verified 2026-06-10):
 #   - spec side: a `kind: container` placeholder element per band
 #     (container_el / header_text_el below build those spec objects)
-#   - layout side: a <GridContainer> (NOT <LayoutElement type="grid">, which
-#     silently drops children) whose child <LayoutElement>s use
+#   - layout side: a <Container> (NOT <Element type="grid">, which silently
+#     drops children) whose child <Element>s use
 #     CONTAINER-RELATIVE coordinates (rows restart at 1).
 require_relative 'zone_census'
 
@@ -45,13 +45,13 @@ module SigmaLayout
   # Default 24 (the page grid); a vertical control rail declares cols: 1 so its
   # children stack full-width (children's gridColumn refs are LOCAL to this).
   def gc(eid, c0, c1, r0, r1, inner, cols: GRID_COLS)
-    "<GridContainer elementId=\"#{eid}\" type=\"grid\" " \
+    "<Container elementId=\"#{eid}\" type=\"grid\" " \
     "gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\" " \
-    "gridTemplateColumns=\"repeat(#{cols}, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</GridContainer>"
+    "gridTemplateColumns=\"repeat(#{cols}, 1fr)\" gridTemplateRows=\"auto\">\n#{inner}\n</Container>"
   end
 
   def le(eid, c0, c1, r0, r1)
-    "  <LayoutElement elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
+    "  <Element elementId=\"#{eid}\" gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\"/>"
   end
 
   def page_xml(page_id, *children)

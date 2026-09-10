@@ -167,7 +167,10 @@ def main():
     w = max(len(l) for _, l, _ in rows)
     print(f"\nLayout parity — {len(placed)} elements placed\n" + "-" * (w + 30))
     for status, label, detail in rows:
-        mark = "\033[92m✓\033[0m" if status == "GREEN" else "\033[91m✗\033[0m"
+        # ASCII survives the default cp1252 console used by Windows CI and by
+        # customer PowerShell sessions; Unicode checkmarks crash before the
+        # actual layout verdict can be emitted.
+        mark = "[OK]" if status == "GREEN" else "[X]"
         print(f"  {mark} {status:5} {label:<{w}}  {detail}")
     print("-" * (w + 30))
     print("RED" if failed else "GREEN", f"({failed} failure(s))" if failed else "(all checks passed)")

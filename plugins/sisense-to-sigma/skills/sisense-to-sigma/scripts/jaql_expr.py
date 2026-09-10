@@ -18,7 +18,10 @@ emitting wrong logic. Column display names are taken verbatim from the JAQL dim
 import re, os, sys
 
 class Unsupported(Exception):
-    pass
+    """A fail-closed JAQL translation with a machine-stable warning id."""
+    def __init__(self, message, warning_id):
+        super().__init__(message)
+        self.warning_id = warning_id
 
 # ── documentation-grounded aggregation catalog (SINGLE SOURCE OF TRUTH) ──────
 # The JAQL `agg` -> Sigma aggregate map is LOADED from
@@ -27,15 +30,22 @@ class Unsupported(Exception):
 # FLAG) on any agg not listed — never a silent default. The generated coverage
 # matrix lives in refs/sisense-coverage.md. Loader: shared/lib/coverage_catalog.py
 # (synced to scripts/lib/).
-# NOTE: only the flat `agg` map lives in the catalog. The COMPOSITIONAL JAQL
-# formula-function translator (SAFE_FUNC / FLAG_FUNC below — arithmetic + scalar
-# function-name rewriting, with PREV/PAST/RSUM/GROWTH/QUARTILE/CONTRIBUTION etc.
-# flagged) and the date-level DateTrunc map (LEVEL) stay as cited CODE: they are
-# predicate/expression logic, not a flat 1:1 table.
+# The flat `agg` and formula-function maps live in catalogs. The COMPOSITIONAL
+# parser (context recursion, token replacement, callable scanning) and date-level
+# DateTrunc map (LEVEL) stay in code because they are expression logic, not a
+# flat source-token table.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import coverage_catalog as _cc  # noqa: E402
-_AGG_CAT = _cc.load(_cc.default_catalog_dir(__file__), "aggregation")
+_CAT_DIR = _cc.default_catalog_dir(__file__)
+_AGG_CAT = _cc.load(_CAT_DIR, "aggregation")
 AGG = {r["source"]: r["sigma"] for r in _AGG_CAT.rows if r.get("sigma")}
+FUNC_CAT = _cc.load(_CAT_DIR, "jaql-function")
+FUNC_ROWS = {r["source"].upper(): r for r in FUNC_CAT.rows}
+SAFE_FUNC = {k: r["sigma"] for k, r in FUNC_ROWS.items()
+             if r.get("behavior") == "safe" and r.get("sigma")}
+FLAG_FUNC = {k: r for k, r in FUNC_ROWS.items()
+             if r.get("behavior") == "flag"}
+UNKNOWN_FUNC = FUNC_ROWS["<UNKNOWN-FUNCTION>"]
 
 # JAQL date level -> Sigma DateTrunc unit (None = no truncation)
 LEVEL = {
@@ -43,22 +53,12 @@ LEVEL = {
     "days": "day", "minutes": "minute", "hours": "hour", "seconds": "second",
 }
 
-# JAQL formula functions that need special handling or flagging
-SAFE_FUNC = {  # JAQL fn -> Sigma fn (same arg order)
-    "SUM": "Sum", "COUNT": "Count", "AVG": "Avg", "MIN": "Min", "MAX": "Max",
-    "COUNTDISTINCT": "CountDistinct", "ABS": "Abs", "ROUND": "Round",
-    "RANK": "Rank",  # verify partition semantics downstream
-}
-FLAG_FUNC = {  # JAQL fns with no clean 1:1 Sigma equivalent -> flag for human
-    "PREV", "PAST", "GROWTH", "GROWTHPAST", "RSUM", "DIFF", "DIFFPAST",
-    "QUARTILE", "PERCENTILE", "CONTRIBUTION", "ALL", "LISTAGG",
-}
-
 def col_name(dim):
     """'[Commerce.Revenue]' -> 'Revenue' (the column display name in the DM)."""
     m = re.match(r"\[([^.\]]+)\.([^\]]+)\]", dim.strip())
     if not m:
-        raise Unsupported(f"unparseable JAQL dim: {dim!r}")
+        raise Unsupported(f"unparseable JAQL dim: {dim!r}",
+                          "SISENSE-JAQL-DIM-UNPARSEABLE")
     return m.group(2)
 
 def table_of(dim):
@@ -68,7 +68,8 @@ def table_of(dim):
 def translate_agg(jaql):
     agg = jaql["agg"].lower()
     if agg not in AGG:
-        raise Unsupported(f"unsupported agg: {agg}")
+        raise Unsupported(f"unsupported agg: {agg}",
+                          "SISENSE-JAQL-AGG-UNSUPPORTED")
     return f"{AGG[agg]}([{col_name(jaql['dim'])}])"
 
 def translate_dim(jaql):
@@ -76,7 +77,8 @@ def translate_dim(jaql):
     lvl = jaql.get("level")
     if lvl:
         if lvl not in LEVEL:
-            raise Unsupported(f"unsupported date level: {lvl}")
+            raise Unsupported(f"unsupported date level: {lvl}",
+                              "SISENSE-JAQL-LEVEL-UNSUPPORTED")
         return f'DateTrunc("{LEVEL[lvl]}", [{name}])'
     return f"[{name}]"
 
@@ -84,16 +86,24 @@ def translate_formula(jaql):
     """Resolve a JAQL formula's [tokens] from its context into a Sigma formula."""
     formula = jaql["formula"]
     ctx = jaql.get("context", {})
-    # flag JAQL functions we won't fake
+    # Resolve every callable through the catalog. Recognized flag rows and
+    # uncataloged callables fail closed with the row's stable warning id.
     for fn in re.findall(r"([A-Za-z_]+)\s*\(", formula):
-        if fn.upper() in FLAG_FUNC:
-            raise Unsupported(f"JAQL function {fn}() has no clean Sigma equivalent")
+        row = FUNC_ROWS.get(fn.upper(), UNKNOWN_FUNC)
+        if row.get("behavior") != "safe":
+            detail = ("has no clean context-free Sigma equivalent"
+                      if row.get("behavior") == "flag"
+                      else "is not in the grounded JAQL function catalog")
+            raise Unsupported(f"JAQL function {fn}() {detail}",
+                              row["warning_id"])
     out = formula
     for token, sub in ctx.items():
         # a context member carrying a filter (filtered/scoped measure) has no
         # clean 1:1 Sigma form — flag rather than silently drop the filter
         if isinstance(sub, dict) and sub.get("filter"):
-            raise Unsupported("filtered/scoped JAQL measure — needs manual SumIf/CountIf")
+            raise Unsupported(
+                "filtered/scoped JAQL measure — needs manual SumIf/CountIf",
+                "SISENSE-JAQL-FILTERED-MEASURE")
         if "formula" in sub:
             rep = translate_formula(sub)
         elif "agg" in sub:
@@ -101,12 +111,13 @@ def translate_formula(jaql):
         elif "dim" in sub:
             rep = f"[{col_name(sub['dim'])}]"
         else:
-            raise Unsupported(f"unresolvable JAQL context member: {sub!r}")
+            raise Unsupported(f"unresolvable JAQL context member: {sub!r}",
+                              "SISENSE-JAQL-CONTEXT-UNRESOLVABLE")
         out = out.replace(token, rep)
     # map JAQL scalar/agg function names to Sigma (case-insensitive)
     def _fn(m):
         fn = m.group(1)
-        return SAFE_FUNC.get(fn.upper(), fn) + "("
+        return SAFE_FUNC[fn.upper()] + "("
     out = re.sub(r"([A-Za-z_]+)\s*\(", _fn, out)
     return out
 

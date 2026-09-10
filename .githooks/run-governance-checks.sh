@@ -33,6 +33,9 @@ fi
 [ -f tools/lint-twb-encoding.rb ] && { ruby tools/lint-twb-encoding.rb || fail=1; }
 [ -f tools/check-agent-variants.rb ] && { ruby tools/check-agent-variants.rb || fail=1; }
 [ -f tools/lint-skill-paths.rb ] && { ruby tools/lint-skill-paths.rb || fail=1; }
+[ -f tools/lint-uplift-contracts.rb ] && { ruby tools/lint-uplift-contracts.rb || fail=1; }
+[ -f tools/lint-twin-parity.rb ] && { ruby tools/lint-twin-parity.rb || fail=1; }
+[ -f tools/lint-ruby-floor.rb ] && { ruby tools/lint-ruby-floor.rb || fail=1; }
 [ -f tools/check-cognos-bundle.rb ] && { ruby tools/check-cognos-bundle.rb || fail=1; }
 # bootstrap<->doctor KEEP-IN-LOCKSTEP guard (E2.1): bootstrap.sh duplicates
 # doctor.sh's probes (py_real, the vm-node candidate globs, Test-RealPython)
@@ -53,6 +56,10 @@ if [ "${CI:-}" = "true" ]; then
   [ -f tools/test-tree-litter.sh ] && { bash tools/test-tree-litter.sh || fail=1; }
   [ -f tools/test-commit-msg-guard.sh ] && { bash tools/test-commit-msg-guard.sh || fail=1; }
   [ -f tools/test-lint-skill-paths.sh ] && { bash tools/test-lint-skill-paths.sh || fail=1; }
+  [ -f tools/test-lint-uplift-contracts.rb ] && { ruby tools/test-lint-uplift-contracts.rb || fail=1; }
+  [ -f tools/test-lint-twb-encoding.rb ] && { ruby tools/test-lint-twb-encoding.rb || fail=1; }
+  [ -f tools/test-lint-twin-parity.rb ] && { ruby tools/test-lint-twin-parity.rb || fail=1; }
+  [ -f tools/test-lint-ruby-floor.rb ] && { ruby tools/test-lint-ruby-floor.rb || fail=1; }
 fi
 if [ "$fail" -ne 0 ]; then
   echo "" >&2

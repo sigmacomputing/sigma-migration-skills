@@ -156,7 +156,7 @@
               },
               {
                 "id": "SaPqV5v8KD",
-                "formula": "Sum([Net Revenue])/Count(DISTINCT [Order Id])",
+                "formula": "Sum([Net Revenue])/CountDistinct([Order Id])",
                 "name": "Avg Order Value",
                 "format": {
                   "kind": "number",
@@ -235,7 +235,7 @@
               },
               {
                 "id": "XuMKlkUkoO",
-                "formula": "Count(DISTINCT [Order Id])",
+                "formula": "CountDistinct([Order Id])",
                 "name": "Order Count",
                 "format": {
                   "kind": "number",

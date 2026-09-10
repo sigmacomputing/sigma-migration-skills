@@ -15,6 +15,10 @@
 # Pure-function test: extracts route_multi_ds! from build-charts-from-signals.rb.
 # Usage:  ruby scripts/test-multi-ds-routing.rb
 require 'json'
+# Ruby 2.6 floor: this test READS a sibling script and eval()s a method out
+# of it, so that script's own require_relative lines never run -- the test
+# must supply the polyfill itself. See shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 DIR = __dir__
 SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
@@ -246,8 +250,59 @@ check(sm9 && sm9['columns'].any? { |c| c['name'] == 'Room Clean' && c['formula']
       'helper: sub-master carries the derived Room Clean column', fails)
 
 puts
+puts 'Part 7 — same-datasource logical-table grain routing'
+grain_plan = {
+  'datasources' => [
+    { 'caption' => 'Employees', 'default' => true, 'worksheets' => ['Employee Count'] },
+    { 'caption' => 'Absence Records View', 'worksheets' => ['Absence Count'] }
+  ]
+}
+grain_elements = [
+  { 'id' => 'el-employees', 'kind' => 'bar-chart', 'name' => 'Employee Count',
+    '_worksheet' => 'Employee Count',
+    'source' => { 'kind' => 'table', 'elementId' => 'master' },
+    'columns' => [
+      { 'id' => 'e-dept', 'name' => 'Department', 'formula' => '[Master/Department]' },
+      { 'id' => 'e-count', 'name' => 'Employee Count', 'formula' => 'CountIf(IsNotNull([Master/Employee Id]))' }
+    ] },
+  { 'id' => 'el-absences', 'kind' => 'bar-chart', 'name' => 'Absence Count',
+    '_worksheet' => 'Absence Count',
+    'source' => { 'kind' => 'table', 'elementId' => 'master' },
+    'columns' => [
+      { 'id' => 'a-location', 'name' => 'Location', 'formula' => '[Master/Location]' },
+      { 'id' => 'a-date', 'name' => 'Date', 'formula' => '[Master/Date]' },
+      { 'id' => 'a-count', 'name' => 'Absence Count', 'formula' => 'CountIf(IsNotNull([Master/Employee Id]))' }
+    ] }
+]
+grain_data = []
+grain_warnings = []
+date_control = {
+  'id' => 'date-filter', 'kind' => 'control', 'name' => 'Date',
+  'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'master' }, 'columnId' => 'm-date' }]
+}
+grain_routed = route_multi_ds!(
+  grain_elements, grain_data, grain_plan, 'master', grain_warnings,
+  controls: [date_control], id2name: { 'm-date' => 'Date' }, mode: 'multi-grain'
+)
+employee_chart, absence_chart = grain_elements
+grain_master = grain_data.find { |element| element['id'].to_s.start_with?('submaster-') }
+check(grain_routed == { 'Absence Count' => 'Absence Records View' },
+      "only the child-fact worksheet is grain-routed (got #{grain_routed.inspect})", fails)
+check(employee_chart.dig('source', 'elementId') == 'master' &&
+      employee_chart['columns'][1]['formula'].include?('[Master/Employee Id]'),
+      'default employee-grain chart stays on the shared master', fails)
+check(absence_chart.dig('source', 'elementId') == grain_master&.dig('id') &&
+      absence_chart['columns'].all? { |column| !column['formula'].include?('[Master/') },
+      'absence chart sources its own sub-master and every formula prefix moves in lock-step', fails)
+check(grain_master && grain_master.dig('source', 'elementId') == '__DM_ELEMENT__:Absence Records View' &&
+      %w[Location Date Employee\ Id].all? { |name| grain_master['columns'].any? { |column| column['name'] == name } },
+      'grain sub-master exposes exactly the child-grain chart dependencies', fails)
+check(date_control['filters'].any? { |target| target.dig('source', 'elementId') == grain_master&.dig('id') },
+      'master-targeted date control fans out to the grain sub-master', fails)
+
+puts
 if fails.empty?
-  puts 'OK — multi-DS auto-routing holds (sub-master, lock-step rewrite, derived calcs, scope cut, no-ops)'
+  puts 'OK — source routing holds (multi-DS + same-datasource grain sub-masters, lock-step rewrite, controls)'
   exit 0
 else
   warn "FAIL — #{fails.size} check(s) failed:"

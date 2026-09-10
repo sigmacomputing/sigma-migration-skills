@@ -16,6 +16,19 @@
 #   Part D — string-pin: the real tableau converter PROVENANCE.json records
 #            the d8a049a in-place patch with the commit/summary/upstream_pr
 #            entry schema and carries the upstream-and-re-vendor task block
+#   Part E — --freshness (staleness-by-age gate, 2026-07-31): a vendored
+#            PROVENANCE.json whose source_commit_date is older than
+#            CONVERTER_STALENESS_DAYS fails naming the module + re-vendor
+#            command; the same fixture with today's date passes; a
+#            source_repo entry missing source_commit/source_commit_date
+#            fails; a stale entry carrying local_patches gets the
+#            do-not-re-vendor-blind note; an in-skill (cognos-shaped, no
+#            source_repo) entry is reported explicitly as not-applicable,
+#            never silently dropped or miscounted as stale; a recent audited
+#            no-module-drift freshness_check passes without a fake re-vendor
+#   Part F — --online soft-pass: with no local converter-source checkout
+#            present, --online exits 0 with a warning rather than failing —
+#            it is a human-driven convenience, never a hard CI requirement
 #
 # All fixture names are synthetic (toolx) — no field-derived identifiers.
 # Runs standalone:  bash tools/test-converter-provenance.sh

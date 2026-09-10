@@ -287,7 +287,8 @@ scenario('verified source kind (line) disagrees with the live readback (bar) -> 
   write_json(dir, 'wb-readback.json',
              'pages' => [{ 'id' => 'page-1', 'name' => 'Overview' }],
              'elements' => [{ 'id' => 'sales-region', 'name' => 'Sales by Region',
-                              'kind' => 'bar-chart', 'visibleAsSource' => true }],
+                              'kind' => 'bar-chart', 'visibleAsSource' => true,
+                              'yAxis' => { 'columnIds' => ['sales'] } }],
              'layout' => '<Page id="page-1"><Element elementId="sales-region"/></Page>')
 end
 

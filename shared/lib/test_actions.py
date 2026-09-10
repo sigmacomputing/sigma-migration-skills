@@ -21,11 +21,11 @@ class SurfacesTest(unittest.TestCase):
 class ButtonTest(unittest.TestCase):
     def test_default_appearance_trigger_and_default_action_id(self):
         el = actions.button(id="btn-log", text="Log note",
-                             effects=[{"effect": "insert-rows", "table": "annotations", "values": {}}])
+                             effects=[{"effect": "insert-rows", "tableElementId": "annotations", "values": {}}])
         self.assertEqual(el, {
             "id": "btn-log", "kind": "button", "text": "Log note", "appearance": "filled",
             "actions": [{"id": "a-btn-log", "trigger": "on-click",
-                         "effects": [{"effect": "insert-rows", "table": "annotations", "values": {}}]}],
+                         "effects": [{"effect": "insert-rows", "tableElementId": "annotations", "values": {}}]}],
         })
 
     def test_custom_appearance_and_trigger_are_honored(self):
@@ -39,8 +39,8 @@ class ButtonTest(unittest.TestCase):
         self.assertEqual(el["actions"][0]["id"], "a-reset")
 
     def test_effects_list_is_passed_through_verbatim(self):
-        effects = [{"effect": "insert-rows", "table": "t", "values": {"c": 1}},
-                   {"effect": "clear-control", "scope": {"type": "page", "page": "pg"}, "usePublishedValue": True}]
+        effects = [{"effect": "insert-rows", "tableElementId": "t", "values": {"c": 1}},
+                   {"effect": "clear-control", "scope": {"type": "page", "pageId": "pg"}, "usePublishedValue": True}]
         el = actions.button(id="btn-log", text="Log note", effects=effects)
         self.assertEqual(el["actions"][0]["effects"], effects)
         self.assertEqual(len(el["actions"][0]["effects"]), 2)
@@ -151,31 +151,31 @@ class InputTableLinkedTest(unittest.TestCase):
 class InsertRowsEffectTest(unittest.TestCase):
     def test_shape_values_passed_through_verbatim(self):
         values = {"an-note": {"type": "control", "control": "NoteCtl"}}
-        self.assertEqual(actions.insert_rows_effect(table="annotations", values=values),
-                          {"effect": "insert-rows", "table": "annotations", "values": values})
+        self.assertEqual(actions.insert_rows_effect(table_element_id="annotations", values=values),
+                          {"effect": "insert-rows", "tableElementId": "annotations", "values": values})
 
     def test_table_required(self):
         with self.assertRaises(ValueError):
-            actions.insert_rows_effect(table="", values={})
+            actions.insert_rows_effect(table_element_id="", values={})
 
     def test_no_go_surface_returns_empty_dict(self):
         surfaces = dict(actions.SURFACES, effects=False)
-        self.assertEqual(actions.insert_rows_effect(table="annotations", values={}, surfaces=surfaces), {})
+        self.assertEqual(actions.insert_rows_effect(table_element_id="annotations", values={}, surfaces=surfaces), {})
 
 
 class ClearControlEffectTest(unittest.TestCase):
     def test_shape(self):
-        self.assertEqual(actions.clear_control_effect(page="pg"),
-                          {"effect": "clear-control", "scope": {"type": "page", "page": "pg"},
+        self.assertEqual(actions.clear_control_effect(page_id="pg"),
+                          {"effect": "clear-control", "scope": {"type": "page", "pageId": "pg"},
                            "usePublishedValue": True})
 
     def test_page_required(self):
         with self.assertRaises(ValueError):
-            actions.clear_control_effect(page="")
+            actions.clear_control_effect(page_id="")
 
     def test_no_go_surface_returns_empty_dict(self):
         surfaces = dict(actions.SURFACES, effects=False)
-        self.assertEqual(actions.clear_control_effect(page="pg", surfaces=surfaces), {})
+        self.assertEqual(actions.clear_control_effect(page_id="pg", surfaces=surfaces), {})
 
 
 class SetControlValueEffectTest(unittest.TestCase):
@@ -205,9 +205,9 @@ class GoldenTest(unittest.TestCase):
 
     def test_helpers_match_actions_golden(self):
         button_effects = [
-            actions.insert_rows_effect(table="annotations",
+            actions.insert_rows_effect(table_element_id="annotations",
                                         values={"an-note": {"type": "control", "control": "NoteCtl"}}),
-            actions.clear_control_effect(page="pg"),
+            actions.clear_control_effect(page_id="pg"),
         ]
         actual = {
             "button": actions.button(id="btn-log", text="Log note", appearance="filled", effects=button_effects),
@@ -217,8 +217,8 @@ class GoldenTest(unittest.TestCase):
             "input_table_linked": actions.input_table_linked(
                 id="targets", from_="fam-pivot", connection_id="write-conn-1", columns=TARGET_COLUMNS),
             "insert_rows_effect": actions.insert_rows_effect(
-                table="annotations", values={"an-note": {"type": "control", "control": "NoteCtl"}}),
-            "clear_control_effect": actions.clear_control_effect(page="pg"),
+                table_element_id="annotations", values={"an-note": {"type": "control", "control": "NoteCtl"}}),
+            "clear_control_effect": actions.clear_control_effect(page_id="pg"),
             "set_control_value_effect": actions.set_control_value_effect(control="RegionF", text="West"),
         }
         self.assertEqual(json.dumps(_sort(actual)), json.dumps(_sort(self.golden)))

@@ -305,24 +305,24 @@
               <expression op='[DATE_KEY]' />
               <expression op='[DATE_KEY]' />
             </expression>
-            <first-end-point object-id='DIM_DATES_1122334455667788990011223344AABB' />
-            <second-end-point is-db-set-unique-key='true' object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' unique-key='true' />
+            <first-end-point is-db-set-unique-key='true' object-id='DIM_DATES_1122334455667788990011223344AABB' unique-key='true' />
+            <second-end-point object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' />
           </relationship>
           <relationship>
             <expression op='='>
               <expression op='[SITE_KEY]' />
               <expression op='[SITE_KEY]' />
             </expression>
-            <first-end-point object-id='DIM_SITES_99887766554433221100AABBCCDDEEFF' />
-            <second-end-point is-db-set-unique-key='true' object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' unique-key='true' />
+            <first-end-point is-db-set-unique-key='true' object-id='DIM_SITES_99887766554433221100AABBCCDDEEFF' unique-key='true' />
+            <second-end-point object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' />
           </relationship>
           <relationship>
             <expression op='='>
               <expression op='[PROVIDER_KEY]' />
               <expression op='[PROVIDER_KEY]' />
             </expression>
-            <first-end-point object-id='DIM_PROVIDERS_ABCDEF01234567890123456789ABCDEF' />
-            <second-end-point is-db-set-unique-key='true' object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' unique-key='true' />
+            <first-end-point is-db-set-unique-key='true' object-id='DIM_PROVIDERS_ABCDEF01234567890123456789ABCDEF' unique-key='true' />
+            <second-end-point object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' />
           </relationship>
           <relationship>
             <expression op='='>
@@ -330,7 +330,7 @@
               <expression op='[SITE_KEY]' />
             </expression>
             <first-end-point object-id='ENTITLEMENTS_FEDCBA9876543210FEDCBA9876543210' />
-            <second-end-point is-db-set-unique-key='true' object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' unique-key='true' />
+            <second-end-point object-id='FACT_VISITS_AA11BB22CC33DD44EE55FF6677889900' />
           </relationship>
         </relationships>
       </object-graph>

@@ -298,12 +298,16 @@ def widget_fields(w):
             jaql = it.get("jaql", {})
             if not jaql:
                 continue
+            warning_id = None
             try:
                 kind, formula = J.classify(jaql)
             except J.Unsupported as e:
                 kind, formula = "flagged", f"FLAG: {e}"
+                warning_id = e.warning_id
             out.append({"panel": p["name"], "kind": kind, "formula": formula,
-                        "title": jaql.get("title"), "topn": (J.top_n(jaql) if kind=="dimension" else None)})
+                        "title": jaql.get("title"),
+                        "warning_id": warning_id,
+                        "topn": (J.top_n(jaql) if kind=="dimension" else None)})
     return out
 
 def classify_dashboard(dashboards):
@@ -317,7 +321,13 @@ def classify_dashboard(dashboards):
                 tag = "MANUAL" if tag != "UNHANDLED" else "UNHANDLED"
             rows.append({"title": w.get("title"), "sisense_type": wt,
                          "sigma_element": target, "tag": tag,
-                         "field_flags": [f["formula"] for f in flags]})
+                         # Preserve the legacy string list consumed by scan_gaps,
+                         # and expose stable ids structurally for automation.
+                         "field_flags": [f["formula"] for f in flags],
+                         "field_flag_details": [
+                             {"warning_id": f["warning_id"], "reason": f["formula"]}
+                             for f in flags
+                         ]})
     return rows
 
 # ---------- dashboard -> workbook (generic emit) ----------
@@ -662,7 +672,10 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
                     try:
                         k, formula = J.classify(jaql)
                     except J.Unsupported as e:
-                        flags.append({"widget": w.get("title"), "field": jaql.get("title"), "reason": str(e)})
+                        flags.append({"widget": w.get("title"),
+                                      "field": jaql.get("title"),
+                                      "warning_id": e.warning_id,
+                                      "reason": str(e)})
                         ok = False
                         continue
                     # register referenced columns into Master
@@ -724,7 +737,7 @@ def convert_dashboard(dashboards, model, dm_info, dm_metrics=None):
     dashboard_colors.discard(None)
     if len(dashboard_colors) == 1:
         code_rep.set_theme(doc, overrides={
-            "colorOverrides": {"backgroundCanvas": next(iter(dashboard_colors))}
+            "colorOverrides": [{"name": "backgroundCanvas", "color": next(iter(dashboard_colors))}]
         })
     elif len(dashboard_colors) > 1:
         flags.append({"feature": "styling",
@@ -807,9 +820,9 @@ def _emit_viz(kind, title, dims, meas, widget=None, flags=None,
         if kind == "waterfall-chart":
             e["waterfallShape"] = {"calculation": "sum",
                                    "connectorLine": "shown"}
-    elif kind == "pie-chart":  # this org's API uses pie-chart with {id} refs
-        e["value"] = {"id": meas_ids[0]} if meas_ids else None
-        e["color"] = {"id": dim_ids[0]} if dim_ids else None
+    elif kind == "pie-chart":
+        e["value"] = {"columnId": meas_ids[0]} if meas_ids else None
+        e["color"] = {"columnId": dim_ids[0]} if dim_ids else None
     elif kind == "scatter-chart":
         e["xAxis"] = {"columnId": meas_ids[0]} if meas_ids else None
         e["yAxis"] = {"columnIds": meas_ids[1:2]}

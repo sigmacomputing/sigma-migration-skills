@@ -2,7 +2,7 @@
   "source": "in-skill converter/cli.ts (cli.ts + cognos-report.ts + cognos.ts + metric-binding.ts + sigma-ids.ts + workbook-features.ts)",
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "cli.mjs",
-  "source_sha256": "3748f86edc650e31f4f4ccc26e2ea377eca6a9021ba9384faebf1d9a77d95d9f",
+  "source_sha256": "a28e9691fbc8b89fbe5ab837d32d830878675f02b7a664b4fcde315d4a13e53c",
   "sources": [
     "cli.ts",
     "cognos-report.ts",
@@ -11,6 +11,5 @@
     "sigma-ids.ts",
     "workbook-features.ts"
   ],
-  "note": "cli.mjs is GENERATED from converter/*.ts \u2014 do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb.",
-  "bundle_sha256": "7224f2c95267195ccf6846a02a76c637d169bd9116bf3fab5770827b763f4b9f"
+  "note": "cli.mjs is GENERATED from converter/*.ts — do not hand-edit. After editing any converter/*.ts, re-run tools/vendor-converters.sh <converter-source> cognos (rebuilds cli.mjs + refreshes source_sha256). CI gate: tools/check-cognos-bundle.rb."
 }

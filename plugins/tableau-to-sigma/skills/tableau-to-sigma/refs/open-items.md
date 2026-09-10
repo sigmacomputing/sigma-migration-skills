@@ -1,0 +1,22 @@
+# Tableau → Sigma open items
+
+This is the durable converter and migration-surface ledger. Update a row only
+when the linked evidence changes; workbook-specific findings belong in the
+workdir's `formula-audit.json`, `source-object-census.json`, and
+`MIGRATION_REPORT.md`.
+
+| ID | Status | Evidence | Description |
+|---|---|---|---|
+| TAB-PROV-001 | open | [PROVENANCE upstream and re-vendor tasks, lines 183–196](../converter/PROVENANCE.json#L183-L196) | Port every still-open local converter patch upstream as a reviewable change, record its upstream PR, then re-vendor and prove corpus parity before retiring the patch entry. |
+| TAB-PROV-002 | blocked | [PROVENANCE calc-hotfix citation, lines 23–33](../converter/PROVENANCE.json#L23-L33); [TASK 5, line 190](../converter/PROVENANCE.json#L190) | The recorded upstream PR and commit for the calc-translation hotfix do not resolve in current upstream history. Retirement is blocked until the landing commit is confirmed or the citation is corrected. |
+| TAB-PROV-003 | resolved | [PROVENANCE superseded patch record, lines 8–22](../converter/PROVENANCE.json#L8-L22) | The v5.5/v5.6 field fixes were confirmed folded upstream. Keep this resolved record first in `local_patches` because the provenance tripwire pins its position and commit. |
+| TAB-PROV-004 | open | [PROVENANCE regeneration guard, line 188](../converter/PROVENANCE.json#L188) | Remove or repair the stale skill-local converter regenerator before it can rewrite provenance without the open local-patch ledger; until then refresh only through `tools/vendor-converters.sh`. |
+| TAB-REL-001 | open | [PROVENANCE relationship-name collision limitation, lines 35–50](../converter/PROVENANCE.json#L35-L50) | Distinct same-element columns that normalize to one `colIdMap` key can make name-inferred relationships select the wrong real column without a collision signal. Add collision-safe indexing before widening inference. |
+| TAB-FORMULA-001 | open | [Coverage matrix §9 unresolved table calculations](./coverage-matrix.md#9-window--table-calculations) | Unsupported, embedded, or context-sensitive table calculations still require an explicit manual translation or terminal unresolved disposition. Every detected formula must appear in the per-run formula audit; converter warnings alone are not completion evidence. |
+| TAB-FORMULA-002 | open | [Converter unmapped-function warning, lines 3207–3222](../converter/tableau.mjs#L3207-L3222) | Unmapped Tableau functions pass through textually and can fail only at query time. Rewrite and validate them, or account for each as needs-review or skipped in the final report. |
+| TAB-SET-001 | open | [Coverage matrix §2 set-membership gap](./coverage-matrix.md#2-logical--conditional--null) | Tableau `IN [set]` membership has no automatic rewrite; use an equivalent boolean expression and verify member semantics before resolving the source set. |
+| TAB-SET-002 | open | [Coverage matrix §10 sets and set follow-ups](./coverage-matrix.md#10-sets-parameters-bins) | Member and Top-N sets are generally emitted, but null-member and `except` edge cases remain unproven. Keep affected sets open until value-level parity resolves them. |
+| TAB-BLEND-001 | open | [Converter blend refusal and partial-translation warnings, lines 4201–4378](../converter/tableau.mjs#L4201-L4378) | Blends can skip a secondary lacking a warehouse table, column mapping, or measures; incomplete links and unsupported cross-source calculations also need manual repair. Account for every primary, secondary, link, and cross-source calculation before completion. |
+| TAB-VISUAL-001 | blocked | [Model-fit §1 vision requirement](./model-fit.md#1-vision-is-a-hard-requirement-for-pixel-fidelity-claims) | Pixel-fidelity verification is blocked without readable source and Sigma screenshots. A text-only run must record `not-executable` and cannot claim visual parity. |
+| TAB-SOURCE-001 | open | [Coverage matrix §12 extracts and non-warehouse sources](./coverage-matrix.md#12-sources-extracts-viz) | Extract-only fields, extract filters, and non-warehouse sources are not converted by the data-model converter. Land or repoint them, or record an explicit terminal disposition for each source object. |
+| TAB-VIZ-001 | accepted | [Coverage matrix §12 visualization boundary](./coverage-matrix.md#12-sources-extracts-viz) | The converter intentionally emits the data model rather than Tableau worksheet and dashboard visuals. The skill's workbook, layout, screenshot, and parity phases own that surface. |

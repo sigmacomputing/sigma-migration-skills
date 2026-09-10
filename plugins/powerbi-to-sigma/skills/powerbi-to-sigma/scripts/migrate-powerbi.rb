@@ -89,6 +89,9 @@ require 'pbi_timeintel_route' # time-intel fallback-router fact-provenance guard
 require 'pbi_native_query' # preserve Value.NativeQuery/Query= SQL around the pinned converter
 require 'pbi_composite' # remote-model detection; NativeQuery is warehouse SQL
 require 'materialization_schedules' # opt-in DM element schedule lifecycle
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 # Converter resolution (issue #227). The pinned VENDORED bundle is the DEFAULT so a
 # developer machine and a customer machine produce identical output for the same
