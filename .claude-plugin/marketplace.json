@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace-manifest.json",
   "name": "sigma-migration-skills",
   "description": "Skills for migrating BI tools (Tableau, Power BI, Qlik, ThoughtSpot, QuickSight, Looker, Cognos, MicroStrategy) to Sigma \u2014 converters + assessments, validated end-to-end with warehouse parity. Install the sigma-authoring plugin alongside any converter: it carries the canonical Sigma spec the converters defer to.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "owner": {
     "name": "Sigma Computing"
   },
