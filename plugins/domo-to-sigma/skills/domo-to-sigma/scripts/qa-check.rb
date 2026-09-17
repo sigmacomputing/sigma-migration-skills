@@ -14,9 +14,28 @@ require 'optparse'
 require_relative 'lib/domo_sigma_util'
 include DomoSigma
 
+QA_AGGREGATE_FORMULA = /\b(?:Sum|Avg|Count|CountDistinct|Min|Max|Median|StdDev\w*|Var\w*)\s*\(/i
+
 # Pull the column display name out of a [Master/Name] ref inside a formula.
 def refs_in(formula)
   formula.to_s.scan(/\[Master\/([^\]]+)\]/).flatten
+end
+
+def check_filter_type_audit(audit)
+  errors = []
+  warns = []
+  Array(audit && audit['filters']).each do |entry|
+    label = "#{entry['cardId']}/#{entry['column']}"
+    if entry['status'] == 'error'
+      errors << "filter #{label} failed source-type coercion: #{entry['error']}"
+    elsif %w[LONG DECIMAL DOUBLE INTEGER NUMBER].include?(entry['sourceType'].to_s.upcase) &&
+          Array(entry['outputTypes']).include?('String')
+      errors << "filter #{label} targets numeric #{entry['sourceType']} but still emits string values"
+    elsif entry['status'] == 'untyped'
+      warns << "filter #{label} has no source type; literal typing was not verified"
+    end
+  end
+  [errors, warns]
 end
 
 def check(spec)
@@ -48,6 +67,17 @@ def check(spec)
         end
         # #7: a chart must not be a table carrying dataBars.
         errors << "[#{pg['name']}] chart '#{e['name']}' has dataBars — a bar chart must be a bar-chart element, not a table." if e['conditionalFormats']
+        color = e['color']
+        if color.is_a?(Hash) && color['by'] == 'category'
+          color_id = color['column'] || color['columnId']
+          color_column = Array(e['columns']).find { |column| column['id'] == color_id }
+          if color_column && color_column['formula'].to_s.match?(QA_AGGREGATE_FORMULA)
+            errors << "[#{pg['name']}] chart '#{e['name']}' uses aggregate " \
+                      "'#{color_column['name'] || color_id}' as a category color. This can create " \
+                      'one series per numeric result and overload the browser; classify it as a ' \
+                      'measure or omit the color channel.'
+          end
+        end
       when 'table'
         # #5: dimension (non-aggregated) columns should allow text wrap.
         dim_cols = (e['columns'] || []).reject { |c| c['formula'].to_s =~ /\A\s*(Sum|Avg|Count|CountDistinct|Min|Max)\s*\(/i }
@@ -76,6 +106,12 @@ if $PROGRAM_NAME == __FILE__
   path = opts[:in] || File.expand_path('../discovery/chart-specs.json', __dir__)
   spec = JSON.parse(File.read(path))
   errors, warns = check(spec)
+  audit_path = File.join(File.dirname(path), 'filter-type-audit.json')
+  if File.exist?(audit_path)
+    audit_errors, audit_warns = check_filter_type_audit(JSON.parse(File.read(audit_path)))
+    errors.concat(audit_errors)
+    warns.concat(audit_warns)
+  end
   warns.each  { |w| warn "  ⚠ #{w}" }
   errors.each { |e| warn "  ✗ #{e}" }
   if errors.empty?

@@ -21,7 +21,13 @@
    },
    "_defaultCountSuspect": false
   },
-  "filters": []
+  "filters": [
+   {
+    "column": "technical_error_type",
+    "operator": "NOT_IN",
+    "values": ["-3"]
+   }
+  ]
  },
  {
   "id": "card-sales-by-region",
@@ -57,6 +63,30 @@
    },
    {
     "column": "segment"
+   }
+  ],
+  "filters": []
+ },
+ {
+  "id": "card-region-label",
+  "title": "Regional Sales Label",
+  "datasetId": "ds-order-fact",
+  "chartType": "badge_table",
+  "sigmaKindHint": "table",
+  "groupBy": [
+   "region_label"
+  ],
+  "columns": [
+   {
+    "column": "region_label",
+    "beastModeId": "bm-card-region-label",
+    "_isCalc": true,
+    "mapping": "ITEM"
+   },
+   {
+    "column": "sales_amount",
+    "aggregation": "SUM",
+    "mapping": "VALUE"
    }
   ],
   "filters": []
