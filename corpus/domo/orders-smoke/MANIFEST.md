@@ -2,13 +2,15 @@
 
 Synthetic Domo discovery fixture (no live Domo instance, no customer data): two
 DataSets — `Order Fact` (5 columns) and `Customer Dim` (3 columns) — three
-cards (a KPI, a bar chart, a table) that reference both DataSets, one
-dataset-scoped PROJECTION Beast Mode (`order_year`), and a hand-filled
+cards that reference both DataSets, four dataset-scoped Beast Modes
+(projection, aggregate, window, LOD), two card-local projections (one used,
+one unused), a numeric
+`NOT_IN ["-3"]` card filter, and a hand-filled
 `dataset-map.json` pointing both DataSets at a synthetic `DEMO_DB.DEMO`
 warehouse schema. Exercises `build-dm.rb`'s only path: Domo DataSets are flat/
 materialized tables (no relational model), so each used DataSet becomes one
 Sigma warehouse-table element with row-level (PROJECTION) Beast Modes folded
-in as DM calc columns.
+in as DM calc columns while aggregate formulas become metrics.
 
 ## Artifacts
 
@@ -16,8 +18,10 @@ in as DM calc columns.
 |---|---|
 | `fixtures/datasets.json` | 2 DataSets: `Order Fact` (order_id, order_date, region, sales_amount, customer_id) + `Customer Dim` (customer_id, customer_name, segment) |
 | `fixtures/cards.json` | 3 cards (KPI `badge_singlevalue`, bar `badge_vert_bar`, table `badge_table`) — determine which DataSets are "used" |
-| `fixtures/formulas.json` | 1 PROJECTION Beast Mode (`order_year`, dataset-scoped on Order Fact) → DM calc column |
+| `fixtures/beast-modes.json` | Source inventory covering dataset classes plus used/unused card-local formulas |
+| `fixtures/formulas.json` | Translated formulas: projection → calc column, aggregate → metric, window/LOD → named deferrals, card-local → workbook/not-used |
 | `fixtures/dataset-map.json` | FLAT per-dataset warehouse map: `{connectionId, database, schema, table, name}` (no `path` array) |
+| `checks.sh` | Executes build/accounting/workbook paths and asserts numeric `-3` filter typing |
 
 ## Features exercised
 
@@ -28,6 +32,10 @@ in as DM calc columns.
 - `DATE` column → `format: {kind: datetime, formatString}` (Sigma keys on
   **kind**; `{type: date}` is REJECTED — live-validated 2026-07-30)
 - dataset-scoped PROJECTION Beast Mode → DM calc column (`Order Year`)
+- dataset-scoped aggregate Beast Mode → DM metric (`Total Sales Beast Mode`)
+- window/LOD formulas receive named accounting deferrals
+- referenced card-local projection → inline workbook formula; unused card-local formula → explicit `not-used`
+- numeric Domo `NOT_IN ["-3"]` → Sigma list filter `values: [-3]`
 - unmapped-dataset placeholder path is NOT exercised here — both DataSets are
   present in `dataset-map.json`
 - no `dm-match.json` → fresh DM build (not the reuse short-circuit); no
@@ -58,15 +66,17 @@ rewrites the random client-side ids to stable positional tokens.
   "artifacts": [
     {"path": "fixtures/datasets.json", "format": "json"},
     {"path": "fixtures/cards.json", "format": "json"},
+    {"path": "fixtures/beast-modes.json", "format": "json"},
     {"path": "fixtures/formulas.json", "format": "json"},
-    {"path": "fixtures/dataset-map.json", "format": "json"}
+    {"path": "fixtures/dataset-map.json", "format": "json"},
+    {"path": "checks.sh", "format": "text"}
   ],
   "goldens": {
     "data-model.json": {
       "pages": 1,
       "elements": 2,
-      "columns": 9,
-      "metrics": 0,
+      "columns": 10,
+      "metrics": 1,
       "relationships": 0,
       "warnings": 0,
       "element_names": ["ORDER_FACT", "CUSTOMER_DIM"]

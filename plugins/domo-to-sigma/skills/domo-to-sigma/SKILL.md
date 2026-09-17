@@ -41,8 +41,10 @@ user-invocable: true
 - `refs/card-to-element.md` — **Domo card → Sigma element map. Read before Phase 5.** Rule 0 (Summary Number → KPI, never a table) is the #1 fidelity fix; also covers filtering + no-liberties discipline.
 <!-- /mandatory-pre-read -->
 
-Phase-scoped (read at its phase, not upfront): at **Phase 5e**, read
-`refs/layout-visual-qa.md` — the visual QA gate — before grading the layout.
+Phase-scoped (read at its phase, not upfront): at **Phase 5**, read
+`refs/chart-safety.md` for period comparisons and category-cardinality guards;
+at **Phase 5e**, read `refs/layout-visual-qa.md` — the visual QA gate — before
+grading the layout.
 
 General workbook-spec and data-model-spec authoring idioms (grid layout
 mechanics, chart/control shapes, DM column/relationship shapes) are deferred to
@@ -127,7 +129,8 @@ grid is only 6 wide, so widths scale ×4).
 | `scripts/convert-beast-modes.rb` | 2 | Beast Mode → Sigma: Domo-specific normalize + classify + POST-lint around the vendored `converter/sql.mjs` (`--convert`) |
 | `scripts/find-or-pick-dm.rb` *(vendored)* | 2.5 | Score existing Sigma data models against a signature and recommend reuse (non-destructive) |
 | `scripts/preflight-columns.rb` | 2.9 | Check every mapped dataset's Domo columns against the REAL warehouse table schema (live Sigma catalog lookup); reports gaps + auto-suggests (never auto-applies) a derivation formula for a known pattern |
-| `scripts/build-dm.rb` | 3 | DataSet schema + projection calc columns → Sigma DM spec (clean display names); honors a Phase-2.5 reuse decision |
+| `scripts/build-dm.rb` | 3 | DataSet schema + projection calc columns + aggregate metrics → Sigma DM spec; writes Beast Mode dispositions and refuses unproven reuse |
+| `scripts/assert-beast-modes-accounted.rb` | 3–5 | Reconcile every dataset/card Beast Mode to a DM column, metric, workbook formula, named deferral, or explicit not-used status |
 | `post-and-readback.rb` *(vendored)* | 4 | POST DM/WB + capture server element IDs / column labels |
 | `scripts/derive-presentation-overrides.rb` | 5 (pre) | Source facts (discovery + early Domo card-data) → **layout-safe** styling sidecars (`kpi-format-overrides.json`, `chart-axis-overrides.json`, `category-order-overrides.json`) so Domo-faithful compact KPIs / axes / category order are automatic, not hand-authored. Preserves any operator-authored sidecar already on disk. |
 | `scripts/build-workbook.rb` | 5 | Cards → Sigma chart/table/KPI element specs (`chart-specs.json`) + controls |
@@ -236,7 +239,10 @@ Run `ruby scripts/domo-discover.rb --probe` to detect the tier.
 - Page layout (collections + card geometry)
 
 Outputs `discovery/datasets.json`, `discovery/cards.json`, `discovery/pages.json`,
-`discovery/beast-modes.json`.
+`discovery/beast-modes.json`, and `discovery/beast-mode-discovery.json`.
+The discovery ledger reconciles every formula id reported by each used dataset
+to the emitted inventory and hard-fails missing SQL/template bodies; API errors
+are never reclassified as an empty formula set.
 
 ---
 
@@ -350,6 +356,8 @@ day-numbering mismatch (MySQL vs. Sigma disagree — override to
 `Mod(Weekday([col])+5,7)`), flag aggregate `CEILING`/`FLOOR`, reject
 unsupported `SQRT`/`CONVERT_TZ`).
 Outputs `discovery/formulas.json` (Beast Mode id → Sigma formula).
+Dataset/card provenance and output type survive every step; a SHA-256 source
+manifest invalidates stale `formulas.json` when discovery changes.
 
 ---
 
@@ -376,9 +384,14 @@ metrics before committing to reuse.
 
 ## Phase 3 — Data model
 
-`ruby scripts/build-dm.rb` → one DM element per DataSet (flat table) + calc
-columns from translated Beast Modes. No star schema unless a DataFlow join is in
-scope (out of scope for v1 — DataSets are treated as opaque source tables).
+`ruby scripts/build-dm.rb` → one DM element per DataSet (flat table), projection
+Beast Modes as calculated columns, and aggregate Beast Modes as first-class
+Sigma metrics. Window/LOD and unreliable formulas receive explicit blocked or
+deferred dispositions. `assert-beast-modes-accounted.rb` runs before POST and
+again after workbook build, so an extracted formula represented nowhere cannot
+silently pass. Unreferenced card-local helpers are recorded as `not-used` rather
+than counted as migrated. No star schema unless a DataFlow join is in scope (out of
+scope for v1 — DataSets are treated as opaque source tables).
 
 **Pre-flight (Phase 2.9, runs automatically via `migrate-domo.rb`):**
 `ruby scripts/preflight-columns.rb` checks every mapped dataset's Domo columns against the
@@ -465,6 +478,9 @@ formatting that the chartType string alone misses.
 
 Then translate the rest per the ref:
 - Domo chart type → Sigma chart kind (full table in `refs/card-to-element.md`)
+- Domo period-over-period `dateRangeFilter.periods` → explicit current/prior
+  Sigma measures over aligned hidden helpers (including multiple prior periods);
+  never ship an unresolved POP card as a misleading one-series chart
 - **KPI value guard:** a KPI's value is the summary number's aggregate of the
   authored **measure** (with a source prefix, e.g. `Sum([Master/Sales Amount])`) —
   **never `Count`/`CountDistinct` of the DM primary/row-key column** (that's Domo's
@@ -477,6 +493,10 @@ Then translate the rest per the ref:
   (port **both** levels — see the ref's Filtering fidelity section)
 - **No liberties:** one card → one element; reproduce labels/formats/layout; every
   unsupported/dropped item → a Phase-5e warning, never a silent substitution
+- **Category-color guard:** aggregate Beast Modes are never categorical color
+  splits, and source-observed `SERIES` cardinality above 100 suppresses the
+  color channel with a measured warning instead of creating thousands of
+  browser-heavy series
 
 **Workbook-as-code release contract:** read
 `refs/workbook-code-release-gaps.md` and the machine-readable
