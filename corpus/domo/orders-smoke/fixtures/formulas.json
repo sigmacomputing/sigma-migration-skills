@@ -5,6 +5,58 @@
     "class": "projection",
     "scope": "dataset",
     "dataSourceId": "ds-order-fact",
-    "sigmaFormula": "Year([Order Date])"
+    "sigmaFormula": "Year([Order Date])",
+    "converted": true,
+    "lintErrors": []
+  },
+  {
+    "id": "bm-total-sales",
+    "name": "total_sales_beast_mode",
+    "class": "aggregate",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sigmaFormula": "Sum([Sales Amount])",
+    "converted": true,
+    "lintErrors": []
+  },
+  {
+    "id": "bm-running-sales",
+    "name": "running_sales",
+    "class": "window",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sigmaFormula": "CumulativeSum([Sales Amount])",
+    "converted": true,
+    "lintErrors": []
+  },
+  {
+    "id": "bm-regional-sales",
+    "name": "regional_sales_lod",
+    "class": "lod",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sigmaFormula": "Sum([Sales Amount])",
+    "converted": true,
+    "lintErrors": []
+  },
+  {
+    "id": "bm-card-region-label",
+    "name": "region_label",
+    "class": "projection",
+    "scope": "card",
+    "cardId": "card-region-label",
+    "sigmaFormula": "[Region] & \" Region\"",
+    "converted": true,
+    "lintErrors": []
+  },
+  {
+    "id": "bm-card-unused",
+    "name": "unused_card_helper",
+    "class": "projection",
+    "scope": "card",
+    "cardId": "card-region-label",
+    "sigmaFormula": "[Region] & \" Unused\"",
+    "converted": true,
+    "lintErrors": []
   }
 ]

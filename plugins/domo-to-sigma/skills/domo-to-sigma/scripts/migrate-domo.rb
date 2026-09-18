@@ -75,6 +75,7 @@ require 'json'
 require 'fileutils'
 require 'optparse'
 require 'open3'
+require 'digest'
 require_relative 'lib/run_state'
 require_relative 'lib/domo_sigma_util'
 require_relative 'lib/zone_census'
@@ -519,10 +520,15 @@ def phase_convert_beast_modes!(opts)
     log 'beast-modes.json is empty — nothing to translate'
   end
   formulas_path = File.join(DISCOVERY, 'formulas.json')
-  if !opts[:force] && File.exist?(formulas_path)
+  meta_path = File.join(DISCOVERY, 'formulas.meta.json')
+  meta = JSON.parse(File.read(meta_path)) rescue {}
+  current_sha = Digest::SHA256.file(beast_path).hexdigest
+  if !opts[:force] && File.exist?(formulas_path) && meta['sourceSha256'] == current_sha
     log 'discovery/formulas.json already present — skip (idempotent; pass --force to retranslate)'
     skip_phase!('convert-beast-modes', 'already translated (idempotent skip)')
     return
+  elsif !opts[:force] && File.exist?(formulas_path)
+    log 'discovery/formulas.json is stale or lacks source provenance — rebuilding from beast-modes.json'
   end
 
   ok, code, _out = run_script!('convert-beast-modes.rb')
@@ -955,6 +961,17 @@ def run_live!(opts)
     done_phase!('build-dm')
   end
 
+  hr('beast-mode-accounting (local data-model spec)')
+  ok, code, _out = run_script!(
+    'assert-beast-modes-accounted.rb',
+    '--discovery', DISCOVERY,
+    '--stage', 'data-model',
+    '--out', File.join(DISCOVERY, 'beast-mode-accounting.json'),
+  )
+  fail_phase!('beast-mode-accounting',
+              "assert-beast-modes-accounted.rb exited #{code} before data-model POST") unless ok
+  done_phase!('beast-mode-accounting')
+
   hr('post-and-readback (data-model)')
   dm_ids_path = File.join(OUT, 'dm-ids.json')
   if !opts[:force] && File.exist?(dm_ids_path)
@@ -977,8 +994,35 @@ def run_live!(opts)
     done_phase!('post-and-readback-dm')
   end
 
+  dm_ids = JSON.parse(File.read(dm_ids_path))
+  live_dm_id = dm_ids['dataModelId']
+  fail_phase!('beast-mode-accounting-readback', 'dm-ids.json has no dataModelId') unless live_dm_id
+  hr('beast-mode-accounting (live readback)')
+  ok, code, _out = run_script!(
+    'assert-beast-modes-accounted.rb',
+    '--discovery', DISCOVERY,
+    '--stage', 'data-model',
+    '--data-model-id', live_dm_id,
+    '--out', File.join(DISCOVERY, 'beast-mode-accounting.json'),
+  )
+  fail_phase!('beast-mode-accounting-readback',
+              "assert-beast-modes-accounted.rb exited #{code} after data-model POST") unless ok
+  done_phase!('beast-mode-accounting-readback')
+
   phase_derive_presentation!(opts, collect_expected: !tier_b)
   phase_build_workbook!(opts)
+
+  hr('beast-mode-accounting (complete workbook)')
+  ok, code, _out = run_script!(
+    'assert-beast-modes-accounted.rb',
+    '--discovery', DISCOVERY,
+    '--stage', 'workbook',
+    '--data-model-id', live_dm_id,
+    '--out', File.join(DISCOVERY, 'beast-mode-accounting.json'),
+  )
+  fail_phase!('beast-mode-accounting-workbook',
+              "assert-beast-modes-accounted.rb exited #{code} after workbook build") unless ok
+  done_phase!('beast-mode-accounting-workbook')
 
   hr('build-workbook-spec')
   spec_path = File.join(OUT, 'workbook-spec.json')
