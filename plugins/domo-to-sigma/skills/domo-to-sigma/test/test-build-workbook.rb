@@ -3,6 +3,7 @@
 #   ruby test/test-build-workbook.rb
 
 require_relative '../scripts/build-workbook'
+require_relative '../scripts/qa-check'
 require 'tmpdir'
 
 # Temporarily override a top-level constant for the duration of a block, then
@@ -745,6 +746,7 @@ puts "== B4: a filter on a translated (even mis-classified) Beast Mode inlines i
 # "calculation_ea1150fd-..." ("State"), values [""].
 $warnings = []
 $companion_elements = []
+$beast_mode_usage = []
 $translated_bms = {
   'calculation_ea1150fd' => { 'id' => 'calculation_ea1150fd', 'name' => 'State', 'class' => 'aggregate',
                               'sigmaFormula' => 'If(Equals([Account.BillingState], "CA"), "California", "Other")' },
@@ -752,7 +754,8 @@ $translated_bms = {
 calc_filter_card = build_element({
   'id' => '1267439679', 'title' => 'PDP Example', 'chartType' => 'badge_map', 'sigmaKindHint' => nil,
   'columns' => [ { 'column' => 'State' }, { 'column' => 'Name' } ],
-  'filters' => [ { 'column' => 'calculation_ea1150fd', 'operator' => 'LEGACY', 'values' => [''] } ],
+  'filters' => [ { 'column' => 'State', 'beastModeId' => 'calculation_ea1150fd',
+                   '_isCalc' => true, 'operator' => 'LEGACY', 'values' => [''] } ],
 }, {})
 ok(!calc_filter_card.nil?, 'card still builds (State classifies as a us-state region-map geography)')
 flt3 = calc_filter_card['filters'].find { |f| f['values'] == [''] }
@@ -761,6 +764,8 @@ calc_col = calc_filter_card['columns'].find { |c| c['id'] == flt3['columnId'] }
 eq(calc_col['name'], 'State', 'the new column takes the Beast Mode\'s real name, not the raw calc id')
 eq(calc_col['formula'], 'If(Equals([Master/Account Billing State], "CA"), "California", "Other")',
    'the Beast Mode formula is INLINED, masterized, and display_name-normalized (the master column is "Account Billing State", not the raw dotted Domo name)')
+eq($beast_mode_usage.first['id'], 'calculation_ea1150fd',
+   'filter usage is recorded by stable id even after discovery resolves its display name')
 $translated_bms = nil
 
 puts "== B4: a filter on an UNTRANSLATED Beast Mode is dropped LOUDLY, mirroring " \
@@ -771,12 +776,13 @@ $translated_bms = {}
 untranslated = build_element({
   'id' => 'c41', 'title' => 'US Leads', 'chartType' => 'badge_map', 'sigmaKindHint' => nil,
   'columns' => [ { 'column' => 'Account.BillingState' }, { 'column' => 'Name' } ],
-  'filters' => [ { 'column' => 'calculation_deadbeef', 'operator' => 'LEGACY', 'values' => ['x'] } ],
+  'filters' => [ { 'column' => 'Missing Calc', 'beastModeId' => 'calculation_deadbeef',
+                   '_isCalc' => true, 'operator' => 'LEGACY', 'values' => ['x'] } ],
 }, {})
 ok(!untranslated.nil?, 'card still builds')
 ok(!untranslated.key?('filters') || untranslated['filters'].none? { |f| f['values'] == ['x'] },
    'the untranslated calc filter was never emitted')
-ok($warnings.any? { |w| w['warning'].include?("card filter on 'calculation_deadbeef' dropped") &&
+ok($warnings.any? { |w| w['warning'].include?("card filter on 'Missing Calc' dropped") &&
                         w['warning'].include?('Beast Mode did not translate') },
    'dropped loudly, naming the reason (never a silent loss)')
 $translated_bms = nil
@@ -1043,6 +1049,243 @@ ok(Array(overlay.dig('yAxis', 'columnIds')).any? {
    },
    'benchmark is bound to a visible series channel')
 
+puts "== projection Beast Modes resolve by scope and emitted DM name =="
+$beast_mode_usage = []
+$translated_bms = {
+  'calc-card-projection' => {
+    'id' => 'calc-card-projection', 'name' => 'Technical Label',
+    'class' => 'projection', 'scope' => 'card',
+    'sigmaFormula' => '[Technical Error Type] & " / " & [Video Queue]',
+  },
+  'calc-dataset-projection' => {
+    'id' => 'calc-dataset-projection', 'name' => 'Project Id',
+    'sigmaName' => 'Project Id (Beast Mode)',
+    'class' => 'projection', 'scope' => 'dataset',
+    'sigmaFormula' => '[Project Id] & " label"',
+  },
+}
+card_projection = dim_col({
+  'column' => 'Technical Label', 'beastModeId' => 'calc-card-projection', '_isCalc' => true,
+})
+eq(card_projection['formula'], '[Master/Technical Error Type] & " / " & [Master/Video Queue]',
+   'card-local projection is inlined at workbook row scope')
+dataset_projection = dim_col({
+  'column' => 'Project Id', 'beastModeId' => 'calc-dataset-projection', '_isCalc' => true,
+})
+eq(dataset_projection['formula'], '[Master/Project Id (Beast Mode)]',
+   'dataset projection binds the collision-safe name emitted by build-dm')
+eq($beast_mode_usage.map { |usage| usage['id'] }.sort,
+   %w[calc-card-projection calc-dataset-projection],
+   'workbook usage is recorded by stable formula id for accounting')
+$translated_bms = nil
+
+puts "== duplicate Beast Mode names require stable-id lookup =="
+Dir.mktmpdir do |dir|
+  File.write(File.join(dir, 'formulas.json'), JSON.generate([
+    { 'id' => 'duplicate-a', 'name' => 'Duplicate', 'scope' => 'card',
+      'class' => 'projection', 'sigmaFormula' => '[A]' },
+    { 'id' => 'duplicate-b', 'name' => 'Duplicate', 'scope' => 'card',
+      'class' => 'projection', 'sigmaFormula' => '[B]' },
+  ]))
+  stub_const(:OUT, dir) do
+    $translated_bms = nil
+    index = translated_beast_modes
+    ok(index.key?('duplicate-a') && index.key?('duplicate-b'),
+       'both duplicate-name formulas remain addressable by id')
+    ok(!index.key?('Duplicate'), 'ambiguous display name is not indexed to an arbitrary formula')
+    eq($ambiguous_beast_mode_names, ['Duplicate'], 'ambiguous name is recorded for accounting')
+  end
+end
+$translated_bms = nil
+
+puts "== field regression: aggregate Beast Mode SERIES is a measure, never 2,013 color categories =="
+$translated_bms = {
+  'calc-ap-rate' => {
+    'id' => 'calc-ap-rate', 'name' => 'AP %', 'class' => 'aggregate',
+    'sigmaFormula' => 'Sum([On Auto Pay]) / Sum([Total Ledgers])',
+  },
+}
+auto_pay = build_element({
+  'id' => 'auto-pay-month', 'title' => 'Auto-Pay by Month', 'chartType' => 'badge_two_trendline',
+  'dateGrain' => { 'column' => 'Date', 'dateTimeElement' => 'MONTH' },
+  'columns' => [
+    { 'column' => 'CalendarMonth', 'mapping' => 'ITEM', 'calendar' => true },
+    { 'column' => 'Off Auto Pay', 'aggregation' => 'SUM', 'mapping' => 'SERIES' },
+    { 'column' => 'On Auto Pay', 'aggregation' => 'SUM', 'mapping' => 'SERIES' },
+    { 'column' => 'AP %', 'beastModeId' => 'calc-ap-rate', '_isCalc' => true, 'mapping' => 'SERIES' },
+  ],
+}, {})
+ok(!auto_pay.key?('color'),
+   'aggregate AP % is not emitted as color.by:category (the browser-locking 2,013-series bug)')
+ap_measure = auto_pay['columns'].find { |column| column['name'] == 'AP %' }
+ok(ap_measure && ap_measure['id'].start_with?('m-'), 'aggregate Beast Mode is classified as a measure')
+ok(Array(auto_pay.dig('yAxis', 'columnIds')).include?(ap_measure['id']),
+   'AP % stays visible on the value axis after the unsafe color channel is removed')
+$translated_bms = nil
+
+puts "== source-cardinality guard: observed high-cardinality SERIES color is omitted =="
+Dir.mktmpdir do |dir|
+  File.write(File.join(dir, 'chart-color-overrides.json'), JSON.generate(
+    'high-color' => {
+      'mode' => 'omit', 'distinctValuesObserved' => 2013, 'threshold' => 100,
+      'source' => 'domo-card-data',
+    }
+  ))
+  stub_const(:OUT, dir) do
+    $warnings = []
+    guarded = build_element({
+      'id' => 'high-color', 'title' => 'Sites by Month', 'chartType' => 'badge_two_trendline',
+      'columns' => [
+        { 'column' => 'Date', 'mapping' => 'ITEM' },
+        { 'column' => 'Site', 'mapping' => 'SERIES' },
+        { 'column' => 'Revenue', 'mapping' => 'VALUE', 'aggregation' => 'SUM' },
+      ],
+    }, {})
+    ok(!guarded.key?('color'), 'source-observed 2,013-member color channel is omitted')
+    ok($warnings.any? { |warning| warning['warning'].include?('2,013') ||
+                                   warning['warning'].include?('2013') },
+       'the omitted source color records its measured cardinality')
+  end
+end
+
+puts "== QA hard gate: aggregate formulas can never escape on a category color channel =="
+bad_color_spec = {
+  'pages' => [{
+    'name' => 'Auto Pay',
+    'elements' => [{
+      'id' => 'bad-color', 'kind' => 'line-chart', 'name' => 'Auto-Pay by Month',
+      'columns' => [
+        { 'id' => 'd-date', 'name' => 'Date', 'formula' => '[Master/Date]' },
+        { 'id' => 'd-ap', 'name' => 'AP %',
+          'formula' => 'Sum([Master/On Auto Pay]) / Sum([Master/Total Ledgers])' },
+      ],
+      'xAxis' => { 'columnId' => 'd-date', 'format' => { 'marks' => 'none' } },
+      'yAxis' => { 'columnIds' => ['d-ap'], 'format' => { 'marks' => 'none' } },
+      'color' => { 'by' => 'category', 'column' => 'd-ap' },
+    }],
+  }],
+}
+qa_errors, = check(bad_color_spec)
+ok(qa_errors.any? { |error| error.include?('uses aggregate') && error.include?('category color') },
+   'qa-check rejects an aggregate color category even if another builder emitted it')
+audit_errors, audit_warnings = check_filter_type_audit(
+  'filters' => [{
+    'cardId' => 'bad-filter', 'column' => 'Technical Error Type',
+    'sourceType' => 'LONG', 'outputTypes' => ['String'], 'status' => 'typed',
+  }]
+)
+ok(audit_errors.any? { |error| error.include?('numeric LONG') && error.include?('string values') },
+   'qa-check rejects string literals on a known numeric list filter')
+eq(audit_warnings, [], 'known numeric mismatch is an error, not an advisory warning')
+
+puts "== live POP contract: synthetic periods become explicit Sigma measures =="
+$chart_helpers = []
+pop_month = build_element({
+  'id' => '922919965', 'title' => 'Page Views', 'chartType' => 'badge_pop_bar_line',
+  'columns' => [
+    { 'column' => 'Date', 'mapping' => 'ITEM', 'calendar' => true },
+    { 'column' => 'Page Views', 'aggregation' => 'SUM', 'mapping' => 'VALUE' },
+  ],
+  'dateGrain' => { 'column' => 'Period', 'dateTimeElement' => 'DAY' },
+  'dateRangeFilter' => {
+    'column' => { 'column' => 'Period', 'exprType' => 'COLUMN' },
+    'dateTimeRange' => {
+      'dateTimeRangeType' => 'INTERVAL_OFFSET', 'interval' => 'MONTH', 'offset' => 1, 'count' => 0,
+    },
+    'periods' => {
+      'type' => 'COMBINED',
+      'combined' => [
+        { 'interval' => 'MONTH', 'type' => 'OFFSET', 'count' => 1 },
+        { 'interval' => 'MONTH', 'type' => 'OFFSET', 'count' => 2 },
+      ],
+      'count' => 0,
+    },
+  },
+}, {})
+eq(pop_month['kind'], 'combo-chart', 'Domo POP bar+line becomes a Sigma combo chart')
+eq(pop_month.dig('source', 'kind'), 'union',
+   'period helpers are unioned so overlap rows can participate in more than one comparison')
+ok(!pop_month['source'].key?('name'),
+   'workbook union source omits unsupported name (the server derives its namespace)')
+ok(pop_month['columns'].first['formula'].start_with?('[Union of 3 Sources/'),
+   'visible columns use the live server-derived union namespace')
+eq(pop_month.dig('yAxis', 'columnIds').map { |series| series['type'] }, %w[bar line line],
+   'selected period is bars and both comparison periods are lines')
+eq(pop_month['columns'].drop(1).map { |column| column['name'] },
+   ['1 Month Ago', '2 Months Ago', '3 Months Ago'],
+   'all source-declared month periods become explicit measure columns')
+eq($chart_helpers.size, 3, 'one hidden helper is emitted for each Domo POP period')
+ok($chart_helpers.last['columns'].first['formula'].include?(
+     'DateDiff("day", DateAdd("month", -2, DateTrunc("month", DateAdd("month", -1, Today())))'
+   ),
+   'comparison dates align by source POP_INDEX semantics, not by a guessed calendar color split')
+ok(!pop_month.key?('color'), 'POP uses bounded explicit measures, never a high-cardinality color category')
+
+puts "== customer YoY contract: current year bars plus prior-year line =="
+$chart_helpers = []
+pop_yoy = build_element({
+  'id' => 'yoy-current-prior', 'title' => 'YoY', 'chartType' => 'badge_pop_bar_line',
+  'columns' => [
+    { 'column' => 'CalendarMonth', 'mapping' => 'ITEM', 'calendar' => true },
+    { 'column' => 'Revenue', 'aggregation' => 'SUM', 'mapping' => 'VALUE' },
+  ],
+  'dateGrain' => { 'column' => 'Date', 'dateTimeElement' => 'MONTH' },
+  'dateRangeFilter' => {
+    'column' => { 'column' => 'Date', 'exprType' => 'COLUMN' },
+    'dateTimeRange' => {
+      'dateTimeRangeType' => 'INTERVAL_OFFSET', 'interval' => 'YEAR', 'offset' => 0, 'count' => 0,
+    },
+    'periods' => {
+      'type' => 'COMBINED',
+      'combined' => [{ 'interval' => 'YEAR', 'type' => 'OFFSET', 'count' => 1 }],
+      'count' => 0,
+    },
+  },
+}, {})
+eq(pop_yoy['columns'].drop(1).map { |column| column['name'] }, ['This Year', '1 Year Ago'],
+   'YoY legend exposes the same two periods as the customer screenshot')
+eq(pop_yoy.dig('yAxis', 'columnIds').map { |series| series['type'] }, %w[bar line],
+   'YoY current period renders as bars and prior year as a line')
+ok($chart_helpers.first['columns'].first['formula'].include?('DateDiff("month"'),
+   'YoY points align by month before the explicit measures aggregate')
+
+puts "== unresolved POP never masquerades as a valid one-series comparison =="
+$warnings = []
+unresolved_pop = build_element({
+  'id' => 'pop-missing-periods', 'title' => 'Broken YoY', 'chartType' => 'badge_pop_bar_line',
+  'columns' => [
+    { 'column' => 'Date', 'mapping' => 'ITEM' },
+    { 'column' => 'Revenue', 'aggregation' => 'SUM', 'mapping' => 'VALUE' },
+  ],
+}, {})
+ok(unresolved_pop.nil?, 'POP with no compare metadata or explicit prior measure is skipped')
+ok($warnings.any? { |warning| warning['warning'].include?('falsely look like a valid comparison') },
+   'the skip names the missing POP semantics instead of silently degrading')
+
+puts "== explicit current/prior Beast Modes remain a deterministic POP fallback =="
+$translated_bms = {
+  'calc-current' => {
+    'id' => 'calc-current', 'name' => 'Current', 'class' => 'aggregate',
+    'sigmaFormula' => 'Sum(If([Is Current] = "Yes", [Revenue], 0))',
+  },
+  'calc-prior' => {
+    'id' => 'calc-prior', 'name' => 'Prior', 'class' => 'aggregate',
+    'sigmaFormula' => 'Sum(If([Is Prior] = "Yes", [Revenue], 0))',
+  },
+}
+explicit_pop = build_element({
+  'id' => 'pop-explicit', 'title' => 'Explicit YoY', 'chartType' => 'badge_pop_bar_line',
+  'columns' => [
+    { 'column' => 'Month', 'mapping' => 'ITEM' },
+    { 'column' => 'Current', 'beastModeId' => 'calc-current', '_isCalc' => true, 'mapping' => 'SERIES' },
+    { 'column' => 'Prior', 'beastModeId' => 'calc-prior', '_isCalc' => true, 'mapping' => 'SERIES' },
+  ],
+}, {})
+eq(explicit_pop.dig('yAxis', 'columnIds').size, 2,
+   'two explicit aggregate Beast Modes become two comparison measures')
+ok(!explicit_pop.key?('color'), 'explicit period measures never become categorical colors')
+$translated_bms = nil
+
 puts "== live parity: split SERIES binds to color while ITEM remains x-axis =="
 revenue = build_element({
   'id' => 'c46', 'title' => 'Revenue', 'chartType' => 'badge_vert_stackedbar',
@@ -1083,6 +1326,49 @@ eq(helper['groupings'].first['groupBy'], ['d-subject'], 'helper groups to one po
 eq(helper['groupings'].first['calculations'], %w[m-delivered m-opens m-clicks],
    'helper pre-aggregates every scatter measure')
 eq(helper['filters'].first['rowCount'], 10, 'source top-N is enforced on the grouped helper')
+
+puts "== numeric Domo EXCLUDES values are typed from dataset schema =="
+Dir.mktmpdir do |dir|
+  File.write(File.join(dir, 'datasets.json'), JSON.generate([
+    {
+      'id' => 'ds-errors',
+      'schema' => { 'columns' => [
+        { 'name' => 'Video Queue', 'type' => 'STRING' },
+        { 'name' => 'Abandon Rate', 'type' => 'DOUBLE' },
+        { 'name' => 'Technical Error Type', 'type' => 'LONG' },
+      ] },
+    },
+  ]))
+  stub_const(:OUT, dir) do
+    $dataset_schema_by_id = nil
+    $filter_type_audit = []
+    numeric_exclude = build_element({
+      'id' => 'c-numeric-exclude', 'title' => 'Average Abandon Rate',
+      'chartType' => 'badge_table', 'datasetId' => 'ds-errors',
+      'columns' => [
+        { 'column' => 'Video Queue', 'mapping' => 'ITEM' },
+        { 'column' => 'Abandon Rate', 'aggregation' => 'AVG', 'mapping' => 'VALUE' },
+      ],
+      'filters' => [{
+        'column' => 'Technical Error Type',
+        'operator' => 'NOT_IN',
+        'values' => ['-3'],
+      }],
+    }, {})
+    filter = Array(numeric_exclude['filters']).find { |item| item['mode'] == 'exclude' }
+    eq(filter['values'], [-3], 'LONG exclude literal is emitted as JSON number -3, not string "-3"')
+    eq($filter_type_audit.first['sourceType'], 'LONG', 'typing audit records source schema evidence')
+    eq($filter_type_audit.first['outputTypes'], ['Integer'], 'typing audit records numeric output')
+
+    string_card = {
+      'id' => 'c-string-code', 'datasetId' => 'ds-errors',
+      'filters' => [{ 'column' => 'Video Queue', 'values' => ['-3'] }],
+    }
+    values, error, = coerce_filter_values(string_card, 'Video Queue', ['-3'])
+    eq(error, nil, 'string code coercion succeeds')
+    eq(values, ['-3'], 'numeric-looking STRING values stay strings')
+  end
+end
 
 puts "== live parity: numeric comparison filters compile to hidden boolean predicates =="
 compared = build_element({

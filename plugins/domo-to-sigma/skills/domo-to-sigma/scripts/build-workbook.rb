@@ -56,6 +56,17 @@ def warn_card(card, msg)
   $warnings << { 'card' => card['title'] || card['id'], 'card_id' => card['id'].to_s, 'warning' => msg }
 end
 
+def record_beast_mode_usage(card, bm, target)
+  return unless bm.is_a?(Hash) && bm['id']
+  $beast_mode_usage << {
+    'id' => bm['id'],
+    'name' => bm['name'],
+    'scope' => bm['scope'],
+    'cardId' => card && card['id'].to_s,
+    'target' => target,
+  }.compact
+end
+
 $companion_elements = [] # bead 08sf — Task 5 populates this
 $sub_masters = {}        # bead ziht — datasetId => sub-master element Hash
 $chart_helpers = []      # hidden grouped source tables for scatter/bubble charts
@@ -63,6 +74,9 @@ $plugin_source_elements = [] # hidden live sources for hosted no-native plugin v
 $kpi_verification_elements = [] # raw-value twins when visible KPI display is scaled/formatted
 $chart_verification_elements = [] # raw-value twins when visible axes are display-scaled
 $table_verification_elements = [] # export-stable twins when visible table styling is presentation-only
+$filter_type_audit = [] # source-schema typing evidence for Domo list filters
+$beast_mode_usage = [] # formula-id-level workbook consumption evidence
+$ambiguous_beast_mode_names = []
 
 # bead ziht: dm-spec.json is build-dm.rb's PRE-post spec (already at this
 # script's own OUT dir — build-dm.rb writes it to discovery/, same as
@@ -211,7 +225,7 @@ CHART_TYPE_MAP = {
   'badge_line_bar'            => 'combo-chart',
   'badge_line_stackedbar'     => 'combo-chart',
   'badge_symbol_bar'          => 'combo-chart',
-  'badge_pop_bar_line'        => 'combo-chart', # NO_NATIVE_EQUIVALENT — no POP comparison primitive
+  'badge_pop_bar_line'        => 'combo-chart', # rebuilt as explicit period measures (build_pop_chart)
   'badge_vert_symbol_overlay' => 'combo-chart', # NO_NATIVE_EQUIVALENT — no actual-vs-target overlay
 }.freeze
 
@@ -235,9 +249,6 @@ NO_NATIVE_EQUIVALENT = {
                          'term + frequency table.',
   'badge_calendar' => 'Domo calendar heatmap — no calendar `kind` exists in Sigma; degraded to a flat ' \
                        'date + value table.',
-  'badge_pop_bar_line' => 'Domo period-over-period bar+line — combo-chart approximates the visual ' \
-                           '(bar = current period, line = prior period) but Sigma has no automatic ' \
-                           'prior-period comparison; the two periods must be modeled as two explicit measures.',
   'badge_vert_symbol_overlay' => 'Domo bar + actual/target symbol overlay — combo-chart (bar + a ' \
                                   'scatter marker series) is the closest native shape; a true ' \
                                   'actual-vs-target dial is not representable.',
@@ -307,8 +318,11 @@ DIM_MAPPINGS = %w[ITEM CATEGORY DATE].freeze
 MEASURE_MAPPINGS = %w[VALUE CURRENT TARGET BUBBLESIZE].freeze
 
 # SERIES and XTIME are AMBIGUOUS and must be disambiguated by whether the column
-# carries an aggregation. Treating aggregated XTIME as a dimension collapsed
-# the live Top Salespeople scatter to one row and dropped COUNT(IsWon).
+# carries an aggregation OR resolves to an aggregate/window Beast Mode. Treating
+# an aggregate Beast Mode as a split dimension can be much worse than a wrong
+# legend: Sigma groups by every numeric result and builds one color category per
+# value (2,013 categories on the field-found Auto-Pay chart), which can make the
+# workbook page effectively unresponsive.
 #
 # LIVE EVIDENCE (2026-07-30):
 #   * badge_line_bar / combo + two-axis cards bind every MEASURE via SERIES
@@ -321,6 +335,14 @@ MEASURE_MAPPINGS = %w[VALUE CURRENT TARGET BUBBLESIZE].freeze
 # So: SERIES + aggregation => measure; SERIES without => split dimension.
 SERIES_MAPPING = 'SERIES'
 RAW_SERIES_MEASURE_CHART_TYPES = %w[badge_line_stackedbar badge_symbol_bar].freeze
+
+def aggregate_beast_mode_column?(column)
+  return false unless column['_isCalc']
+  bm = translated_beast_modes[column['beastModeId'].to_s] ||
+       translated_beast_modes[column['column'].to_s]
+  bm.is_a?(Hash) && %w[aggregate window].include?(bm['class'].to_s) &&
+    !bm['sigmaFormula'].to_s.strip.empty?
+end
 
 def split_cols(card)
   cols = card['columns'] || []
@@ -336,9 +358,10 @@ def split_cols(card)
   # correctly instead of silently losing the untagged columns.
   cols.each do |c|
     m = c['mapping'].to_s.upcase
+    aggregate_like = !c['aggregation'].to_s.empty? || aggregate_beast_mode_column?(c)
     if m == SERIES_MAPPING || m == 'XTIME'
       # Ambiguous by design — see the role notes above.
-      if c['aggregation'].to_s.empty? && m == SERIES_MAPPING &&
+      if !aggregate_like && m == SERIES_MAPPING &&
          RAW_SERIES_MEASURE_CHART_TYPES.include?(chart_type)
         # Domo's line+bar/symbol+bar cards use a raw numeric SERIES as a
         # benchmark/overlay (live: Industry Open Rate, Unique Page Views).
@@ -346,7 +369,7 @@ def split_cols(card)
         # bucket, while treating it as an unbound dimension drops it entirely.
         meas << c.merge('aggregation' => 'MAX', '_inferredAggregation' => true)
       else
-        c['aggregation'].to_s.empty? ? dims << c : meas << c
+        aggregate_like ? meas << c : dims << c
       end
     elsif DIM_MAPPINGS.include?(m)
       dims << c
@@ -363,6 +386,42 @@ def split_cols(card)
 end
 
 def col_label(c) (c['alias'] && !c['alias'].to_s.strip.empty?) ? c['alias'] : display_name(c['column']) end
+
+AGGREGATE_FORMULA = /\b(?:Sum|Avg|Count|CountDistinct|Min|Max|Median|StdDev\w*|Var\w*)\s*\(/i
+
+# Source-side card-data is captured before workbook assembly. The presentation
+# derivation records any SERIES channel whose observed cardinality exceeds the
+# safe color budget in chart-color-overrides.json. Apply that fact here, and
+# independently reject an aggregate formula on a category channel even when the
+# sidecar is unavailable (offline/older runs).
+def apply_category_color_guard!(card, element)
+  return element unless element.is_a?(Hash)
+  color = element['color']
+  return element unless color.is_a?(Hash) && color['by'] == 'category'
+
+  color_id = color['column'] || color['columnId']
+  color_col = Array(element['columns']).find { |column| column['id'] == color_id }
+  reason = nil
+  if color_col && color_col['formula'].to_s.match?(AGGREGATE_FORMULA)
+    reason = "column '#{color_col['name'] || color_id}' is an aggregate expression, not a categorical split"
+  else
+    path = File.join(OUT, 'chart-color-overrides.json')
+    rules = (JSON.parse(File.read(path)) rescue {}) if File.exist?(path)
+    rule = rules && rules[card['id'].to_s]
+    if rule.is_a?(Hash) && rule['mode'] == 'omit'
+      observed = rule['distinctValuesObserved']
+      threshold = rule['threshold']
+      reason = "source card-data observed #{observed} distinct values" \
+               "#{threshold ? " (safe limit #{threshold})" : ''}"
+    end
+  end
+  return element unless reason
+
+  element.delete('color')
+  warn_card(card, "category color omitted: #{reason}. Rendering one color series per value can " \
+                  'overload the browser; the plotted measures remain intact.')
+  element
+end
 
 # A measure element column: <Agg>([Master/<disp>]) with a clean label + format.
 def measure_col(c, card = nil)
@@ -411,11 +470,19 @@ def inline_beast_mode_dimension(card, c)
   bm = translated_beast_modes[c['beastModeId'].to_s] ||
        translated_beast_modes[c['column'].to_s]
   return nil unless bm.is_a?(Hash)
-  return nil unless %w[aggregate window].include?(bm['class'].to_s)
   return nil if bm['sigmaFormula'].to_s.strip.empty?
+  formula =
+    if %w[aggregate window].include?(bm['class'].to_s) ||
+       (bm['class'].to_s == 'projection' && bm['scope'].to_s == 'card')
+      masterize_formula(bm['sigmaFormula'])
+    elsif bm['class'].to_s == 'projection' && bm['scope'].to_s == 'dataset'
+      mref(bm['sigmaName'] || bm['name'] || c['column'])
+    end
+  return nil unless formula
+  record_beast_mode_usage(card, bm, 'workbook-dimension-formula')
   { 'id' => "d-#{c['column'].to_s.downcase.gsub(/\W+/, '-')}",
     'name' => col_label(c),
-    'formula' => masterize_formula(bm['sigmaFormula']) }.compact
+    'formula' => formula }.compact
 end
 
 def dim_col(c, card = nil)
@@ -872,7 +939,170 @@ def build_pie_or_donut(card, kind)
   }.compact
 end
 
-# ---- combo-chart (badge_line_bar / badge_line_stackedbar / badge_pop_bar_line /
+# ---- period-over-period -----------------------------------------------------
+#
+# Domo's POP cards author only a date + one value. The compare-to periods are
+# in dateRangeFilter.periods; POP_PERIOD/POP_INDEX are synthetic query-result
+# channels and do not exist in the warehouse. Rebuild those synthetic rows with
+# one filtered helper per period, union the helpers, then expose one explicit
+# Sigma measure per period. This also duplicates overlap rows correctly (for
+# example July 1 can be index 0 of one period and index 30 of another).
+def pop_period_plan(card)
+  return nil unless card['chartType'].to_s.downcase == 'badge_pop_bar_line'
+  drf = card['dateRangeFilter']
+  return nil unless drf.is_a?(Hash)
+  rng = drf['dateTimeRange']
+  return nil unless rng.is_a?(Hash) && rng['dateTimeRangeType'] == 'INTERVAL_OFFSET'
+
+  date_column = drf['column'].is_a?(Hash) ? drf.dig('column', 'column') : drf['column']
+  value_column = Array(card['columns']).find { |column| column['mapping'].to_s.upcase == 'VALUE' } ||
+                 Array(card['columns']).find { |column| !column['aggregation'].to_s.empty? }
+  return nil if date_column.to_s.empty? || !value_column.is_a?(Hash)
+  return nil if value_column['_isCalc'] || value_column['aggregation'].to_s.empty?
+
+  interval = DOMO_DATE_INTERVAL_UNIT[rng['interval'].to_s.upcase]
+  grain = DATE_GRAIN_UNIT[card.dig('dateGrain', 'dateTimeElement').to_s.upcase]
+  grain ||= interval
+  return nil unless interval && grain
+
+  periods = drf['periods']
+  comparisons =
+    if periods.is_a?(Hash) && periods['type'].to_s.upcase == 'COMBINED'
+      Array(periods['combined'])
+    elsif periods.is_a?(Hash)
+      [periods]
+    else
+      []
+    end
+  comparisons = comparisons.filter_map do |period|
+    next unless period.is_a?(Hash) && period['type'].to_s.upcase == 'OFFSET'
+    unit = DOMO_DATE_INTERVAL_UNIT[period['interval'].to_s.upcase]
+    count = period['count'].to_i
+    next unless unit && count.positive?
+    { 'unit' => unit, 'count' => count }
+  end
+  return nil if comparisons.empty?
+
+  {
+    'date_column' => date_column,
+    'value_column' => value_column,
+    'interval' => interval,
+    'grain' => grain,
+    'offset' => rng['offset'].to_i,
+    'comparisons' => comparisons,
+  }
+end
+
+def pop_period_label(unit, count, primary: false)
+  noun = unit.capitalize
+  noun += 's' unless count == 1
+  return "This #{unit.capitalize}" if primary && count.zero?
+  "#{count} #{noun} Ago"
+end
+
+def build_pop_chart(card, plan)
+  value = plan['value_column']
+  base_start = %(DateTrunc("#{plan['interval']}", DateAdd("#{plan['interval']}", -#{plan['offset']}, Today())))
+  base_end = %(DateAdd("#{plan['interval']}", 1, #{base_start}))
+  periods = [{ 'unit' => plan['interval'], 'count' => 0, 'absolute' => plan['offset'], 'primary' => true }] +
+            plan['comparisons'].map do |period|
+              absolute = period['count']
+              absolute += plan['offset'] if period['unit'] == plan['interval']
+              period.merge('absolute' => absolute, 'primary' => false)
+            end
+  helpers = periods.each_with_index.map do |period, index|
+    start_at =
+      if period['primary']
+        base_start
+      else
+        %(DateAdd("#{period['unit']}", -#{period['count']}, #{base_start}))
+      end
+    period_length = %(DateDiff("#{plan['grain']}", #{base_start}, #{base_end}))
+    end_at = %(DateAdd("#{plan['grain']}", #{period_length}, #{start_at}))
+    raw_date = mref(display_name(plan['date_column']))
+    aligned = %(DateAdd("#{plan['grain']}", DateDiff("#{plan['grain']}", #{start_at}, DateTrunc("#{plan['grain']}", #{raw_date})), #{base_start}))
+    helper_id = "src-#{eid(card)}-pop-#{index}"
+    helper_name = "#{card['title']} (POP #{index})"
+    columns = [
+      { 'id' => 'd-aligned-date', 'name' => 'Aligned Date', 'formula' => aligned },
+      { 'id' => 'd-pop-value', 'name' => 'Value', 'formula' => mref(display_name(value['column'])) },
+      { 'id' => 'd-period-index', 'name' => 'Period Index', 'formula' => index.to_s },
+      {
+        'id' => 'f-period-window', 'name' => 'Period Window',
+        'formula' => %(If(#{raw_date} >= #{start_at} and #{raw_date} < #{end_at}, "in", "out")),
+        'hidden' => true,
+      },
+    ]
+    {
+      'id' => helper_id,
+      'kind' => 'table',
+      'name' => helper_name,
+      'visibleAsSource' => false,
+      'source' => { 'kind' => 'table', 'elementId' => 'master' },
+      'columns' => columns,
+      'order' => columns.map { |column| column['id'] },
+      'filters' => [{
+        'id' => "dw-#{helper_id}",
+        'columnId' => 'f-period-window',
+        'kind' => 'list',
+        'mode' => 'include',
+        'values' => ['in'],
+      }],
+    }
+  end
+
+  # The live workbook union source does not accept a `name` property. Its
+  # formula namespace is the server-derived "Union of N Sources" label.
+  union_name = "Union of #{helpers.size} Sources"
+  union_source = {
+    'kind' => 'union',
+    'sources' => helpers.map { |helper| { 'kind' => 'table', 'elementId' => helper['id'] } },
+    'matches' => %w[Aligned\ Date Value Period\ Index].map do |name|
+      {
+        'outputColumnName' => name.tr('\\', ''),
+        'sourceColumns' => helpers.map { "[#{name.tr('\\', '')}]" },
+      }
+    end,
+  }
+  date_col = {
+    'id' => 'd-pop-aligned-date',
+    'name' => 'Date',
+    'formula' => "[#{union_name}/Aligned Date]",
+    'format' => { 'kind' => 'datetime', 'formatString' => '%b %y' },
+  }
+  measure_columns = periods.each_with_index.map do |period, index|
+    label = pop_period_label(
+      period['unit'],
+      period['absolute'],
+      primary: period['primary'],
+    )
+    {
+      'id' => "m-pop-#{index}",
+      'name' => label,
+      'formula' => "#{sigma_agg(value['aggregation'], value['distinct'])}" \
+                   "(If([#{union_name}/Period Index] = #{index}, [#{union_name}/Value], Null))",
+      'format' => sigma_format(value['format'], label),
+    }.compact
+  end
+  {
+    'id' => eid(card),
+    'kind' => 'combo-chart',
+    'name' => card['title'],
+    'source' => union_source,
+    'columns' => [date_col] + measure_columns,
+    'xAxis' => { 'columnId' => date_col['id'], 'format' => AXIS_OFF },
+    'yAxis' => {
+      'columnIds' => measure_columns.each_with_index.map do |column, index|
+        { 'columnId' => column['id'], 'type' => index.zero? ? 'bar' : 'line' }
+      end,
+      'format' => AXIS_OFF,
+    },
+    '_dataHelpers' => helpers,
+    '_periodComparisonManaged' => true,
+  }
+end
+
+# ---- combo-chart (badge_line_bar / badge_line_stackedbar /
 # badge_symbol_bar / badge_vert_symbol_overlay) ------------------------------
 # Domo's ChartType alone doesn't say WHICH measure is the bar vs. the secondary
 # series, so this uses a documented, honest heuristic: the FIRST measure is the
@@ -883,6 +1113,14 @@ def build_combo(card)
   dims, meas = split_cols(card)
   ct = card['chartType'].to_s.downcase
   secondary = COMBO_SECONDARY_TYPE[ct] || 'line'
+  if ct == 'badge_pop_bar_line' && meas.size < 2
+    warn_card(card, "badge_pop_bar_line: SKIPPED — Domo period-over-period cards expose one authored " \
+                    'measure plus synthetic POP_PERIOD/POP_INDEX channels. Only one explicit measure ' \
+                    "resolved here, so emitting it would falsely look like a valid comparison. Supply " \
+                    'the source compare-to metadata (or explicit current/prior Beast Mode measures) ' \
+                    'and rebuild.')
+    return nil
+  end
   if meas.size != 2
     warn_card(card, "combo-chart: expected a bar measure + a #{secondary} measure (2 total) but found " \
                     "#{meas.size} — verify the series assignment against the card PNG.")
@@ -1426,12 +1664,30 @@ def translated_beast_modes
   return $translated_bms if defined?($translated_bms) && $translated_bms
   path = File.join(OUT, 'formulas.json')
   list = (JSON.parse(File.read(path)) rescue nil)
+  outcomes_path = File.join(OUT, 'beast-mode-dm-outcomes.json')
+  outcomes_doc = (JSON.parse(File.read(outcomes_path)) rescue {}) if File.exist?(outcomes_path)
+  outcome_by_id = Array(outcomes_doc && outcomes_doc['outcomes']).each_with_object({}) do |outcome, out|
+    out[outcome['id'].to_s] = outcome if outcome.is_a?(Hash) && outcome['id']
+  end
   by_id = {}
-  Array(list).each do |f|
-    next unless f.is_a?(Hash)
-    next if f['sigmaFormula'].to_s.strip.empty?
-    by_id[f['id'].to_s] = f
-    by_id[f['name'].to_s] = f unless f['name'].to_s.empty?
+  usable = Array(list).select do |formula|
+    formula.is_a?(Hash) &&
+      !formula['sigmaFormula'].to_s.strip.empty? &&
+      formula['converted'] != false &&
+      Array(formula['lintErrors']).empty? &&
+      !formula['extractionError'] &&
+      !formula['definitionConflict']
+  end
+  name_counts = usable.each_with_object(Hash.new(0)) do |formula, counts|
+    counts[formula['name'].to_s] += 1 unless formula['name'].to_s.empty?
+  end
+  $ambiguous_beast_mode_names = name_counts.select { |_, count| count > 1 }.keys
+  usable.each do |f|
+    resolved = f.merge('sigmaName' => outcome_by_id.dig(f['id'].to_s, 'sigmaName')).compact
+    by_id[f['id'].to_s] = resolved
+    if !f['name'].to_s.empty? && name_counts[f['name'].to_s] == 1
+      by_id[f['name'].to_s] = resolved
+    end
   end
   $translated_bms = by_id
 end
@@ -1472,14 +1728,27 @@ end
 # already-aggregating expression in another aggregate is wrong anyway. Before this
 # existed, an aggregate Beast Mode had NOWHERE to go: build-dm skipped it (not
 # projection) and build-workbook dropped the column, so the card lost its measure.
-def inline_beast_mode_measure(card, c)
+def inline_beast_mode_measure(card, c, record: true)
   bm = translated_beast_modes[c['beastModeId'].to_s] ||
        translated_beast_modes[c['column'].to_s]
   return nil unless bm.is_a?(Hash)
-  return nil unless %w[aggregate window].include?(bm['class'].to_s)
+  formula =
+    if %w[aggregate window].include?(bm['class'].to_s)
+      masterize_formula(bm['sigmaFormula'])
+    elsif bm['class'].to_s == 'projection' && bm['scope'].to_s == 'card'
+      row_formula = masterize_formula(bm['sigmaFormula'])
+      c['aggregation'].to_s.empty? ? row_formula :
+        "#{sigma_agg(c['aggregation'], c['distinct'])}(#{row_formula})"
+    elsif bm['class'].to_s == 'projection' && bm['scope'].to_s == 'dataset'
+      ref = mref(bm['sigmaName'] || bm['name'] || c['column'])
+      c['aggregation'].to_s.empty? ? ref :
+        "#{sigma_agg(c['aggregation'], c['distinct'])}(#{ref})"
+    end
+  return nil unless formula
+  record_beast_mode_usage(card, bm, 'workbook-measure-formula') if record
   { 'id' => "m-#{c['column'].to_s.downcase.gsub(/\W+/, '-')}",
     'name' => col_label(c),
-    'formula' => masterize_formula(bm['sigmaFormula']),
+    'formula' => formula,
     'format' => sigma_format(c['format'], col_label(c)) }.compact
 end
 
@@ -1519,7 +1788,7 @@ def prune_unresolvable_columns!(card)
     # An aggregate/window Beast Mode with a translated formula is legitimately
     # NOT a data-model column — it gets inlined as the element's measure formula
     # instead (inline_beast_mode_measure), so do not prune it here.
-    if c['_isCalc'] && inline_beast_mode_measure(card, c)
+    if c['_isCalc'] && inline_beast_mode_measure(card, c, record: false)
       ok << c
       next
     end
@@ -1564,6 +1833,69 @@ DOMO_FILTER_COMPARISON = {
   'LESS_THAN' => '<', 'LESS_THAN_OR_EQUAL' => '<=',
 }.freeze
 
+NUMERIC_DOMO_TYPES = %w[LONG DECIMAL DOUBLE INTEGER NUMBER].freeze
+BOOLEAN_DOMO_TYPES = %w[BOOLEAN BOOL].freeze
+
+def dataset_schema_by_id
+  return $dataset_schema_by_id if defined?($dataset_schema_by_id) && $dataset_schema_by_id
+  path = File.join(OUT, 'datasets.json')
+  datasets = (JSON.parse(File.read(path)) rescue []) if File.exist?(path)
+  $dataset_schema_by_id = Array(datasets).each_with_object({}) do |dataset, out|
+    out[dataset['id'].to_s] = dataset if dataset.is_a?(Hash) && dataset['id']
+  end
+end
+
+def domo_filter_column_type(card, column_name, beast_mode_id = nil)
+  dataset = dataset_schema_by_id[card['datasetId'].to_s]
+  schema_column = Array(dataset&.dig('schema', 'columns')).find do |column|
+    raw = column['name'] || column['id']
+    raw.to_s.casecmp?(column_name.to_s) || display_name(raw).casecmp?(display_name(column_name))
+  end
+  return schema_column['type'].to_s.upcase if schema_column && schema_column['type']
+
+  bm = translated_beast_modes[beast_mode_id.to_s] || translated_beast_modes[column_name.to_s]
+  bm && bm['dataType'].to_s.upcase
+end
+
+def coerce_filter_values(card, column_name, values, beast_mode_id = nil)
+  source_type = domo_filter_column_type(card, column_name, beast_mode_id)
+  raw_values = Array(values)
+  coerced =
+    if NUMERIC_DOMO_TYPES.include?(source_type)
+      raw_values.map do |value|
+        source_type == 'LONG' || source_type == 'INTEGER' ? Integer(value.to_s, 10) : Float(value)
+      end
+    elsif BOOLEAN_DOMO_TYPES.include?(source_type)
+      raw_values.map do |value|
+        case value
+        when true, false then value
+        else
+          normalized = value.to_s.strip.downcase
+          raise ArgumentError, "not a boolean literal: #{value.inspect}" unless %w[true false].include?(normalized)
+          normalized == 'true'
+        end
+      end
+    else
+      raw_values
+    end
+  audit = {
+    'cardId' => card['id'].to_s,
+    'column' => column_name,
+    'sourceType' => source_type,
+    'rawTypes' => raw_values.map { |value| value.class.name }.uniq,
+    'outputTypes' => coerced.map { |value| value.class.name }.uniq,
+    'status' => (source_type.to_s.empty? ? 'untyped' : 'typed'),
+  }
+  $filter_type_audit << audit
+  [coerced, nil, source_type]
+rescue ArgumentError, TypeError => e
+  $filter_type_audit << {
+    'cardId' => card['id'].to_s, 'column' => column_name,
+    'sourceType' => source_type, 'status' => 'error', 'error' => e.message,
+  }
+  [nil, e.message, source_type]
+end
+
 # Resolve a filter clause's `column` to a [name, formula] pair for a NEW
 # element column — the same resolution measure_col/dim_col apply to an
 # ordinary data column, extended to cover a Beast-Mode calc id
@@ -1573,13 +1905,20 @@ DOMO_FILTER_COMPARISON = {
 # and 400 the ENTIRE workbook POST, exactly the failure
 # prune_unresolvable_columns! exists to prevent for ordinary data columns.
 # Returns nil (never a broken formula) when a calc id never translated.
-def resolve_filter_column(col)
+def resolve_filter_column(col, beast_mode_id: nil, card: nil)
   col = col.to_s
-  if col.start_with?('calculation_')
-    bm = translated_beast_modes[col]
+  lookup_id = beast_mode_id.to_s.empty? ? nil : beast_mode_id.to_s
+  if lookup_id || col.start_with?('calculation_')
+    bm = translated_beast_modes[lookup_id || col]
     return nil unless bm.is_a?(Hash) && !bm['sigmaFormula'].to_s.strip.empty?
     disp = (bm['name'] && !bm['name'].to_s.empty?) ? bm['name'] : display_name(col)
-    [disp, masterize_formula(bm['sigmaFormula'])]
+    formula = if bm['class'].to_s == 'projection' && bm['scope'].to_s == 'dataset'
+                mref(bm['sigmaName'] || disp)
+              else
+                masterize_formula(bm['sigmaFormula'])
+              end
+    record_beast_mode_usage(card, bm, 'workbook-filter-formula')
+    [disp, formula]
   else
     disp = display_name(col)
     # The column may already be a RESOLVED Beast Mode NAME rather than a raw
@@ -1596,9 +1935,14 @@ def resolve_filter_column(col)
     #   'Dependency not found: master (pdp_example_dataset)/us regions'
     # (live, 36-card cold run — 'US Regions' is class=aggregate).
     bm = translated_beast_modes[disp] || translated_beast_modes[col]
-    if bm.is_a?(Hash) && bm['class'].to_s != 'projection' &&
-       !bm['sigmaFormula'].to_s.strip.empty?
-      [disp, masterize_formula(bm['sigmaFormula'])]
+    if bm.is_a?(Hash) && !bm['sigmaFormula'].to_s.strip.empty?
+      formula = if bm['class'].to_s == 'projection' && bm['scope'].to_s == 'dataset'
+                  mref(bm['sigmaName'] || disp)
+                else
+                  masterize_formula(bm['sigmaFormula'])
+                end
+      record_beast_mode_usage(card, bm, 'workbook-filter-formula')
+      [disp, formula]
     else
       [disp, mref(disp)]
     end
@@ -1616,7 +1960,7 @@ end
 # — a filter-only column has no reason to also show up as a visible table/
 # chart column the source card never rendered. Mutates `el['columns']` (and
 # `el['order']`, when the element kind has one — only `table` does) in place.
-def filter_target_column(el, col)
+def filter_target_column(el, col, beast_mode_id: nil, card: nil)
   slug = col.to_s.downcase.gsub(/\W+/, '-')
   candidates = Array(el['columns']).select { |c| %W[d-#{slug} m-#{slug} f-#{slug}].include?(c['id']) }
   existing = candidates.find { |c| c['id'].to_s.start_with?('d-', 'f-') }
@@ -1624,10 +1968,17 @@ def filter_target_column(el, col)
     c['id'].to_s.start_with?('m-') &&
       c['formula'].to_s !~ /\A(?:Sum|Avg|Count|CountDistinct|Min|Max)\(/
   }
-  return existing['id'] if existing
-  name, formula = resolve_filter_column(col)
+  return existing['id'] if existing && beast_mode_id.to_s.empty?
+  name, formula = resolve_filter_column(col, beast_mode_id: beast_mode_id, card: card)
   return nil unless formula
-  new_col = { 'id' => "f-#{slug}", 'name' => name, 'formula' => formula, 'hidden' => true }
+  return existing['id'] if existing && existing['formula'] == formula
+  new_id = "f-#{slug}"
+  suffix = 1
+  while Array(el['columns']).any? { |column| column['id'] == new_id }
+    suffix += 1
+    new_id = "f-#{slug}-#{suffix}"
+  end
+  new_col = { 'id' => new_id, 'name' => name, 'formula' => formula, 'hidden' => true }
   el['columns'] = Array(el['columns']) + [new_col]
   el['order'] = Array(el['order']) + [new_col['id']] if el.key?('order')
   new_col['id']
@@ -1872,7 +2223,9 @@ def apply_card_filters!(card, el)
                         "but got #{raw_value.inspect}.")
         next
       end
-      _name, formula = resolve_filter_column(col)
+      _name, formula = resolve_filter_column(
+        col, beast_mode_id: f['beastModeId'], card: card
+      )
       unless formula
         warn_card(card, "card filter on '#{col}' dropped: its column did not resolve.")
         next
@@ -1897,14 +2250,28 @@ def apply_card_filters!(card, el)
                       'hand-author the equivalent element filter and re-run.')
       next
     end
-    cid = filter_target_column(el, col)
+    cid = filter_target_column(
+      el, col, beast_mode_id: f['beastModeId'], card: card
+    )
     unless cid
       warn_card(card, "card filter on '#{col}' dropped: its Beast Mode did not translate to a Sigma " \
                       'formula, so no such data-model column exists (mirrors prune_unresolvable_columns!).')
       next
     end
+    typed_values, type_error, source_type = coerce_filter_values(
+      card, col, f['values'], f['beastModeId']
+    )
+    if type_error
+      warn_card(card, "card filter on '#{col}' dropped: values could not be coerced to the " \
+                      "source type (#{type_error}).")
+      next
+    end
+    if source_type.to_s.empty? && typed_values.any? { |value| value.is_a?(String) && value.match?(/\A-?\d+(?:\.\d+)?\z/) }
+      warn_card(card, "card filter on '#{col}' has numeric-looking string values but no source type; " \
+                      'values were preserved as strings. Verify the dataset schema before posting.')
+    end
     added << { 'id' => "cf-#{el['id']}-#{added.size}", 'columnId' => cid,
-               'kind' => 'list', 'mode' => mode, 'values' => Array(f['values']) }
+               'kind' => 'list', 'mode' => mode, 'values' => typed_values }
   end
   el['filters'] = Array(el['filters']) + added unless added.empty?
   el
@@ -2078,8 +2445,11 @@ def build_element(card, overrides, master_ds = nil)
   end
 
   before = $companion_elements.length
+  usage_before = $beast_mode_usage.length
   el = build_element_body(card, overrides)
+  apply_category_color_guard!(card, el)
   scatter_helper = el && el['_scatterHelper']
+  data_helpers = Array(el && el['_dataHelpers'])
   uniquify_column_ids!(el)
   resolve_channel_collisions!(el)
   if el.nil?
@@ -2096,6 +2466,7 @@ def build_element(card, overrides, master_ds = nil)
     # instead of the sub-master's — reintroducing the exact "Dependency not
     # found" whole-workbook-POST failure bead ziht exists to prevent.
     $companion_elements.slice!(before..-1)
+    $beast_mode_usage.slice!(usage_before..-1)
     return nil
   end
 
@@ -2109,6 +2480,8 @@ def build_element(card, overrides, master_ds = nil)
   if routed
     if scatter_helper
       retarget_to_submaster!(scatter_helper, sm)
+    elsif data_helpers.any?
+      data_helpers.each { |helper| retarget_to_submaster!(helper, sm) }
     elsif plugin_sources.any?
       plugin_sources.each do |source|
         retarget_to_submaster!(source, sm) unless source.dig('source', 'kind') == 'sql'
@@ -2125,6 +2498,11 @@ def build_element(card, overrides, master_ds = nil)
     el.delete('_scatterHelper')
     $chart_helpers << scatter_helper
   end
+  if data_helpers.any?
+    el.delete('_dataHelpers')
+    $chart_helpers.concat(data_helpers)
+  end
+  el.delete('_periodComparisonManaged')
   $plugin_source_elements.concat(plugin_sources)
   el
 end
@@ -2235,7 +2613,9 @@ def build_element_body(card, overrides)
     el = case kind
          when 'bar-chart', 'line-chart', 'area-chart', 'scatter-chart'
            build_axis_chart(card, kind)
-         when 'combo-chart' then build_combo(card)
+         when 'combo-chart'
+           plan = pop_period_plan(card)
+           plan ? build_pop_chart(card, plan) : build_combo(card)
          when 'pie-chart', 'donut-chart' then build_pie_or_donut(card, kind)
          when 'pivot-table'  then build_pivot(card)
          when 'table'        then build_table(card)
@@ -2265,6 +2645,11 @@ def build_element_body(card, overrides)
     helper = apply_card_filters!(card, el['_scatterHelper'])
     helper = apply_card_date_window!(card, helper)
     el['_scatterHelper'] = helper
+  elsif el && Array(el['_dataHelpers']).any?
+    # POP helpers already carry one exact source-derived period window each.
+    # Card predicates still apply to every helper before the union; applying
+    # the ordinary one-window filter would discard the comparison periods.
+    el['_dataHelpers'] = Array(el['_dataHelpers']).map { |helper| apply_card_filters!(card, helper) }
   else
     # B4: this card's OWN filter clauses -> ELEMENT filters on its element (see
     # apply_card_filters! above) — never a page control (see build_controls).
@@ -2282,7 +2667,12 @@ def build_element_body(card, overrides)
       # correctly filtered chart (the exact B4 divergence this fix exists to
       # close, just one element over).
       companion = apply_card_filters!(card, companion)
-      companion = apply_card_date_window!(card, companion)
+      # A POP summary Beast Mode already carries its current/prior predicates
+      # (for example the live "% Change - Pageviews" formula). Applying the
+      # primary period window again would erase the comparison rows it needs.
+      unless el['_periodComparisonManaged'] && sn['_isCalc']
+        companion = apply_card_date_window!(card, companion)
+      end
       container_override_path = File.join(OUT, 'card-container-overrides.json')
       container_overrides = (JSON.parse(File.read(container_override_path)) rescue {}) if
         File.exist?(container_override_path)
@@ -2486,8 +2876,23 @@ if $PROGRAM_NAME == __FILE__
   warn "  ⚠ could not resolve the dominant dataset's warehouse table — build-workbook-spec.rb " \
        "will fall back to positional DM-element selection (bead 0ku5)" if dominant_table.to_s.empty?
   File.write(File.join(OUT, 'warnings.json'), JSON.pretty_generate($warnings))
+  File.write(File.join(OUT, 'filter-type-audit.json'), JSON.pretty_generate(
+    'filters' => $filter_type_audit,
+    'typed' => $filter_type_audit.count { |entry| entry['status'] == 'typed' },
+    'untyped' => $filter_type_audit.count { |entry| entry['status'] == 'untyped' },
+    'errors' => $filter_type_audit.count { |entry| entry['status'] == 'error' },
+  ))
+  File.write(File.join(OUT, 'beast-mode-workbook-usage.json'), JSON.pretty_generate(
+    'usages' => $beast_mode_usage.uniq { |usage|
+      [usage['id'], usage['cardId'], usage['target']]
+    },
+    'ambiguousNames' => $ambiguous_beast_mode_names,
+  ))
   warn "  wrote #{File.join(OUT, 'chart-specs.json')} (#{out_pages.sum { |p| p['elements'].size }} elements across #{out_pages.size} page(s), #{$sub_masters.size} sub-master(s), #{$chart_helpers.size} grouped chart helper(s), #{$plugin_source_elements.size} plugin source element(s), #{$kpi_verification_elements.size} KPI parity twin(s), #{$chart_verification_elements.size} chart parity twin(s), #{$table_verification_elements.size} table parity twin(s))"
   warn "  wrote #{File.join(OUT, 'warnings.json')} (#{$warnings.size} warning(s))"
+  warn "  wrote #{File.join(OUT, 'filter-type-audit.json')} (#{$filter_type_audit.size} list filter(s))"
+  warn "  wrote #{File.join(OUT, 'beast-mode-workbook-usage.json')} " \
+       "(#{$beast_mode_usage.map { |usage| usage['id'] }.uniq.size} Beast Mode(s) used)"
   $warnings.first(20).each { |w| warn "    ⚠ #{w['card']}: #{w['warning']}" }
   warn "\n  Next: build-workbook-spec.rb --chart-specs discovery/chart-specs.json --dm-ids discovery/dm-ids.json ..."
 end

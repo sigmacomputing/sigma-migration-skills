@@ -184,6 +184,102 @@ eq(bms.map { |x| x['scope'] }.sort, %w[card dataset], 'both dataset + card beast
 eq(bms.find { |x| x['scope'] == 'dataset' }['class'], 'aggregate', 'dataset SUM classified aggregate')
 eq(bms.find { |x| x['scope'] == 'card' }['class'], 'projection', 'card CONCAT classified projection')
 
+puts "== dataset formula payload normalization preserves empty vs missing =="
+eq(dataset_formula_entries({ 'a' => { 'id' => 'a' } }), [{ 'id' => 'a' }],
+   'map payload normalizes through its values')
+eq(dataset_formula_entries([{ 'id' => 'a' }]), [{ 'id' => 'a' }],
+   'array payload normalizes directly')
+eq(dataset_formula_entries({}), [], 'empty map is a genuine empty formula collection')
+eq(dataset_formula_entries(nil), nil, 'missing formula block remains distinguishable from empty')
+eq(dataset_formula_map({ 'properties' => { 'formulas' => { 'formulas' => {} } } }), {},
+   'present empty API block becomes an empty map, not an extraction error')
+eq(dataset_formula_map({}), nil, 'missing API block is an extraction error signal')
+reconciled = reconcile_dataset_formula_inventory(
+  { 'ds-1' => { 'status' => 'ok', 'count' => 2 } },
+  { 'ds-1' => {
+    'calculation_a' => { 'id' => 'calculation_a' },
+    'calculation_b' => { 'id' => 'calculation_b' },
+  } },
+  [{ 'id' => 'calculation_a', 'scope' => 'dataset', 'dataSourceId' => 'ds-1' }]
+)
+eq(reconciled['ds-1']['status'], 'error', 'API/discovery count mismatch becomes an error')
+eq(reconciled['ds-1']['missingIds'], ['calculation_b'],
+   'reconciliation names every dataset formula omitted from beast-modes.json')
+
+puts "== normalize_card resolves dataset-only calculation references =="
+dataset_only = {
+  'calculation_dataset_only' => {
+    'id' => 'calculation_dataset_only',
+    'name' => 'Technical Error Type',
+    'formula' => 'IFNULL(`error_type`, -3)',
+    'persistedOnDataSource' => true,
+    'dataType' => 'LONG',
+  },
+}
+dataset_ref_card = normalize_card({
+  'chartType' => 'badge_table',
+  'definition' => {
+    'title' => 'Abandon Rate',
+    'subscriptions' => {
+      'main' => {
+        'columns' => [{ 'column' => 'calculation_dataset_only' }],
+        'filters' => [{
+          'column' => 'calculation_dataset_only',
+          'operand' => 'NOT_IN',
+          'values' => ['-3'],
+        }],
+      },
+    },
+    'formulas' => [],
+  },
+}, 'card-dataset-ref', dataset_formulas: dataset_only)
+eq(dataset_ref_card['columns'].first['column'], 'Technical Error Type',
+   'dataset-only calculated chart column resolves to its authored name')
+eq(dataset_ref_card['filters'].first['column'], 'Technical Error Type',
+   'dataset-only calculated filter resolves to its authored name')
+
+puts "== dig_beast_modes backfills missing SQL from the template endpoint =="
+template_dev_token = ENV['DOMO_DEV_TOKEN']
+ENV['DOMO_DEV_TOKEN'] = 'fake-token-for-offline-test'
+with_domo_stub(:beast_mode_template, ->(*_a) {
+  { 'expression' => 'SUM(`Amount`)', 'aggregated' => true }
+}) do
+  modes = dig_beast_modes(
+    { 'id' => 'c-template', 'datasetId' => 'ds-template', 'cardFormulas' => [] },
+    { 'calculation_template' => {
+      'id' => 'calculation_template', 'name' => 'Template Only', 'templateId' => 'template-1',
+    } },
+    {}
+  )
+  eq(modes.first['sql'], 'SUM(`Amount`)', 'template expression supplies missing inline SQL')
+  eq(modes.first['dataSourceId'], 'ds-template', 'backfilled dataset formula keeps dataset identity')
+end
+with_domo_stub(:beast_mode_template, ->(*_a) { nil }) do
+  missing_body = dig_beast_modes(
+    { 'id' => 'c-missing-template', 'datasetId' => 'ds-template', 'cardFormulas' => [] },
+    { 'calculation_missing' => {
+      'id' => 'calculation_missing', 'name' => 'Missing Body', 'templateId' => 'template-missing',
+    } },
+    {}
+  )
+  eq(missing_body.size, 1, 'missing formula body remains in inventory instead of disappearing')
+  ok(missing_body.first['extractionError'].include?('template lookup'),
+     'missing inline and template SQL receives an explicit extraction error')
+end
+template_dev_token ? ENV['DOMO_DEV_TOKEN'] = template_dev_token : ENV.delete('DOMO_DEV_TOKEN')
+
+puts "== divergent dataset/card copies are surfaced =="
+divergent_warning = capture_stderr do
+  divergent = dedupe_beast_modes([
+    { 'id' => 'calculation_conflict', 'name' => 'Rate', 'scope' => 'dataset', 'sql' => 'SUM(`A`)' },
+    { 'id' => 'calculation_conflict', 'name' => 'Rate', 'scope' => 'card', 'sql' => 'SUM(`B`)' },
+  ])
+  eq(divergent.size, 1, 'duplicate id still emits exactly one canonical formula')
+  eq(divergent.first['definitionConflict'], true, 'kept formula is marked for parity review')
+end
+ok(divergent_warning.include?('divergent') && divergent_warning.include?('calculation_conflict'),
+   'divergence warning names the conflicting Beast Mode')
+
 puts "== merge_dataset_permissions: C9 wiring (dataset_formulas permission -> datasets.json) =="
 # Synthetic response shaped like Domo.dataset_formulas(dsid) — the SAME call
 # already made per-card for Beast Modes (parts=core,permission,formulas). Only
@@ -659,8 +755,14 @@ shape_b_filter = {
   },
 }
 card_b_filter = normalize_card(shape_b_filter, 'card-B-filter')
-eq(card_b_filter['filters'], [{ 'column' => 'State', 'operator' => 'LEGACY', 'values' => [''] }],
+eq(card_b_filter['filters'].first['column'], 'State',
    'Shape B filter column resolved to the Beast Mode\'s real name "State" (was the raw calc id before B3)')
+eq(card_b_filter['filters'].first['operator'], 'LEGACY', 'Shape B filter operator is preserved')
+eq(card_b_filter['filters'].first['values'], [''], 'Shape B filter values are preserved')
+eq(card_b_filter['filters'].first['beastModeId'], 'calculation_ea1150fd',
+   'Shape B filter preserves the stable Beast Mode id after resolving its display name')
+eq(card_b_filter['filters'].first['_isCalc'], true,
+   'Shape B filter remains marked as a calculated reference')
 
 puts "== B3: normalize_card Shape A — a filter on a Beast Mode resolves to its real name, not the raw calc id =="
 shape_a_filter = {
@@ -672,8 +774,10 @@ shape_a_filter = {
   'calculatedFields' => [{ 'id' => 'calculation_443eb18b', 'name' => 'US Regions', 'formula' => "CASE WHEN 1 THEN 'x' END" }],
 }
 card_a_filter = normalize_card(shape_a_filter, 'card-A-filter')
-eq(card_a_filter['filters'], [{ 'column' => 'US Regions', 'operator' => 'LEGACY', 'values' => ['Midwest'] }],
+eq(card_a_filter['filters'].first['column'], 'US Regions',
    'Shape A filter column resolved to the Beast Mode\'s real name "US Regions" (was the raw calc id before B3)')
+eq(card_a_filter['filters'].first['beastModeId'], 'calculation_443eb18b',
+   'Shape A filter preserves the stable Beast Mode id')
 
 puts "== B3: normalize_card — a filter on a Beast Mode with NO matching formula degrades to the raw id, never crashes =="
 shape_b_unresolved_filter = {
@@ -688,8 +792,10 @@ shape_b_unresolved_filter = {
   },
 }
 card_b_unresolved = normalize_card(shape_b_unresolved_filter, 'card-B-unresolved')
-eq(card_b_unresolved['filters'], [{ 'column' => 'calculation_ghost', 'operator' => 'IN', 'values' => %w[a] }],
+eq(card_b_unresolved['filters'].first['column'], 'calculation_ghost',
    'no matching formula -> raw calc id passed through unchanged, not a crash or a nil column')
+eq(card_b_unresolved['filters'].first['beastModeId'], 'calculation_ghost',
+   'unresolved filter still preserves the id so accounting can block it')
 
 puts "== B3: norm_columns — a column whose value IS the calc id directly (not via empty+formulaId) also resolves =="
 resolved_cols = norm_columns(

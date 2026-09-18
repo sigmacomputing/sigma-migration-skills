@@ -185,6 +185,47 @@ def formulas_by_id(formulas)
   by_id
 end
 
+# Dataset formula payloads have been observed both as a map keyed by formula id
+# and as an array. Normalize either shape once; nil means the API response did
+# not contain a formula collection at all, while [] is a legitimate empty
+# collection.
+def dataset_formula_entries(raw)
+  case raw
+  when Hash then raw.values.select { |entry| entry.is_a?(Hash) }
+  when Array then raw.select { |entry| entry.is_a?(Hash) }
+  else nil
+  end
+end
+
+def dataset_formula_map(detail)
+  raw = detail&.dig('properties', 'formulas', 'formulas')
+  entries = dataset_formula_entries(raw)
+  return nil unless entries
+  entries.each_with_object({}) do |entry, out|
+    id = entry['id'] || entry['legacyId'] || entry['templateId']
+    out[id.to_s] = entry if id
+  end
+end
+
+def reconcile_dataset_formula_inventory(discovery, formula_cache, beast_modes)
+  discovery.each do |dsid, status|
+    next if status['status'] == 'error'
+    expected_ids = (formula_cache[dsid] || {}).keys.map(&:to_s)
+    discovered_ids = Array(beast_modes).select do |formula|
+      formula['scope'] == 'dataset' && formula['dataSourceId'].to_s == dsid.to_s
+    end.map { |formula| formula['id'].to_s }
+    missing_ids = expected_ids - discovered_ids
+    status['apiCount'] = expected_ids.size
+    status['discoveredCount'] = (expected_ids & discovered_ids).size
+    unless missing_ids.empty?
+      status['status'] = 'error'
+      status['error'] = 'formula ids from the dataset API are missing from beast-modes.json'
+      status['missingIds'] = missing_ids
+    end
+  end
+  discovery
+end
+
 # Beast-Mode id resolution shared by norm_columns AND the two filter-
 # extraction paths below (B3, live-validated 2026-08-05). Domo represents a
 # reference to a Beast Mode as the literal string "calculation_<uuid>" —
@@ -307,7 +348,7 @@ end
 # an OPTIONAL enumeration-route record for this card (see parse_card_metadata
 # above) — pass it when the caller has one; omit it and this still degrades
 # gracefully (chartType/mapping/etc. fall back to whatever `raw` itself has).
-def normalize_card(raw, card_id, card_meta: nil)
+def normalize_card(raw, card_id, card_meta: nil, dataset_formulas: nil)
   # The parts-form (Shape A) endpoint can return an array of card objects.
   raw = raw.first if raw.is_a?(Array)
   raw ||= {}
@@ -334,21 +375,25 @@ def normalize_card(raw, card_id, card_meta: nil)
             (card_meta.is_a?(Hash) &&
              (card_meta['title'] || card_meta['cardTitle'] ||
               card_meta.dig('metadata', 'title')))
+    resolution_formulas = Array(defn['formulas']) + Array(dataset_formula_entries(dataset_formulas))
     columns = norm_columns((main.empty? ? nil : { 'columns' => main['columns'] }),
-                           formulas: defn['formulas'])
+                           formulas: resolution_formulas)
     # B3: filters carry the SAME "calculation_<uuid>" column shape as chart-
     # body columns — route through the identical by_id resolution (see
     # resolve_calc_ref) instead of copying f['column'] verbatim.
-    calc_by_id = formulas_by_id(defn['formulas'])
+    calc_by_id = formulas_by_id(resolution_formulas)
     # Prefer `operand` (the write-shape field Shape A already prefers) over
     # `filterType`. Live Shape-B payloads often carry BOTH: the real operator
     # in `operand` and an opaque/collapsed `filterType` (commonly "LEGACY").
     # Preferring filterType made 7/20 live filters emit the wrong Sigma
     # filter — including 3 as their exact inverse (NOT_IN → include).
     filters = Array(main['filters']).map do |f|
-      { 'column' => resolve_calc_ref(f['column'], calc_by_id),
+      raw_column = f['column']
+      calc_id = raw_column.to_s.start_with?(CALC_PREFIX) ? raw_column : f['formulaId']
+      { 'column' => resolve_calc_ref(raw_column, calc_by_id),
         'operator' => f['operand'] || f['operator'] || f['filterType'],
-        'values' => f['values'] }.compact
+        'values' => f['values'], 'beastModeId' => calc_id,
+        '_isCalc' => (calc_id ? true : nil) }.compact
     end
     {
       'id'                 => card_id,
@@ -364,7 +409,7 @@ def normalize_card(raw, card_id, card_meta: nil)
       # kept as a fallback for compatibility / other Domo versions.
       'summaryNumber'      => norm_summary_number(
         defn.dig('subscriptions', 'big_number') || defn['summaryNumber'] || main['summaryNumber'],
-        formulas: defn['formulas'], card_id: card_id
+        formulas: resolution_formulas, card_id: card_id
       ),
       # The real date column + grain behind any `calendar: true` pseudo-column.
       'dateGrain'          => main['dateGrain'],
@@ -385,10 +430,14 @@ def normalize_card(raw, card_id, card_meta: nil)
     # ---- Shape A (official CardDefinition) ----
     body = raw['chartBody'] || {}
     # B3: same calc-id resolution as Shape B above (see resolve_calc_ref).
-    calc_by_id = formulas_by_id(raw['calculatedFields'])
+    resolution_formulas = Array(raw['calculatedFields']) + Array(dataset_formula_entries(dataset_formulas))
+    calc_by_id = formulas_by_id(resolution_formulas)
     filters = Array(body['filters']).map do |f|
-      { 'column' => resolve_calc_ref(f['column'], calc_by_id),
-        'operator' => f['operand'] || f['operator'], 'values' => f['values'] }.compact
+      raw_column = f['column']
+      calc_id = raw_column.to_s.start_with?(CALC_PREFIX) ? raw_column : f['formulaId']
+      { 'column' => resolve_calc_ref(raw_column, calc_by_id),
+        'operator' => f['operand'] || f['operator'], 'values' => f['values'],
+        'beastModeId' => calc_id, '_isCalc' => (calc_id ? true : nil) }.compact
     end
     {
       'id'                 => card_id,
@@ -401,8 +450,8 @@ def normalize_card(raw, card_id, card_meta: nil)
       'chartType'          => chart_type,
       'sigmaKindHint'      => sigma_kind_hint(chart_type),
       'datasetId'          => resolve_dataset_id(raw, card_meta),
-      'columns'            => norm_columns(body, formulas: raw['calculatedFields']),
-      'summaryNumber'      => norm_summary_number(raw['summaryNumber'], formulas: raw['calculatedFields'], card_id: card_id),
+      'columns'            => norm_columns(body, formulas: resolution_formulas),
+      'summaryNumber'      => norm_summary_number(raw['summaryNumber'], formulas: resolution_formulas, card_id: card_id),
       'dateGrain'          => body['dateGrain'],
       'dateRangeFilter'    => body['dateRangeFilter'],
       'groupBy'            => norm_columns({ 'columns' => body['groupBy'] }).map { |c| c['column'] },
@@ -504,20 +553,64 @@ end
 def dig_beast_modes(card, ds_formula_map, template_cache)
   out = []
   # 1. Dataset-level Beast Modes (map → values).
-  (ds_formula_map || {}).each_value do |f|
+  Array(dataset_formula_entries(ds_formula_map)).each_with_index do |f, index|
+    formula_id = f['id'] || f['legacyId'] || f['templateId']
     sql = f['formula'] || f['expression']
-    next unless sql
-    out << { 'id' => f['id'], 'name' => f['name'], 'sql' => sql,
+    if sql.to_s.empty?
+      template = fetch_template(f['templateId'] || f['id'], template_cache)
+      sql = template['expression'] if template.is_a?(Hash)
+    end
+    unless formula_id && !sql.to_s.empty?
+      out << {
+        'id' => formula_id || "missing-dataset-formula-id-#{card['datasetId']}-#{index}",
+        'name' => f['name'],
+        'scope' => 'dataset',
+        'dataSourceId' => card['datasetId'],
+        'cardId' => card['id'],
+        'dataType' => f['dataType'],
+        'extractionError' => formula_id ? 'formula has no inline SQL and template lookup returned no expression' :
+          'formula has no id/legacyId/templateId',
+        'sourceFormulaScope' => 'dataset-api',
+      }.compact
+      next
+    end
+    out << { 'id' => formula_id, 'name' => f['name'], 'sql' => sql,
              'scope' => 'dataset', 'class' => classify_beast_mode_for(f, template_cache),
-             'dataSourceId' => card['datasetId'], 'cardId' => card['id'] }
+             'dataSourceId' => card['datasetId'], 'cardId' => card['id'],
+             'dataType' => f['dataType'], 'persistedOnDataSource' => true,
+             'sourceFormulaScope' => 'dataset-api' }.compact
   end
   # 2. Card-local Beast Modes.
-  Array(card['cardFormulas']).each do |f|
+  Array(card['cardFormulas']).each_with_index do |f, index|
+    formula_id = f['id'] || f['legacyId'] || f['templateId']
+    persisted = f['saveToDataSet'] || f['persistedOnDataSource']
     sql = f['formula'] || f['expression']
-    next unless sql
-    out << { 'id' => f['id'], 'name' => f['name'], 'sql' => sql,
-             'scope' => 'card', 'class' => classify_beast_mode_for(f, template_cache),
-             'cardId' => card['id'] }
+    if sql.to_s.empty?
+      template = fetch_template(f['templateId'] || f['id'], template_cache)
+      sql = template['expression'] if template.is_a?(Hash)
+    end
+    unless formula_id && !sql.to_s.empty?
+      out << {
+        'id' => formula_id || "missing-card-formula-id-#{card['id']}-#{index}",
+        'name' => f['name'],
+        'scope' => (persisted ? 'dataset' : 'card'),
+        'dataSourceId' => (persisted ? card['datasetId'] : nil),
+        'cardId' => card['id'],
+        'dataType' => f['dataType'],
+        'extractionError' => formula_id ? 'formula has no inline SQL and template lookup returned no expression' :
+          'formula has no id/legacyId/templateId',
+        'sourceFormulaScope' => 'card-definition',
+      }.compact
+      next
+    end
+    out << { 'id' => formula_id, 'name' => f['name'], 'sql' => sql,
+             'scope' => (persisted ? 'dataset' : 'card'),
+             'class' => classify_beast_mode_for(f, template_cache),
+             'dataSourceId' => (persisted ? card['datasetId'] : nil),
+             'cardId' => card['id'], 'dataType' => f['dataType'],
+             'persistedOnDataSource' => (persisted ? true : nil),
+             'saveToDataSet' => (f['saveToDataSet'] ? true : nil),
+             'sourceFormulaScope' => 'card-definition' }.compact
   end
   out
 end
@@ -535,7 +628,31 @@ end
 # (dig_beast_modes appends dataset-scope entries before card-scope ones) —
 # the richer record, since it also carries dataSourceId.
 def dedupe_beast_modes(beast_modes)
-  Array(beast_modes).uniq { |b| b['id'] }
+  seen = {}
+  Array(beast_modes).each_with_object([]) do |bm, out|
+    id = bm['id']
+    unless seen.key?(id)
+      seen[id] = bm
+      out << bm
+      next
+    end
+    kept = seen[id]
+    if kept['extractionError'] && !bm['sql'].to_s.empty?
+      replacement = kept.merge(bm)
+      replacement['scope'] = 'dataset' if kept['scope'] == 'dataset'
+      replacement['dataSourceId'] ||= kept['dataSourceId']
+      replacement.delete('extractionError')
+      out[out.index(kept)] = replacement
+      seen[id] = replacement
+      next
+    end
+    next if bm['extractionError'] && !kept['sql'].to_s.empty?
+    next if kept['sql'].to_s == bm['sql'].to_s
+    warn "  ⚠ Beast Mode #{id.inspect} (#{bm['name'] || kept['name']}) has divergent " \
+         "#{kept['scope']}/#{bm['scope']} SQL definitions; keeping the first " \
+         "#{kept['scope']} copy and requiring parity review."
+    kept['definitionConflict'] = true
+  end
 end
 
 def fetch_template(fn_id, cache)
@@ -863,6 +980,7 @@ if opts[:pages]
   ds_permission_cache = {}   # datasetId → raw `permission` value (C9 PDP wiring)
   ds_schema_cache     = {}   # datasetId → PUBLIC detail `schema` (columns[]) — build-dm needs this
   template_cache      = {}   # templateId → standalone Beast Mode (for classification)
+  formula_discovery   = {}   # datasetId → explicit ok/empty/error extraction status
 
   opts[:pages].each do |pid|
     page = Domo.page(pid) # PUBLIC: page title/hierarchy — do NOT trust
@@ -903,8 +1021,33 @@ if opts[:pages]
         # PDP `permission` block — capture it too, no extra HTTP call.
         dsid = card['datasetId']
         if dsid && !ds_formula_cache.key?(dsid)
-          det = (Domo.dataset_formulas(dsid) rescue nil)
-          ds_formula_cache[dsid] = det&.dig('properties', 'formulas', 'formulas') || {}
+          det = nil
+          fetch_error = nil
+          begin
+            det = Domo.dataset_formulas(dsid)
+          rescue StandardError => e
+            fetch_error = e.message
+          end
+          formula_map = dataset_formula_map(det)
+          if fetch_error
+            ds_formula_cache[dsid] = {}
+            formula_discovery[dsid] = { 'status' => 'error', 'error' => fetch_error }
+            warn "  ⚠ dataset #{dsid.inspect}: Beast Mode formula fetch failed: #{fetch_error}"
+          elsif formula_map.nil?
+            ds_formula_cache[dsid] = {}
+            formula_discovery[dsid] = {
+              'status' => 'error',
+              'error' => 'response omitted properties.formulas.formulas',
+            }
+            warn "  ⚠ dataset #{dsid.inspect}: formula response omitted " \
+                 'properties.formulas.formulas — refusing to treat this as a genuine empty set.'
+          else
+            ds_formula_cache[dsid] = formula_map
+            formula_discovery[dsid] = {
+              'status' => (formula_map.empty? ? 'empty' : 'ok'),
+              'count' => formula_map.size,
+            }
+          end
           ds_permission_cache[dsid] = det['permission'] if det.is_a?(Hash) && det['permission']
 
           # B1 (live-validated 2026-08-05): GET /v1/datasets/{id} came back
@@ -922,6 +1065,14 @@ if opts[:pages]
           end
         end
 
+        # Re-run normalization with the dataset formula catalog. Card
+        # columns/filters/summary values may reference a calculation id that
+        # is absent from the card-local formulas[] but present on the dataset.
+        card = normalize_card(
+          raw, cid,
+          card_meta: card_meta_by_id[cid.to_s],
+          dataset_formulas: ds_formula_cache[dsid],
+        )
         card['beastModes'] = dig_beast_modes(card, ds_formula_cache[dsid], template_cache)
         beast_out.concat(card['beastModes'])
         page_cards << card
@@ -943,6 +1094,17 @@ if opts[:pages]
   end
 
   beast_out = dedupe_beast_modes(beast_out)
+  reconcile_dataset_formula_inventory(formula_discovery, ds_formula_cache, beast_out)
+
+  duplicate_names = beast_out.group_by do |formula|
+    context = formula['scope'] == 'dataset' ? formula['dataSourceId'] : formula['cardId']
+    [formula['scope'], context.to_s, formula['name'].to_s.downcase]
+  end.select { |(_, _, name), formulas| !name.empty? && formulas.map { |formula| formula['id'] }.uniq.size > 1 }
+  duplicate_names.each_value do |formulas|
+    ids = formulas.map { |formula| formula['id'].to_s }.sort
+    formulas.each { |formula| formula['nameConflictIds'] = ids }
+  end
+  extraction_errors = beast_out.select { |formula| formula['extractionError'] }
 
   # C9/PDP: merge captured `permission` data onto datasets.json (this run's
   # in-memory list if --datasets ran too, else re-read the file from a prior
@@ -988,5 +1150,32 @@ if opts[:pages]
   dump('pages.json', pages_out)
   dump('cards.json', cards_out)
   dump('beast-modes.json', beast_out)
+  dump('beast-mode-discovery.json', {
+    'tier' => (Domo.dev_token ? 'A' : 'B'),
+    'datasets' => formula_discovery,
+    'formulas' => beast_out.size,
+    'extractionErrors' => extraction_errors.map do |formula|
+      {
+        'id' => formula['id'], 'name' => formula['name'], 'scope' => formula['scope'],
+        'dataSourceId' => formula['dataSourceId'], 'cardId' => formula['cardId'],
+        'error' => formula['extractionError'],
+      }.compact
+    end,
+    'duplicateNameGroups' => duplicate_names.values.map do |formulas|
+      {
+        'name' => formulas.first['name'],
+        'scope' => formulas.first['scope'],
+        'contextId' => (formulas.first['scope'] == 'dataset' ?
+          formulas.first['dataSourceId'] : formulas.first['cardId']),
+        'ids' => formulas.map { |formula| formula['id'] },
+      }
+    end,
+  })
+  failed_formula_datasets = formula_discovery.select { |_, status| status['status'] == 'error' }
+  unless failed_formula_datasets.empty? && extraction_errors.empty?
+    abort "Beast Mode discovery is incomplete: #{failed_formula_datasets.size} dataset catalog error(s), " \
+          "#{extraction_errors.size} formula body error(s). See beast-mode-discovery.json; " \
+          'an extraction failure is not an empty or migrated formula.'
+  end
   warn "\nNext: ruby scripts/convert-beast-modes.rb   (translate Beast Mode SQL -> Sigma formulas)"
 end
