@@ -1,0 +1,50 @@
+[
+  {
+    "id": "bm-order-year",
+    "name": "order_year",
+    "class": "projection",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sql": "YEAR(`order_date`)"
+  },
+  {
+    "id": "bm-total-sales",
+    "name": "total_sales_beast_mode",
+    "class": "aggregate",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sql": "SUM(`sales_amount`)"
+  },
+  {
+    "id": "bm-running-sales",
+    "name": "running_sales",
+    "class": "window",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sql": "SUM(`sales_amount`) OVER (ORDER BY `order_date`)"
+  },
+  {
+    "id": "bm-regional-sales",
+    "name": "regional_sales_lod",
+    "class": "lod",
+    "scope": "dataset",
+    "dataSourceId": "ds-order-fact",
+    "sql": "SUM(SUM(`sales_amount`) FIXED (BY `region`))"
+  },
+  {
+    "id": "bm-card-region-label",
+    "name": "region_label",
+    "class": "projection",
+    "scope": "card",
+    "cardId": "card-region-label",
+    "sql": "CONCAT(`region`, ' Region')"
+  },
+  {
+    "id": "bm-card-unused",
+    "name": "unused_card_helper",
+    "class": "projection",
+    "scope": "card",
+    "cardId": "card-region-label",
+    "sql": "CONCAT(`region`, ' Unused')"
+  }
+]
