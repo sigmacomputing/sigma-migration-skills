@@ -44,6 +44,18 @@ class TestCodeRep < Minitest::Test
     assert_equal({ 'name' => 'N', 'document' => api_doc }, Sigma::CodeRep.wrap(doc, extra: { 'name' => 'N' }))
   end
 
+  def test_wrap_strips_data_model_only_visible_as_source
+    doc = {
+      'schemaVersion' => 1,
+      'pages' => [{ 'id' => 'data' }],
+      'elements' => [{ 'id' => 'master', 'kind' => 'table', 'visibleAsSource' => false }],
+    }
+    emitted = Sigma::CodeRep.wrap(doc)
+    refute emitted.dig('document', 'elements', 0).key?('visibleAsSource')
+    assert_equal false, doc.dig('elements', 0, 'visibleAsSource'),
+                 'local document keeps the helper hint; only workbook emission strips it'
+  end
+
   def test_round_trip_lossless_from_both_shapes
     [LIVE, LEGACY].each do |r|
       doc = Sigma::CodeRep.document(r)
@@ -83,6 +95,36 @@ class TestCodeRep < Minitest::Test
     emitted = Sigma::CodeRep.wrap(LEGACY.merge('layout' => legacy_layout)).dig('document', 'layout')
     assert_equal '<Page id="p"><Container elementId="c"><Element elementId="e1"/></Container></Page>', emitted
     refute_match(/LayoutElement|GridContainer/, emitted)
+  end
+
+  def test_wrap_canonicalizes_legacy_alignment_fields_and_drawer_position
+    legacy = {
+      'pages' => [],
+      'elements' => [
+        { 'id' => 'text', 'kind' => 'text', 'verticalAlign' => 'middle' },
+        { 'id' => 'kpi', 'kind' => 'kpi-chart',
+          'layout' => { 'anchor' => 'start', 'verticalAnchor' => 'end', 'titleOrient' => 'bottom' } },
+        { 'id' => 'tabs', 'kind' => 'tabbed-container', 'tabBar' => { 'alignment' => 'end' } },
+        { 'id' => 'h-rule', 'kind' => 'divider', 'align' => 'start' },
+        { 'id' => 'v-rule', 'kind' => 'divider', 'direction' => 'vertical', 'align' => 'end' }
+      ],
+      'overlays' => [
+        { 'id' => 'filters', 'type' => 'drawer',
+          'drawer' => { 'width' => 'medium', 'position' => 'end', 'showShadow' => 'shown' } }
+      ]
+    }
+    emitted = Sigma::CodeRep.wrap(legacy)['document']
+    by_id = emitted['elements'].each_with_object({}) { |element, out| out[element['id']] = element }
+    assert_equal 'center', by_id['text']['verticalAlign']
+    assert_equal({ 'anchor' => 'left', 'verticalAnchor' => 'bottom', 'titleOrient' => 'bottom' },
+                 by_id['kpi']['layout'])
+    assert_equal 'right', by_id['tabs'].dig('tabBar', 'alignment')
+    assert_equal 'top', by_id['h-rule']['align']
+    assert_equal 'right', by_id['v-rule']['align']
+    assert_equal({ 'width' => 'medium', 'showShadow' => 'shown' },
+                 emitted.dig('overlays', 0, 'drawer'))
+    assert_equal 'middle', legacy.dig('elements', 0, 'verticalAlign')
+    assert_equal 'end', legacy.dig('overlays', 0, 'drawer', 'position')
   end
 
   def test_page_membership_accepts_legacy_aliases_but_ignores_unrelated_attributes
