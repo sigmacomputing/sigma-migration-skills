@@ -237,6 +237,8 @@ Run `ruby scripts/domo-discover.rb --probe` to detect the tier.
 - Card list per page + per-card definition (Tier A) or PNG (Tier B)
 - Beast Mode formulas (Tier A)
 - Page layout (collections + card geometry)
+- Analyzer Quick Filters (`definition.slicers` / public `quickFilters`) and
+  card date-range metadata. These are separate from permanent `main.filters`.
 
 Outputs `discovery/datasets.json`, `discovery/cards.json`, `discovery/pages.json`,
 `discovery/beast-modes.json`, and `discovery/beast-mode-discovery.json`.
@@ -480,7 +482,9 @@ Then translate the rest per the ref:
 - Domo chart type → Sigma chart kind (full table in `refs/card-to-element.md`)
 - Domo period-over-period `dateRangeFilter.periods` → explicit current/prior
   Sigma measures over aligned hidden helpers (including multiple prior periods);
-  never ship an unresolved POP card as a misleading one-series chart
+  when compare metadata is absent, derive offsets from captured
+  `POP_PERIOD`/`POP_INDEX` card-data; never ship an unresolved POP card as a
+  misleading one-series chart
 - **KPI value guard:** a KPI's value is the summary number's aggregate of the
   authored **measure** (with a source prefix, e.g. `Sum([Master/Sales Amount])`) —
   **never `Count`/`CountDistinct` of the DM primary/row-key column** (that's Domo's
@@ -491,6 +495,9 @@ Then translate the rest per the ref:
 - pivot cards → `rowsBy` + `columnsBy` arrays
 - page filters → workbook controls; card-level filter clauses → element filters
   (port **both** levels — see the ref's Filtering fidelity section)
+- table/pivot Analyzer Quick Filters → card-scoped controls backed by a hidden
+  table source; pivot permanent/date predicates also live on that source because
+  Sigma silently drops `pivot-table.filters`
 - **No liberties:** one card → one element; reproduce labels/formats/layout; every
   unsupported/dropped item → a Phase-5e warning, never a silent substitution
 - **Category-color guard:** aggregate Beast Modes are never categorical color
@@ -512,6 +519,14 @@ to invent source intent: this converter emits grounded multi-page navigation,
 explicit v4 page breaks/headers, and bounded CURRENT/TARGET progress. Waterfall,
 legend/drill wiring, panels, tabbed/repeated containers, and ungrounded styling
 remain loud gaps; `box-chart` remains entitlement-gated.
+
+The local workbook spec keeps `visibleAsSource:false` hints for parity/census
+analysis. `migrate-domo.rb` writes a separate `workbook-post-spec.json` transport
+copy and strips that field recursively before invoking the POST script; Sigma
+accepts it only on data-model documents.
+When a run resumes under a newer plugin version, the orchestrator rebuilds
+presentation/workbook/layout artifacts and updates the existing workbook while
+reusing the already-posted data model.
 
 ### Phase 5d — Layout
 `ruby scripts/build-domo-layout.rb` turns `discovery/cards.json` geometry (from
