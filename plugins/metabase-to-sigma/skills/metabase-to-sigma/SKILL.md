@@ -254,7 +254,6 @@ non-GET this skill may use, read-only in effect — or read them off the dashboa
 Mind caching: Metabase serves cached results by default; Sigma reads live. A delta
 that matches rows landed since the cache filled is freshness, not a failure.
 
-
 ---
 
 ## What converts, what's flagged (never faked)
