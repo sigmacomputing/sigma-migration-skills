@@ -58,6 +58,44 @@ def warn_card(card, msg)
   $warnings << { 'card' => card['title'] || card['id'], 'card_id' => card['id'].to_s, 'warning' => msg }
 end
 
+# Presentation sidecars are intentionally SPARSE: the derivation phase writes
+# rules only for cards where it has source-grounded styling evidence. A missing
+# card id therefore means "use the ordinary element", never "invalid state".
+# Malformed files/rules are optional-presentation failures too: warn once and
+# ignore them rather than crashing the entire workbook after its data model has
+# already posted.
+def optional_card_rule(card, basename, expected: Hash)
+  path = File.join(OUT, basename)
+  return nil unless File.exist?(path)
+
+  begin
+    document = JSON.parse(File.read(path))
+  rescue JSON::ParserError, SystemCallError => e
+    $optional_sidecar_warnings ||= {}
+    unless $optional_sidecar_warnings[path]
+      warn_card(card, "optional presentation sidecar #{basename} ignored: #{e.class}: #{e.message}")
+      $optional_sidecar_warnings[path] = true
+    end
+    return nil
+  end
+  unless document.is_a?(Hash)
+    $optional_sidecar_warnings ||= {}
+    unless $optional_sidecar_warnings[path]
+      warn_card(card, "optional presentation sidecar #{basename} ignored: expected a JSON object.")
+      $optional_sidecar_warnings[path] = true
+    end
+    return nil
+  end
+
+  rule = document[card['id'].to_s]
+  return nil if rule.nil?
+  return rule if rule.is_a?(expected)
+
+  warn_card(card, "optional presentation rule #{basename}[#{card['id']}] ignored: " \
+                  "expected #{expected}, got #{rule.class}.")
+  nil
+end
+
 def record_beast_mode_usage(card, bm, target)
   return unless bm.is_a?(Hash) && bm['id']
   $beast_mode_usage << {
@@ -409,9 +447,7 @@ def apply_category_color_guard!(card, element)
   if color_col && color_col['formula'].to_s.match?(AGGREGATE_FORMULA)
     reason = "column '#{color_col['name'] || color_id}' is an aggregate expression, not a categorical split"
   else
-    path = File.join(OUT, 'chart-color-overrides.json')
-    rules = (JSON.parse(File.read(path)) rescue {}) if File.exist?(path)
-    rule = rules && rules[card['id'].to_s]
+    rule = optional_card_rule(card, 'chart-color-overrides.json')
     if rule.is_a?(Hash) && rule['mode'] == 'omit'
       observed = rule['distinctValuesObserved']
       threshold = rule['threshold']
@@ -569,10 +605,9 @@ def build_kpi(card, overrides)
 end
 
 def apply_kpi_display_override!(card, kpi)
-  path = File.join(OUT, 'kpi-format-overrides.json')
-  all = (JSON.parse(File.read(path)) rescue {}) if File.exist?(path)
-  rule = all && all[card['id'].to_s]
-  return kpi unless rule.is_a?(Hash)
+  return kpi unless kpi.is_a?(Hash)
+  rule = optional_card_rule(card, 'kpi-format-overrides.json')
+  return kpi unless rule
   kpi['value']['fontSize'] = rule['fontSize'].to_i if rule['fontSize'].to_i.positive?
   return kpi unless rule['scale'].to_f.nonzero?
   raw = Marshal.load(Marshal.dump(kpi))
@@ -596,10 +631,8 @@ def apply_kpi_display_override!(card, kpi)
 end
 
 def apply_chart_axis_override!(card, element)
-  path = File.join(OUT, 'chart-axis-overrides.json')
-  all = (JSON.parse(File.read(path)) rescue {}) if File.exist?(path)
-  rule = all && all[card['id'].to_s]
-  return element unless rule.is_a?(Hash)
+  rule = optional_card_rule(card, 'chart-axis-overrides.json')
+  return element unless rule
   measure_ids = Array(element.dig('yAxis', 'columnIds'))
   return element if measure_ids.empty?
 
@@ -862,10 +895,7 @@ def build_axis_chart(card, kind)
     # bar-chart gets to the area-proportional hierarchy).
     is_treemap = ct == 'badge_treemap'
     xa['sort'] = { 'by' => mcols.first['id'], 'direction' => 'descending' } if mcols.first && (Array(card['orderBy']).any? || is_treemap)
-    order_override_path = File.join(OUT, 'category-order-overrides.json')
-    order_overrides = (JSON.parse(File.read(order_override_path)) rescue {}) if
-      File.exist?(order_override_path)
-    source_order = order_overrides && order_overrides[card['id'].to_s]
+    source_order = optional_card_rule(card, 'category-order-overrides.json', expected: Array)
     if source_order.is_a?(Array) && !source_order.empty?
       source_formula = dcols[xidx]['formula']
       rank_formula = source_order.each_with_index.reverse_each.reduce((source_order.length + 1).to_s) do |fallback, (label, rank)|
@@ -973,6 +1003,17 @@ def pop_card_data(card)
   document = JSON.parse(File.read(path)) rescue {}
   cards = document['cards']
   cards.is_a?(Hash) ? cards[card['id'].to_s] : nil
+end
+
+def pop_no_comparison_proven?(card)
+  return true if card['_popComparisonProbe'] == 'public-no-periods'
+
+  expected = pop_card_data(card)
+  return false unless expected.is_a?(Hash)
+  mappings = Array(expected['mappings']).map { |mapping| mapping.to_s.upcase }
+  mappings.include?('VALUE') &&
+    !mappings.include?('POP_PERIOD') &&
+    !mappings.include?('POP_INDEX')
 end
 
 def infer_pop_offset(primary_start, comparison_start)
@@ -1190,12 +1231,18 @@ def build_combo(card)
   ct = card['chartType'].to_s.downcase
   secondary = COMBO_SECONDARY_TYPE[ct] || 'line'
   if ct == 'badge_pop_bar_line' && meas.size < 2
-    warn_card(card, "badge_pop_bar_line: SKIPPED — Domo period-over-period cards expose one authored " \
-                    'measure plus synthetic POP_PERIOD/POP_INDEX channels. Only one explicit measure ' \
-                    "resolved here, so emitting it would falsely look like a valid comparison. Supply " \
-                    'the source compare-to metadata (or explicit current/prior Beast Mode measures) ' \
-                    'and rebuild.')
-    return nil
+    unless pop_no_comparison_proven?(card)
+      warn_card(card, "badge_pop_bar_line: SKIPPED — only one authored measure resolved, but neither " \
+                      'the public CardDefinition nor captured card-data proved that the source lacks a ' \
+                      'comparison. The Analyzer/render may still derive bars plus a line from hidden ' \
+                      'period metadata; refusing to erase that comparison.')
+      return nil
+    end
+    warn_card(card, 'badge_pop_bar_line: Domo returned no comparison in dateRangeFilter.periods or ' \
+                    'card-data POP_PERIOD/POP_INDEX channels. Preserved the authored value as a ' \
+                    'single-series selected-period bar chart; it does not claim a period-over-period ' \
+                    'comparison.')
+    return build_axis_chart(card, 'bar-chart')
   end
   if meas.size != 2 && !(ct == 'badge_pop_bar_line' && meas.size >= 2)
     warn_card(card, "combo-chart: expected a bar measure + a #{secondary} measure (2 total) but found " \
@@ -1364,9 +1411,7 @@ def build_table(card)
     }]
   end
 
-  override_path = File.join(OUT, 'table-display-overrides.json')
-  overrides = (JSON.parse(File.read(override_path)) rescue {}) if File.exist?(override_path)
-  display_rule = overrides && overrides[card['id'].to_s]
+  display_rule = optional_card_rule(card, 'table-display-overrides.json')
   if display_rule.is_a?(Hash) && display_rule['formula'] && display_rule['max']
     helper = {
       'id' => display_rule['filterColumnId'].to_s,
@@ -2181,10 +2226,12 @@ def apply_card_date_window!(card, el)
                     'own filters — apply the predicate on its source element instead.')
     return el
   end
-  if type == 'INTERVAL_OFFSET' && card['chartType'].to_s.downcase == 'badge_pop_bar_line'
-    warn_card(card, "date window NOT applied (#{payload}): Domo POP expands the selected bucket " \
-                    'with prior-period rows and synthetic period/index channels; a one-bucket ' \
-                    'predicate would drop those channels. Recreate this card with the POP plugin.')
+  # A reconstructed POP chart's hidden helpers already carry exact current and
+  # comparison windows. Do not add the ordinary one-bucket predicate to that
+  # element. A badge_pop_bar_line with NO periods/POP channels is different:
+  # live Domo card-data contains only ITEM/VALUE (or authored SERIES measures),
+  # so it is an ordinary selected-period query and must take this date filter.
+  if type == 'INTERVAL_OFFSET' && el['_periodComparisonManaged']
     return el
   end
 
@@ -2861,10 +2908,8 @@ def build_element_body(card, overrides)
   if is_kpi
     kpi = apply_card_filters!(card, build_kpi(card, overrides))
     kpi = apply_kpi_display_override!(card, apply_card_date_window!(card, kpi))
-    header_path = File.join(OUT, 'kpi-card-header-overrides.json')
-    headers = (JSON.parse(File.read(header_path)) rescue {}) if File.exist?(header_path)
-    header_rule = headers && headers[card['id'].to_s]
-    if header_rule.is_a?(Hash) && !header_rule['body'].to_s.empty?
+    header_rule = optional_card_rule(card, 'kpi-card-header-overrides.json')
+    if kpi && header_rule && !header_rule['body'].to_s.empty?
       $companion_elements << {
         'id' => "header-kpi-#{card['id']}", 'kind' => 'text',
         'body' => header_rule['body'].to_s
@@ -3009,18 +3054,13 @@ def build_element_body(card, overrides)
       unless el['_filterHelper'] || (el['_periodComparisonManaged'] && sn['_isCalc'])
         companion = apply_card_date_window!(card, companion)
       end
-      container_override_path = File.join(OUT, 'card-container-overrides.json')
-      container_overrides = (JSON.parse(File.read(container_override_path)) rescue {}) if
-        File.exist?(container_override_path)
-      if container_overrides&.dig(card['id'].to_s, 'summaryOwnsTitle')
+      container_rule = optional_card_rule(card, 'card-container-overrides.json')
+      if container_rule && container_rule['summaryOwnsTitle']
         companion['name'] = card['title']
         el['name'] = ' '
       end
-      header_override_path = File.join(OUT, 'card-header-overrides.json')
-      header_overrides = (JSON.parse(File.read(header_override_path)) rescue {}) if
-        File.exist?(header_override_path)
-      header_rule = header_overrides && header_overrides[card['id'].to_s]
-      if header_rule.is_a?(Hash) && !header_rule['body'].to_s.empty?
+      header_rule = optional_card_rule(card, 'card-header-overrides.json')
+      if header_rule && !header_rule['body'].to_s.empty?
         verify_id = "#{eid(card, '-summary')}-verify"
         unless $kpi_verification_elements.any? { |item| item['id'] == verify_id }
           raw_companion = Marshal.load(Marshal.dump(companion))
