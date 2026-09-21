@@ -92,6 +92,48 @@ class PostAndReadbackTest(unittest.TestCase):
             result["dropped_columns"]["ORDER_FACT"],
         )
 
+    def test_datamodel_census_handles_duplicate_paths_and_formula_case(self):
+        posted = {
+            "pages": [
+                {
+                    "elements": [
+                        {
+                            "id": "employees-base",
+                            "kind": "table",
+                            "source": {
+                                "kind": "warehouse-table",
+                                "path": ["CSA", "TJ", "EMPLOYEES"],
+                            },
+                            "columns": [
+                                {"id": "zip", "formula": "[EMPLOYEES/ZIP]"}
+                            ],
+                        },
+                        {
+                            "id": "employees-copy",
+                            "kind": "table",
+                            "source": {
+                                "kind": "warehouse-table",
+                                "path": ["CSA", "TJ", "EMPLOYEES"],
+                            },
+                            "columns": [
+                                {"id": "dept", "formula": "[EMPLOYEES/Department]"}
+                            ],
+                        },
+                    ]
+                }
+            ]
+        }
+        readback = copy.deepcopy(posted)
+        readback["pages"][0]["elements"].reverse()
+        readback["pages"][0]["elements"][1]["columns"][0]["formula"] = (
+            "[EMPLOYEES/Zip]"
+        )
+
+        result = post_and_readback.verify_census(
+            posted, readback, "datamodel"
+        )
+        self.assertTrue(result["pass"], result)
+
     def test_workbook_create_calls_server_verify_first(self):
         workbook = {
             "name": "Workbook",
@@ -110,6 +152,30 @@ class PostAndReadbackTest(unittest.TestCase):
         self.assertEqual("wb-1", object_id)
         self.assertEqual("/v2/workbooks/spec/verify", api.calls[0][1])
         self.assertTrue(result["pass"])
+
+    def test_workbook_create_strips_data_model_only_visibility_fields(self):
+        workbook = {
+            "name": "Workbook",
+            "folderId": "folder",
+            "document": {
+                "schemaVersion": 1,
+                "kind": "workbook",
+                "pages": [{"id": "data", "name": "Data", "visibility": "hidden"}],
+                "elements": [{
+                    "id": "master",
+                    "kind": "table",
+                    "visibleAsSource": False,
+                    "columns": [],
+                }],
+            },
+        }
+        api = FakeApi(copy.deepcopy(workbook))
+        post_and_readback.post_and_readback("workbook", workbook, api=api)
+        verify_body = api.calls[0][2]
+        post_body = api.calls[1][2]
+        self.assertNotIn("visibleAsSource", verify_body["document"]["elements"][0])
+        self.assertNotIn("visibleAsSource", post_body["document"]["elements"][0])
+        self.assertFalse(workbook["document"]["elements"][0]["visibleAsSource"])
 
     def test_workbook_readback_keys_elements_by_preserved_id(self):
         posted = {
