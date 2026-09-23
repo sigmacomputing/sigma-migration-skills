@@ -958,6 +958,7 @@ PHASE_BUDGET = {
   'cleanup-orphans'   => 45,
   'assert-run-state'  => 10,
   'assert-phase6-ran' => 90,
+  'assert-reconstruction-integrity' => 10,
   'assert-datasource-filters' => 15, # one GET /v2/workbooks/<id>/spec + local checks (SKIPs offline)
   'assert-action-gates' => 10, # local checks only (spec + ledger + guide) — no network
   'phaseE'            => 240,
@@ -1393,6 +1394,17 @@ if opts[:finalize]
   gout = _
   mark('assert-phase6-ran')
 
+  # Tableau-local reconstruction gate. The shared gate intentionally accepts a
+  # declared needs-* control as accounted-for and compares chart families by
+  # literal name. For Tableau reconstruction, those are not terminal: unfinished
+  # wiring blocks, and persisted layout renames must still bind source chart
+  # families to renamed live elements.
+  reconout, reconst = run!(
+    ['ruby', File.join(HERE, 'assert-reconstruction-integrity.rb'), '--workdir', WORK],
+    allow_fail: true
+  )
+  mark('assert-reconstruction-integrity')
+
   # #483 datasource-filter gate — always-on Tableau data-source filters (a
   # <shared-view> database-domain filter like company_active=true, or a
   # <datasource>/<extract> filter) render NOTHING on any dashboard, so a visual
@@ -1609,7 +1621,7 @@ if opts[:finalize]
   parity_ok = p6st.success? || (opts[:min_pass_rate] && gst.success?)
   accounting_ok = census_st.success? && report_st.success? && report_verdict != 'RED'
   all_green = parity_ok && clst.success? && relgst.success? && dashgst.success? && sqlpst.success? &&
-              gst.success? && dsfst.success? &&
+              gst.success? && reconst.success? && dsfst.success? &&
               agst.success? && accounting_ok
 
   # ---------------------------------------------------------------------------
@@ -1746,7 +1758,7 @@ if opts[:finalize]
   else
     puts "PARITY      : #{pf['status'] || '?'} (#{pf['charts_pass']}/#{pf['charts_total']} charts#{state['extract_mode'] ? ', extract-mode' : ''})"
   end
-  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} relationships=#{relgst.success? ? 'PASS' : "FAIL(#{relgst.exitstatus})"} dashboards=#{dashgst.success? ? 'PASS' : "FAIL(#{dashgst.exitstatus})"} sql-provenance=#{sqlpst.success? ? 'PASS' : "FAIL(#{sqlpst.exitstatus})"} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"} source-census=#{census_st.success? ? 'PASS' : "FAIL(#{census_st.exitstatus})"} report=#{report_verdict}#{report_st.success? ? '' : "(#{report_st.exitstatus})"}"
+  puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} relationships=#{relgst.success? ? 'PASS' : "FAIL(#{relgst.exitstatus})"} dashboards=#{dashgst.success? ? 'PASS' : "FAIL(#{dashgst.exitstatus})"} sql-provenance=#{sqlpst.success? ? 'PASS' : "FAIL(#{sqlpst.exitstatus})"} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} reconstruction=#{reconst.success? ? 'PASS' : "FAIL(#{reconst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"} source-census=#{census_st.success? ? 'PASS' : "FAIL(#{census_st.exitstatus})"} report=#{report_verdict}#{report_st.success? ? '' : "(#{report_st.exitstatus})"}"
   puts "ENHANCE     : #{enhance_line}" if enhance_line
   puts "PUNCH LIST  : #{_pl_note}" if _pl_note
   puts "STATUS      : #{all_green ? 'GREEN' : 'NOT GREEN'}"
@@ -1757,7 +1769,9 @@ if opts[:finalize]
                            'relationships' => relgst.exitstatus,
                            'dashboards' => dashgst.exitstatus,
                            'sql_provenance' => sqlpst.exitstatus,
-                           'assert_phase6_ran' => gst.exitstatus, 'ds_filters' => dsfst.exitstatus,
+                           'assert_phase6_ran' => gst.exitstatus,
+                           'reconstruction_integrity' => reconst.exitstatus,
+                           'ds_filters' => dsfst.exitstatus,
                            'action_gates' => agst.exitstatus, 'source_census' => census_st.exitstatus,
                            'migration_report' => report_st.exitstatus,
                            'migration_report_verdict' => report_verdict })
@@ -1792,6 +1806,7 @@ if opts[:finalize]
                 elsif !sqlpst.success? then sqlpout
                 elsif !gst.success? then gout
                 elsif !parity_ok then p6out # p6 failure NOT excused by --min-pass-rate
+                elsif !reconst.success? then reconout
                 elsif !dsfst.success? then dsfout
                 elsif !agst.success? then agout
                 elsif !census_st.success? then census_out
@@ -1805,6 +1820,7 @@ if opts[:finalize]
                                                    sql_provenance: sqlpst.exitstatus,
                                                    gate: gst.exitstatus,
                                                    cleanup: clst.exitstatus,
+                                                   reconstruction: reconst.exitstatus,
                                                    dsfilters: dsfst.exitstatus,
                                                    actiongates: agst.exitstatus,
                                                    census: census_st.exitstatus,
@@ -5736,6 +5752,24 @@ rescue StandardError
   nil
 end
 
+# Render the Sigma page at the authored Tableau canvas dimensions. A fixed
+# 1600×1000 source rendered into the old hard-coded 1800×1000 target produced
+# gray side gutters, shrunken content, and artificially small labels in the
+# visual grader even when the workbook layout itself was faithful.
+def visual_render_dimensions(page, dash_layout)
+  dashboard = Array(dash_layout).find do |candidate|
+    candidate.is_a?(Hash) &&
+      candidate['dashboard'].to_s.strip.casecmp?(page['name'].to_s.strip)
+  end
+  canvas = dashboard && dashboard['canvas_px']
+  if canvas.is_a?(Hash) && canvas['sizing_mode'] == 'fixed' &&
+     canvas['w'].to_i >= 600 && canvas['h'].to_i >= 400
+    [canvas['w'].to_i, canvas['h'].to_i]
+  else
+    [1800, 1000]
+  end
+end
+
 # ---------------------------------------------------------------------------
 # Phase 5b — Visual QA: render each content page to a full-page PNG so the
 # layout can be reviewed against refs/layout-visual-qa.md AND compared to the
@@ -5749,6 +5783,7 @@ hdr('5b', 'Visual QA')
 vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
 wbspec_local = (JSON.parse(File.read(wb_spec_path)) rescue {})
 content_pages = WorkbookCode.pages(wbspec_local).reject { |p| p['id'].to_s.downcase.include?('data') }
+vqa_dash_layout = (JSON.parse(File.read(File.join(WORK, 'dashboard-layout.json'))) rescue [])
 # v5.2 (speed): pages render CONCURRENTLY (pool 3) — each export is a 30-90s
 # server-side render; multi-page workbooks paid it serially.
 rendered = 0
@@ -5765,9 +5800,11 @@ Array.new([3, content_pages.size].min.clamp(1, 3)) do
         break
       end
       out = File.join(vqa, "#{pg['id']}.png")
+      render_width, render_height = visual_render_dimensions(pg, vqa_dash_layout)
       o, st = Open3.capture2e({ 'SIGMA_API_TOKEN' => vqa_tok },
                               *PyResolve.argv, PyResolve.winpath(File.join(HERE, 'sigma-export-png.py')),
-                              '--workbook', wb_id, '--page', pg['id'], '--out', PyResolve.winpath(out), '--w', '1800', '--h', '1000')
+                              '--workbook', wb_id, '--page', pg['id'], '--out', PyResolve.winpath(out),
+                              '--w', render_width.to_s, '--h', render_height.to_s)
       # K11: the PNG-export subprocess emits console-codepage bytes on Windows.
       # Ruby tags Open3 output UTF-8 regardless, so `o.strip` on invalid bytes
       # raises Encoding::CompatibilityError and kills this render thread. Scrub
