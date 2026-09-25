@@ -3,11 +3,15 @@
   "pluginVersion": "0.16.141",
   "files": {
     ".claude-plugin/plugin.json": "2b2ed3e9c5a2a9d2c5e9f322153457c58d0e66f861c0383dc5647679f7ca0592",
-    "skills/domo-to-sigma/SKILL.md": "e24b4708eda5ad62af8bf4ba38a2a7df219621a44db7816d1c8388cb2a86167f",
-    "skills/domo-to-sigma/scripts/migrate-domo.rb": "316108f35a2314fbc18d41f6627d52bbe83bd6571d78b1991d75862f19569208",
-    "skills/domo-to-sigma/scripts/build-workbook.rb": "370243454b1093fd4bc6e379cedd9a8877e13dc209e704c47eb46ccd1de4b04e",
+    "skills/domo-to-sigma/SKILL.md": "0f252ac3b55a529b33511b47db4fd2dd74b35b360c36ba6dde41b8afaa4fb2f2",
+    "skills/domo-to-sigma/scripts/migrate-domo.rb": "9b75f6553cb35eb7bcc1d0c097eae7380a9672a8fa9489828ce36074caa5b9ec",
+    "skills/domo-to-sigma/scripts/convert-beast-modes.rb": "dbe3971e453a591ca295c235c126e1a0676f79537669d434bdd36e59739b63e9",
+    "skills/domo-to-sigma/scripts/assert-beast-modes-accounted.rb": "f23a50eda0d20e8f9ef0fcd7df8f6064a34aa80d07966a11fd8cac3be2220ad9",
+    "skills/domo-to-sigma/scripts/build-workbook.rb": "337926e2861866f27d4b7f7b926fa2b9226e3b15a76aa44f5147db4e238f7780",
     "skills/domo-to-sigma/scripts/derive-presentation-overrides.rb": "611e3c79a11ecc63f1f39aea82fad2feb4db5d230fbd72d759814d0662c90770",
     "skills/domo-to-sigma/scripts/check-plugin-integrity.rb": "2d8fb28c64196194f5f21b0ad0cd6fda0388ef7f3b8add2b2ef587886b3ed525",
-    "skills/domo-to-sigma/scripts/lib/plugin_integrity.rb": "578681e34d33c3cf4c455ebaad6dd19db7af57b7b7d420cdeec6f2c35093abbc"
+    "skills/domo-to-sigma/scripts/lib/beast_mode_lod.rb": "90ef9fd563e0cfd2d4f5968af78cfa5954b37fde9ce36e7211f137dae31b216d",
+    "skills/domo-to-sigma/scripts/lib/beast_mode_semantics.rb": "0b91ea52143c98f5138553ba44346315ab0cf291c291f13129e4a73c94fd7240",
+    "skills/domo-to-sigma/scripts/lib/plugin_integrity.rb": "45a93ec51883fd762b350d422333d3c4a89893897c99bf3b5d05d1a6baf6b64e"
   }
 }
