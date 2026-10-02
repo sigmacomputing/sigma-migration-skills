@@ -45,7 +45,7 @@ not rebuilt. With --dry-run nothing is POSTed.
 
 Env (live mode): SIGMA_BASE_URL + SIGMA_API_TOKEN.
 """
-import json, os, re, sys, time, argparse, urllib.request
+import json, os, re, sys, time, argparse, urllib.parse, urllib.request
 
 MASTER_ID, MASTER = "m-master", "Master"
 _SCATTER_SRC = []   # hidden grouped source tables emitted for scatter-charts (added to the Data page)
@@ -60,11 +60,14 @@ TEMPORAL = re.compile(r"DATE|MONTH|YEAR|QUARTER|WEEK|DAY", re.I)
 # The human-readable matrix in refs/qlik-coverage.md is GENERATED from these files.
 # Loader: shared/lib/coverage_catalog.py (synced to scripts/lib/). Mirrors the
 # [bead] contract: catalog = data, code = thin resolver/predicates.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPT_DIR)
+sys.path.insert(0, os.path.join(_SCRIPT_DIR, "lib"))
 import coverage_catalog as _cc  # noqa: E402
 import trellis_emit as _te      # noqa: E402  shared native-trellis emitter (supported-kind gate + fallbacks)
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 import code_rep as _cr          # noqa: E402  workbook code-rep document-wrapper adapter (nested POST shape)
+import qlik_design_manifest as _design  # noqa: E402  screenshot-reviewed build overrides
 
 # Native-trellis round-trip sidecar records (element_id/kind/name/axis/columnId).
 # Populated by emit_trellis; written to native-trellis-emitted.json ONLY when a
@@ -95,14 +98,46 @@ def nid(prefix):
     _ids[prefix] = _ids.get(prefix, 0) + 1
     return f"{prefix}{_ids[prefix]}"
 
+def _sigma_api():
+    """lib/sigma_rest, imported lazily: importing it bootstraps saved credentials
+    into the environment, which only live POST/PUT calls should trigger."""
+    import sigma_rest
+    return sigma_rest
+
+
+def _sigma_url(path):
+    """A2: the bearer token only goes to a validated https://*.sigmacomputing.com
+    base (lib/sigma_rest's check, SIGMA_ALLOW_INSECURE_BASE_URL=1 to opt out),
+    and only to a relative API path on it."""
+    base = os.environ["SIGMA_BASE_URL"]
+    if not path.startswith("/") or path.startswith("//") or "://" in path:
+        raise ValueError(f"Sigma API path must be relative (got {path!r})")
+    _sigma_api()._validate_once(base)
+    url = base.rstrip("/") + path
+    # The insecure override relaxes only the host check: still https, or plain
+    # http for a self-hosted/dev base, never file:// or any other scheme.
+    scheme = urllib.parse.urlsplit(url).scheme.lower()
+    insecure = os.environ.get("SIGMA_ALLOW_INSECURE_BASE_URL") == "1"
+    if scheme != "https" and not (scheme == "http" and insecure):
+        raise SystemExit(f"FATAL: refusing non-https Sigma API URL (scheme {scheme!r})")
+    return url
+
+
+def _sigma_open(request):
+    """Open via sigma_rest's http(s)-only opener: unlike urllib.request.urlopen it
+    has no file:// handler, so even under the insecure-host override a poisoned
+    base URL cannot read a local file."""
+    return _sigma_api()._http_opener().open(request).read().decode()
+
+
 def api_post(path, body):
-    BASE = os.environ["SIGMA_BASE_URL"]; TOK = os.environ["SIGMA_API_TOKEN"]
-    req = urllib.request.Request(BASE + path, data=json.dumps(body).encode(), method="POST",
+    TOK = os.environ["SIGMA_API_TOKEN"]
+    req = urllib.request.Request(_sigma_url(path), data=json.dumps(body).encode(), method="POST",
         headers={"Authorization": "Bearer " + TOK, "Content-Type": "application/json",
                  "Accept": "application/json"})
     for attempt in range(6):
         try:
-            return urllib.request.urlopen(req).read().decode()
+            return _sigma_open(req)
         except urllib.error.HTTPError as e:
             detail = e.read().decode()
             if e.code == 429 and attempt < 5:  # Cloudflare 1015 rate limit: transient, retryable
@@ -111,6 +146,21 @@ def api_post(path, body):
                 time.sleep(wait)
                 continue
             print("HTTP", e.code, detail[:800], file=sys.stderr); raise
+
+
+def api_put(path, body):
+    token = os.environ["SIGMA_API_TOKEN"]
+    request = urllib.request.Request(
+        _sigma_url(path),
+        data=json.dumps(body).encode(),
+        method="PUT",
+        headers={
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    return _sigma_open(request)
 
 def sigma_fmt(qfmt, name="", warnings=None):
     """Qlik qNumFormat.qFmt (an Excel-style mask) -> Sigma format object, or None.
@@ -849,6 +899,25 @@ def build_element(c, resolve, warnings, metrics=None):
         kind = "bar-chart"
     elif vt == "combochart" and c.get("seriesTypes") and set(c["seriesTypes"]) == {"line"}:
         kind = "line-chart"
+    design_kind = c.get("designKind")
+    if design_kind and design_kind != kind:
+        if design_kind == "kpi-chart" and not mexprs:
+            warnings.append(f"skip '{title}': design manifest KPI has no measure")
+            return None
+        if design_kind != "kpi-chart" and not dims_raw:
+            warnings.append(
+                f"skip '{title}': design manifest {design_kind} has no dimension"
+            )
+            return None
+        if design_kind == "combo-chart" and len(mexprs) < 2:
+            warnings.append(
+                f"skip '{title}': design manifest combo-chart needs two measures"
+            )
+            return None
+        warnings.append(
+            f"design manifest: '{title}' kind {kind} -> {design_kind}"
+        )
+        kind = design_kind
     # Horizontal bar orientation is applied later in apply_presentation (the
     # live Sigma spec DOES accept bar-chart.orientation="horizontal" and it
     # survives readback — verified 2026-09; "vertical" is the one 400 case,
@@ -1372,6 +1441,10 @@ def main():
                          "Absent (or on the DM-reuse path) → inline, byte-identical to before.")
     ap.add_argument("--name", required=True)
     ap.add_argument("--folder")
+    ap.add_argument("--workbook-id",
+                    help="update this existing migration workbook via PUT instead of POST")
+    ap.add_argument("--design-manifest",
+                    help="approved screenshot design manifest (required when source screenshots are supplied)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default="wb-result.json")
     ap.add_argument("--spec-out", default="wb-spec.json")
@@ -1424,6 +1497,16 @@ def main():
                 if i < len(mlabels) and not mlabels[i]: mlabels[i] = hit["title"]
         if meas: c["measureLabels"] = mlabels
     sheets = json.load(open(a.layout)) if a.layout and os.path.exists(a.layout) else []
+    design_notes = []
+    if a.design_manifest:
+        manifest_path = os.path.abspath(a.design_manifest)
+        manifest = json.load(open(manifest_path, encoding="utf-8-sig"))
+        charts_list, sheets, design_notes = _design.apply_manifest(
+            manifest,
+            list(charts.values()),
+            sheets,
+        )
+        charts = {chart["id"]: chart for chart in charts_list}
     promised_visual_ids = source_visual_ids(charts, sheets)
     denorm = json.load(open(a.denorm))["element"]
     denorm_cols = [(c["name"], (re.search(r"\[Custom SQL/(.+)\]", c["formula"]) or [None, c["name"]])[1])
@@ -1455,7 +1538,7 @@ def main():
     # (Data-model code representation is deliberately unchanged and remains
     # page-nested; the --dm-spec reader above is therefore still nested.)
     warnings, pages, elements, page_elements, layout_pages, emap = (
-        [], [], [], {}, [], [])
+        list(design_notes), [], [], {}, [], [])
     pages.append({"id": "page-data", "name": "Data", "visibility": "hidden"})
     elements.append(master)
     page_elements["page-data"] = [master]
@@ -1782,17 +1865,28 @@ def main():
     if a.dry_run:
         print(f"DRY RUN: spec -> {a.spec_out} ({len(pages)} pages, {n_elem} elements)", file=sys.stderr)
     else:
-        # Workbook code-rep POSTs require the nested `document` envelope
-        # (verified live 2026-08-03/04: a flat body 400s) — wrap the flat
-        # spec built above before sending it over the wire.
-        post_body = _cr.wrap(_cr.document(spec), _cr.metadata(spec))
-        res = api_post("/v2/workbooks/spec", post_body)
-        try:
-            wb = json.loads(res).get("workbookId")
-        except json.JSONDecodeError:
-            m = re.search(r"workbookId:\s*(\S+)", res)
-            wb = m.group(1) if m else None
-        if not wb: sys.exit(f"FATAL: workbook POST returned no id: {res[:300]}")
+        if a.workbook_id:
+            # Visual iteration updates the already-created migration workbook;
+            # PUT accepts only the document wrapper, never name/folder metadata.
+            api_put(
+                f"/v2/workbooks/{a.workbook_id}/spec",
+                _cr.wrap(_cr.document(spec)),
+            )
+            wb = a.workbook_id
+            result["updated"] = True
+        else:
+            # Workbook code-rep POSTs require the nested `document` envelope
+            # (verified live 2026-08-03/04: a flat body 400s) — wrap the flat
+            # spec built above before sending it over the wire.
+            post_body = _cr.wrap(_cr.document(spec), _cr.metadata(spec))
+            res = api_post("/v2/workbooks/spec", post_body)
+            try:
+                wb = json.loads(res).get("workbookId")
+            except json.JSONDecodeError:
+                m = re.search(r"workbookId:\s*(\S+)", res)
+                wb = m.group(1) if m else None
+            if not wb:
+                sys.exit(f"FATAL: workbook POST returned no id: {res[:300]}")
         result["workbookId"] = wb
     for w in warnings: print("   WARN:", w, file=sys.stderr)
     json.dump(result, open(a.out, "w"), indent=2)
