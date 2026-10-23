@@ -18,4 +18,4 @@ truststore>=0.10.4,<0.11
 # export-pbi-pages.py so the agent's `Read` needs no poppler/pdftoppm. pypdfium2
 # ships portable abi3 wheels (BSD/Apache); Pillow writes the PNGs.
 pypdfium2>=5.13.0,<6
-Pillow>=12.3.0,<13
+Pillow>=13.0.0
