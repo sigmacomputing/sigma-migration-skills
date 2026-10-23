@@ -10,19 +10,25 @@
 #      to pasting the callback URL back if python3 isn't available, or the
 #      listener times out), verifying the CSRF state,
 #   5. exchanges the code, stores the refresh token in the OS keychain,
-#   6. prints `export SIGMA_API_TOKEN=<token>` on stdout.
+#   6. prints access-token mint metadata on stdout.
 #
 # Reads (env):
 #   SIGMA_BASE_URL   a published Sigma API host (required)
 #
 # Prints (stdout, meant to be eval'd):
 #   export SIGMA_API_TOKEN=<token>
+#   export SIGMA_TOKEN_MINTED_AT=<UTC ISO-8601 timestamp>
+#   export SIGMA_AUTH_METHOD=browser
 # All prompts/progress go to stderr, so `eval "$(browser-login.sh)"` works.
 #
 # Usage:
 #   eval "$(./browser-login.sh)"
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/browser-login-platform.sh
+source "$SCRIPT_DIR/lib/browser-login-platform.sh"
 
 : "${SIGMA_BASE_URL:?SIGMA_BASE_URL is not set (see SKILL.md for the per-cloud host)}"
 
@@ -56,6 +62,10 @@ esac
 # or POST credentials to, an authorization server a spoofed discovery doc names.
 assert_sigma_host() {
   local url="$1" host
+  case "$url" in
+    https://*) ;;
+    *) echo "Error: refusing non-HTTPS OAuth endpoint: $url" >&2; exit 1 ;;
+  esac
   # The authority ends at the first '/', '?', or '#'; strip any userinfo and port
   # so the check sees exactly the host curl will connect to. A naive "everything
   # up to the first /" parse would let a fragment spoof the trusted suffix.
@@ -125,9 +135,12 @@ CLIENT_ID=$(printf '%s' "$REG" | jq -r '.client_id // empty')
 [ -n "$CLIENT_ID" ] || { echo "Error: client registration failed:" >&2; printf '%s\n' "$REG" >&2; exit 1; }
 
 # --- C. PKCE verifier/challenge + a CSRF state. ---
-VERIFIER=$(openssl rand -base64 96 | tr -d '\n=+/' | cut -c1-64)
-CHALLENGE=$(printf '%s' "$VERIFIER" | openssl dgst -binary -sha256 | openssl base64 | tr '+/' '-_' | tr -d '=\n')
-STATE=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=\n')
+VERIFIER=$(openssl rand -base64 96 | sigma_pkce_verifier)
+CHALLENGE=$(printf '%s' "$VERIFIER" | openssl dgst -binary -sha256 | openssl base64 | sigma_base64url)
+STATE=$(openssl rand -base64 24 | sigma_base64url)
+sigma_require_component "PKCE verifier" "$VERIFIER" '^[A-Za-z0-9._~-]{43,128}$'
+sigma_require_component "PKCE challenge" "$CHALLENGE" '^[A-Za-z0-9_-]+$'
+sigma_require_component "OAuth state" "$STATE" '^[A-Za-z0-9_-]+$'
 
 # --- D. Authorize in the browser, capturing the redirect automatically. ---
 AUTH_REQ="${AUTHORIZE_URL}?response_type=code&client_id=$(urlenc "$CLIENT_ID")&redirect_uri=$(urlenc "$REDIRECT_URI")&state=$(urlenc "$STATE")&code_challenge=${CHALLENGE}&code_challenge_method=S256&scope=$(urlenc "$SCOPE")"
@@ -152,6 +165,16 @@ CODE=""
 RET_STATE=""
 LISTENER_PID=""
 LISTENER_OUT=""
+CALLBACK_FILE="${SIGMA_OAUTH_CALLBACK_FILE:-}"
+CALLBACK_TIMEOUT="${SIGMA_OAUTH_CALLBACK_TIMEOUT:-300}"
+
+if [ -n "$CALLBACK_FILE" ]; then
+  sigma_prepare_callback_file "$CALLBACK_FILE"
+fi
+cleanup_callback_file() {
+  [ -z "$CALLBACK_FILE" ] || rm -f "$CALLBACK_FILE"
+}
+trap cleanup_callback_file EXIT
 
 open_browser() {
   log ""
@@ -160,17 +183,15 @@ open_browser() {
   log ""
   log "  $AUTH_REQ"
   log ""
-  if command -v open >/dev/null 2>&1; then
-    open "$AUTH_REQ" >/dev/null 2>&1 || true
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$AUTH_REQ" >/dev/null 2>&1 || true
+  if ! sigma_open_system_browser "$AUTH_REQ"; then
+    log "No supported browser launcher was found; open the URL above manually."
   fi
 }
 
 # Start a one-shot local listener BEFORE opening the browser, so the redirect
 # lands on it directly and the code never has to be read back from the address
 # bar. Bind failure or no python3 → CODE stays empty and we fall back below.
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && [ -z "$CALLBACK_FILE" ]; then
   LISTENER_OUT=$(mktemp)
   python3 - "$REDIRECT_PORT" >"$LISTENER_OUT" 2>/dev/null <<'PYEOF' &
 import socket, sys, time
@@ -255,12 +276,19 @@ if [ -z "$CODE" ]; then
   log "  http://127.0.0.1:${REDIRECT_PORT}/oauth/callback?code=…&state=…"
   log "page that fails to connect — that is expected (nothing is listening there)."
   log "Copy the FULL address-bar URL, paste it here, and press Enter:"
-  # Prefer the controlling terminal (works even under `eval "$(...)"`, where
-  # stdout is captured). If there is no usable tty — the open/read fails, e.g.
-  # macOS "Device not configured" — fall back to stdin (piped/automated callers).
   CALLBACK=""
-  if ! { read -r CALLBACK < /dev/tty; } 2>/dev/null; then
-    read -r CALLBACK || true
+  if [ -n "$CALLBACK_FILE" ]; then
+    log "Waiting up to ${CALLBACK_TIMEOUT}s for the callback URL in:"
+    log "  $CALLBACK_FILE"
+    log "Write the URL as one line; the file is removed immediately after reading."
+    CALLBACK=$(sigma_wait_for_callback_file "$CALLBACK_FILE" "$CALLBACK_TIMEOUT" || true)
+  else
+    # Prefer the controlling terminal (works even under `eval "$(...)"`, where
+    # stdout is captured). If there is no usable tty — the open/read fails, e.g.
+    # macOS "Device not configured" — fall back to stdin (piped callers).
+    if ! { read -r CALLBACK < /dev/tty; } 2>/dev/null; then
+      read -r CALLBACK || true
+    fi
   fi
   [ -n "$CALLBACK" ] || { echo "Error: no callback URL provided." >&2; exit 1; }
   CODE=$(urldec "$(qs_param "$CALLBACK" code)")
@@ -292,24 +320,41 @@ if ! [[ "$ACCESS" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then
   echo "Error: token contains unexpected characters; refusing to emit." >&2
   exit 1
 fi
+EXPIRES_IN=$(printf '%s' "$TOKENS" | jq -r '.expires_in // 3600')
+case "$EXPIRES_IN" in ''|*[!0-9]*) EXPIRES_IN=3600 ;; esac
+MINTED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+NOW=$(date +%s)
+CACHE_EXPIRY=$(( NOW + EXPIRES_IN - 60 ))
 
 # --- F. Persist the refresh token (never to a workspace file) so a later
 # --- refresh needs no browser round-trip. client_id + token_url ride along so
-# --- the refresh is self-contained (see reference/browser-oauth-login.md, §F). ---
+# --- the refresh is self-contained (see reference/browser-oauth-login.md, §F).
+# --- Store refresh metadata first and the refresh token last; then cache the
+# --- access token with expiry as the final cache-commit key. ---
 if [ -n "$REFRESH" ]; then
   if command -v security >/dev/null 2>&1; then
-    if security add-generic-password -U -a "$USER" -s "sigma-api:refresh-token" -w "$REFRESH" 2>/dev/null; then
-      security add-generic-password -U -a "$USER" -s "sigma-api:client-id" -w "$CLIENT_ID" >/dev/null 2>&1 || true
-      security add-generic-password -U -a "$USER" -s "sigma-api:token-url" -w "$TOKEN_URL" >/dev/null 2>&1 || true
+    if security add-generic-password -U -a "$USER" -s "sigma-api:client-id" -w "$CLIENT_ID" >/dev/null 2>&1 &&
+       security add-generic-password -U -a "$USER" -s "sigma-api:token-url" -w "$TOKEN_URL" >/dev/null 2>&1 &&
+       security add-generic-password -U -a "$USER" -s "sigma-api:refresh-token" -w "$REFRESH" >/dev/null 2>&1; then
+      if security add-generic-password -U -a "$USER" -s "sigma-api:access-token" -w "$ACCESS" >/dev/null 2>&1 &&
+         security add-generic-password -U -a "$USER" -s "sigma-api:access-minted-at" -w "$MINTED_AT" >/dev/null 2>&1; then
+        security add-generic-password -U -a "$USER" -s "sigma-api:access-expiry" -w "$CACHE_EXPIRY" >/dev/null 2>&1 || true
+      fi
       log "Stored refresh token in the macOS keychain (service 'sigma-api:refresh-token')."
     else
-      log "Warning: could not write to the macOS keychain; refresh token NOT persisted."
+      log "Warning: could not store the complete browser session in the macOS keychain; the new refresh token was not safely persisted."
     fi
   elif command -v secret-tool >/dev/null 2>&1; then
-    if printf '%s' "$REFRESH" | secret-tool store --label="sigma-api refresh token" service sigma-api key refresh-token; then
+    if printf '%s' "$CLIENT_ID" | secret-tool store --label="sigma-api client-id" service sigma-api key client-id >/dev/null 2>&1 &&
+       printf '%s' "$TOKEN_URL" | secret-tool store --label="sigma-api token-url" service sigma-api key token-url >/dev/null 2>&1 &&
+       printf '%s' "$REFRESH" | secret-tool store --label="sigma-api refresh token" service sigma-api key refresh-token >/dev/null 2>&1; then
+      if printf '%s' "$ACCESS" | secret-tool store --label="sigma-api access-token" service sigma-api key access-token >/dev/null 2>&1 &&
+         printf '%s' "$MINTED_AT" | secret-tool store --label="sigma-api access-minted-at" service sigma-api key access-minted-at >/dev/null 2>&1; then
+        printf '%s' "$CACHE_EXPIRY" | secret-tool store --label="sigma-api access-expiry" service sigma-api key access-expiry >/dev/null 2>&1 || true
+      fi
       log "Stored refresh token via libsecret (service 'sigma-api', key 'refresh-token')."
     else
-      log "Warning: could not write to libsecret; refresh token NOT persisted."
+      log "Warning: could not store the complete browser session in libsecret; the new refresh token was not safely persisted."
     fi
   else
     log "Note: no OS keychain tool (security/secret-tool) found; refresh token NOT persisted."
@@ -319,3 +364,5 @@ else
 fi
 
 printf 'export SIGMA_API_TOKEN=%q\n' "$ACCESS"
+printf 'export SIGMA_TOKEN_MINTED_AT=%q\n' "$MINTED_AT"
+printf 'export SIGMA_AUTH_METHOD=%q\n' "browser"
