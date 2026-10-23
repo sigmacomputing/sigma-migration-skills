@@ -401,7 +401,11 @@ def token_provider_result():
         match = export_re.fullmatch(line)
         if match:
             values[match.group(1)] = match.group(2)
-    required = ("SIGMA_API_TOKEN", "SIGMA_AUTH_METHOD")
+    required = ["SIGMA_API_TOKEN", "SIGMA_AUTH_METHOD"]
+    if values.get("SIGMA_AUTH_METHOD") != "sigma-cli":
+        # Every method except the Sigma CLI (whose tokens have no known age)
+        # must report when the token was minted.
+        required.append("SIGMA_TOKEN_MINTED_AT")
     missing = [key for key in required if not values.get(key)]
     if missing:
         raise SigmaAuthError(f"Sigma token provider omitted {', '.join(missing)}")
@@ -421,6 +425,8 @@ def refresh_token():
         values = token_provider_result()
         tok = values["SIGMA_API_TOKEN"]
         minted_value = values.get("SIGMA_TOKEN_MINTED_AT")
+        if not minted_value and values.get("SIGMA_AUTH_METHOD") != "sigma-cli":
+            raise SigmaAuthError("Sigma token provider omitted SIGMA_TOKEN_MINTED_AT")
         minted_at = _parse_iso_epoch(minted_value) if minted_value else None
         if minted_value and minted_at is None:
             raise SigmaAuthError("Sigma token provider returned an invalid mint timestamp")

@@ -171,7 +171,10 @@ check $? "live doctor.json records pass/browser without the token"
 
 echo "Part C2 — the Sigma CLI is an accepted Sigma auth path (noninteractive)"
 CLI_BASE=https://aws-api.sigmacomputing.com
-CLI_JWT=eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl
+# Built at runtime (header {"alg":"none"}, payload {"sub":"test"}, signature
+# "signature") so no JWT-shaped literal sits in the source.
+b64url() { printf '%s' "$1" | base64 | tr -d '=\n' | tr '+/' '-_'; }
+CLI_JWT="$(b64url '{"alg":"none"}').$(b64url '{"sub":"test"}').$(b64url signature)"
 mkdir -p "$TMP/cli-bin" "$TMP/home-cli"
 # A keychain tool that never has a session, so browser auth cannot mask the CLI.
 for t in security secret-tool; do

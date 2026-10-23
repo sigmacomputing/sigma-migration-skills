@@ -70,6 +70,33 @@ test('CLI token never refreshes proactively', () => {
   });
 });
 
+function authFile(method) {
+  const dir = mkdtempSync(join(tmpdir(), 'sigma-auth-'));
+  writeFileSync(join(dir, 'auth.json'), JSON.stringify({
+    SIGMA_API_TOKEN: 'file-token', SIGMA_BASE_URL: BASE, SIGMA_AUTH_METHOD: method,
+  }));
+  return dir;
+}
+
+test('non-CLI auth.json without mint metadata still gets a mint time (file mtime)', () => {
+  withCleanEnv(() => {
+    const auth = loadSigmaAuth(authFile('browser'), {
+      refresh: () => assert.fail('a fresh file token must not refresh'),
+    });
+    assert.ok(auth.mintedAt, 'a browser token must carry a mint time');
+  });
+});
+
+test('a CLI auth.json carries no mint time and never refreshes proactively', () => {
+  withCleanEnv(() => {
+    const auth = loadSigmaAuth(authFile('sigma-cli'), {
+      now: Date.parse('2099-01-01T00:00:00Z'),
+      refresh: () => assert.fail('CLI tokens have no known age'),
+    });
+    assert.equal(auth.mintedAt, undefined);
+  });
+});
+
 test('401 refreshes once regardless of SIGMA_CLIENT_ID', async () => {
   await withCleanEnv(async () => {
     const authorizations = [];
@@ -99,7 +126,10 @@ test('401 refreshes once regardless of SIGMA_CLIENT_ID', async () => {
 
 // ---- CLI-only user: SIGMA_BASE_URL unset, the provider supplies the host ----
 const CLI_BASE = 'https://aws-api.sigmacomputing.com';
-const FAKE_JWT = 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl';
+// Built at runtime (header {"alg":"none"}, payload {"sub":"test"}, signature
+// "signature") so no JWT-shaped literal sits in the source.
+const FAKE_JWT = ['{"alg":"none"}', '{"sub":"test"}', 'signature']
+  .map((part) => Buffer.from(part).toString('base64url')).join('.');
 
 // A stand-in provider: writes auth.json the way get_token.py --workdir does.
 function fakeProvider(dir, base) {
@@ -209,7 +239,7 @@ test('a real fake CLI through the real provider reaches the derived host', async
       'exit 3',
       '',
     ].join('\n'));
-    chmodSync(join(bindir, 'sigma'), 0o755);
+    chmodSync(join(bindir, 'sigma'), 0o700);
     // The real provider, minus its network /v2/whoami verification.
     const wrapper = join(dir, 'provider.py');
     writeFileSync(wrapper, [

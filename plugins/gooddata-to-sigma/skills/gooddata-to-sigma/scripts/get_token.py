@@ -523,7 +523,10 @@ def _cli_run(argv):
     Returns (returncode, stdout, stderr) as text. Output is never logged here;
     callers must not echo it because `auth token` prints a bearer token."""
     try:
-        proc = subprocess.run(
+        # Not injectable: argv is a list (no shell), argv[0] comes from
+        # shutil.which and was verified via `auth --help`, and SIGMA_CLI_PROFILE
+        # is regex-validated and cannot start with '-'.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
             argv,
             stdin=subprocess.DEVNULL,
             capture_output=True,

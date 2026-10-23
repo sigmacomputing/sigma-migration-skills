@@ -76,6 +76,8 @@ def run_bootstrap(home, path_dirs, *args, env: {})
           'SIGMA_SKIP_CRED_SMOKE' => '1', 'SIGMA_SKIP_VERSION_CHECK' => '1' }.merge(env)
   # unsetenv_others: the parent's env (SIGMA_* creds on a dev machine) must
   # not leak into the child — the hash above IS the whole child environment.
+  # Test harness: runs the fixed bootstrap.sh under test against temp-dir stubs; no user input reaches the command.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, st = Open3.capture2e(env, '/bin/bash', BOOTSTRAP, *args, unsetenv_others: true)
   [st.exitstatus, out]
 end

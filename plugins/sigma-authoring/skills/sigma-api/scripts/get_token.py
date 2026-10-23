@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
-"""Mint and verify Sigma API tokens with browser-first dual authentication.
+"""Mint and verify Sigma API tokens with browser-first multi-source authentication.
 
 This stdlib-only provider is the protocol/runtime source of truth for Sigma
 authentication. Callers should keep using a valid SIGMA_API_TOKEN they already
 hold. When they need a new token, this provider resolves credentials in this
 order:
 
-  auto (default): browser keychain cache/refresh, then client credentials
+  auto (default): browser keychain cache/refresh, then the Sigma CLI, then
+                  client credentials
   browser:        browser keychain cache/refresh only
+  sigma-cli:      the Sigma CLI (`sigma auth token`) only
   client-credentials: OAuth client credentials only
 
 SIGMA_AUTH_MODE selects the mode; --auth-mode overrides it. Browser refresh
 tokens are read from and written to the OS keychain only. They are never put in
 auth.json or printed.
+
+Sigma CLI source: the `sigma` binary must be the Sigma Computing CLI
+(`sigma auth --help` mentions `token`; an unrelated tool can own that name).
+The provider runs `sigma auth status` (noninteractive; never `auth login`) to
+read the profile's Base URL and require `Auth: OK`, then `sigma auth token`,
+which prints a bare JWT. SIGMA_CLI_PROFILE selects a profile (`-p`); unset uses
+the CLI's default profile. When SIGMA_BASE_URL is set and the profile's host
+differs, the CLI token is refused so a token minted for one org's host is never
+sent to another. When SIGMA_BASE_URL is unset, the profile's Base URL is used
+after the usual published-host validation.
 
 CLI compatibility:
   python3 scripts/get_token.py --workdir <DIR>  # writes auth.json (0600)
@@ -36,7 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 SIGMA_DOMAIN = "sigma" "computing.com"
@@ -57,12 +69,23 @@ PUBLISHED_API_HOSTS = frozenset(
         f"api.sa.gcp.{SIGMA_DOMAIN}",
     )
 )
-AUTH_MODES = ("auto", "browser", "client-credentials")
+AUTH_MODES = ("auto", "browser", "sigma-cli", "client-credentials")
+SIGMA_CLI_TIMEOUT = 30
+_JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
+_CLI_PROFILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$")
+_CLI_BASE_RE = re.compile(r"^[ \t]*Base URL:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+_CLI_AUTH_RE = re.compile(r"^[ \t]*Auth:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 _BEARER_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
 _MINTED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _NEUTRAL_ENV = os.path.expanduser("~/.sigma-migration/env")
 _NEUTRAL_KEYS = frozenset(
-    ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_AUTH_MODE")
+    (
+        "SIGMA_BASE_URL",
+        "SIGMA_CLIENT_ID",
+        "SIGMA_CLIENT_SECRET",
+        "SIGMA_AUTH_MODE",
+        "SIGMA_CLI_PROFILE",
+    )
 )
 
 
@@ -89,10 +112,21 @@ class BrowserUnavailable(TokenProviderError):
         self.warn = warn
 
 
+class SigmaCliUnavailable(TokenProviderError):
+    """The Sigma CLI cannot supply a token (absent, signed out, or refused).
+
+    ``warn`` marks cases where a real Sigma CLI is present but unusable, so auto
+    mode tells the user why it moved on to the next source."""
+
+    def __init__(self, message, warn=False):
+        super().__init__(message)
+        self.warn = warn
+
+
 class TokenResult(NamedTuple):
     base_url: str
     token: str
-    minted_at: str
+    minted_at: Optional[str]
     auth_method: str
 
 
@@ -186,9 +220,33 @@ def _assert_sigma_url(url, label="OAuth endpoint", base_url=False):
     return url
 
 
+def _https_opener():
+    """An opener with proxy and HTTPS (plus error/redirect processing) handlers.
+    urllib's default opener also installs file, FTP, data and plain-HTTP
+    handlers, so a URL that slipped past validation could read a local file;
+    this one cannot open anything but https."""
+    opener = urllib.request.OpenerDirector()
+    for handler in (urllib.request.ProxyHandler(),
+                    urllib.request.HTTPSHandler(),
+                    urllib.request.HTTPDefaultErrorHandler(),
+                    urllib.request.HTTPRedirectHandler(),
+                    urllib.request.HTTPErrorProcessor()):
+        opener.add_handler(handler)
+    return opener
+
+
+def _open_https(req, timeout):
+    """The only network seam for token requests (tests patch this)."""
+    return _https_opener().open(req, timeout=timeout)
+
+
 def _json_response(req, failure_prefix):
+    # Defense in depth below the URL validators: refuse any non-https URL
+    # here too, and never fall back to urllib.request.urlopen.
+    if urllib.parse.urlsplit(req.full_url).scheme.lower() != "https":
+        raise SecurityError(f"{failure_prefix}: refusing a non-https token endpoint")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _open_https(req, timeout=30) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         raise TokenProviderError(
@@ -459,11 +517,117 @@ def _mint_browser_refresh(base, now=None):
     return TokenResult(base, token, minted_at, "browser")
 
 
+def _cli_run(argv):
+    """Run one Sigma CLI command: argv list (no shell), no stdin, bounded time.
+
+    Returns (returncode, stdout, stderr) as text. Output is never logged here;
+    callers must not echo it because `auth token` prints a bearer token."""
+    try:
+        # Not injectable: argv is a list (no shell), argv[0] comes from
+        # shutil.which and was verified via `auth --help`, and SIGMA_CLI_PROFILE
+        # is regex-validated and cannot start with '-'.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
+            argv,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=SIGMA_CLI_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SigmaCliUnavailable(
+            f"`sigma auth {argv[2]}` timed out after {SIGMA_CLI_TIMEOUT}s", warn=True
+        ) from exc
+    except OSError as exc:
+        raise SigmaCliUnavailable(
+            f"could not run the Sigma CLI: {exc.strerror or exc}"
+        ) from exc
+    return (
+        proc.returncode,
+        proc.stdout.decode("utf-8", "replace"),
+        proc.stderr.decode("utf-8", "replace"),
+    )
+
+
+def _mint_sigma_cli(configured_base=None, now=None):
+    """Return a Sigma CLI TokenResult or raise SigmaCliUnavailable.
+
+    Never invokes `sigma auth login` (interactive) and never prints the token."""
+    binary = shutil.which("sigma")
+    if binary is None:
+        raise SigmaCliUnavailable("the Sigma CLI (`sigma`) is not on PATH")
+
+    profile = os.environ.get("SIGMA_CLI_PROFILE", "").strip()
+    if profile and not _CLI_PROFILE_RE.fullmatch(profile):
+        raise TokenProviderError(
+            "SIGMA_CLI_PROFILE must be a profile name (letters, digits, "
+            "'.', '_', '@', '-', spaces; not starting with '-')"
+        )
+    profile_args = ["-p", profile] if profile else []
+
+    code, out, err = _cli_run([binary, "auth", "--help"])
+    if code != 0 or not re.search(r"\btoken\b", out + err):
+        raise SigmaCliUnavailable(
+            "`sigma` on PATH is not the Sigma Computing CLI "
+            "(`sigma auth --help` failed or does not list `token`)"
+        )
+
+    login_hint = "run `sigma auth login` in an interactive terminal"
+    code, out, err = _cli_run([binary, "auth", "status"] + profile_args)
+    report = f"{out}\n{err}"
+    if code != 0:
+        raise SigmaCliUnavailable(
+            f"`sigma auth status` failed (exit {code}); {login_hint}", warn=True
+        )
+    auth_line = _CLI_AUTH_RE.search(report)
+    if not auth_line or not auth_line.group(1).upper().startswith("OK"):
+        raise SigmaCliUnavailable(
+            f"the Sigma CLI profile is not authenticated; {login_hint}", warn=True
+        )
+    base_line = _CLI_BASE_RE.search(report)
+    if not base_line:
+        raise SigmaCliUnavailable(
+            "Sigma CLI profile Base URL was not reported by `sigma auth status`; "
+            "refusing a token with no known host",
+            warn=True,
+        )
+    try:
+        cli_base = _assert_sigma_url(
+            base_line.group(1), "Sigma CLI profile Base URL", base_url=True
+        )
+    except SecurityError as exc:
+        raise SigmaCliUnavailable(
+            f"Sigma CLI profile Base URL refused: {exc}", warn=True
+        ) from exc
+    if configured_base and configured_base != cli_base:
+        raise SigmaCliUnavailable(
+            f"Sigma CLI profile Base URL ({urllib.parse.urlsplit(cli_base).hostname}) "
+            f"differs from SIGMA_BASE_URL ({urllib.parse.urlsplit(configured_base).hostname}); "
+            "refusing to use a token minted for a different host. Select the "
+            "matching profile with SIGMA_CLI_PROFILE or unset SIGMA_BASE_URL",
+            warn=True,
+        )
+
+    code, out, _err = _cli_run([binary, "auth", "token"] + profile_args)
+    if code != 0:
+        raise SigmaCliUnavailable(
+            f"`sigma auth token` failed (exit {code}); {login_hint}", warn=True
+        )
+    token = out.strip()
+    if not _JWT_RE.fullmatch(token):
+        raise SigmaCliUnavailable(
+            "Sigma CLI `auth token` output was not a JWT; refusing it", warn=True
+        )
+    token = _validate_access_token(token)
+    # The CLI owns token lifetime and does not report when this token was minted.
+    return TokenResult(cli_base, token, None, "sigma-cli")
+
+
 def _resolve_auth_mode(cli_mode=None):
     mode = cli_mode or os.environ.get("SIGMA_AUTH_MODE", "auto")
     if mode not in AUTH_MODES:
         raise TokenProviderError(
-            "SIGMA_AUTH_MODE must be one of: auto, browser, client-credentials"
+            "SIGMA_AUTH_MODE must be one of: auto, browser, sigma-cli, "
+            "client-credentials"
         )
     return mode
 
@@ -471,28 +635,55 @@ def _resolve_auth_mode(cli_mode=None):
 def mint_token(auth_mode=None):
     _load_neutral_env()
     base_value = os.environ.get("SIGMA_BASE_URL")
-    if not base_value:
+    mode = _resolve_auth_mode(auth_mode)
+    base = None
+    if base_value:
+        base = _assert_sigma_url(base_value, "SIGMA_BASE_URL", base_url=True)
+    elif mode not in ("auto", "sigma-cli"):
         raise TokenProviderError(
             "SIGMA_BASE_URL is not set; set it to your Sigma cloud API host"
         )
-    base = _assert_sigma_url(base_value, "SIGMA_BASE_URL", base_url=True)
-    mode = _resolve_auth_mode(auth_mode)
 
+    browser_error = None
     if mode in ("auto", "browser"):
-        try:
-            result = _mint_browser_refresh(base)
-        except SecurityError:
-            raise
-        except BrowserUnavailable as exc:
-            if mode == "browser":
-                raise TokenProviderError(f"browser auth unavailable: {exc}") from exc
-            browser_error = exc
+        if base is None:
+            # Auto without a base URL: only the Sigma CLI can supply one.
+            browser_error = BrowserUnavailable("SIGMA_BASE_URL is not set")
         else:
-            browser_error = None
-        if browser_error is None:
+            try:
+                result = _mint_browser_refresh(base)
+            except SecurityError:
+                raise
+            except BrowserUnavailable as exc:
+                if mode == "browser":
+                    raise TokenProviderError(
+                        f"browser auth unavailable: {exc}"
+                    ) from exc
+                browser_error = exc
+            else:
+                return _verify_token(result)
+
+    if mode in ("auto", "sigma-cli"):
+        try:
+            result = _mint_sigma_cli(base)
+        except SigmaCliUnavailable as exc:
+            if mode == "sigma-cli":
+                raise TokenProviderError(
+                    f"Sigma CLI auth unavailable: {exc}"
+                ) from exc
+            if exc.warn:
+                print(
+                    f"Sigma CLI auth unavailable ({exc}); trying the next source.",
+                    file=sys.stderr,
+                )
+        else:
             return _verify_token(result)
-    else:
-        browser_error = None
+
+    if base is None:
+        raise TokenProviderError(
+            "SIGMA_BASE_URL is not set; set it to your Sigma cloud API host "
+            "(a signed-in Sigma CLI supplies it: `sigma auth login`)"
+        )
 
     client_id = os.environ.get("SIGMA_CLIENT_ID")
     client_secret = os.environ.get("SIGMA_CLIENT_SECRET")
@@ -507,8 +698,9 @@ def mint_token(auth_mode=None):
         return _verify_token(result)
 
     raise TokenProviderError(
-        "no Sigma authentication is available: run browser-login.sh once, or "
-        "set both SIGMA_CLIENT_ID and SIGMA_CLIENT_SECRET"
+        "no Sigma authentication is available: run browser-login.sh once, "
+        "sign in with the Sigma CLI (`sigma auth login`), or set both "
+        "SIGMA_CLIENT_ID and SIGMA_CLIENT_SECRET"
     )
 
 
@@ -518,9 +710,10 @@ def _write_auth_json(workdir, result):
     payload = {
         "SIGMA_API_TOKEN": result.token,
         "SIGMA_BASE_URL": result.base_url,
-        "SIGMA_TOKEN_MINTED_AT": result.minted_at,
         "SIGMA_AUTH_METHOD": result.auth_method,
     }
+    if result.minted_at:
+        payload["SIGMA_TOKEN_MINTED_AT"] = result.minted_at
 
     fd, temp_path = tempfile.mkstemp(prefix=".auth.json.", dir=workdir)
     try:
@@ -554,14 +747,20 @@ def _write_auth_json(workdir, result):
 
 
 def _print_exports(result):
+    if not os.environ.get("SIGMA_BASE_URL"):
+        # The host came from the Sigma CLI profile; hand it to eval callers.
+        print(f"export SIGMA_BASE_URL={result.base_url}")
     print(f"export SIGMA_API_TOKEN={result.token}")
-    print(f"export SIGMA_TOKEN_MINTED_AT={result.minted_at}")
+    if result.minted_at:
+        print(f"export SIGMA_TOKEN_MINTED_AT={result.minted_at}")
+    else:
+        print("unset SIGMA_TOKEN_MINTED_AT")
     print(f"export SIGMA_AUTH_METHOD={result.auth_method}")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Mint a Sigma bearer token (browser-first by default)."
+        description="Mint a Sigma bearer token (browser, then Sigma CLI, then client credentials)."
     )
     parser.add_argument("--workdir", help="write <WORKDIR>/auth.json (mode 0600)")
     parser.add_argument(
@@ -575,7 +774,7 @@ def main(argv=None):
     parser.add_argument(
         "--auth-mode",
         choices=AUTH_MODES,
-        help="override SIGMA_AUTH_MODE (auto, browser, client-credentials)",
+        help="override SIGMA_AUTH_MODE (auto, browser, sigma-cli, client-credentials)",
     )
     args = parser.parse_args(argv)
 

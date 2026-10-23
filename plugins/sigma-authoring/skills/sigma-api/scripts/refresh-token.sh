@@ -105,10 +105,12 @@ esac
 TU_HOST=$(printf '%s' "$TOKEN_URL" | sed -E 's#^https?://##; s#[/?#].*##; s#^[^@]*@##; s#:[0-9]+$##')
 case "$TU_HOST" in
   *."${SIGMA_DOMAIN}"|"${SIGMA_DOMAIN}") ;;
+  # Not DNS exfiltration: the host is only printed in a refusal message; credentials go only to a validated https Sigma endpoint.
+  # nosemgrep: ai.ai-best-practices.hooks-dns-exfiltration.hooks-dns-exfiltration.hooks-dns-exfiltration-generic
   *) echo "Error: stored token-url points at a non-Sigma host ($TU_HOST); refusing to use it." >&2; exit 1 ;;
 esac
 
-RESP=$(curl -sS -X POST "$TOKEN_URL" \
+RESP=$(curl -sS --proto '=https' -X POST "$TOKEN_URL" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=refresh_token" \
   --data-urlencode "refresh_token=$REFRESH" \
