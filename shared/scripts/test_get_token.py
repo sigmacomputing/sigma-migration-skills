@@ -447,6 +447,7 @@ if [ "$1" = auth ] && [ "$2" = token ]; then
     exit 2
   fi
   printf '%s\n' "${FAKE_SIGMA_TOKEN}"
+  [ -n "${FAKE_SIGMA_TOKEN_STDERR:-}" ] && printf '%s\n' "$FAKE_SIGMA_TOKEN_STDERR" >&2
   exit 0
 fi
 echo "unexpected: $*" >&2
@@ -526,7 +527,7 @@ class SigmaCliTest(unittest.TestCase):
             result, _err = self.mint()
         self.assertEqual(CLI_BASE, result.base_url)
         self.assertEqual("sigma-cli", result.auth_method)
-        self.assertTrue(get_token._MINTED_AT_RE.fullmatch(result.minted_at))
+        self.assertIsNone(result.minted_at)
 
     def test_env_base_matching_cli_host_is_used(self):
         with self.env(base=CLI_BASE + "/"):
@@ -676,6 +677,7 @@ class SigmaCliTest(unittest.TestCase):
         self.assertIn(f"export SIGMA_API_TOKEN={FAKE_JWT}", text)
         self.assertIn("export SIGMA_AUTH_METHOD=sigma-cli", text)
         self.assertIn(f"export SIGMA_BASE_URL={CLI_BASE}", text)
+        self.assertIn("unset SIGMA_TOKEN_MINTED_AT", text)
 
     def test_sigma_auth_mode_env_selects_sigma_cli(self):
         with self.env(base=CLI_BASE, SIGMA_AUTH_MODE="sigma-cli"), \
@@ -741,7 +743,12 @@ class SigmaCliShellFallbackTest(unittest.TestCase):
         self.assertIn(f"export SIGMA_API_TOKEN={FAKE_JWT}", proc.stdout)
         self.assertIn("export SIGMA_AUTH_METHOD=sigma-cli", proc.stdout)
         self.assertIn(f"export SIGMA_BASE_URL={CLI_BASE}", proc.stdout)
-        self.assertRegex(proc.stdout, r"export SIGMA_TOKEN_MINTED_AT=\S+")
+        self.assertIn("unset SIGMA_TOKEN_MINTED_AT", proc.stdout)
+
+    def test_cli_token_ignores_status_text_on_stderr(self):
+        proc = self.run_script(FAKE_SIGMA_TOKEN_STDERR="Using profile example-profile")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn(f"export SIGMA_API_TOKEN={FAKE_JWT}", proc.stdout)
 
     def test_profile_is_passed_as_dash_p(self):
         proc = self.run_script("--auth-mode", "sigma-cli", SIGMA_CLI_PROFILE="example-profile")
@@ -821,10 +828,14 @@ class TransportSchemeTest(unittest.TestCase):
         self.assertEqual([("https://aws-api.sigmacomputing.com/v2/auth/token", 30)], opened)
 
     def test_opener_has_no_file_ftp_or_data_handler(self):
-        handlers = get_token._https_opener().handlers
+        with mock.patch.object(get_token.urllib.request, "getproxies",
+                               return_value={"https": "http://proxy.example:8080"}):
+            handlers = get_token._https_opener().handlers
         bad = (get_token.urllib.request.FileHandler, get_token.urllib.request.FTPHandler,
                get_token.urllib.request.DataHandler, get_token.urllib.request.HTTPHandler)
         self.assertFalse(any(isinstance(h, bad) for h in handlers))
+        self.assertTrue(any(isinstance(h, get_token.urllib.request.ProxyHandler)
+                            for h in handlers))
 
 
 if __name__ == "__main__":

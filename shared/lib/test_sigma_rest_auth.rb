@@ -75,6 +75,28 @@ class SigmaRestDualAuthTest < Minitest::Test
     assert_equal 'browser-refreshed-token', token
   end
 
+  def test_cli_token_never_refreshes_proactively
+    ENV['SIGMA_AUTH_METHOD'] = 'sigma-cli'
+    ENV['SIGMA_TOKEN_MINTED_AT'] = '2000-01-01T00:00:00Z'
+    token = Sigma.stub(:token_provider_result, -> { flunk 'provider should not run' }) { Sigma.auth_token }
+    assert_equal 'caller-token', token
+  end
+
+  def test_cli_401_remint_pins_provider_to_cli_mode
+    ENV['SIGMA_AUTH_METHOD'] = 'sigma-cli'
+    captured = nil
+    status = Object.new
+    status.define_singleton_method(:success?) { true }
+    runner = lambda do |*args|
+      captured = args
+      ["export SIGMA_API_TOKEN=cli-refreshed-token\nexport SIGMA_AUTH_METHOD=sigma-cli\n", '', status]
+    end
+    values = Open3.stub(:capture3, runner) { Sigma.token_provider_result }
+
+    assert_equal 'cli-refreshed-token', values['SIGMA_API_TOKEN']
+    assert_includes captured.each_cons(2).to_a, ['--auth-mode', 'sigma-cli']
+  end
+
   def test_second_401_is_not_retried
     http = SequenceHTTP.new(
       response(Net::HTTPUnauthorized, '401', 'Unauthorized', '{}'),
@@ -99,7 +121,6 @@ class SigmaRestDerivedBaseTest < Minitest::Test
   FAKE_JWT = 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl'
   PROVIDER = {
     'SIGMA_API_TOKEN' => FAKE_JWT,
-    'SIGMA_TOKEN_MINTED_AT' => '2026-10-05T20:00:00Z',
     'SIGMA_AUTH_METHOD' => 'sigma-cli',
     'SIGMA_BASE_URL' => CLI_BASE
   }.freeze
@@ -156,6 +177,7 @@ class SigmaRestDerivedBaseTest < Minitest::Test
     assert_equal ["Bearer #{FAKE_JWT}"], http.authorization
     assert_equal CLI_BASE, ENV['SIGMA_BASE_URL']
     assert_equal 'sigma-cli', ENV['SIGMA_AUTH_METHOD']
+    assert_nil Sigma.token_minted_at
   end
 
   def test_derived_non_sigma_host_is_refused_before_any_request
