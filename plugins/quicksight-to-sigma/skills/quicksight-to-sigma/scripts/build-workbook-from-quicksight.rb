@@ -206,8 +206,8 @@ STDERR.puts "metric-binding: #{$QS_METRICS.size} referenceable DM metric(s) for 
 # unsafe: the already-applied layout.xml and the control-scope.json sidecar still
 # referenced the previous build's ids, so control lint reported ghost `mustReach`
 # targets (32 of them, live) and — the dangerous one — a layout referencing
-# elements absent from the spec renders the page N/A / blank (the Arine RCA
-# class). It also quietly contradicted the orchestrator's idempotent-resume
+# elements absent from the spec renders the page N/A / blank (a field-reported
+# blank-page class). It also quietly contradicted the orchestrator's idempotent-resume
 # promise, since a rebuild could never reproduce the ids it had posted.
 #
 # Every id is now a short digest of the STABLE SOURCE IDENTITY — the QuickSight

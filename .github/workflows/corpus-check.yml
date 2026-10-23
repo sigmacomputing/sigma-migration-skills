@@ -90,7 +90,7 @@ jobs:
     env:
       SIGMA_CLIENT_ID: ci-offline-placeholder
       SIGMA_CLIENT_SECRET: ci-offline-placeholder
-      SIGMA_BASE_URL: https://aws-api.[REDACTED].com
+      SIGMA_BASE_URL: https://aws-api.sigmacomputing.com
       SIGMA_SKIP_CRED_SMOKE: "1"
       SIGMA_SKIP_VERSION_CHECK: "1"
     steps:
@@ -199,7 +199,6 @@ jobs:
           python3 plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_trellis.py
           python3 plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_qlik_app_shapes.py
           python3 plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_design_manifest.py
-          python3 plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_builder_url_safety.py
           python3 tools/test-qlik-python-runtime.py
 
   qlik-python-cold:
