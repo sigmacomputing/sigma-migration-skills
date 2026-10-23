@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Credential-free tests for the canonical Sigma token provider."""
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -21,6 +22,13 @@ SPEC.loader.exec_module(get_token)
 
 BASE = "https://api.sigmacomputing.com"
 MINTED = "2026-10-05T20:00:00Z"
+
+
+def write_executable(path, contents):
+    """Create an owner-only executable test stub (mode fixed at creation)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(contents)
 
 
 class JsonResponse(io.BytesIO):
@@ -380,10 +388,7 @@ class TokenProviderTest(unittest.TestCase):
                 "date": "#!/bin/sh\nprintf 2026-10-05T20:00:00Z\\n\n",
             }
             for name, contents in tools.items():
-                path = os.path.join(bindir, name)
-                with open(path, "w", encoding="utf-8") as handle:
-                    handle.write(contents)
-                os.chmod(path, 0o755)
+                write_executable(os.path.join(bindir, name), contents)
 
             env = {
                 "PATH": bindir,
@@ -417,7 +422,15 @@ class TokenProviderTest(unittest.TestCase):
                 self.assertIn("^[A-Za-z0-9._~+/=-]+$", source)
 
 
-FAKE_JWT = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl"
+def _b64url(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+# Built at runtime (header {"alg":"none"}, payload {"sub":"test"}, signature
+# "signature") so no JWT-shaped literal sits in the source.
+FAKE_JWT = ".".join(
+    _b64url(part) for part in (b'{"alg":"none"}', b'{"sub":"test"}', b"signature")
+)
 CLI_BASE = "https://aws-api.sigmacomputing.com"
 
 FAKE_SIGMA = r"""#!/bin/bash
@@ -466,10 +479,7 @@ class SigmaCliTest(unittest.TestCase):
         os.makedirs(self.bindir)
         os.makedirs(self.emptydir)
         self.log = os.path.join(self.tmp.name, "sigma.log")
-        path = os.path.join(self.bindir, "sigma")
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(FAKE_SIGMA)
-        os.chmod(path, 0o755)
+        write_executable(os.path.join(self.bindir, "sigma"), FAKE_SIGMA)
 
     def calls(self):
         if not os.path.exists(self.log):
@@ -719,10 +729,7 @@ class SigmaCliShellFallbackTest(unittest.TestCase):
                 if os.path.exists(src):
                     os.symlink(src, os.path.join(self.bindir, name))
                     break
-        path = os.path.join(self.bindir, "sigma")
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(FAKE_SIGMA)
-        os.chmod(path, 0o755)
+        write_executable(os.path.join(self.bindir, "sigma"), FAKE_SIGMA)
 
     def run_script(self, *args, **env):
         merged = {

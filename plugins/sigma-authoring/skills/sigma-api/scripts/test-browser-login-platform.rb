@@ -12,6 +12,8 @@ class BrowserLoginPlatformTest < Minitest::Test
   def shell_path(path)
     return path unless Gem.win_platform?
 
+    # Test harness: runs a fixed script under test against temp-dir stubs; no user input reaches the command.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
     out, status = Open3.capture2(BASH, '-c', 'cygpath -u "$1"', 'test', path)
     raise "cygpath failed for #{path}" unless status.success?
 
@@ -19,6 +21,8 @@ class BrowserLoginPlatformTest < Minitest::Test
   end
 
   def bash(script, *args, env: {})
+    # Test harness: runs a fixed script under test against temp-dir stubs; no user input reaches the command.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
     Open3.capture3(env, BASH, '-c', script, 'test', shell_path(LIB), *args)
   end
 

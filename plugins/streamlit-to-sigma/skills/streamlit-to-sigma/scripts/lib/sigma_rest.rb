@@ -233,6 +233,9 @@ module Sigma
       values[match[1]] = match[2] if match
     end
     required = %w[SIGMA_API_TOKEN SIGMA_AUTH_METHOD]
+    # Every method except the Sigma CLI (whose tokens have no known age) must
+    # report when the token was minted.
+    required << 'SIGMA_TOKEN_MINTED_AT' unless values['SIGMA_AUTH_METHOD'] == 'sigma-cli'
     missing = required.reject { |key| values[key] && !values[key].empty? }
     raise AuthError, "Sigma token provider omitted #{missing.join(', ')}" unless missing.empty?
 
@@ -251,7 +254,10 @@ module Sigma
       values = token_provider_result
       tok = values.fetch('SIGMA_API_TOKEN')
       minted_value = values['SIGMA_TOKEN_MINTED_AT']
-      minted_at = Time.parse(minted_value) if minted_value
+      if (minted_value.nil? || minted_value.empty?) && values['SIGMA_AUTH_METHOD'] != 'sigma-cli'
+        raise AuthError, 'Sigma token provider omitted SIGMA_TOKEN_MINTED_AT'
+      end
+      minted_at = Time.parse(minted_value) if minted_value && !minted_value.empty?
       # A base URL the provider derived (Sigma CLI profile) is validated with the
       # same host check as an explicit one, BEFORE anything is stored or any
       # request is made. An explicit SIGMA_BASE_URL is never overwritten.
@@ -264,7 +270,7 @@ module Sigma
         @token_override = tok
         @minted_at = minted_at
       end
-      ENV.delete('SIGMA_TOKEN_MINTED_AT') unless minted_value
+      ENV.delete('SIGMA_TOKEN_MINTED_AT') unless minted_at
       values.each { |key, value| ENV[key] = value unless key == 'SIGMA_BASE_URL' }
       tok
     ensure

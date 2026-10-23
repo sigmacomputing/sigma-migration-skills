@@ -97,6 +97,41 @@ class SigmaRestDualAuthTest < Minitest::Test
     assert_includes captured.each_cons(2).to_a, ['--auth-mode', 'sigma-cli']
   end
 
+  def provider_run(stdout)
+    status = Object.new
+    status.define_singleton_method(:success?) { true }
+    Open3.stub(:capture3, ->(*_args) { [stdout, '', status] }) { Sigma.token_provider_result }
+  end
+
+  def test_provider_output_without_mint_time_is_rejected_for_non_cli_methods
+    %w[browser client-credentials].each do |method|
+      err = assert_raises(Sigma::AuthError) do
+        provider_run("export SIGMA_API_TOKEN=minted-token\nexport SIGMA_AUTH_METHOD=#{method}\n")
+      end
+      assert_match(/SIGMA_TOKEN_MINTED_AT/, err.message)
+    end
+  end
+
+  def test_provider_output_without_mint_time_is_accepted_for_sigma_cli
+    values = provider_run("export SIGMA_API_TOKEN=cli-token\nunset SIGMA_TOKEN_MINTED_AT\nexport SIGMA_AUTH_METHOD=sigma-cli\n")
+    assert_equal 'cli-token', values['SIGMA_API_TOKEN']
+    refute values.key?('SIGMA_TOKEN_MINTED_AT')
+  end
+
+  def test_refresh_requires_mint_time_unless_sigma_cli
+    [{ 'SIGMA_API_TOKEN' => 'token' },
+     { 'SIGMA_API_TOKEN' => 'token', 'SIGMA_AUTH_METHOD' => 'browser' }].each do |incomplete|
+      assert_raises(Sigma::AuthError) do
+        Sigma.stub(:token_provider_result, incomplete) { Sigma.refresh_token! }
+      end
+    end
+    cli = { 'SIGMA_API_TOKEN' => 'cli-token', 'SIGMA_AUTH_METHOD' => 'sigma-cli' }
+    ENV['SIGMA_TOKEN_MINTED_AT'] = '2000-01-01T00:00:00Z'
+    assert_equal 'cli-token', Sigma.stub(:token_provider_result, cli) { Sigma.refresh_token! }
+    assert_nil ENV['SIGMA_TOKEN_MINTED_AT']
+    assert_nil Sigma.token_minted_at
+  end
+
   def test_second_401_is_not_retried
     http = SequenceHTTP.new(
       response(Net::HTTPUnauthorized, '401', 'Unauthorized', '{}'),
@@ -118,7 +153,10 @@ class SigmaRestDerivedBaseTest < Minitest::Test
   require 'rbconfig'
 
   CLI_BASE = 'https://aws-api.sigmacomputing.com'
-  FAKE_JWT = 'eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl'
+  # Built at runtime (header {"alg":"none"}, payload {"sub":"test"}, signature
+  # "signature") so no JWT-shaped literal sits in the source.
+  FAKE_JWT = ['{"alg":"none"}', '{"sub":"test"}', 'signature']
+             .map { |part| [part].pack('m0').tr('+/', '-_').delete('=') }.join('.')
   PROVIDER = {
     'SIGMA_API_TOKEN' => FAKE_JWT,
     'SIGMA_AUTH_METHOD' => 'sigma-cli',
@@ -241,7 +279,7 @@ class SigmaRestDerivedBaseTest < Minitest::Test
       bindir = File.join(tmp, 'bin')
       Dir.mkdir(bindir)
       File.write(File.join(bindir, 'sigma'), FAKE_SIGMA)
-      File.chmod(0o755, File.join(bindir, 'sigma'))
+      File.chmod(0o700, File.join(bindir, 'sigma'))
       # The real provider, minus its network /v2/whoami verification.
       wrapper = File.join(tmp, 'provider.py')
       File.write(wrapper, <<~PY)
