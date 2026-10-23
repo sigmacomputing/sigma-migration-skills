@@ -173,11 +173,33 @@ def bootstrap_credentials(env=None, cwd=None):
     _load_auth_json(env, cwd)
 
 
+_base_mutex = threading.Lock()
+
+
 def base_url():
+    """SIGMA_BASE_URL, or - for a user whose only credential is a signed-in
+    Sigma CLI profile - the host the token provider reports for that profile.
+    An explicit SIGMA_BASE_URL (env, ~/.sigma-migration/env, auth.json) always
+    wins. A caller-supplied SIGMA_API_TOKEN with no base URL never triggers
+    derivation: that token's host is unknown, and silently swapping it for the
+    CLI's token could change identity."""
     v = os.environ.get("SIGMA_BASE_URL")
-    if not v:
-        raise SigmaError("SIGMA_BASE_URL not set")
-    return v
+    if v:
+        return v
+    with _base_mutex:
+        v = os.environ.get("SIGMA_BASE_URL")
+        if v:
+            return v
+        if os.environ.get("SIGMA_API_TOKEN"):
+            raise SigmaError("SIGMA_BASE_URL not set")
+        refresh_token()  # stores the provider-reported base URL, validated
+        v = os.environ.get("SIGMA_BASE_URL")
+        if not v:
+            raise SigmaError(
+                "SIGMA_BASE_URL not set (the token provider did not report one; "
+                "set it, or sign in with the Sigma CLI: sigma auth login)"
+            )
+        return v
 
 
 def validate_base_url(base):
@@ -316,11 +338,12 @@ def _send(method, url, headers, body, timeout):
 
 
 def token_provider_result():
-    """Invoke the canonical browser-first provider and parse its exports as data.
+    """Invoke the canonical multi-source provider and parse its exports as data.
 
-    The provider itself owns keychain refresh, client-credentials fallback,
-    endpoint validation, and /v2/whoami verification. Shell output is never
-    evaluated.
+    The provider itself owns keychain refresh, the Sigma CLI source,
+    client-credentials fallback, endpoint validation, and /v2/whoami verification.
+    Shell output is never evaluated. SIGMA_BASE_URL is present in the result only
+    when the provider derived it (Sigma CLI profile, no explicit base URL).
     """
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
@@ -366,7 +389,7 @@ def token_provider_result():
 
     values = {}
     export_re = re.compile(
-        r"\Aexport (SIGMA_API_TOKEN|SIGMA_TOKEN_MINTED_AT|SIGMA_AUTH_METHOD)="
+        r"\Aexport (SIGMA_API_TOKEN|SIGMA_TOKEN_MINTED_AT|SIGMA_AUTH_METHOD|SIGMA_BASE_URL)="
         r"([A-Za-z0-9._~+/=:-]+)\Z"
     )
     for line in completed.stdout.splitlines():
@@ -395,10 +418,17 @@ def refresh_token():
         minted_at = _parse_iso_epoch(values["SIGMA_TOKEN_MINTED_AT"])
         if minted_at is None:
             raise SigmaAuthError("Sigma token provider returned an invalid mint timestamp")
+        # A base URL the provider derived (Sigma CLI profile) is validated with
+        # the same host check as an explicit one, BEFORE anything is stored or
+        # any request is made. An explicit SIGMA_BASE_URL is never overwritten.
+        derived = values.get("SIGMA_BASE_URL")
+        if derived and not os.environ.get("SIGMA_BASE_URL"):
+            validate_base_url(derived)
+            os.environ["SIGMA_BASE_URL"] = derived
         with _token_mutex:
             _token_override = tok
             _minted_at = minted_at
-        os.environ.update(values)
+        os.environ.update({k: v for k, v in values.items() if k != "SIGMA_BASE_URL"})
         return tok
     finally:
         with _token_mutex:

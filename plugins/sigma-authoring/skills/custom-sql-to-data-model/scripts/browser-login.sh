@@ -79,7 +79,7 @@ assert_sigma_host() {
 urlenc() { jq -rn --arg v "$1" '$v|@uri'; }
 
 # --- A. Discover the OAuth endpoints from an unauthenticated /v2/whoami 401. ---
-WWW_AUTH=$(curl -sS -D - -o /dev/null "$SIGMA_BASE_URL/v2/whoami" | tr -d '\r' | grep -i '^www-authenticate:' || true)
+WWW_AUTH=$(curl -sS --proto '=https' -D - -o /dev/null "$SIGMA_BASE_URL/v2/whoami" | tr -d '\r' | grep -i '^www-authenticate:' || true)
 [ -n "$WWW_AUTH" ] || { echo "Error: $SIGMA_BASE_URL/v2/whoami returned no WWW-Authenticate header; this host does not offer browser login. Use get-token.sh (client credentials)." >&2; exit 1; }
 
 RESOURCE_META=$(printf '%s' "$WWW_AUTH" | grep -oE 'resource_metadata="[^"]+"' | cut -d'"' -f2 || true)
@@ -88,12 +88,12 @@ SCOPE=$(printf '%s' "$WWW_AUTH" | grep -oE 'scope="[^"]+"' | cut -d'"' -f2 || tr
 [ -n "$SCOPE" ] || { echo "Error: could not parse scope from WWW-Authenticate header." >&2; exit 1; }
 assert_sigma_host "$RESOURCE_META"
 
-AUTH_SERVER=$(curl -sS "$RESOURCE_META" | jq -r '.authorization_servers[0] // empty')
+AUTH_SERVER=$(curl -sS --proto '=https' "$RESOURCE_META" | jq -r '.authorization_servers[0] // empty')
 [ -n "$AUTH_SERVER" ] || { echo "Error: no authorization server listed in protected-resource metadata." >&2; exit 1; }
 AUTH_SERVER=${AUTH_SERVER%/}
 assert_sigma_host "$AUTH_SERVER"
 
-META=$(curl -sS "$AUTH_SERVER/.well-known/oauth-authorization-server")
+META=$(curl -sS --proto '=https' "$AUTH_SERVER/.well-known/oauth-authorization-server")
 AUTHORIZE_URL=$(printf '%s' "$META" | jq -r '.authorization_endpoint // empty')
 TOKEN_URL=$(printf '%s' "$META" | jq -r '.token_endpoint // empty')
 REGISTER_URL=$(printf '%s' "$META" | jq -r '.registration_endpoint // empty')
@@ -125,7 +125,7 @@ done
 REDIRECT_URI="http://127.0.0.1:${REDIRECT_PORT}/oauth/callback"
 
 # --- B. Register a public client (RFC 7591). ---
-REG=$(curl -sS -X POST "$REGISTER_URL" \
+REG=$(curl -sS --proto '=https' -X POST "$REGISTER_URL" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg r "$REDIRECT_URI" --arg s "$SCOPE" '{
     redirect_uris: [$r], client_name: "sigma-api skill", scope: $s,
@@ -299,7 +299,7 @@ fi
 [ "$RET_STATE" = "$STATE" ] || { echo "Error: state mismatch (possible CSRF) — aborting." >&2; exit 1; }
 
 # --- E. Exchange the authorization code for tokens. ---
-TOKENS=$(curl -sS -X POST "$TOKEN_URL" \
+TOKENS=$(curl -sS --proto '=https' -X POST "$TOKEN_URL" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=authorization_code" \
   --data-urlencode "code=$CODE" \

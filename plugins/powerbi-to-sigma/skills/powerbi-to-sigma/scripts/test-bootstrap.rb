@@ -13,6 +13,10 @@
 #   5. token-only and browser-keychain auth configurations are accepted without
 #      opening a browser; missing auth names browser login first and client flags
 #      as the unattended fallback.
+#   5b. a working Sigma CLI profile (fake `sigma`) is accepted noninteractively:
+#      only `auth --help`/`auth status` run (never login or token), a failed or
+#      non-Sigma CLI is not accepted, SIGMA_AUTH_MODE narrows it, and a host that
+#      differs from SIGMA_BASE_URL is refused.
 #   6. pip_user_install's TLS rung (the REAL bodies, driven via a pip shim):
 #      the truststore retry runs ONLY inside pip's [22.2, 24.2) window and
 #      never while installing truststore itself, and the retry can never
@@ -66,10 +70,10 @@ def stub_bin(dir)
 end
 
 # Run bootstrap.sh with a controlled HOME + PATH. Returns [status, out+err].
-def run_bootstrap(home, path_dirs, *args)
+def run_bootstrap(home, path_dirs, *args, env: {})
   env = { 'HOME' => home, 'USERPROFILE' => home, 'PATH' => path_dirs.join(':'),
           # keep the doctor's networked probes off — offline test
-          'SIGMA_SKIP_CRED_SMOKE' => '1', 'SIGMA_SKIP_VERSION_CHECK' => '1' }
+          'SIGMA_SKIP_CRED_SMOKE' => '1', 'SIGMA_SKIP_VERSION_CHECK' => '1' }.merge(env)
   # unsetenv_others: the parent's env (SIGMA_* creds on a dev machine) must
   # not leak into the child — the hash above IS the whole child environment.
   out, st = Open3.capture2e(env, '/bin/bash', BOOTSTRAP, *args, unsetenv_others: true)
@@ -176,6 +180,80 @@ Dir.mktmpdir do |t|
   ok('--check accepts keychain-only browser session + base URL',
      st == 0 && out.include?('browser refresh session present'))
   ok('bootstrap does not invoke browser-login', !out.include?('Opening your browser'))
+
+  # ── 5b. a working Sigma CLI profile is accepted, noninteractively ─────────
+  cli_bin = File.join(t, 'cli-bin')
+  FileUtils.mkdir_p(cli_bin)
+  write_stub(cli_bin, 'sigma', <<~'SH'.rstrip)
+    printf '%s\n' "$*" >> "${FAKE_SIGMA_LOG:-/dev/null}"
+    case "$1 $2" in
+      "auth --help")
+        if [ -n "${FAKE_SIGMA_HELP_FAIL:-}" ]; then echo "error: unrecognized subcommand" >&2; exit 2; fi
+        echo "Commands: login token status"; exit 0 ;;
+      "auth status")
+        { echo "Profile:   example-profile"; echo "Auth type: api_key"
+          [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "Base URL:  ${FAKE_SIGMA_BASE}"
+          echo "Auth:      ${FAKE_SIGMA_AUTH:-OK (token acquired)}"; } >&2
+        exit 0 ;;
+      "auth token") echo "SECRET-CLI-TOKEN"; exit 0 ;;
+    esac
+    exit 3
+  SH
+  # keychain tools that never hold a session, so browser auth cannot mask the CLI
+  %w[security secret-tool].each { |tool| write_stub(cli_bin, tool, 'exit 1') }
+  cli_home = File.join(t, 'cli-home')
+  FileUtils.mkdir_p(File.join(cli_home, '.sigma-migration'))
+  cli_log = File.join(t, 'cli.log')
+  cli_env = { 'FAKE_SIGMA_BASE' => 'https://aws-api.sigmacomputing.com', 'FAKE_SIGMA_LOG' => cli_log }
+  cli_path = [cli_bin, stub] + SYS
+  read_log = ->(path) { File.exist?(path) ? File.read(path) : '' }
+
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env)
+  ok('--check accepts a signed-in Sigma CLI profile (no SIGMA_BASE_URL needed)',
+     st == 0 && out.include?('Sigma CLI profile signed in') && !out.include?('Sigma authentication MISSING'))
+  calls = File.exist?(cli_log) ? File.read(cli_log) : ''
+  ok('bootstrap only runs `auth --help` and `auth status` against the CLI',
+     calls.include?('auth --help') && calls.include?('auth status') &&
+       !calls.include?('login') && !calls.include?('auth token'))
+  ok('bootstrap never prints a CLI token', !out.include?('SECRET-CLI-TOKEN'))
+
+  File.delete(cli_log) if File.exist?(cli_log)
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_CLI_PROFILE' => 'example-profile'))
+  ok('SIGMA_CLI_PROFILE is passed to the CLI as -p',
+     read_log.call(cli_log).lines.map(&:strip).include?('auth status -p example-profile'))
+
+  cli_persist_home = File.join(t, 'cli-persist-home')
+  FileUtils.mkdir_p(File.join(cli_persist_home, '.sigma-migration'))
+  File.write(File.join(cli_persist_home, '.sigma-migration', 'env'),
+             "export SIGMA_CLI_PROFILE='example-profile'\n")
+  File.delete(cli_log) if File.exist?(cli_log)
+  run_bootstrap(cli_persist_home, cli_path, '--check', env: cli_env)
+  ok('SIGMA_CLI_PROFILE persisted in ~/.sigma-migration/env is passed as -p',
+     read_log.call(cli_log).lines.map(&:strip).include?('auth status -p example-profile'))
+
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_AUTH' => 'FAILED (401)'))
+  ok('a CLI profile reporting Auth: FAILED is not accepted', out.include?('Sigma authentication MISSING'))
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_HELP_FAIL' => '1'))
+  ok('a non-Sigma binary named sigma is not accepted', out.include?('Sigma authentication MISSING'))
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_BASE' => 'https://api.evil.test'))
+  ok('a CLI profile on a non-Sigma host is not accepted', out.include?('Sigma authentication MISSING'))
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_BASE_URL' => 'https://api.sigmacomputing.com'))
+  ok('a CLI profile whose host differs from SIGMA_BASE_URL is not accepted',
+     out.include?('Sigma authentication MISSING'))
+  %w[browser client-credentials].each do |mode|
+    st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_AUTH_MODE' => mode))
+    ok("SIGMA_AUTH_MODE=#{mode} does not accept the CLI", out.include?('Sigma authentication MISSING'))
+  end
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_AUTH_MODE' => 'sigma-cli'))
+  ok('SIGMA_AUTH_MODE=sigma-cli accepts the CLI', out.include?('Sigma CLI profile signed in'))
+  st, out = run_bootstrap(cli_home, [stub] + SYS, '--check', env: cli_env)
+  ok('missing-auth text now names the Sigma CLI', out.include?('sigma auth login') && out.include?('browser-login.sh'))
+
+  cli_work = File.join(t, 'cli-work'); FileUtils.mkdir_p(cli_work)
+  st, out = run_bootstrap(cli_home, cli_path, '--workdir', cli_work, env: cli_env)
+  ok('full run with only a CLI profile → exit 0', st == 0)
+  cdj = (JSON.parse(File.read(File.join(cli_work, 'doctor.json'))) rescue nil)
+  ok('doctor.json records sigma-cli', cdj && cdj['sigma_auth_method'] == 'sigma-cli' && cdj['pass'] == true)
 
   # ── 6. pip_user_install TLS rung: gated retry, diagnostics never clobbered ─
   # Drives the REAL pip_user_install/pip_truststore_window bodies extracted

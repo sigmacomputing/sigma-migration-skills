@@ -14,7 +14,8 @@ Interactive browser setup additionally requires `curl`, `jq`, and `openssl`;
 automatic refresh-token reuse requires macOS `security` or Linux
 `secret-tool`. Without a keychain, the initial browser access token still
 works but cannot be refreshed. If Python is unavailable, `get-token.sh`
-retains a safe client-credentials fallback using `curl`, `jq`, and `base64`.
+retains safe Sigma CLI and client-credentials fallbacks (the latter using
+`curl`, `jq`, and `base64`).
 Browser launch supports macOS, Linux, and Windows/Git Bash, although Windows
 does not currently have a keychain persistence backend. Run
 `scripts/check-prerequisites.sh sigma-api` from the repository root for a
@@ -84,11 +85,13 @@ Call the same helper for initial minting and refresh:
 
 In the default `auto` mode, `get-token.sh` delegates to
 `scripts/get_token.py`: it first serves or refreshes the browser session in the
-OS keychain, then falls back to `SIGMA_CLIENT_ID` /
-`SIGMA_CLIENT_SECRET`. A valid token already held by a caller should be reused
+OS keychain, then the Sigma CLI (`sigma auth token` for the profile named by
+`SIGMA_CLI_PROFILE`, else the CLI default; its Base URL must match
+`SIGMA_BASE_URL` when that is set), then `SIGMA_CLIENT_ID` /
+`SIGMA_CLIENT_SECRET`. The provider never runs `sigma auth login`. A valid token already held by a caller should be reused
 by that caller until refresh is needed.
 
-Before returning a browser or client-credentials result, the Python provider
+Before returning a browser, Sigma CLI, or client-credentials result, the Python provider
 verifies the token with `GET /v2/whoami`. It never follows redirects for this
 request, so the bearer cannot be forwarded to a redirect target. A 401, 403,
 non-JSON response, or redirect fails closed without emitting the token or
@@ -100,7 +103,7 @@ Every successfully verified mint emits:
 |---|---|
 | `SIGMA_API_TOKEN` | Short-lived access token |
 | `SIGMA_TOKEN_MINTED_AT` | UTC ISO-8601 mint timestamp |
-| `SIGMA_AUTH_METHOD` | `browser` or `client-credentials` |
+| `SIGMA_AUTH_METHOD` | `browser`, `sigma-cli`, or `client-credentials` |
 
 Select a mode explicitly with `SIGMA_AUTH_MODE` or `--auth-mode`:
 
@@ -109,9 +112,10 @@ eval "$(bash scripts/get-token.sh --auth-mode browser)"
 eval "$(SIGMA_AUTH_MODE=client-credentials bash scripts/get-token.sh)"
 ```
 
-Allowed values are `auto`, `browser`, and `client-credentials`; the CLI flag
-overrides the environment variable. `browser` never falls back to client
-credentials, and `client-credentials` never reads the keychain.
+Allowed values are `auto`, `browser`, `sigma-cli`, and `client-credentials`;
+the CLI flag overrides the environment variable. `browser` and `sigma-cli`
+never fall back to another source, and `client-credentials` never reads the
+keychain or the Sigma CLI.
 
 ### Shell-neutral provider and `auth.json`
 

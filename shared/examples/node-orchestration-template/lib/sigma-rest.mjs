@@ -1,20 +1,7 @@
 // Fetch-based Sigma REST helper with the same refresh contract as the Ruby and
 // Python adapters: preserve a valid caller token, refresh known-stale tokens,
 // and refresh/retry exactly once after any 401 (including browser-only auth).
-import { loadSigmaAuth, refreshSigmaAuth } from './auth.mjs';
-
-function validateBase(base) {
-  const url = new URL(base);
-  const host = url.hostname.toLowerCase();
-  const insecure = process.env.SIGMA_ALLOW_INSECURE_BASE_URL === '1';
-  if (!insecure && (url.protocol !== 'https:' ||
-      !(host === 'sigmacomputing.com' || host.endsWith('.sigmacomputing.com')))) {
-    throw new Error(`refusing to send a Sigma bearer token to untrusted base URL: ${base}`);
-  }
-  if (insecure && !['https:', 'http:'].includes(url.protocol)) {
-    throw new Error(`refusing non-HTTP Sigma base URL: ${base}`);
-  }
-}
+import { loadSigmaAuth, refreshSigmaAuth, validateBase } from './auth.mjs';
 
 export function makeClient(workdir, options = {}) {
   const loadAuth = options.loadAuth || loadSigmaAuth;
