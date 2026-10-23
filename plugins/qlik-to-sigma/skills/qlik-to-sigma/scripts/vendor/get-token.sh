@@ -81,28 +81,32 @@ sigma_published_base() {
 
 # --- Sigma CLI source (noninteractive: never runs `sigma auth login`) --------
 # Run argv with no stdin and a hard time limit (macOS has no `timeout`).
-# Combined stdout+stderr lands in CLI_OUT; the exit status is returned.
+# stdout/stderr land in CLI_OUT/CLI_ERR; the exit status is returned.
 CLI_OUT=""
+CLI_ERR=""
 cli_run() {
-  local limit="$1" tmp pid ticks=0 rc=0
+  local limit="$1" out_tmp err_tmp pid ticks=0 rc=0
   shift
-  tmp="$(mktemp)" || return 1
-  "$@" </dev/null >"$tmp" 2>&1 &
+  out_tmp="$(mktemp)" || return 1
+  err_tmp="$(mktemp)" || { rm -f "$out_tmp"; return 1; }
+  "$@" </dev/null >"$out_tmp" 2>"$err_tmp" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$ticks" -ge $((limit * 10)) ]; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
-      rm -f "$tmp"
+      rm -f "$out_tmp" "$err_tmp"
       CLI_OUT=""
+      CLI_ERR=""
       return 124
     fi
     sleep 0.1 2>/dev/null || sleep 1
     ticks=$((ticks + 1))
   done
   wait "$pid" || rc=$?
-  CLI_OUT="$(<"$tmp")"
-  rm -f "$tmp"
+  CLI_OUT="$(<"$out_tmp")"
+  CLI_ERR="$(<"$err_tmp")"
+  rm -f "$out_tmp" "$err_tmp"
   return "$rc"
 }
 
@@ -124,13 +128,13 @@ sigma_cli_token() {
     pargs=(-p "$profile")
   fi
   re='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
-  if ! cli_run 30 "$bin" auth --help || ! [[ "$CLI_OUT" =~ $re ]]; then
+  if ! cli_run 30 "$bin" auth --help || ! [[ "$CLI_OUT"$'\n'"$CLI_ERR" =~ $re ]]; then
     CLI_ERROR="sigma on PATH is not the Sigma CLI (sigma auth --help failed or does not list token)"; return 1
   fi
   if ! cli_run 30 "$bin" auth status ${pargs[@]+"${pargs[@]}"}; then
     CLI_ERROR="sigma auth status failed; run sigma auth login in an interactive terminal"; return 1
   fi
-  status_out="$CLI_OUT"
+  status_out="$CLI_OUT"$'\n'"$CLI_ERR"
   local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]' re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
   while IFS= read -r line; do
     if [[ "$line" =~ $re_auth ]]; then
@@ -170,7 +174,7 @@ if [ "$AUTH_MODE" = "auto" ] || [ "$AUTH_MODE" = "sigma-cli" ]; then
       printf 'export SIGMA_BASE_URL=%q\n' "$CLI_BASE"
     fi
     printf 'export SIGMA_API_TOKEN=%q\n' "$CLI_TOKEN"
-    printf 'export SIGMA_TOKEN_MINTED_AT=%q\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'unset SIGMA_TOKEN_MINTED_AT\n'
     printf 'export SIGMA_AUTH_METHOD=%q\n' "sigma-cli"
     exit 0
   fi

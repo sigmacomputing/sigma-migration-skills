@@ -56,6 +56,20 @@ test('known-stale browser token refreshes without client credentials', () => {
   });
 });
 
+test('CLI token never refreshes proactively', () => {
+  withCleanEnv(() => {
+    process.env.SIGMA_BASE_URL = BASE;
+    process.env.SIGMA_API_TOKEN = 'cli-token';
+    process.env.SIGMA_TOKEN_MINTED_AT = '2000-01-01T00:00:00Z';
+    process.env.SIGMA_AUTH_METHOD = 'sigma-cli';
+    const auth = loadSigmaAuth('/unused', {
+      refresh: () => assert.fail('provider should not run for a CLI token'),
+    });
+    assert.equal(auth.token, 'cli-token');
+    assert.equal(auth.mintedAt, undefined);
+  });
+});
+
 test('401 refreshes once regardless of SIGMA_CLIENT_ID', async () => {
   await withCleanEnv(async () => {
     const authorizations = [];
@@ -95,7 +109,7 @@ function fakeProvider(dir, base) {
     "wd = sys.argv[sys.argv.index('--workdir') + 1]",
     'os.makedirs(wd, exist_ok=True)',
     "json.dump({'SIGMA_API_TOKEN': " + JSON.stringify(FAKE_JWT) + ", 'SIGMA_BASE_URL': " + JSON.stringify(base) + ",",
-    "           'SIGMA_TOKEN_MINTED_AT': '2026-10-05T20:00:00Z', 'SIGMA_AUTH_METHOD': 'sigma-cli'},",
+    "           'SIGMA_AUTH_METHOD': 'sigma-cli'},",
     "          open(os.path.join(wd, 'auth.json'), 'w'))",
     '',
   ].join('\n'));
@@ -110,6 +124,7 @@ test('CLI-only: a missing SIGMA_BASE_URL is derived from the provider result', (
     assert.equal(auth.base, CLI_BASE);
     assert.equal(auth.token, FAKE_JWT);
     assert.equal(auth.authMethod, 'sigma-cli');
+    assert.equal(auth.mintedAt, undefined);
     assert.equal(process.env.SIGMA_BASE_URL, CLI_BASE);
   });
 });

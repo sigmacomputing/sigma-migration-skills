@@ -48,7 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 SIGMA_DOMAIN = "sigma" "computing.com"
@@ -126,7 +126,7 @@ class SigmaCliUnavailable(TokenProviderError):
 class TokenResult(NamedTuple):
     base_url: str
     token: str
-    minted_at: str
+    minted_at: Optional[str]
     auth_method: str
 
 
@@ -221,12 +221,13 @@ def _assert_sigma_url(url, label="OAuth endpoint", base_url=False):
 
 
 def _https_opener():
-    """An opener with only HTTPS (plus error/redirect processing) handlers.
+    """An opener with proxy and HTTPS (plus error/redirect processing) handlers.
     urllib's default opener also installs file, FTP, data and plain-HTTP
     handlers, so a URL that slipped past validation could read a local file;
     this one cannot open anything but https."""
     opener = urllib.request.OpenerDirector()
-    for handler in (urllib.request.HTTPSHandler(),
+    for handler in (urllib.request.ProxyHandler(),
+                    urllib.request.HTTPSHandler(),
                     urllib.request.HTTPDefaultErrorHandler(),
                     urllib.request.HTTPRedirectHandler(),
                     urllib.request.HTTPErrorProcessor()):
@@ -614,9 +615,8 @@ def _mint_sigma_cli(configured_base=None, now=None):
             "Sigma CLI `auth token` output was not a JWT; refusing it", warn=True
         )
     token = _validate_access_token(token)
-    return TokenResult(
-        cli_base, token, _iso_z(time.time() if now is None else now), "sigma-cli"
-    )
+    # The CLI owns token lifetime and does not report when this token was minted.
+    return TokenResult(cli_base, token, None, "sigma-cli")
 
 
 def _resolve_auth_mode(cli_mode=None):
@@ -707,9 +707,10 @@ def _write_auth_json(workdir, result):
     payload = {
         "SIGMA_API_TOKEN": result.token,
         "SIGMA_BASE_URL": result.base_url,
-        "SIGMA_TOKEN_MINTED_AT": result.minted_at,
         "SIGMA_AUTH_METHOD": result.auth_method,
     }
+    if result.minted_at:
+        payload["SIGMA_TOKEN_MINTED_AT"] = result.minted_at
 
     fd, temp_path = tempfile.mkstemp(prefix=".auth.json.", dir=workdir)
     try:
@@ -747,7 +748,10 @@ def _print_exports(result):
         # The host came from the Sigma CLI profile; hand it to eval callers.
         print(f"export SIGMA_BASE_URL={result.base_url}")
     print(f"export SIGMA_API_TOKEN={result.token}")
-    print(f"export SIGMA_TOKEN_MINTED_AT={result.minted_at}")
+    if result.minted_at:
+        print(f"export SIGMA_TOKEN_MINTED_AT={result.minted_at}")
+    else:
+        print("unset SIGMA_TOKEN_MINTED_AT")
     print(f"export SIGMA_AUTH_METHOD={result.auth_method}")
 
 
