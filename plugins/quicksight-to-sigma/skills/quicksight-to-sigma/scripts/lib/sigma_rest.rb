@@ -75,8 +75,9 @@ if ENV['SIGMA_API_TOKEN'].nil?
         ENV['SIGMA_API_TOKEN'] ||= _auth['SIGMA_API_TOKEN']
         # Current providers include mint metadata. Older auth.json files do
         # not, so retain the file-mtime fallback for backward compatibility.
-        ENV['SIGMA_TOKEN_MINTED_AT'] ||= _auth['SIGMA_TOKEN_MINTED_AT'] ||
-                                         File.mtime(_auth_path).utc.iso8601
+        _minted_at = _auth['SIGMA_TOKEN_MINTED_AT']
+        _minted_at ||= File.mtime(_auth_path).utc.iso8601 unless _auth['SIGMA_AUTH_METHOD'] == 'sigma-cli'
+        ENV['SIGMA_TOKEN_MINTED_AT'] ||= _minted_at if _minted_at
       end
       ENV['SIGMA_BASE_URL'] ||= _auth['SIGMA_BASE_URL'] if _auth['SIGMA_BASE_URL']
       ENV['SIGMA_AUTH_METHOD'] ||= _auth['SIGMA_AUTH_METHOD'] if _auth['SIGMA_AUTH_METHOD']
@@ -158,6 +159,7 @@ module Sigma
   # set by a parent process's mint or by the auth.json bootstrap from mtime).
   # nil = age unknown.
   def token_minted_at
+    return nil if ENV['SIGMA_AUTH_METHOD'] == 'sigma-cli'
     m = @token_mutex.synchronize { @minted_at }
     return m if m
     ts = ENV['SIGMA_TOKEN_MINTED_AT'].to_s
@@ -193,9 +195,11 @@ module Sigma
     python_commands << [ENV['SIGMA_PYTHON']] unless ENV['SIGMA_PYTHON'].to_s.empty?
     python_commands.concat([['python3'], ['python'], ['py', '-3']])
     output = error = status = nil
+    provider_args = [provider, '--print-export']
+    provider_args.concat(['--auth-mode', 'sigma-cli']) if ENV['SIGMA_AUTH_METHOD'] == 'sigma-cli'
     python_commands.each do |command|
       begin
-        output, error, status = Open3.capture3(*command, provider, '--print-export')
+        output, error, status = Open3.capture3(*command, *provider_args)
       rescue Errno::ENOENT
         next
       end
@@ -228,7 +232,7 @@ module Sigma
       match = line.chomp.match(/\Aexport (SIGMA_API_TOKEN|SIGMA_TOKEN_MINTED_AT|SIGMA_AUTH_METHOD|SIGMA_BASE_URL)=([A-Za-z0-9._~+\/=:-]+)\z/)
       values[match[1]] = match[2] if match
     end
-    required = %w[SIGMA_API_TOKEN SIGMA_TOKEN_MINTED_AT SIGMA_AUTH_METHOD]
+    required = %w[SIGMA_API_TOKEN SIGMA_AUTH_METHOD]
     missing = required.reject { |key| values[key] && !values[key].empty? }
     raise AuthError, "Sigma token provider omitted #{missing.join(', ')}" unless missing.empty?
 
@@ -246,7 +250,8 @@ module Sigma
     begin
       values = token_provider_result
       tok = values.fetch('SIGMA_API_TOKEN')
-      minted_at = Time.parse(values.fetch('SIGMA_TOKEN_MINTED_AT'))
+      minted_value = values['SIGMA_TOKEN_MINTED_AT']
+      minted_at = Time.parse(minted_value) if minted_value
       # A base URL the provider derived (Sigma CLI profile) is validated with the
       # same host check as an explicit one, BEFORE anything is stored or any
       # request is made. An explicit SIGMA_BASE_URL is never overwritten.
@@ -259,6 +264,7 @@ module Sigma
         @token_override = tok
         @minted_at = minted_at
       end
+      ENV.delete('SIGMA_TOKEN_MINTED_AT') unless minted_value
       values.each { |key, value| ENV[key] = value unless key == 'SIGMA_BASE_URL' }
       tok
     ensure

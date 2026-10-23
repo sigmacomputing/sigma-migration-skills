@@ -18,11 +18,13 @@ function readAuthFile(workdir) {
   if (!existsSync(path)) return {};
   try {
     const value = JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+    const authMethod = value.SIGMA_AUTH_METHOD;
     return {
       base: value.SIGMA_BASE_URL || value.baseUrl || value.base_url,
       token: value.SIGMA_API_TOKEN || value.token || value.access_token,
-      mintedAt: value.SIGMA_TOKEN_MINTED_AT || statSync(path).mtime.toISOString(),
-      authMethod: value.SIGMA_AUTH_METHOD,
+      mintedAt: authMethod === 'sigma-cli' ? undefined :
+        (value.SIGMA_TOKEN_MINTED_AT || statSync(path).mtime.toISOString()),
+      authMethod,
     };
   } catch {
     return {};
@@ -49,6 +51,7 @@ function publish(auth) {
   process.env.SIGMA_BASE_URL = auth.base;
   process.env.SIGMA_API_TOKEN = auth.token;
   if (auth.mintedAt) process.env.SIGMA_TOKEN_MINTED_AT = auth.mintedAt;
+  else delete process.env.SIGMA_TOKEN_MINTED_AT;
   if (auth.authMethod) process.env.SIGMA_AUTH_METHOD = auth.authMethod;
   return auth;
 }
@@ -81,7 +84,9 @@ export function refreshSigmaAuth(workdir) {
 
   let result;
   for (const [command, ...prefix] of pythonCommands()) {
-    result = spawnSync(command, [...prefix, provider, '--workdir', workdir], {
+    const modeArgs = process.env.SIGMA_AUTH_METHOD === 'sigma-cli'
+      ? ['--auth-mode', 'sigma-cli'] : [];
+    result = spawnSync(command, [...prefix, provider, '--workdir', workdir, ...modeArgs], {
       encoding: 'utf8',
       env: process.env,
     });
@@ -96,7 +101,8 @@ export function refreshSigmaAuth(workdir) {
   // An explicit SIGMA_BASE_URL always wins; a provider-derived one (Sigma CLI
   // profile) is validated BEFORE it or the token is published to the process.
   if (process.env.SIGMA_BASE_URL) auth.base = process.env.SIGMA_BASE_URL;
-  if (!auth.base || !auth.token || !auth.mintedAt || !auth.authMethod) {
+  if (!auth.base || !auth.token || !auth.authMethod ||
+      (!auth.mintedAt && auth.authMethod !== 'sigma-cli')) {
     throw new Error('Sigma token provider wrote incomplete auth.json');
   }
   validateBase(auth.base);
@@ -111,6 +117,7 @@ export function loadSigmaAuth(workdir, options = {}) {
     mintedAt: process.env.SIGMA_TOKEN_MINTED_AT || file.mintedAt,
     authMethod: process.env.SIGMA_AUTH_METHOD || file.authMethod,
   };
+  if (auth.authMethod === 'sigma-cli') auth.mintedAt = undefined;
   const refresh = options.refresh || refreshSigmaAuth;
   const now = options.now ?? Date.now();
   if (!auth.base && auth.token) {

@@ -152,7 +152,7 @@ def _load_auth_json(env=None, cwd=None):
             # Current providers include mint metadata. Older auth.json files do
             # not, so retain the file-mtime fallback for backward compatibility.
             minted_at = auth.get("SIGMA_TOKEN_MINTED_AT")
-            if not minted_at:
+            if not minted_at and auth.get("SIGMA_AUTH_METHOD") != "sigma-cli":
                 try:
                     minted_at = _iso_z(os.path.getmtime(p))
                 except OSError:
@@ -237,6 +237,8 @@ def token_minted_at():
     stamp (set by refresh_token in this process) wins; else SIGMA_TOKEN_MINTED_AT
     (iso8601, set by a parent process's mint or by the auth.json bootstrap from
     mtime). None = age unknown."""
+    if os.environ.get("SIGMA_AUTH_METHOD") == "sigma-cli":
+        return None
     with _token_mutex:
         m = _minted_at
     if m:
@@ -365,6 +367,9 @@ def token_provider_result():
     if configured:
         commands.append(shlex.split(configured, posix=os.name != "nt"))
     commands.extend([[sys.executable], ["python3"], ["python"], ["py", "-3"]])
+    provider_args = [provider, "--print-export"]
+    if os.environ.get("SIGMA_AUTH_METHOD") == "sigma-cli":
+        provider_args.extend(["--auth-mode", "sigma-cli"])
 
     completed = None
     for command in commands:
@@ -372,7 +377,7 @@ def token_provider_result():
             continue
         try:
             completed = subprocess.run(
-                command + [provider, "--print-export"],
+                command + provider_args,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -396,7 +401,7 @@ def token_provider_result():
         match = export_re.fullmatch(line)
         if match:
             values[match.group(1)] = match.group(2)
-    required = ("SIGMA_API_TOKEN", "SIGMA_TOKEN_MINTED_AT", "SIGMA_AUTH_METHOD")
+    required = ("SIGMA_API_TOKEN", "SIGMA_AUTH_METHOD")
     missing = [key for key in required if not values.get(key)]
     if missing:
         raise SigmaAuthError(f"Sigma token provider omitted {', '.join(missing)}")
@@ -415,8 +420,9 @@ def refresh_token():
     try:
         values = token_provider_result()
         tok = values["SIGMA_API_TOKEN"]
-        minted_at = _parse_iso_epoch(values["SIGMA_TOKEN_MINTED_AT"])
-        if minted_at is None:
+        minted_value = values.get("SIGMA_TOKEN_MINTED_AT")
+        minted_at = _parse_iso_epoch(minted_value) if minted_value else None
+        if minted_value and minted_at is None:
             raise SigmaAuthError("Sigma token provider returned an invalid mint timestamp")
         # A base URL the provider derived (Sigma CLI profile) is validated with
         # the same host check as an explicit one, BEFORE anything is stored or
@@ -428,6 +434,8 @@ def refresh_token():
         with _token_mutex:
             _token_override = tok
             _minted_at = minted_at
+        if not minted_value:
+            os.environ.pop("SIGMA_TOKEN_MINTED_AT", None)
         os.environ.update({k: v for k, v in values.items() if k != "SIGMA_BASE_URL"})
         return tok
     finally:
