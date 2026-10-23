@@ -61,6 +61,8 @@ esac
 # Every endpoint we discover must live on a Sigma host — never open a browser at,
 # or POST credentials to, an authorization server a spoofed discovery doc names.
 assert_sigma_host() {
+  # Not DNS exfiltration: this only parses a URL's host so it can be checked against the Sigma domain.
+  # nosemgrep: ai.ai-best-practices.hooks-dns-exfiltration.hooks-dns-exfiltration.hooks-dns-exfiltration-generic
   local url="$1" host
   case "$url" in
     https://*) ;;

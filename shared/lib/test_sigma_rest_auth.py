@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Credential-free dual-mode auth tests for sigma_rest.py."""
 
+import base64
 import json
 import os
 import subprocess
@@ -91,6 +92,47 @@ class SigmaRestDualAuthTest(unittest.TestCase):
             [run.call_args.args[0][i:i + 2] for i in range(len(run.call_args.args[0]) - 1)],
         )
 
+    def provider_stdout(self, *lines):
+        return subprocess.CompletedProcess([], 0, stdout="\n".join(lines) + "\n", stderr="")
+
+    def test_provider_output_without_mint_time_is_rejected_for_non_cli_methods(self):
+        for method in ("browser", "client-credentials"):
+            with self.subTest(method=method):
+                completed = self.provider_stdout(
+                    "export SIGMA_API_TOKEN=minted-token",
+                    f"export SIGMA_AUTH_METHOD={method}",
+                )
+                with mock.patch.object(subprocess, "run", return_value=completed):
+                    with self.assertRaisesRegex(sigma_rest.SigmaAuthError, "SIGMA_TOKEN_MINTED_AT"):
+                        sigma_rest.token_provider_result()
+
+    def test_provider_output_without_mint_time_is_accepted_for_sigma_cli(self):
+        completed = self.provider_stdout(
+            "export SIGMA_API_TOKEN=cli-token",
+            "unset SIGMA_TOKEN_MINTED_AT",
+            "export SIGMA_AUTH_METHOD=sigma-cli",
+        )
+        with mock.patch.object(subprocess, "run", return_value=completed):
+            values = sigma_rest.token_provider_result()
+        self.assertEqual("cli-token", values["SIGMA_API_TOKEN"])
+        self.assertNotIn("SIGMA_TOKEN_MINTED_AT", values)
+
+    def test_refresh_requires_mint_time_unless_sigma_cli(self):
+        for incomplete in (
+            {"SIGMA_API_TOKEN": "token"},
+            {"SIGMA_API_TOKEN": "token", "SIGMA_AUTH_METHOD": "browser"},
+        ):
+            with self.subTest(result=incomplete):
+                with mock.patch.object(sigma_rest, "token_provider_result", return_value=incomplete):
+                    with self.assertRaises(sigma_rest.SigmaAuthError):
+                        sigma_rest.refresh_token()
+        cli = {"SIGMA_API_TOKEN": "cli-token", "SIGMA_AUTH_METHOD": "sigma-cli"}
+        os.environ["SIGMA_TOKEN_MINTED_AT"] = "2000-01-01T00:00:00Z"
+        with mock.patch.object(sigma_rest, "token_provider_result", return_value=cli):
+            self.assertEqual("cli-token", sigma_rest.refresh_token())
+        self.assertNotIn("SIGMA_TOKEN_MINTED_AT", os.environ)
+        self.assertIsNone(sigma_rest.token_minted_at())
+
     def test_second_401_is_not_retried(self):
         responses = [
             sigma_rest._Resp(401, "unauthorized"),
@@ -141,7 +183,15 @@ class SigmaRestDualAuthTest(unittest.TestCase):
 
 
 CLI_BASE = "https://aws-api.sigmacomputing.com"
-FAKE_JWT = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl"
+def _b64url(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+# Built at runtime (header {"alg":"none"}, payload {"sub":"test"}, signature
+# "signature") so no JWT-shaped literal sits in the source.
+FAKE_JWT = ".".join(
+    _b64url(part) for part in (b'{"alg":"none"}', b'{"sub":"test"}', b"signature")
+)
 DERIVED_PROVIDER = {
     "SIGMA_API_TOKEN": "browser-refreshed-token",
     "SIGMA_AUTH_METHOD": "sigma-cli",
@@ -158,6 +208,13 @@ fi
 if [ "$1 $2" = "auth token" ]; then printf '%s\\n' "${FAKE_SIGMA_TOKEN}"; exit 0; fi
 exit 3
 """
+
+
+def write_executable(path, contents):
+    """Create an owner-only executable test stub (mode fixed at creation)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(contents)
 
 
 def _find_provider():
@@ -256,9 +313,7 @@ class SigmaRestDerivedBaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bindir = os.path.join(tmp, "bin")
             os.makedirs(bindir)
-            with open(os.path.join(bindir, "sigma"), "w", encoding="utf-8") as handle:
-                handle.write(FAKE_SIGMA)
-            os.chmod(os.path.join(bindir, "sigma"), 0o755)
+            write_executable(os.path.join(bindir, "sigma"), FAKE_SIGMA)
             # The real provider, minus its network /v2/whoami verification.
             wrapper = os.path.join(tmp, "provider.py")
             with open(wrapper, "w", encoding="utf-8") as handle:

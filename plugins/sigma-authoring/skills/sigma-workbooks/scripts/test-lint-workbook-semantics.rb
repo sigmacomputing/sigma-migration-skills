@@ -69,6 +69,8 @@ def run_with_spec(command, spec)
   Dir.mktmpdir('workbook-lint') do |tmp|
     path = File.join(tmp, 'spec.yaml')
     File.write(path, YAML.dump(spec))
+    # Test harness: runs a fixed script under test against temp-dir stubs; no user input reaches the command.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
     Open3.capture2e(*command.call(path, tmp))
   end
 end
