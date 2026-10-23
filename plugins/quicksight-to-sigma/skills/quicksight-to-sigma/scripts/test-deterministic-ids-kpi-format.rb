@@ -6,7 +6,7 @@
 # spec PUT to an existing workbook then referenced elements the already-applied
 # layout.xml and control-scope.json knew by their OLD ids: control lint reported
 # ghost `mustReach` targets (32, live) and a layout pointing at elements absent
-# from the spec renders the page N/A / blank (the Arine RCA class).
+# from the spec renders the page N/A / blank (a field-reported blank-page class).
 #
 # ISSUE #542 — QuickSight often ships NO FormatConfiguration while still RENDERING
 # its KPI big-numbers comma-grouped ("15,045,294.83"). Unformatted, Sigma renders
