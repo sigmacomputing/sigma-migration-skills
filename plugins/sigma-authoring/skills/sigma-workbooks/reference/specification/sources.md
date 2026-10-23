@@ -38,14 +38,7 @@ elementId: <element-uuid within that model>
 
 Optionally add `groupingId` to apply one of the model element's groupings.
 
-Columns exposed by the data-model element use the element's name as their
-formula prefix, for example `[Order Fact/Revenue]`. Governed metrics are
-different: reference them through the reserved namespace
-`[Metrics/<metric name>]`, for example `[Metrics/Total Revenue]`. Do not use
-the data-model element name or metric ID as the prefix. Confirm the metric is
-present in the data-model GET readback before binding a workbook formula; a
-successful model write alone does not prove that the metric survived
-normalization.
+Resolve `elementId` and the element's exposed column names with `GET /v2/dataModels/{id}/elements` (see `reference/workflows/discover.md`). Columns reached through a relationship carry a `(SOURCE)` join-leg suffix that formulas must reproduce exactly.
 
 ## join
 
@@ -185,4 +178,4 @@ matches:
 
 `sourceColumns` is an array aligned to `sources` — one entry per source, in order. `outputColumnName` becomes the column users see and the name your element formulas reference.
 
-**Set `name` explicitly.** Formula prefixes for the consuming element use the union's `name`, e.g. `[All Sales/Order ID]`. If you omit `name`, Sigma assigns `"Union of N Sources"`; if your element also defines a column whose `name` matches an `outputColumnName`, a bare `[Order ID]` formula becomes a circular self-reference and the SQL fails to compile. See `formulas.md` > Union source.
+**The formula prefix is `Union of N Sources`, not the union's `name`.** Refs from the consuming element to a union output column use the prefix `Union of N Sources`, where N is `sources.length` — e.g. `[Union of 2 Sources/Order ID]` for the two-source union above. Live `/v2/workbooks/spec/verify` rejects the union's own `name` (`[All Sales/Order ID]`) as a prefix. A bare `[Order ID]` is a circular self-reference when the element also defines a column named `Order ID`, so always use the prefixed form. See `formulas.md` > Union source.

@@ -1,86 +1,232 @@
 #!/usr/bin/env bash
-# Exchange Sigma client credentials for a bearer token.
-# Usage:  eval "$(scripts/get-token.sh)"
-# Sets SIGMA_API_TOKEN in the calling shell.
+# Mint a Sigma bearer token. Browser-keychain auth is preferred, then the Sigma
+# CLI (`sigma auth token`), then OAuth client credentials. Existing valid caller
+# tokens are intentionally handled by callers rather than re-emitted here.
+#
+# Usage:
+#   eval "$(./get-token.sh)"
+#   eval "$(./get-token.sh --auth-mode browser)"
+#
+# Auth mode: --auth-mode or SIGMA_AUTH_MODE = auto (default), browser,
+# sigma-cli, or client-credentials. With Python, the canonical get_token.py
+# provider handles every mode. Without Python, this retains safe Sigma CLI and
+# client-credentials fallbacks (browser refresh needs Python).
+# SIGMA_CLI_PROFILE selects a Sigma CLI profile (-p); unset uses its default.
+#
+# Prints SIGMA_API_TOKEN, SIGMA_TOKEN_MINTED_AT, and SIGMA_AUTH_METHOD exports
+# (plus SIGMA_BASE_URL when the host came from the Sigma CLI profile).
 
 set -euo pipefail
 
-# Agent-neutral credential bootstrap. Claude Code auto-loads creds from
-# ~/.claude/settings.json into the env; other agents (Cursor, Cortex Code, plain
-# shell) don't. If the creds aren't already present, source the neutral cred
-# file written by setup.rb so this works under any agent.
-if [ -z "${SIGMA_CLIENT_ID:-}" ] && [ -f "$HOME/.sigma-migration/env" ]; then
-  . "$HOME/.sigma-migration/env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AUTH_MODE="${SIGMA_AUTH_MODE:-auto}"
+if [ "$#" -gt 0 ]; then
+  if [ "$#" -eq 2 ] && [ "$1" = "--auth-mode" ]; then
+    AUTH_MODE="$2"
+  elif [ "$#" -eq 1 ] && [[ "$1" == --auth-mode=* ]]; then
+    AUTH_MODE="${1#--auth-mode=}"
+  else
+    echo "Usage: get-token.sh [--auth-mode auto|browser|sigma-cli|client-credentials]" >&2
+    exit 64
+  fi
 fi
-
-: "${SIGMA_BASE_URL:?Run scripts/setup.rb to configure credentials}"
-: "${SIGMA_CLIENT_ID:?Run scripts/setup.rb to configure credentials}"
-: "${SIGMA_CLIENT_SECRET:?Run scripts/setup.rb to configure credentials}"
-
-# Security (A2): only transmit Sigma credentials to an https:// sigmacomputing.com
-# host. A poisoned SIGMA_BASE_URL would otherwise exfiltrate the client id/secret.
-# Opt out (self-hosted/dev) with SIGMA_ALLOW_INSECURE_BASE_URL=1 (loud warning).
-_sbu_scheme="${SIGMA_BASE_URL%%://*}"
-_sbu_rest="${SIGMA_BASE_URL#*://}"; _sbu_hostport="${_sbu_rest%%/*}"
-_sbu_host="${_sbu_hostport##*@}"; _sbu_host="${_sbu_host%%:*}"
-_sbu_host="$(printf '%s' "$_sbu_host" | tr 'A-Z' 'a-z')"
-if [ "${SIGMA_ALLOW_INSECURE_BASE_URL:-}" = "1" ]; then
-  echo "WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation ($SIGMA_BASE_URL)" >&2
-else
-  [ "$_sbu_scheme" = "https" ] || { echo "FATAL: SIGMA_BASE_URL must use https:// (got '$SIGMA_BASE_URL') — refusing to send credentials." >&2; exit 1; }
-  case "$_sbu_host" in
-    sigmacomputing.com|*.sigmacomputing.com) : ;;
-    *) echo "FATAL: SIGMA_BASE_URL host '$_sbu_host' is not a sigmacomputing.com host — refusing to send credentials. Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override (self-hosted/dev)." >&2; exit 1 ;;
-  esac
-fi
-
-# Pre-flight credential sanity (POSTMORTEM 2026-06-18): the #1 hard blocker was a
-# settings.json where SIGMA_CLIENT_SECRET had been pasted with a COPY of
-# SIGMA_CLIENT_ID. Sigma then returns the opaque "client secret provided is
-# invalid" and nothing else runs. Catch the obvious paste-errors here with a
-# specific, actionable message before the round-trip.
-if [ "$SIGMA_CLIENT_SECRET" = "$SIGMA_CLIENT_ID" ]; then
-  echo "FATAL: SIGMA_CLIENT_SECRET is identical to SIGMA_CLIENT_ID — you pasted the" >&2
-  echo "client ID into both fields. The secret is a SEPARATE, longer value shown only" >&2
-  echo "once when the API key was created. Fix it in ~/.sigma-migration/env (and in" >&2
-  echo "~/.claude/settings.json if it lives there too), then re-run." >&2
-  exit 1
-fi
-
-# NB: `| tr -d '\n'` is mandatory. GNU coreutils `base64` (Git Bash on Windows,
-# Linux CI) wraps output at 76 columns, injecting newlines that corrupt the
-# multi-line Authorization header and make Sigma reject a VALID credential.
-# `tr -d` (not `base64 -w0`, which BSD/macOS `base64` lacks) is cross-platform.
-CREDENTIALS=$(printf '%s:%s' "$SIGMA_CLIENT_ID" "$SIGMA_CLIENT_SECRET" | base64 | tr -d '\n')
-
-RESPONSE=$(curl -sf -X POST \
-  -H "Authorization: Basic ${CREDENTIALS}" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  "$SIGMA_BASE_URL/v2/auth/token") || {
-    echo "Token exchange failed — check SIGMA_BASE_URL, SIGMA_CLIENT_ID, SIGMA_CLIENT_SECRET" >&2
-    echo "  base : $SIGMA_BASE_URL" >&2
-    echo "  id   : ${#SIGMA_CLIENT_ID} chars   secret: ${#SIGMA_CLIENT_SECRET} chars" >&2
-    echo "  (a valid Sigma secret is ~128 chars — if the secret is the same length as" >&2
-    echo "   the id, you likely pasted the id into both fields.)" >&2
-    exit 1
-  }
-
-TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" 2>/dev/null \
-  || echo "$RESPONSE" | ruby -r json -e "print JSON.parse(STDIN.read)['access_token']")
-
-if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-  echo "Token exchange failed — response did not contain access_token" >&2
-  exit 1
-fi
-
-# Security: the emitted line is consumed via `eval "$(scripts/get-token.sh)"`, so a
-# token from a poisoned/MITM'd endpoint could otherwise inject shell. Reject any
-# non-token characters, then emit shell-quoted (%q) so eval can never execute it.
-case "$TOKEN" in
-  *[!A-Za-z0-9._~+/=-]*)
-    echo "FATAL: access_token contains unexpected characters — refusing to emit (possible poisoned SIGMA_BASE_URL)." >&2
-    exit 1 ;;
+case "$AUTH_MODE" in
+  auto|browser|sigma-cli|client-credentials) ;;
+  *) echo "Error: auth mode must be auto, browser, sigma-cli, or client-credentials" >&2; exit 64 ;;
 esac
 
+# Prefer the canonical dual-mode provider whenever any common Python launcher
+# is available (python3 on POSIX, python/py on Windows Git Bash).
+PYTHON=()
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON=(python3)
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=(python)
+elif command -v py >/dev/null 2>&1; then
+  PYTHON=(py -3)
+fi
+if [ "${#PYTHON[@]}" -gt 0 ]; then
+  exec "${PYTHON[@]}" "$SCRIPT_DIR/get_token.py" \
+    --print-export --auth-mode "$AUTH_MODE"
+fi
+
+# Browser refresh requires the Python provider. In auto mode, the Sigma CLI and
+# client credentials still work on a Python-free host.
+if [ "$AUTH_MODE" = "browser" ]; then
+  echo "Error: browser auth requires Python 3 for the canonical token provider." >&2
+  exit 1
+fi
+
+# Pin to known Sigma cloud hosts. The script's stdout is intended to be eval'd,
+# so a hostile token-endpoint response could otherwise become RCE on the caller.
+SIGMA_DOMAIN="sigma""computing.com"
+sigma_published_base() {
+  case "$1" in
+    https://aws-api.${SIGMA_DOMAIN}|\
+    https://api.us-a.aws.${SIGMA_DOMAIN}|\
+    https://api.ca.aws.${SIGMA_DOMAIN}|\
+    https://api.eu.aws.${SIGMA_DOMAIN}|\
+    https://api.au.aws.${SIGMA_DOMAIN}|\
+    https://api.uk.aws.${SIGMA_DOMAIN}|\
+    https://api.us.azure.${SIGMA_DOMAIN}|\
+    https://api.eu.azure.${SIGMA_DOMAIN}|\
+    https://api.ca.azure.${SIGMA_DOMAIN}|\
+    https://api.uk.azure.${SIGMA_DOMAIN}|\
+    https://api.au.azure.${SIGMA_DOMAIN}|\
+    https://api.${SIGMA_DOMAIN}|\
+    https://api.sa.gcp.${SIGMA_DOMAIN}) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# --- Sigma CLI source (noninteractive: never runs `sigma auth login`) --------
+# Run argv with no stdin and a hard time limit (macOS has no `timeout`).
+# stdout/stderr land in CLI_OUT/CLI_ERR; the exit status is returned.
+CLI_OUT=""
+CLI_ERR=""
+cli_run() {
+  local limit="$1" out_tmp err_tmp pid ticks=0 rc=0
+  shift
+  out_tmp="$(mktemp)" || return 1
+  err_tmp="$(mktemp)" || { rm -f "$out_tmp"; return 1; }
+  "$@" </dev/null >"$out_tmp" 2>"$err_tmp" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge $((limit * 10)) ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$out_tmp" "$err_tmp"
+      CLI_OUT=""
+      CLI_ERR=""
+      return 124
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+    ticks=$((ticks + 1))
+  done
+  wait "$pid" || rc=$?
+  CLI_OUT="$(<"$out_tmp")"
+  CLI_ERR="$(<"$err_tmp")"
+  rm -f "$out_tmp" "$err_tmp"
+  return "$rc"
+}
+
+# Sets CLI_BASE/CLI_TOKEN on success. On failure sets CLI_ERROR and returns 1.
+CLI_BASE=""
+CLI_TOKEN=""
+CLI_ERROR=""
+sigma_cli_token() {
+  local bin profile="" status_out base="" auth_ok=0 line re
+  local -a pargs=()
+  bin="$(command -v sigma 2>/dev/null || true)"
+  if [ -z "$bin" ]; then CLI_ERROR="the Sigma CLI (sigma) is not on PATH"; return 1; fi
+  profile="${SIGMA_CLI_PROFILE:-}"
+  if [ -n "$profile" ]; then
+    re='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
+    if ! [[ "$profile" =~ $re ]]; then
+      CLI_ERROR="SIGMA_CLI_PROFILE must be a profile name (not starting with '-')"; return 1
+    fi
+    pargs=(-p "$profile")
+  fi
+  re='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
+  if ! cli_run 30 "$bin" auth --help || ! [[ "$CLI_OUT"$'\n'"$CLI_ERR" =~ $re ]]; then
+    CLI_ERROR="sigma on PATH is not the Sigma CLI (sigma auth --help failed or does not list token)"; return 1
+  fi
+  if ! cli_run 30 "$bin" auth status ${pargs[@]+"${pargs[@]}"}; then
+    CLI_ERROR="sigma auth status failed; run sigma auth login in an interactive terminal"; return 1
+  fi
+  status_out="$CLI_OUT"$'\n'"$CLI_ERR"
+  local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]' re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
+  while IFS= read -r line; do
+    if [[ "$line" =~ $re_auth ]]; then
+      auth_ok=1
+    elif [ -z "$base" ] && [[ "$line" =~ $re_base ]]; then
+      base="${BASH_REMATCH[1]}"
+    fi
+  done <<<"$status_out"
+  if [ "$auth_ok" -ne 1 ]; then
+    CLI_ERROR="the Sigma CLI profile is not authenticated; run sigma auth login in an interactive terminal"; return 1
+  fi
+  base="${base%/}"
+  if [ -z "$base" ] || ! sigma_published_base "$base"; then
+    CLI_ERROR="Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
+  fi
+  if [ -n "${SIGMA_BASE_URL:-}" ] && [ "${SIGMA_BASE_URL%/}" != "$base" ]; then
+    CLI_ERROR="Sigma CLI profile Base URL differs from SIGMA_BASE_URL; refusing a token minted for a different host"; return 1
+  fi
+  if ! cli_run 30 "$bin" auth token ${pargs[@]+"${pargs[@]}"}; then
+    CLI_ERROR="sigma auth token failed; run sigma auth login in an interactive terminal"; return 1
+  fi
+  # Strip surrounding whitespace only; anything else must match a JWT exactly.
+  CLI_TOKEN="${CLI_OUT#"${CLI_OUT%%[![:space:]]*}"}"
+  CLI_TOKEN="${CLI_TOKEN%"${CLI_TOKEN##*[![:space:]]}"}"
+  CLI_OUT=""
+  if ! [[ "$CLI_TOKEN" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+    CLI_TOKEN=""
+    CLI_ERROR="Sigma CLI auth token output was not a JWT; refusing it"; return 1
+  fi
+  CLI_BASE="$base"
+  return 0
+}
+
+if [ "$AUTH_MODE" = "auto" ] || [ "$AUTH_MODE" = "sigma-cli" ]; then
+  if sigma_cli_token; then
+    if [ -z "${SIGMA_BASE_URL:-}" ]; then
+      printf 'export SIGMA_BASE_URL=%q\n' "$CLI_BASE"
+    fi
+    printf 'export SIGMA_API_TOKEN=%q\n' "$CLI_TOKEN"
+    printf 'unset SIGMA_TOKEN_MINTED_AT\n'
+    printf 'export SIGMA_AUTH_METHOD=%q\n' "sigma-cli"
+    exit 0
+  fi
+  if [ "$AUTH_MODE" = "sigma-cli" ]; then
+    echo "Error: Sigma CLI auth unavailable: $CLI_ERROR" >&2
+    exit 1
+  fi
+fi
+
+: "${SIGMA_BASE_URL:?SIGMA_BASE_URL is not set (or sign in with the Sigma CLI: sigma auth login)}"
+: "${SIGMA_CLIENT_ID:?SIGMA_CLIENT_ID is not set (Python is unavailable, so browser auth cannot be used; or sign in with the Sigma CLI: sigma auth login)}"
+: "${SIGMA_CLIENT_SECRET:?SIGMA_CLIENT_SECRET is not set (Python is unavailable, so browser auth cannot be used; or sign in with the Sigma CLI: sigma auth login)}"
+
+for bin in curl jq base64; do
+  command -v "$bin" >/dev/null 2>&1 || {
+    echo "Error: $bin is required for the Python-free client-credentials fallback" >&2
+    exit 1
+  }
+done
+
+if ! sigma_published_base "$SIGMA_BASE_URL"; then
+  echo "Error: SIGMA_BASE_URL must be one of the published Sigma API hosts (see SKILL.md)." >&2
+  exit 1
+fi
+
+# `printf` (not `echo`) so no trailing newline is encoded into the credentials.
+# `tr -d '\n'` strips the wrap base64 inserts at 76 columns by default on both
+# BSD and GNU — without it, long id:secret pairs would inject a newline into
+# the Authorization header.
+CREDENTIALS=$(printf '%s:%s' "$SIGMA_CLIENT_ID" "$SIGMA_CLIENT_SECRET" | base64 | tr -d '\n')
+
+RESPONSE=$(curl -sf --proto '=https' -X POST "${SIGMA_BASE_URL}/v2/auth/token" \
+  -H "Authorization: Basic ${CREDENTIALS}" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials")
+
+TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  echo "Error: failed to extract access_token from response:" >&2
+  echo "$RESPONSE" >&2
+  exit 1
+fi
+
+# The token will be eval'd by the caller. Reject any character outside the
+# OAuth-2 bearer-token alphabet (RFC 6750 §2.1) so a compromised or spoofed
+# token endpoint cannot smuggle shell metacharacters into `eval`.
+if ! [[ "$TOKEN" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then
+  echo "Error: token contains unexpected characters; refusing to emit." >&2
+  exit 1
+fi
+
 printf 'export SIGMA_API_TOKEN=%q\n' "$TOKEN"
+printf 'export SIGMA_TOKEN_MINTED_AT=%q\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+printf 'export SIGMA_AUTH_METHOD=%q\n' "client-credentials"
