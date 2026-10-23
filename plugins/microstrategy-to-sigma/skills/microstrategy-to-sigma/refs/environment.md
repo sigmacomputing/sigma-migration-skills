@@ -42,10 +42,17 @@ It never writes a refresh token to `auth.json`, the workspace, or
 token still works, but the user must sign in again after it expires.
 
 Bootstrap and doctor are deliberately noninteractive and **never open a
-browser**. They accept an already-current `SIGMA_API_TOKEN`, a browser refresh
-session already stored in the OS keychain, or complete client credentials.
-Each route also needs `SIGMA_BASE_URL`. Later bootstrap/doctor runs reuse a
-keychain session without a browser round-trip.
+browser** and never run `sigma auth login`. They accept an already-current
+`SIGMA_API_TOKEN`, a browser refresh session already stored in the OS keychain,
+a signed-in Sigma CLI profile (`sigma auth status` reports `Auth: OK`;
+`SIGMA_CLI_PROFILE` selects the profile), or complete client credentials. All
+routes but the CLI also need `SIGMA_BASE_URL`; with the CLI it is optional (the
+shared REST clients take the host from the provider and validate it), and when
+set it must be the profile's host (a mismatch is refused, never sent to the
+other host). `SIGMA_CLI_PROFILE` may live in `~/.sigma-migration/env`. Later bootstrap/doctor runs reuse a keychain session without a
+browser round-trip. Doctor records the method it found as `sigma_auth_method`
+in `doctor.json` (`api-token`, `browser`, `sigma-cli`, `client-credentials`, or
+`none`).
 
 For CI and unattended hosts, use OAuth client credentials: bootstrap's
 `--client-id`, `--client-secret`, and optional `--base-url` flags (PowerShell:
@@ -59,10 +66,12 @@ The shared REST clients resolve Sigma authentication in this order:
 1. `SIGMA_API_TOKEN` already present in the process environment.
 2. `<SIGMA_WORKDIR>/auth.json`, then `./auth.json`, when no env token exists.
 3. The token provider. Its default `SIGMA_AUTH_MODE=auto` tries the browser
-   keychain/cache first and then client credentials.
+   keychain/cache first, then the Sigma CLI (`sigma auth token`), then client
+   credentials.
 
-Set `SIGMA_AUTH_MODE=browser` to require keychain auth, or
-`SIGMA_AUTH_MODE=client-credentials` to bypass the keychain. This selects the
+Set `SIGMA_AUTH_MODE=browser` to require keychain auth,
+`SIGMA_AUTH_MODE=sigma-cli` to require the Sigma CLI, or
+`SIGMA_AUTH_MODE=client-credentials` to bypass the keychain and the CLI. This selects the
 route for minting a new token; an already-supplied access token still wins.
 Client fallback settings and the mode may live in
 `~/.sigma-migration/env` (mode 0600), with current environment values taking

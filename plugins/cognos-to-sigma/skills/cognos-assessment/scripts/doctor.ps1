@@ -184,10 +184,15 @@ if ($crlf -eq 'true') {
 } else { Ok "git core.autocrlf=$(if ($crlf) {$crlf} else {'unset'}) (won't CRLF-mangle scripts)" }
 
 # --- Sigma authentication (REQUIRED) + live GET /v2/whoami smoke -----------
-# Accept a current token, a native-keychain browser refresh session, or complete
-# client credentials (all require SIGMA_BASE_URL). The shared sigma_rest client
-# tries the current token first and, on 401, retries once through the browser-
-# first/client-fallback provider. Bootstrap and doctor never open a browser.
+# Accept a current token, a native-keychain browser refresh session, a signed-in
+# Sigma CLI profile (`sigma auth status` reports `Auth: OK`; SIGMA_CLI_PROFILE
+# selects a profile; SIGMA_BASE_URL is optional but must match the profile host
+# when set), or complete client credentials (the others require SIGMA_BASE_URL).
+# Reported precedence: token, browser, sigma-cli, client-credentials, narrowed by
+# SIGMA_AUTH_MODE. The shared sigma_rest client tries the current token first
+# and, on 401, retries once through the browser/CLI/client provider. Bootstrap
+# and doctor never open a browser, never run `sigma auth login`, and never mint
+# or print a CLI token.
 function Test-SigmaEnvFileKey([string]$key, [string]$file) {
   if (-not (Test-Path $file)) { return $false }
   $content = Get-Content $file -Raw -ErrorAction SilentlyContinue
@@ -210,8 +215,94 @@ function Test-SigmaBrowserSession([string]$file) {
   return $false
 }
 function Normalize-SigmaAuthMethod([string]$method) {
-  if ($method -in @('browser', 'client-credentials', 'api-token', 'none')) { return $method }
+  if ($method -in @('browser', 'sigma-cli', 'client-credentials', 'api-token', 'none')) { return $method }
   return 'api-token'
+}
+function Test-SigmaPublishedBase([string]$base) {
+  $d = 'sigma' + 'computing.com'
+  $hosts = @("aws-api.$d", "api.us-a.aws.$d", "api.ca.aws.$d", "api.eu.aws.$d", "api.au.aws.$d",
+             "api.uk.aws.$d", "api.us.azure.$d", "api.eu.azure.$d", "api.ca.azure.$d",
+             "api.uk.azure.$d", "api.au.azure.$d", "api.$d", "api.sa.gcp.$d")
+  foreach ($h in $hosts) { if ($base -ceq "https://$h") { return $true } }
+  return $false
+}
+# One KEY's value from the neutral env file ('' if absent), quotes stripped.
+function Get-SigmaEnvFileValue([string]$key, [string]$file) {
+  if (-not (Test-Path $file)) { return '' }
+  $raw = Get-Content $file -Raw -ErrorAction SilentlyContinue
+  if (-not $raw) { return '' }
+  $m = [regex]::Matches($raw, "(?m)^\s*(?:export\s+)?$([regex]::Escape($key))=(.+?)\s*$")
+  if ($m.Count -eq 0) { return '' }
+  return $m[$m.Count - 1].Groups[1].Value.Trim('"', "'")
+}
+function Get-SigmaConfiguredBase([string]$file) {
+  $v = $env:SIGMA_BASE_URL
+  if (-not $v) { $v = Get-SigmaEnvFileValue 'SIGMA_BASE_URL' $file }
+  if (-not $v) { return '' }
+  return $v.TrimEnd('/')
+}
+# Run an executable with no stdin and a hard time limit. Returns $null on a
+# launch failure or timeout, else @{ Code; Output } (stdout + stderr combined).
+function Invoke-SigmaBounded([string]$exe, [string[]]$cliArgs, [int]$seconds = 20) {
+  try {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $exe
+    $quoted = foreach ($a in $cliArgs) { if ($a -match '[\s"]') { '"' + ($a -replace '"', '\"') + '"' } else { $a } }
+    $psi.Arguments = ($quoted -join ' ')
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc.StandardInput.Close()
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    if (-not $proc.WaitForExit($seconds * 1000)) {
+      try { $proc.Kill() } catch { }
+      return $null
+    }
+    $proc.WaitForExit()
+    return @{ Code = $proc.ExitCode; Output = ($outTask.Result + "`n" + $errTask.Result) }
+  } catch { return $null }
+}
+# A working, signed-in Sigma CLI profile? Only `auth --help` and `auth status`
+# are run (never `auth login`, never `auth token`). Returns @{ Ok; Base; Why }.
+function Test-SigmaCliSession([string]$file) {
+  $none = @{ Ok = $false; Base = ''; Why = '' }
+  $cmd = Get-Command sigma -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $cmd) { return $none }
+  $profileArgs = @()
+  # SIGMA_CLI_PROFILE may be persisted in the neutral env file; env wins.
+  $cliProfile = $env:SIGMA_CLI_PROFILE
+  if (-not $cliProfile) { $cliProfile = Get-SigmaEnvFileValue 'SIGMA_CLI_PROFILE' $file }
+  if ($cliProfile) {
+    if ($cliProfile -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$') {
+      return @{ Ok = $false; Base = ''; Why = 'SIGMA_CLI_PROFILE is not a valid profile name' }
+    }
+    $profileArgs = @('-p', $cliProfile)
+  }
+  # An unrelated tool (SigmaHQ) can own the name `sigma`; require the Sigma CLI.
+  $help = Invoke-SigmaBounded $cmd.Source @('auth', '--help')
+  if ((-not $help) -or ($help.Code -ne 0) -or ($help.Output -notmatch '(?<![A-Za-z0-9_])token(?![A-Za-z0-9_])')) { return $none }
+  $status = Invoke-SigmaBounded $cmd.Source (@('auth', 'status') + $profileArgs)
+  if ((-not $status) -or ($status.Code -ne 0)) {
+    return @{ Ok = $false; Base = ''; Why = "'sigma auth status' failed or timed out" }
+  }
+  if ($status.Output -notmatch '(?mi)^\s*Auth:\s*OK') {
+    return @{ Ok = $false; Base = ''; Why = 'the Sigma CLI profile is not signed in (Auth: is not OK)' }
+  }
+  $base = ''
+  $m = [regex]::Match($status.Output, '(?m)^\s*Base URL:\s*(\S+)\s*$')
+  if ($m.Success) { $base = $m.Groups[1].Value.TrimEnd('/') }
+  if ((-not $base) -or (-not (Test-SigmaPublishedBase $base))) {
+    return @{ Ok = $false; Base = ''; Why = 'the Sigma CLI profile Base URL is missing or not a published Sigma API host' }
+  }
+  $conf = Get-SigmaConfiguredBase $file
+  if ($conf -and ($conf -ne $base)) {
+    return @{ Ok = $false; Base = ''; Why = 'the Sigma CLI profile host differs from SIGMA_BASE_URL (the provider refuses a token minted for another host); select the matching profile with SIGMA_CLI_PROFILE' }
+  }
+  return @{ Ok = $true; Base = $base; Why = '' }
 }
 
 $script:SmokeSigma = "skipped"
@@ -219,11 +310,16 @@ $script:SigmaAuthMethod = "none"
 $envFile = Join-Path $env:USERPROFILE ".sigma-migration\env"
 $sigmaBase = Test-SigmaBaseConfigured $envFile
 $sigmaToken = $sigmaBase -and ($env:SIGMA_API_TOKEN -or (Test-SigmaEnvFileKey 'SIGMA_API_TOKEN' $envFile))
+$sigmaMode = if ($env:SIGMA_AUTH_MODE) { $env:SIGMA_AUTH_MODE } else { 'auto' }
 $sigmaBrowser = $false
-if ((-not $sigmaToken) -and ($env:SIGMA_AUTH_MODE -ne 'client-credentials')) {
+if ((-not $sigmaToken) -and ($sigmaMode -ne 'client-credentials') -and ($sigmaMode -ne 'sigma-cli')) {
   $sigmaBrowser = Test-SigmaBrowserSession $envFile
 }
-$sigmaClient = $sigmaBase -and (
+$sigmaCli = @{ Ok = $false; Base = ''; Why = '' }
+if ((-not $sigmaToken) -and (-not $sigmaBrowser) -and ($sigmaMode -ne 'browser') -and ($sigmaMode -ne 'client-credentials')) {
+  $sigmaCli = Test-SigmaCliSession $envFile
+}
+$sigmaClient = ($sigmaMode -ne 'browser') -and ($sigmaMode -ne 'sigma-cli') -and $sigmaBase -and (
   ($env:SIGMA_CLIENT_ID -and $env:SIGMA_CLIENT_SECRET) -or
   ((Test-SigmaEnvFileKey 'SIGMA_CLIENT_ID' $envFile) -and (Test-SigmaEnvFileKey 'SIGMA_CLIENT_SECRET' $envFile))
 )
@@ -232,12 +328,26 @@ if ($sigmaToken) {
   $sigmaCreds = $true
   $tokenAuthMethod = if ($env:SIGMA_AUTH_METHOD) { $env:SIGMA_AUTH_METHOD } else { 'api-token' }
   $script:SigmaAuthMethod = Normalize-SigmaAuthMethod $tokenAuthMethod
-} elseif (($env:SIGMA_AUTH_MODE -ne 'client-credentials') -and $sigmaBrowser) {
+} elseif ($sigmaBrowser) {
   $sigmaCreds = $true
   $script:SigmaAuthMethod = 'browser'
-} elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and $sigmaClient) {
+} elseif ($sigmaCli.Ok) {
+  $sigmaCreds = $true
+  $script:SigmaAuthMethod = 'sigma-cli'
+  # With SIGMA_BASE_URL unset, the shared REST clients (sigma_rest.rb/.py, the
+  # Node adapter) derive the host from the token provider, which reads it from
+  # the CLI profile. A few standalone scripts still read the variable directly.
+  if (-not $sigmaBase) {
+    Warn "SIGMA_BASE_URL is not set; the shared REST clients derive it from the Sigma CLI profile ($($sigmaCli.Base))" `
+         "Standalone scripts that read SIGMA_BASE_URL directly (e.g. find-or-pick-dm) still need it: set it to '$($sigmaCli.Base)' (or add it to ~/.sigma-migration/env)."
+  }
+} elseif ($sigmaClient) {
   $sigmaCreds = $true
   $script:SigmaAuthMethod = 'client-credentials'
+}
+if ($sigmaCli.Why -and (-not $sigmaCli.Ok)) {
+  Warn "Sigma CLI found but not usable: $($sigmaCli.Why)" `
+       "Run 'sigma auth login' in an interactive terminal (doctor never does)."
 }
 
 $sigmaBrowserFix = 'From an interactive Git Bash terminal, set SIGMA_BASE_URL and run: eval "$(bash scripts/browser-login.sh)" (one-time browser sign-in).'
@@ -246,7 +356,8 @@ $sigmaClientFix = if ($rubyRequired) {
 } else {
   "Unattended fallback: set SIGMA_CLIENT_ID / SIGMA_CLIENT_SECRET / SIGMA_BASE_URL, then use the certified profile's noninteractive setup."
 }
-$sigmaFix = "$sigmaBrowserFix $sigmaClientFix"
+$sigmaCliFix = 'Or sign in with the Sigma CLI: sigma auth login (then optionally export SIGMA_CLI_PROFILE=<profile>)'
+$sigmaFix = "$sigmaBrowserFix $sigmaCliFix $sigmaClientFix"
 
 $sigmaRubyLib = @(
   (Join-Path $PSScriptRoot 'lib'),
@@ -262,7 +373,7 @@ if (-not $sigmaCreds) {
     Warn "Sigma credentials absent - accepted for SIGMA_OFFLINE_DRY_RUN=1" `
          "Only --dry-run/offline fixture conversion is allowed; unset this flag and configure credentials before any live build."
   } else {
-    Bad "no usable Sigma authentication found (REQUIRED - need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials)" `
+    Bad "no usable Sigma authentication found (REQUIRED - need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" `
         $sigmaFix
   }
 } elseif ($env:SIGMA_SKIP_CRED_SMOKE) {

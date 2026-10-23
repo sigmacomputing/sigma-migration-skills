@@ -59,7 +59,9 @@ eval "$(bash scripts/browser-login.sh)"
 OAuth client credentials are the unattended/CI fallback. On a cloud or
 headless host without a usable keychain, the default `auto` mode falls back to
 `SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`; set
-`SIGMA_AUTH_MODE=client-credentials` to require that route. Bootstrap is
+`SIGMA_AUTH_MODE=client-credentials` to require that route. A signed-in Sigma
+CLI (`sigma auth login`, optional `SIGMA_CLI_PROFILE`) is also accepted between
+the two (`SIGMA_AUTH_MODE=sigma-cli` to require it). Bootstrap is
 noninteractive and never opens a browser. The optional Sigma MCP server is
 recommended for interactive query/parity checks when your agent supports MCP;
 it is **not required** for the core migrate → POST → parity scripts. Full auth
@@ -145,8 +147,8 @@ corpus/run-corpus.sh --check      # no creds needed; CI-safe
 
 - **A coding agent that runs skills** (Claude Code, Cursor, Cortex Code, …).
 - **Sigma API access:** `SIGMA_BASE_URL` plus either the recommended
-  interactive browser OAuth session or, for unattended/CI use,
-  `SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`; and a Sigma **connection** pointing
+  interactive browser OAuth session, a signed-in Sigma CLI profile, or, for
+  unattended/CI use, `SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`; and a Sigma **connection** pointing
   at the same warehouse as the source content (needed for the parity gate).
   See [`AGENTS.md`](AGENTS.md) §Credentials.
 - **`sigma-authoring` installed alongside** any converter (canonical workbook/DM spec).

@@ -307,10 +307,16 @@ fi
 # --- Sigma authentication (REQUIRED — fail-closed) + live /v2/whoami smoke --
 # A usable starting configuration is one of:
 #   1. SIGMA_API_TOKEN + SIGMA_BASE_URL (the current token is tried first);
-#   2. SIGMA_BASE_URL + a refresh session in the native OS keychain; or
-#   3. SIGMA_BASE_URL + both client-credential values.
-# Browser refresh and client fallback are owned by the shared sigma_rest dual
-# provider. The smoke deliberately calls Sigma.request(GET, /v2/whoami), so a
+#   2. SIGMA_BASE_URL + a refresh session in the native OS keychain;
+#   3. a signed-in Sigma CLI profile (`sigma auth status` reports `Auth: OK`;
+#      SIGMA_CLI_PROFILE selects a profile, SIGMA_BASE_URL is optional but, when
+#      set, must match the profile's host); or
+#   4. SIGMA_BASE_URL + both client-credential values.
+# Reported precedence: token, browser, sigma-cli, client-credentials, narrowed
+# by SIGMA_AUTH_MODE (browser: token/browser only; sigma-cli: token/CLI only;
+# client-credentials: token/client only). The doctor only READS the CLI's
+# status; it never runs `sigma auth login` and never mints or prints a token.
+# Browser, CLI and client sources are owned by the shared sigma_rest provider. The smoke deliberately calls Sigma.request(GET, /v2/whoami), so a
 # current token is verified without being replaced and a 401 refreshes once
 # through that provider. SIGMA_SKIP_CRED_SMOKE=1 skips only the network call.
 # doctor.json records the status plus the non-secret sigma_auth_method.
@@ -334,9 +340,110 @@ sigma_browser_session_present() {
 }
 sigma_auth_method() {
   case "${1:-}" in
-    browser|client-credentials|api-token|none) printf '%s' "$1" ;;
+    browser|sigma-cli|client-credentials|api-token|none) printf '%s' "$1" ;;
     *) printf '%s' "api-token" ;;
   esac
+}
+# The published Sigma API hosts (same list as get_token.py / get-token.sh).
+sigma_published_base() {
+  local d="sigma""computing.com"
+  case "$1" in
+    "https://aws-api.$d"|"https://api.us-a.aws.$d"|"https://api.ca.aws.$d"|\
+    "https://api.eu.aws.$d"|"https://api.au.aws.$d"|"https://api.uk.aws.$d"|\
+    "https://api.us.azure.$d"|"https://api.eu.azure.$d"|"https://api.ca.azure.$d"|\
+    "https://api.uk.azure.$d"|"https://api.au.azure.$d"|"https://api.$d"|\
+    "https://api.sa.gcp.$d") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# One KEY's value from the neutral env file ("" if absent), quotes stripped.
+sigma_env_file_value() {
+  local key="$1" f="${2:-$HOME/.sigma-migration/env}" v=""
+  if [ -f "$f" ]; then
+    v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=(.*)$/\\2/p" "$f" 2>/dev/null | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  fi
+  printf '%s' "$v"
+}
+# SIGMA_BASE_URL from the environment, else the neutral env file ("" if unset).
+sigma_configured_base() {
+  local v="${SIGMA_BASE_URL:-}"
+  [ -n "$v" ] || v="$(sigma_env_file_value SIGMA_BASE_URL)"
+  printf '%s' "${v%/}"
+}
+# Run argv with no stdin and a hard time limit (macOS has no `timeout`).
+# Combined stdout+stderr lands in _SIGMA_OUT; the exit status is returned.
+_SIGMA_OUT=""
+sigma_bounded() {
+  local limit="$1" tmp pid ticks=0 rc=0
+  shift
+  tmp="$(mktemp 2>/dev/null)" || return 1
+  "$@" </dev/null >"$tmp" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge $((limit * 10)) ]; then
+      kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$tmp"
+      _SIGMA_OUT=""; return 124
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+    ticks=$((ticks + 1))
+  done
+  wait "$pid" || rc=$?
+  _SIGMA_OUT="$(cat "$tmp" 2>/dev/null)"
+  rm -f "$tmp"
+  return "$rc"
+}
+# A working, signed-in Sigma CLI profile? Noninteractive: only `auth --help` and
+# `auth status` are run (never `auth login`, never `auth token`). Sets
+# _SIGMA_CLI_BASE to the profile's validated Base URL; _SIGMA_CLI_WHY explains a
+# refusal when a Sigma CLI is present but unusable.
+_SIGMA_CLI_BASE=""
+_SIGMA_CLI_WHY=""
+sigma_cli_session_ok() {
+  local bin profile="${SIGMA_CLI_PROFILE:-}" line base="" auth_ok=0 conf
+  local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]'
+  local re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
+  local re_prof='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
+  local re_tok='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
+  local -a pargs=()
+  _SIGMA_CLI_BASE=""; _SIGMA_CLI_WHY=""
+  bin="$(command -v sigma 2>/dev/null || true)"
+  [ -n "$bin" ] || return 1
+  # SIGMA_CLI_PROFILE may be persisted in the neutral env file; env wins.
+  [ -n "$profile" ] || profile="$(sigma_env_file_value SIGMA_CLI_PROFILE)"
+  if [ -n "$profile" ]; then
+    if ! [[ "$profile" =~ $re_prof ]]; then
+      _SIGMA_CLI_WHY="SIGMA_CLI_PROFILE is not a valid profile name"; return 1
+    fi
+    pargs=(-p "$profile")
+  fi
+  # An unrelated tool (SigmaHQ) can own the name `sigma`; require the Sigma CLI.
+  sigma_bounded 20 "$bin" auth --help || return 1
+  [[ "$_SIGMA_OUT" =~ $re_tok ]] || return 1
+  if ! sigma_bounded 20 "$bin" auth status ${pargs[@]+"${pargs[@]}"}; then
+    _SIGMA_CLI_WHY="'sigma auth status' failed or timed out"; return 1
+  fi
+  while IFS= read -r line; do
+    if [[ "$line" =~ $re_auth ]]; then
+      auth_ok=1
+    elif [ -z "$base" ] && [[ "$line" =~ $re_base ]]; then
+      base="${BASH_REMATCH[1]}"
+    fi
+  done <<<"$_SIGMA_OUT"
+  if [ "$auth_ok" -ne 1 ]; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile is not signed in (Auth: is not OK)"; return 1
+  fi
+  base="${base%/}"
+  if [ -z "$base" ] || ! sigma_published_base "$base"; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
+  fi
+  conf="$(sigma_configured_base)"
+  if [ -n "$conf" ] && [ "$conf" != "$base" ]; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile host differs from SIGMA_BASE_URL (the provider refuses a token minted for another host); select the matching profile with SIGMA_CLI_PROFILE"
+    return 1
+  fi
+  _SIGMA_CLI_BASE="$base"
+  return 0
 }
 
 SMOKE_SIGMA="skipped"
@@ -344,16 +451,24 @@ SIGMA_AUTH_METHOD_REPORTED="none"
 _SIGMA_CREDS=false
 _SIGMA_TOKEN=false
 _SIGMA_BROWSER=false
+_SIGMA_CLI=false
 _SIGMA_CLIENT=false
+_SIGMA_MODE="${SIGMA_AUTH_MODE:-auto}"
 if sigma_base_configured && { [ -n "${SIGMA_API_TOKEN:-}" ] || sigma_env_file_has SIGMA_API_TOKEN; }; then
   _SIGMA_TOKEN=true
 fi
 if [ "$_SIGMA_TOKEN" != true ] \
-   && [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] \
+   && [ "$_SIGMA_MODE" != "client-credentials" ] && [ "$_SIGMA_MODE" != "sigma-cli" ] \
    && sigma_browser_session_present; then
   _SIGMA_BROWSER=true
 fi
-if sigma_base_configured \
+if [ "$_SIGMA_TOKEN" != true ] && [ "$_SIGMA_BROWSER" != true ] \
+   && [ "$_SIGMA_MODE" != "browser" ] && [ "$_SIGMA_MODE" != "client-credentials" ] \
+   && sigma_cli_session_ok; then
+  _SIGMA_CLI=true
+fi
+if [ "$_SIGMA_MODE" != "browser" ] && [ "$_SIGMA_MODE" != "sigma-cli" ] \
+   && sigma_base_configured \
    && { { [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; } \
         || { sigma_env_file_has SIGMA_CLIENT_ID && sigma_env_file_has SIGMA_CLIENT_SECRET; }; }; then
   _SIGMA_CLIENT=true
@@ -362,12 +477,26 @@ fi
 if [ "$_SIGMA_TOKEN" = true ]; then
   _SIGMA_CREDS=true
   SIGMA_AUTH_METHOD_REPORTED="$(sigma_auth_method "${SIGMA_AUTH_METHOD:-api-token}")"
-elif [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] && [ "$_SIGMA_BROWSER" = true ]; then
+elif [ "$_SIGMA_BROWSER" = true ]; then
   _SIGMA_CREDS=true
   SIGMA_AUTH_METHOD_REPORTED="browser"
-elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "$_SIGMA_CLIENT" = true ]; then
+elif [ "$_SIGMA_CLI" = true ]; then
+  _SIGMA_CREDS=true
+  SIGMA_AUTH_METHOD_REPORTED="sigma-cli"
+  # With SIGMA_BASE_URL unset, the shared REST clients (sigma_rest.rb/.py, the
+  # Node adapter) derive the host from the token provider, which reads it from
+  # the CLI profile. A few standalone scripts still read the variable directly.
+  if ! sigma_base_configured; then
+    warn "SIGMA_BASE_URL is not set; the shared REST clients derive it from the Sigma CLI profile ($_SIGMA_CLI_BASE)" \
+         "Standalone scripts that read SIGMA_BASE_URL directly (e.g. find-or-pick-dm) still need it: export SIGMA_BASE_URL='$_SIGMA_CLI_BASE' (or add it to ~/.sigma-migration/env)."
+  fi
+elif [ "$_SIGMA_CLIENT" = true ]; then
   _SIGMA_CREDS=true
   SIGMA_AUTH_METHOD_REPORTED="client-credentials"
+fi
+if [ -n "$_SIGMA_CLI_WHY" ] && [ "$_SIGMA_CLI" != true ]; then
+  warn "Sigma CLI found but not usable: $_SIGMA_CLI_WHY" \
+       "Run 'sigma auth login' in an interactive terminal (doctor never does)."
 fi
 
 _SIGMA_BROWSER_FIX="In an interactive terminal, set SIGMA_BASE_URL and run: eval \"\$(bash scripts/browser-login.sh)\" (one-time browser sign-in)."
@@ -376,7 +505,8 @@ if [ "$RUBY_REQUIRED" = true ]; then
 else
   _SIGMA_CLIENT_FIX="Unattended fallback: export SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET/SIGMA_BASE_URL, then use the certified profile's noninteractive setup."
 fi
-_SIGMA_SETUP_FIX="$_SIGMA_BROWSER_FIX $_SIGMA_CLIENT_FIX"
+_SIGMA_CLI_FIX="Or sign in with the Sigma CLI: sigma auth login (then optionally export SIGMA_CLI_PROFILE=<profile>)"
+_SIGMA_SETUP_FIX="$_SIGMA_BROWSER_FIX $_SIGMA_CLI_FIX $_SIGMA_CLIENT_FIX"
 
 _SIGMA_RUBY_LIB=""
 for _c in "$HERE/lib" "$HERE/../lib"; do
@@ -392,7 +522,7 @@ if [ "$_SIGMA_CREDS" != true ]; then
     warn "Sigma credentials absent — accepted for SIGMA_OFFLINE_DRY_RUN=1" \
          "Only --dry-run/offline fixture conversion is allowed; unset this flag and configure credentials before any live build."
   else
-    bad "no usable Sigma authentication found (REQUIRED — need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials)" "$_SIGMA_SETUP_FIX"
+    bad "no usable Sigma authentication found (REQUIRED — need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" "$_SIGMA_SETUP_FIX"
   fi
 elif [ -n "${SIGMA_SKIP_CRED_SMOKE:-}" ]; then
   ok "Sigma authentication available via $SIGMA_AUTH_METHOD_REPORTED (live GET /v2/whoami smoke SKIPPED: SIGMA_SKIP_CRED_SMOKE)"

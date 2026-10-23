@@ -11,7 +11,8 @@
 #   Part B — the py_real probe body (bash twins), ignoring only the success
 #            line (doctor records PY_DESC/PY_VER/PY_ARGV; bootstrap PY_RUN)
 #   Part C — Test-RealPython (ps1 twins), ignoring comments/blank lines
-#   Part D — Sigma auth-configuration probes (shell twins and PowerShell twins)
+#   Part D — Sigma auth-configuration probes (shell twins and PowerShell twins),
+#            including the noninteractive Sigma CLI session probe
 #   Part E — doctor smoke uses sigma_rest GET /v2/whoami, never direct mint
 #
 # Usage:  bash scripts/test-bootstrap-lockstep.sh
@@ -84,7 +85,9 @@ check $? "Test-RealPython bodies are identical"
 
 echo "Part D — Sigma auth-configuration probes (bootstrap vs doctor)"
 shell_auth_funcs() {
-  for fn in sigma_env_file_has sigma_base_configured sigma_browser_session_present; do
+  for fn in sigma_env_file_has sigma_base_configured sigma_browser_session_present \
+            sigma_published_base sigma_env_file_value sigma_configured_base \
+            sigma_bounded sigma_cli_session_ok; do
     awk "/^${fn}\\(\\) \\{/,/^\\}/" "$1"
   done | norm
 }
@@ -97,7 +100,9 @@ check $? "shell auth-configuration probes are identical"
 [ -s "$TMP/auth-shell.diff" ] && sed 's/^/    /' "$TMP/auth-shell.diff"
 
 ps_auth_funcs() {
-  for fn in Test-SigmaEnvFileKey Test-SigmaBaseConfigured Test-SigmaBrowserSession; do
+  for fn in Test-SigmaEnvFileKey Test-SigmaBaseConfigured Test-SigmaBrowserSession \
+            Test-SigmaPublishedBase Get-SigmaEnvFileValue Get-SigmaConfiguredBase \
+            Invoke-SigmaBounded Test-SigmaCliSession; do
     awk "/^function ${fn}/,/^\\}/" "$1"
   done | grep -v '^[[:space:]]*#' | norm
 }

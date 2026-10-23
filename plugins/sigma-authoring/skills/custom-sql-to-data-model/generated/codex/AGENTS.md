@@ -40,9 +40,9 @@ Developer Access) as the fallback.
 
 The local `get_token.py` is a byte-identical synced copy of the canonical
 `sigma-api` provider. In default `auto` mode it uses a cached/refreshable
-browser session first, then client credentials. Override with
-`SIGMA_AUTH_MODE` / `--auth-mode` (`auto`, `browser`, or
-`client-credentials`). Before either auth mode succeeds, the provider requires
+browser session first, then a signed-in Sigma CLI profile, then client
+credentials. Override with `SIGMA_AUTH_MODE` / `--auth-mode` (`auto`,
+`browser`, `sigma-cli`, or `client-credentials`). Before any auth mode succeeds, the provider requires
 a non-redirecting, valid-JSON `GET /v2/whoami`; 401, 403, non-JSON, and
 redirect responses fail without emitting or writing the token.
 

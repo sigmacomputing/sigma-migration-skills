@@ -125,21 +125,49 @@ Without a usable keychain, only the current access token is returned. Access
 tokens last about one hour; shared REST clients proactively refresh tokens with
 known mint metadata after 50 minutes.
 
+**Sigma CLI (alternative sign-in):** if the Sigma CLI (`sigma`, a separate
+tool from SigmaHQ's like-named binary) is installed and signed in, the shared
+token provider and every converter's doctor accept it with no client id or
+secret:
+
+```bash
+sigma auth login                          # interactive, run by a human once
+export SIGMA_CLI_PROFILE='<profile>'      # optional; unset = the CLI's default profile
+```
+
+The provider runs `sigma auth status` (noninteractive) to read the profile's
+Base URL and require `Auth: OK`, then `sigma auth token` for a bare JWT. It never
+runs `sigma auth login`. `SIGMA_BASE_URL` is optional on this route; when set it
+must be the same host as the profile's Base URL, otherwise the CLI token is
+refused (a token minted for one org's host is never sent to another). CLI tokens
+carry no known age, so there is no proactive refresh; a 401 re-mints once by
+calling the CLI again (the CLI refreshes itself). With `SIGMA_BASE_URL` unset,
+the shared REST clients (`sigma_rest.rb`, `sigma_rest.py`, the Node adapter)
+take the host the provider reports for the profile and validate it like an
+explicit one before any request; an explicit `SIGMA_BASE_URL` always wins, and a
+caller-supplied `SIGMA_API_TOKEN` with no base URL is never swapped for the
+CLI's token. A few standalone scripts (e.g. `find-or-pick-dm`, the phase-6 gate)
+still read `SIGMA_BASE_URL` directly, so export it for those. `SIGMA_CLI_PROFILE`
+may be persisted in `~/.sigma-migration/env` like the other settings.
+
 Bootstrap and doctor are deliberately noninteractive and **never open a
-browser**. Run the login command explicitly in an interactive terminal. For CI,
-automation, cloud agents, Windows hosts without a supported keychain, or locked
-keychains, provide `SIGMA_BASE_URL`, `SIGMA_CLIENT_ID`, and
-`SIGMA_CLIENT_SECRET`. In the default `SIGMA_AUTH_MODE=auto`, token minting
-tries the browser keychain first and falls back to those client credentials.
-Set `SIGMA_AUTH_MODE=browser` to forbid fallback, or
-`SIGMA_AUTH_MODE=client-credentials` to skip the keychain.
+browser** or run `sigma auth login`. Run the login command explicitly in an
+interactive terminal. For CI, automation, cloud agents, Windows hosts without a
+supported keychain, or locked keychains, provide `SIGMA_BASE_URL`,
+`SIGMA_CLIENT_ID`, and `SIGMA_CLIENT_SECRET`. In the default
+`SIGMA_AUTH_MODE=auto`, token minting tries the browser keychain first, then the
+Sigma CLI, then those client credentials. Set `SIGMA_AUTH_MODE=browser` or
+`SIGMA_AUTH_MODE=sigma-cli` to restrict minting to that one source, or
+`SIGMA_AUTH_MODE=client-credentials` to skip the keychain and the CLI. Doctor
+reports the method it found in `doctor.json` as `sigma_auth_method`
+(`api-token`, `browser`, `sigma-cli`, `client-credentials`, or `none`).
 
 The shared REST clients resolve Sigma auth in this order:
 
 1. `SIGMA_API_TOKEN` already in the process environment (explicit env wins).
 2. `<SIGMA_WORKDIR>/auth.json`, then `./auth.json`, when no env token exists.
-3. The token provider: browser keychain/cache first, then client credentials in
-   `auto` mode.
+3. The token provider: browser keychain/cache first, then the Sigma CLI, then
+   client credentials in `auto` mode.
 
 For a shell-neutral handoff, write `<workdir>/auth.json` (mode 0600):
 
@@ -149,7 +177,7 @@ python3 scripts/get_token.py --workdir <workdir>
 
 It contains only `SIGMA_API_TOKEN`, `SIGMA_BASE_URL`,
 `SIGMA_TOKEN_MINTED_AT`, and `SIGMA_AUTH_METHOD`; the refresh token remains in
-the keychain. Set `SIGMA_WORKDIR=<workdir>` for downstream scripts not launched
+the keychain (or, for the CLI route, with the CLI). Set `SIGMA_WORKDIR=<workdir>` for downstream scripts not launched
 from that directory. Never print or commit `auth.json`. Shared REST requests
 retry exactly once on a 401 after refreshing through the same provider; a
 second 401 is returned as an error.

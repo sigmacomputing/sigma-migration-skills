@@ -1,6 +1,9 @@
 // Shell-neutral Sigma auth adapter. Valid caller tokens are preserved; missing,
 // known-stale, and 401-rejected tokens refresh through the canonical
-// browser-first get_token.py provider (browser keychain, then client credentials).
+// get_token.py provider (browser keychain, then the Sigma CLI, then client
+// credentials). A user whose only credential is a signed-in Sigma CLI profile
+// may leave SIGMA_BASE_URL unset: the provider's auth.json supplies the host,
+// which is validated like an explicit one before anything is published.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +26,22 @@ function readAuthFile(workdir) {
     };
   } catch {
     return {};
+  }
+}
+
+// Only transmit a Sigma bearer token to an https sigmacomputing.com host (the
+// same check as the Ruby and Python clients; SIGMA_ALLOW_INSECURE_BASE_URL=1
+// is the explicit self-hosted/dev opt-out).
+export function validateBase(base) {
+  const url = new URL(base);
+  const host = url.hostname.toLowerCase();
+  const insecure = process.env.SIGMA_ALLOW_INSECURE_BASE_URL === '1';
+  if (!insecure && (url.protocol !== 'https:' ||
+      !(host === 'sigmacomputing.com' || host.endsWith('.sigmacomputing.com')))) {
+    throw new Error(`refusing to send a Sigma bearer token to untrusted base URL: ${base}`);
+  }
+  if (insecure && !['https:', 'http:'].includes(url.protocol)) {
+    throw new Error(`refusing non-HTTP Sigma base URL: ${base}`);
   }
 }
 
@@ -74,9 +93,13 @@ export function refreshSigmaAuth(workdir) {
     throw new Error(`Sigma token provider failed${result.stderr?.trim() ? `: ${result.stderr.trim()}` : ''}`);
   }
   const auth = readAuthFile(workdir);
+  // An explicit SIGMA_BASE_URL always wins; a provider-derived one (Sigma CLI
+  // profile) is validated BEFORE it or the token is published to the process.
+  if (process.env.SIGMA_BASE_URL) auth.base = process.env.SIGMA_BASE_URL;
   if (!auth.base || !auth.token || !auth.mintedAt || !auth.authMethod) {
     throw new Error('Sigma token provider wrote incomplete auth.json');
   }
+  validateBase(auth.base);
   return publish(auth);
 }
 
@@ -90,6 +113,10 @@ export function loadSigmaAuth(workdir, options = {}) {
   };
   const refresh = options.refresh || refreshSigmaAuth;
   const now = options.now ?? Date.now();
+  if (!auth.base && auth.token) {
+    // The caller's token has no known host; never swap it for another identity.
+    throw new Error('SIGMA_BASE_URL is not set for the supplied Sigma token; set it (or unset the token to sign in with the Sigma CLI: sigma auth login)');
+  }
   const resolved = (!auth.base || !auth.token || tokenRefreshDue(auth.mintedAt, now))
     ? refresh(workdir)
     : publish(auth);

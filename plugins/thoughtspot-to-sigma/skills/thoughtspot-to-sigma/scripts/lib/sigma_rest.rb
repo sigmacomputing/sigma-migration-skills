@@ -23,7 +23,9 @@
 #     (age-unknown) — the request helper's 401 handler re-mints ONCE and
 #     retries, then fails loudly.
 #
-# Required env: SIGMA_BASE_URL.
+# Base URL: SIGMA_BASE_URL (explicit, always wins). A user whose only credential
+# is a signed-in Sigma CLI profile may leave it unset; the token provider then
+# reports the profile's host, which is validated like an explicit base URL.
 # Optional env: SIGMA_API_TOKEN (initial token), browser-login keychain state,
 # SIGMA_CLIENT_ID / SIGMA_CLIENT_SECRET fallback, and SIGMA_AUTH_MODE.
 #
@@ -94,14 +96,34 @@ module Sigma
   TOKEN_TTL_SECONDS = 50 * 60
 
   @token_mutex = Mutex.new
+  @base_mutex = Mutex.new
   @token_override = nil
   @minted_at = nil
   @refresh_inflight = false
 
   module_function
 
+  # SIGMA_BASE_URL, or - for a user whose only credential is a signed-in Sigma
+  # CLI profile - the host the token provider reports for that profile. An
+  # explicit SIGMA_BASE_URL (env, ~/.sigma-migration/env, auth.json) always
+  # wins. A caller-supplied SIGMA_API_TOKEN with no base URL never triggers
+  # derivation: that token's host is unknown, and silently swapping it for the
+  # CLI's token could change identity.
   def base_url
-    ENV.fetch('SIGMA_BASE_URL') { raise Error, 'SIGMA_BASE_URL not set' }
+    value = ENV['SIGMA_BASE_URL']
+    return value unless value.nil? || value.empty?
+    @base_mutex.synchronize do
+      value = ENV['SIGMA_BASE_URL']
+      return value unless value.nil? || value.empty?
+      raise Error, 'SIGMA_BASE_URL not set' unless ENV['SIGMA_API_TOKEN'].to_s.empty?
+      refresh_token! # stores the provider-reported base URL, validated
+      value = ENV['SIGMA_BASE_URL']
+      if value.nil? || value.empty?
+        raise Error, 'SIGMA_BASE_URL not set (the token provider did not report one; ' \
+                     'set it, or sign in with the Sigma CLI: sigma auth login)'
+      end
+      value
+    end
   end
 
   # Security (A2): only transmit Sigma credentials to an https://
@@ -152,8 +174,8 @@ module Sigma
     !minted.nil? && (Time.now - minted) > TOKEN_TTL_SECONDS
   end
 
-  # Invoke sigma-api's canonical dual-mode provider. In auto mode it checks the
-  # browser keychain first, then falls back to client credentials, and verifies
+  # Invoke sigma-api's canonical multi-source provider. In auto mode it checks the
+  # browser keychain first, then the Sigma CLI, then client credentials, and verifies
   # the result with redirect-disabled /v2/whoami. All provider output is parsed
   # as data; no shell output is eval'd.
   def token_provider_result
@@ -203,7 +225,7 @@ module Sigma
 
     values = {}
     output.each_line do |line|
-      match = line.chomp.match(/\Aexport (SIGMA_API_TOKEN|SIGMA_TOKEN_MINTED_AT|SIGMA_AUTH_METHOD)=([A-Za-z0-9._~+\/=:-]+)\z/)
+      match = line.chomp.match(/\Aexport (SIGMA_API_TOKEN|SIGMA_TOKEN_MINTED_AT|SIGMA_AUTH_METHOD|SIGMA_BASE_URL)=([A-Za-z0-9._~+\/=:-]+)\z/)
       values[match[1]] = match[2] if match
     end
     required = %w[SIGMA_API_TOKEN SIGMA_TOKEN_MINTED_AT SIGMA_AUTH_METHOD]
@@ -225,11 +247,19 @@ module Sigma
       values = token_provider_result
       tok = values.fetch('SIGMA_API_TOKEN')
       minted_at = Time.parse(values.fetch('SIGMA_TOKEN_MINTED_AT'))
+      # A base URL the provider derived (Sigma CLI profile) is validated with the
+      # same host check as an explicit one, BEFORE anything is stored or any
+      # request is made. An explicit SIGMA_BASE_URL is never overwritten.
+      derived = values['SIGMA_BASE_URL']
+      if derived && ENV['SIGMA_BASE_URL'].to_s.empty?
+        Sigma.validate_base_url!(derived)
+        ENV['SIGMA_BASE_URL'] = derived
+      end
       @token_mutex.synchronize do
         @token_override = tok
         @minted_at = minted_at
       end
-      values.each { |key, value| ENV[key] = value }
+      values.each { |key, value| ENV[key] = value unless key == 'SIGMA_BASE_URL' }
       tok
     ensure
       @token_mutex.synchronize { @refresh_inflight = false }
