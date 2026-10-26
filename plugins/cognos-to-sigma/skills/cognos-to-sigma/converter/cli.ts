@@ -10,12 +10,15 @@
  *
  * Options: --connection <id> --database <DB> --schema <S> --dm <dataModelId> --pretty
  * Framework Manager: --list | --subject-area "<name>" | --all
+ * PDF-oriented Sigma Report: report.xml --print [--dm ID --page-width PX --page-height PX --margin PX --out PATH --warnings-out PATH]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { convertCognosToSigma, convertCognosIR } from './cognos.js';
 import { convertCognosReportToSigma } from './cognos-report.js';
+import { convertCognosPrintToSigma } from './cognos-print.js';
+import { inventoryCognosReportSources } from './cognos-report-sources.js';
 import {
   isFrameworkManagerXml, listFrameworkManagerSubjectAreas, normalizeCognosFrameworkManager,
 } from './cognos-fm.js';
@@ -40,6 +43,7 @@ if (!file) {
   console.error('usage: cli.ts <module.json|report.xml|fm-model.xml> [--connection X --database DB --schema S --dm ID]');
   console.error('       Framework Manager: cli.ts <fm-model.xml> --list');
   console.error('                          cli.ts <fm-model.xml> --subject-area "<name>" [--connection X]');
+  console.error('       Print:             cli.ts <report.xml> --print [--dm ID --page-width PX --page-height PX --margin PX --out PATH]');
   process.exit(1);
 }
 
@@ -53,7 +57,19 @@ function loadMetrics() {
   catch (e) { console.error(`[metrics] could not read ${p} (${(e as Error).message}); measures stay inline`); return undefined; }
 }
 
-const xml = readFileSync(file, 'utf8');
+let xml: string;
+try {
+  xml = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(file));
+} catch (error) {
+  if (!(error instanceof TypeError)) throw error;
+  console.error('Input is not valid UTF-8. Re-export or explicitly transcode using its confirmed encoding; no replacement-decoded conversion was produced.');
+  process.exit(2);
+}
+const declaredEncoding = xml.match(/^\s*<\?xml\b[^?]*\bencoding\s*=\s*['"]([^'"]+)['"]/i)?.[1];
+if (declaredEncoding && !/^utf-8$/i.test(declaredEncoding)) {
+  console.error('Unsupported XML encoding declaration. Provide a confirmed UTF-8 export rather than guessing its encoding.');
+  process.exit(2);
+}
 
 // Dispatch on the ROOT ELEMENT, not the extension: a Framework Manager model is also a
 // `.xml` starting with `<`, so an extension check silently routes it into the report
@@ -69,6 +85,20 @@ if (isFm && args.includes('--list')) {
 }
 
 const isReport = !isFm && (file.endsWith('.xml') || xml.trimStart().startsWith('<'));
+if (args.includes('--source-inventory')) {
+  if (!isReport) throw new Error('--source-inventory requires Cognos report XML');
+  process.stdout.write(JSON.stringify(inventoryCognosReportSources(xml), null, 2) + '\n');
+  process.exit(0);
+}
+const print = args.includes('--print');
+if (print && ((args.includes('--out') && !opt('out')) || (args.includes('--warnings-out') && !opt('warnings-out')))) {
+  console.error('--out and --warnings-out require a path');
+  process.exit(2);
+}
+if (print && !isReport) {
+  console.error('--print requires a Cognos report-spec XML, not a Data Module or Framework Manager model');
+  process.exit(2);
+}
 
 // FM ingest findings ride on the IR (`ingestWarnings`) and are merged by convertCognosIR,
 // so they cannot be lost here.
@@ -78,13 +108,22 @@ const res = isFm
       { connectionId: opt('connection', '<CONNECTION_ID>'), database: opt('database'), schema: opt('schema'), learnedRules: loadLearnedRules() },
     )
   : isReport
-    ? convertCognosReportToSigma(xml, { dataModelId: opt('dm', '<DM_ID>'), metrics: loadMetrics() })
+    ? print
+      ? convertCognosPrintToSigma(xml, {
+          dataModelId: opt('dm', '<DM_ID>'), metrics: loadMetrics(),
+          ...(opt('page-width') ? { pageWidth: Number(opt('page-width')) } : {}),
+          ...(opt('page-height') ? { pageHeight: Number(opt('page-height')) } : {}),
+          ...(opt('margin') ? { margin: Number(opt('margin')) } : {}),
+        })
+      : convertCognosReportToSigma(xml, { dataModelId: opt('dm', '<DM_ID>'), metrics: loadMetrics() })
     : convertCognosToSigma(xml, { connectionId: opt('connection', '<CONNECTION_ID>'), database: opt('database'), schema: opt('schema'), learnedRules: loadLearnedRules() });
 
-const payload = isReport ? (res as any).workbook : (res as any).model;
-const label = isReport ? 'report→workbook' : isFm ? 'framework-manager→data-model' : 'module→data-model';
-process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+const payload = isReport ? print ? (res as any).contents : (res as any).workbook : (res as any).model;
+const label = isReport ? print ? 'report→print' : 'report→workbook' : isFm ? 'framework-manager→data-model' : 'module→data-model';
+if (print && opt('out')) writeFileSync(opt('out'), JSON.stringify(payload, null, 2) + '\n');
+else process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
 console.error(`\n[${label}] stats: ${JSON.stringify(res.stats)}`);
+if (print && opt('warnings-out')) writeFileSync(opt('warnings-out'), JSON.stringify(res.warnings, null, 2) + '\n');
 // Detected security (RLS) — detect-only; the skill's apply_sigma_rls.py ports it.
 const security = (res as any).security;
 if (security?.length) {

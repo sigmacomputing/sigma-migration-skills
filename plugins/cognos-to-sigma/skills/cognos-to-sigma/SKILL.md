@@ -7,6 +7,8 @@ description: >-
   Converts Data Module JSON and Framework Manager project XML → Sigma data model,
   and report-spec XML → Sigma workbook, translating
   the Cognos expression DSL and flagging constructs with no clean Sigma analog.
+  For print-critical list reports, --print emits a Sigma Report with paginated
+  PDF export and source-PDF comparison (see refs/print-reports.md).
   Dashboards (exploration JSON) are hand-authored per refs/dashboard-migration.md
   (tabs → separate Sigma pages). Discovery via the CA REST API.
 user-invocable: true
@@ -51,6 +53,26 @@ of emitting wrong logic.
 > For the canonical Sigma data-model + workbook spec shapes, defer to the companion
 > `sigma-data-models` / `sigma-workbooks` skills.
 
+**Print-critical reports:** read `refs/print-reports.md` for the separate
+report-spec XML → Sigma Report → paginated PDF workflow. Its code supports
+lists/tables; the converter keeps crosstabs blocked pending verified Report code
+support (see the reference's validation date). Source PDF comparison is the parity gate.
+**Editable output is required:** use the XML for native elements/data bindings
+and the PDF only as a visual reference. Never place rendered report pages or
+rasterized business text into image elements as a substitute for migration.
+Logos/artwork may remain images; unsupported editable content is a blocker.
+
+**Build the data model before attempting print conversion.** Reuse-check is a
+choice between reusing a verified model and creating a new one, not a requirement
+that a matching model already exist. After one bounded reuse check with no suitable
+match, proceed to model construction. Do not stop at "no matching Sigma model."
+With a Data Module or Framework Manager export, use Phase 1 below. With report
+XML/PDF only, follow `refs/report-only-model.md`: inventory logical fields,
+discover/verify their warehouse mapping, build and POST/read back a new Sigma
+model, then convert the report. If physical mappings or source-model policies
+cannot be determined, ask for those specific missing inputs, not an existing
+Sigma model. Report XML alone is not evidence of physical table names or RLS.
+
 ---
 
 ## One command (orchestrated path)
@@ -59,8 +81,9 @@ of emitting wrong logic.
 > `migrate-cognos.mjs` is the entry point. Rules:
 > - **NEVER hand-author a DM/workbook JSON and `curl`-POST it, and never ship
 >   empty "placeholder" pages.** Post only what the converter produces. If Cognos
->   is unreachable (no CA session), **STOP and tell the user to authenticate** —
->   don't build a shell.
+>   is unreachable and the required source exports are unavailable, **STOP and
+>   tell the user which export or authentication is needed** — don't build a shell.
+>   Already exported report/model files can be processed offline.
 > - **Dashboards ARE hand-authored** (the converter doesn't do exploration JSON —
 >   see `refs/dashboard-migration.md`). That is the one sanctioned hand-authored
 >   path — but it is NOT exempt from verification: a hand-authored dashboard must
@@ -77,6 +100,20 @@ node scripts/migrate-cognos.mjs \
   [--database <DB> --schema <SCHEMA>] [--name '<prefix>'] \
   [--reuse-dm [ID]] [--expected expected.json] [--yes]
 ```
+
+For a warehouse-verified model built from report XML, replace `--module` with
+`--dm-spec <model.json>`; the orchestrator still runs reuse-or-create, POST and
+readback, report conversion, and parity. Print-specific model preparation and
+creation are documented in `refs/report-only-model.md`.
+
+Sigma auth is automatic and shell-neutral on this Node path. Set
+`SIGMA_BASE_URL`, then either run `eval "$(scripts/browser-login.sh)"` once in
+an interactive shell to store a refresh session in the OS keychain (preferred)
+or configure
+`SIGMA_CLIENT_ID`/`SIGMA_CLIENT_SECRET` as fallback. A valid caller
+`SIGMA_API_TOKEN` is reused; known-age tokens refresh after 50 minutes, and an
+HTTP 401 triggers exactly one provider refresh and retry. The provider checks
+the browser session first, then client credentials in the default `auto` mode.
 
 `--folder` is optional: when omitted, the DM + workbook land in **your My
 Documents** (resolved automatically via `GET /v2/whoami`). To target a shared
@@ -96,7 +133,8 @@ Inputs are the exported module JSON + report XML (Phase 0 / `cognos-discover.sh`
 gets them from a live CA). `--name` prefixes both the DM and workbook names.
 
 Parity is two-pass when `--expected` isn't supplied up front: pass 1 auto-exports
-every element to CSV via the Sigma REST export API → `<workdir>/sigma-actuals.json`
+data elements to CSV (pivots to JSON when totals can break CSV export) via the
+Sigma REST export API → `<workdir>/sigma-actuals.json`
 (keys `"<Element>/<Column>" = sum`, `"<Element>/rows" = count`), prints the
 `assert-parity --plan` mcp-v2 query list, then exits 10 with resume instructions.
 When two elements share a display name (a report can render the same query twice,
@@ -141,7 +179,10 @@ checkpoint, never silently ported or dropped).
 
   Probe `/api/v1` with the API key first; fall back to `/bi/v1` only if content calls 441/403.
   (Note the paths differ — see `refs/design-notes.md → API access`.)
-- **Sigma** API token (via the `sigma-api` skill) to POST the data model + workbook.
+- **Sigma** API access: set `SIGMA_BASE_URL`; use one-time
+  `eval "$(scripts/browser-login.sh)"` (preferred) or configure client
+  credentials as the unattended fallback. The Node migration stack invokes the browser-first
+  provider itself; pre-minting a token is optional.
 - **Node** for the converter (`converter/`: `npm install` once).
 
 ---
@@ -242,10 +283,12 @@ covers the same warehouse tables (don't add a 4th near-identical DM for the same
 
 ```bash
 python3 scripts/cognos-dm-signature.py --dm-spec dm.json --out dm-signature.json
-eval "$(scripts/get-token.sh)"
 ruby scripts/find-or-pick-dm.rb --workbook-signature dm-signature.json \
   --out dm-match.json --auto-pick           # exit 0 = candidate ≥ min-score
 ```
+
+`find-or-pick-dm.rb` and the surrounding Node orchestrator share the same
+browser-first provider state; no shell `eval` is required.
 
 `cognos-dm-signature.py` derives `{warehouse_tables, referenced_columns, measures}` from
 the Phase-1 converter output (`dm.json` — the Sigma DM JSON, BEFORE it is POSTed). Decision:
@@ -262,10 +305,11 @@ the Phase-1 converter output (`dm.json` — the Sigma DM JSON, BEFORE it is POST
 ## Phase 2 — POST the data model + read back ids (hard gate)
 
 ```bash
-eval "$(scripts/get-token.sh)"                 # Sigma SIGMA_BASE_URL + SIGMA_API_TOKEN
 node scripts/post-and-readback.mjs --type datamodel --spec dm.json \
   --folder <folderId> --out dm-map.json
 ```
+The Node helper reuses caller auth or obtains it from the co-located provider,
+including proactive age refresh and one 401 refresh/retry.
 POSTs to `/v2/dataModels/spec`, reads the spec back, and **fails on any `type=error`
 column** (a spec can POST 200 yet have formulas that don't resolve at query time — the
 readback scan is what catches it; it checks every element incl. the derived view).
@@ -331,7 +375,7 @@ report's numbers match the migrated Sigma workbook to the cent.
 ## Visual QA (mandatory gate — never skip)
 A workbook that POSTs 200 and passes parity ($-total / row-count) can still be visually broken — **overlapping tiles, clipped titles, dead zones, filters over charts.** Sigma's grid has no z-order; the shared layout lib de-overlaps bands, but this visual gate is the safety net (especially for crosstab→pivot sizing and map title/legend overlap).
 
-1. Render every page to PNG (token first: `eval "$(scripts/get-token.sh)"`):
+1. Render every page to PNG (the exporter uses the same browser-first provider):
    `python3 scripts/sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/<page>.png --w 1600`
 2. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls in-band, no clipped titles, even heights, right chart kind/format; short map titles).
 3. Fix any failure in the spec — for multi-page workbooks use the companion **sigma-workbooks** skill's `scripts/wb-rep.rb` (full-clone: `plugins/sigma-authoring/skills/sigma-workbooks/scripts/wb-rep.rb`; pull → edit → push) — then **re-render and re-read**.
@@ -355,13 +399,18 @@ A workbook that POSTs 200 and passes parity ($-total / row-count) can still be v
   filter; `[Col] = ?prompt?` → segmented control + hidden boolean match column +
   `values:[true]` filter. Filter columns are added hidden when the layout didn't show them.
 - **Auto-aggregated lists → grouped tables** (`groupings: groupBy dims / calculations
-  measures`); footer `Total(...)` columns are skipped with a warning (the group already
-  aggregates — re-add via Sigma totals).
+  measures`); invisible source group keys are retained as hidden columns,
+  source sorts are applied and compound cells are flagged for review. Detail
+  lists with a visible row ID keep their detail grain. Footer `Total(...)`
+  columns are skipped with a warning (the group already aggregates — re-add
+  via Sigma totals).
 - **Scaled currency** (`$###.#M`-style patterns) → the nearest Sigma d3 format (SI-suffix
   `$,.3s`); percent formats → `,.N%`. **Numeric dims on a category axis** (e.g. Year) are
   Text-cast so they bind categorically, and slot `dsSort` becomes `xAxis.sort`.
-- **Crosstabs → Sigma pivot-tables** (rows/columns edges → rowsBy/columnsBy, measure → values),
-  **charts (RAVE2 `<vizControl>`) → Sigma chart elements** (bar/column/line/area/pie/donut/
+- **Crosstabs → Sigma pivot-tables** (rows/columns edges → rowsBy/columnsBy,
+  source aggregation → values, including `Avg`), with edge sorts and explicit
+  grand totals. Pivots with totals use JSON rather than CSV for parity export.
+- **Charts (RAVE2 `<vizControl>`) → Sigma chart elements** (bar/column/line/area/pie/donut/
   combo/scatter via the slot model — see `refs/format-shapes.md`) and **maps (`tiledmap`) →
   Sigma region-map / point-map**.
 - Released workbook-code mappings: Cognos **waterfalls → `waterfall-chart`**;
@@ -375,8 +424,7 @@ A workbook that POSTs 200 and passes parity ($-total / row-count) can still be v
 **Flagged with a warning (and a readable placeholder), never faked:** macros whose prompt
 value set isn't recoverable from the report, **running-total / moving-* / rank / lag / lead**
 (window funcs with no clean single-column analog), **GetResourceString** (localization),
-composite/non-equi **joins**, **summary filters** (post-aggregation), table **sort order**
-(not part of the workbook spec — apply in the UI), and Cognos viz types with no native Sigma
+composite/non-equi **joins**, **summary filters** (post-aggregation), and Cognos viz types with no native Sigma
 element (network, word-cloud, packed-bubble, treemap → flagged table).
 **Box charts are workspace-gated** and stay a loud, data-preserving table
 fallback until entitlement is proven. Cross-report drill-through stays a loud
@@ -406,10 +454,10 @@ Row/column security is **never silently dropped and never silently ported** — 
 2. **Gate (opt-in/out, default _Port_).** Show a plain-English summary of each detected rule + recommended Sigma mapping, then ask: **Port** (recommended) / **Customize** (review per-rule attribute/team mapping + CAM-group-to-email reconciliation) / **Skip** (migrated model shows ALL rows to everyone). Reuse-first: existing Sigma user attributes/teams are matched before creating new ones.
 3. **Provision + apply** with the shared engine:
    ```bash
-   eval "$(scripts/get-token.sh)"
    python3 scripts/apply_sigma_rls.py --from-security security.json --dm-id <dataModelId>            # plan only (default)
    python3 scripts/apply_sigma_rls.py --from-security security.json --dm-id <dataModelId> --provision --apply
    ```
+   These Python paths use the same browser-first provider and 401 retry contract.
    `--provision` creates missing user attributes / teams; `--apply` PATCHes the boolean RLS calc column + fail-closed `filters` entry and the `columnSecurities` (CLS) onto the matching element.
 4. **Assign membership.** Assign per-user attribute values / team membership from the Cognos CAM group/role membership (the rule's `groups` name them; the values come from the customer's user mapping — CAM ids are usually not emails, reconcile them).
 
