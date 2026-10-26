@@ -544,6 +544,15 @@ jobs:
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-trellis.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-metric-reference.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-deterministic-ids-kpi-format.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/tests/test_phase6_parity_shape.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-reuse-dm-guard.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-dm-column-index.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-column-resolution.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-control-kind.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-detail-table.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-filter-groups.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-control-scope.rb
+            plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-qs-control-layout.rb
             shared/lib/test-destination-resolver.rb
             shared/lib/test_metric_binding.rb
             shared/lib/test_phase_metrics.rb

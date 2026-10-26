@@ -16,6 +16,7 @@ require 'set'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_functions'
 require 'code_rep'
+require 'dm_column_index'
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -46,6 +47,7 @@ validation_pages =
 
 # Known prefixes the validator considers valid for cross-element refs
 external_names = []  # element names that are sources OUTSIDE this spec (e.g., DM elements when validating a workbook)
+dm_context_elements = {}  # DM element id -> readback element (columnLabels / columnTypes / spec columns)
 if opts[:type] == 'workbook' && opts[:dm_context]
   ctx = JSON.parse(File.read(opts[:dm_context]))
   # Accept both shapes:
@@ -53,8 +55,10 @@ if opts[:type] == 'workbook' && opts[:dm_context]
   #   - flat element list:           { elements: [...] }   (legacy / hand-written)
   if ctx['pages'].is_a?(Array)
     external_names.concat(ctx['pages'].flat_map { |p| p.fetch('elements', []).map { |e| e['name'] } }.compact)
+    ctx['pages'].each { |p| p.fetch('elements', []).each { |e| dm_context_elements[e['id']] = e if e.is_a?(Hash) && e['id'] } }
   elsif ctx['elements'].is_a?(Array)
     external_names.concat(ctx['elements'].map { |e| e['name'] }.compact)
+    ctx['elements'].each { |e| dm_context_elements[e['id']] = e if e.is_a?(Hash) && e['id'] }
   end
   if external_names.empty?
     abort "validate-spec.rb: --dm-context loaded 0 element names from #{opts[:dm_context]}. " \
@@ -99,6 +103,25 @@ validation_pages.each do |page|
       end
     end
 
+    # Column existence on the data-model element a master sources. The prefix check below can
+    # only prove the ELEMENT exists; with the readback's column index (columnLabels, from
+    # /columns) the COLUMN is checked too, so a master ref to a column the model does not have
+    # fails here instead of after the POST. No labels on the element => skipped with a warning.
+    dm_labels = nil
+    dm_el_name = nil
+    if src['kind'] == 'data-model' && !dm_context_elements.empty?
+      dm_ctx_el = dm_context_elements[src['elementId']]
+      if dm_ctx_el
+        labels = DmColumnIndex.labels_of(dm_ctx_el)
+        if labels.empty?
+          warn "validate-spec.rb: dm-context element #{dm_ctx_el['name'].inspect} has no column labels - master [element/column] refs on #{name.inspect} are not verified"
+        else
+          dm_labels = labels.to_set
+          dm_el_name = dm_ctx_el['name']
+        end
+      end
+    end
+
     cols.each do |col|
       f = (col['formula'] || '').to_s
 
@@ -124,10 +147,19 @@ validation_pages.each do |page|
         errors << "#{name}.#{col['name']}: #{hint}"
       end
 
-      f.scan(/\[([^\]]+)\]/).flatten.each do |ref|
+      # refs are scanned outside string literals: a "[x]" inside a quoted string is text, not a ref
+      f.gsub(/"(?:\\.|[^"\\])*"/, '""').scan(/\[([^\]]+)\]/).flatten.each do |ref|
         if ref.include?('/')
           prefix = ref.split('/', 1)[0] # bug-fix: split with limit 2
           prefix = ref.split('/', 2)[0]
+          if dm_labels && prefix == dm_el_name
+            tail = ref.split('/', 2)[1]
+            # a single-segment tail is a column of the element; deeper paths are join legs
+            if !tail.to_s.include?('/') && !dm_labels.include?(tail)
+              errors << "#{name}.#{col['name']}: ref [#{ref}] - column #{tail.inspect} not found on data-model element " \
+                        "#{dm_el_name.inspect} (it has #{dm_labels.size}: #{dm_labels.to_a.first(12).join(', ')}#{dm_labels.size > 12 ? ', ...' : ''})"
+            end
+          end
           unless own_prefixes.include?(prefix) || all_known_set.include?(prefix)
             errors << "#{name}.#{col['name']}: ref [#{ref}] — prefix \"#{prefix}\" unknown " \
                       "(known: #{(own_prefixes + all_known_set).to_a.sort.join(', ')})"

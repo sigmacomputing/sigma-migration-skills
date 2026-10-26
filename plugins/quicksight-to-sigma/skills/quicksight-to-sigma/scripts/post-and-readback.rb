@@ -30,6 +30,7 @@ FileUtils.mkdir_p(opts[:workdir])
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
+require 'dm_column_index'
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -117,18 +118,21 @@ raw_readback = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).b
 spec = opts[:type] == 'workbook' ? Sigma::CodeRep.document(raw_readback) : raw_readback
 
 # Fetch the resolved /columns BEFORE writing the id-map so we can attach the
-# AUTHORITATIVE per-element column labels (the suffixed display names Sigma
-# assigns to disambiguate joined-dim columns — e.g. "Customer Id (CUSTOMER_DIM)").
-# derive_master needs these to emit master-column formulas that actually resolve.
+# AUTHORITATIVE per-element column labels (the suffixed display names Sigma assigns
+# to disambiguate joined-dim columns — e.g. "Customer Id (CUSTOMER_DIM)") and their
+# value types. derive_master / the workbook builder need these to emit master-column
+# formulas that actually resolve and controls of the right kind. The listing is
+# EXHAUSTIVELY paginated (Sigma's default page is 50 — a first-page read silently
+# truncated wide models and left this script's `error` guard blind past column 50).
 # (Same response is reused below for the error-type guard — one round trip.)
 columns_path = opts[:type] == 'datamodel' ?
   "/v2/dataModels/#{oid}/columns" :
   "/v2/workbooks/#{oid}/columns"
-cols_res = http(:get, columns_path, accept_json: true)
-cols_json = cols_res.success? ? (JSON.parse(cols_res.body) rescue { 'entries' => [] }) : nil
-labels_by_el = Hash.new { |h, k| h[k] = [] }
-(cols_json && cols_json['entries'] || []).each do |c|
-  labels_by_el[c['elementId']] << c['label'] if c['elementId'] && c['label']
+cols_json = begin
+  { 'entries' => Sigma.list_entries(columns_path) }
+rescue Sigma::Error => e
+  warn "WARN: could not fetch /columns for type guard (#{e.message.lines.first.to_s.strip}); skipping"
+  nil
 end
 
 page_elements =
@@ -153,13 +157,13 @@ out = {
       'name' => page['name'],
       'visibility' => page['visibility'],
       'elements' => Array(page_elements[page['id']]).map do |element|
-        row = { 'id' => element['id'], 'kind' => element['kind'], 'name' => element['name'] }
-        row['columnLabels'] = labels_by_el[element['id']] if labels_by_el.key?(element['id'])
-        row
+        { 'id' => element['id'], 'kind' => element['kind'], 'name' => element['name'] }
       end
     }
   end
 }
+# columnLabels + columnTypes per element (lib/dm_column_index.rb)
+DmColumnIndex.enrich_readback!(out, cols_json && cols_json['entries'])
 File.write(opts[:out], JSON.pretty_generate(out))
 puts JSON.pretty_generate(out)
 
@@ -179,8 +183,7 @@ puts JSON.pretty_generate(out)
 # Endpoint: GET /v2/{dataModels|workbooks}/<id>/columns — returns one entry per
 # column with `type.type` resolved. Scan for type == "error".
 
-res = cols_res
-if res.success?
+if cols_json
   error_columns = (cols_json['entries'] || []).select { |c| c.dig('type', 'type') == 'error' }
   if error_columns.any?
     warn "\n========================================"
@@ -198,8 +201,6 @@ if res.success?
     total = (cols_json['entries'] || []).size
     warn "column-type guard: #{total} columns clean (no `error` types)"
   end
-else
-  warn "WARN: could not fetch /columns for type guard (got HTTP #{res.code}); skipping"
 end
 
 # Layout-quality lint (shared scripts/lib/layout_lint.rb — vendored byte-
