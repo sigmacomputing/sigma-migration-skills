@@ -6,12 +6,16 @@
 # time as string literals embedded in the compiled SQL — e.g.
 #   select 'Unknown column "[ORDER_TOTAL]"' V_44 from ...
 #   select 'Circular column reference to [Quarter]' V_11 ...
+#   select 'Column "[Sales/inode-7Jj1KzywNyddp0npaXXyIl\/SALES_AMOUNT]" does not exist' V_5 ...
+# (the last one is what a workbook column compiles to after the data-model column
+# it points at is dropped or renamed — note the escaped `\/` inside the brackets).
 # The UI renders these elements as empty. Catching this is impossible from the
 # spec alone; only Sigma's compiler knows. This script asks the server.
 #
 # For each element on the workbook, it fetches the compiled SQL via
 #   GET /v2/workbooks/{id}/elements/{eid}/query
-# and greps the markers. Any hit means a formula doesn't resolve.
+# and greps the markers below. Any hit means a formula doesn't resolve.
+# Keep ERROR_MARKERS in sync with scripts/probe-release-contract.rb.
 #
 # Usage: ./verify-workbook.sh <workbook-id>
 # Requires env: SIGMA_BASE_URL, SIGMA_API_TOKEN.
@@ -45,6 +49,13 @@ ELEMENTS_JSON=$(curl -sf -H "Authorization: Bearer $SIGMA_API_TOKEN" \
   exit 2
 }
 
+# ERE alternation of the unresolved-reference string literals Sigma emits.
+# Quotes are matched loosely (" or ' or the SQL-doubled '') and the bracket
+# body is `[^]]+`, so escaped slashes (`\/`) and spaces inside [...] still match.
+ERROR_MARKERS="Unknown column ['\"]+[^'\"]+['\"]+"
+ERROR_MARKERS="$ERROR_MARKERS|Circular column reference to \[[^]]+\]"
+ERROR_MARKERS="$ERROR_MARKERS|Column ['\"]+\[[^]]+\]['\"]+ does not exist"
+
 ERRORS=0
 TOTAL=0
 while IFS=$'\t' read -r EID NAME; do
@@ -63,7 +74,7 @@ while IFS=$'\t' read -r EID NAME; do
   # grep exits 1 when no matches, which would trip `set -o pipefail` — swallow that
   # case explicitly so a clean element doesn't kill the loop.
   BAD=$(printf '%s' "$SQL" \
-    | grep -oE "(Unknown column \"[^\"]+\"|Circular column reference to \[[^]]+\])" \
+    | grep -oE "($ERROR_MARKERS)" \
     | sort -u | paste -sd '; ' - || true)
   if [ -n "$BAD" ]; then
     printf '  [FAIL] %-30s (%s) — %s\n' "$NAME" "$EID" "$BAD"
