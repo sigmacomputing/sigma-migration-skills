@@ -484,6 +484,25 @@ require 'rbconfig'
 require 'digest'
 require_relative 'lint-render-integrity'
 
+# Resolve Sigma auth once at startup through the shared browser-first provider.
+# A browser/keychain-only session therefore surfaces a bearer into ENV for the
+# existing live gates and their child processes. If resolution fails, leave the
+# token absent: gates 3/4 retain their existing fail-closed exits.
+_sigma_rest_path = [
+  File.join(__dir__, 'lib', 'sigma_rest.rb'),
+  File.join(__dir__, '..', 'lib', 'sigma_rest.rb')
+].find { |path| File.file?(path) }
+raise LoadError, 'lib/sigma_rest.rb is required by assert-phase6-ran.rb' unless _sigma_rest_path
+require _sigma_rest_path
+if !ENV['SIGMA_BASE_URL'].to_s.empty?
+  begin
+    _sigma_startup_token = Sigma.auth_token
+    ENV['SIGMA_API_TOKEN'] = _sigma_startup_token unless _sigma_startup_token.to_s.empty?
+  rescue Sigma::Error
+    # Deliberately defer to the existing gate-specific diagnostics and exits.
+  end
+end
+
 # Degradation ledger (PLAN-v3 PR-14) — vendored at scripts/lib/ in adopting
 # plugins; the canonical checkout resolves it from shared/lib. A checkout
 # without it keeps the legacy final line (stated below, never silent).
@@ -1527,8 +1546,9 @@ unless opts[:skip_column]
       # error-column audit. A bare first-page GET truncates at the server default of
       # 50, which would let THIS GATE pass a wide workbook whose type=="error"
       # columns sat past column 50 — the exact false GREEN the gate exists to
-      # prevent. Local loop rather than Sigma.list_entries: this gate deliberately
-      # carries no sigma_rest dependency.
+      # prevent. Keep the local loop so an incomplete scan remains recorded as a
+      # quality waiver rather than becoming an uncaught request exception. Its
+      # bearer was freshly resolved through Sigma.auth_token at startup.
       cols = []
       res  = nil
       page = nil
@@ -2476,42 +2496,14 @@ else
               # Anti-gaming (belt-and-braces to record-visual-check's check): the
               # grade's per-tile target families must not contradict the built
               # workbook's mechanical kind census on more than 1 tile.
-              _fam_map = { 'bar-chart' => 'bar', 'column' => 'bar', 'column-chart' => 'bar',
-                           'line-chart' => 'line', 'sparkline' => 'line', 'area-chart' => 'area',
-                           'combo-chart' => 'combo', 'dual-axis' => 'combo', 'scatter-chart' => 'scatter',
-                           'bubble' => 'scatter', 'pie-chart' => 'pie', 'donut' => 'pie',
-                           'donut-chart' => 'pie', 'kpi-chart' => 'kpi', 'single-value' => 'kpi',
-                           'big-number' => 'kpi', 'region-map' => 'map', 'point-map' => 'map',
-                           'pivot-table' => 'table', 'pivot' => 'table', 'crosstab' => 'table',
-                           'text-table' => 'table', 'grid' => 'table' }
-              _chartf = %w[bar line area combo scatter pie kpi map table other]
-              _fam = lambda do |k|
-                k2 = k.to_s.strip.downcase
-                _fam_map[k2] || (%w[bar line area combo scatter pie kpi map table
-                                    text control image container divider missing].include?(k2) ? k2 : 'other')
-              end
-              _rb = File.join(opts[:tab], 'wb-readback.json')
-              _census = nil
-              if File.file?(_rb)
-                _rb_doc = (JSON.parse(File.read(_rb)) rescue nil)
-                if _rb_doc.is_a?(Hash)
-                  _els = CODE_REP_LOADED ? Sigma::CodeRep.workbook_elements(_rb_doc) :
-                                           Array(_rb_doc['elements'])
-                  _page_by = CODE_REP_LOADED ?
-                               Sigma::CodeRep.workbook_page_by_element(Sigma::CodeRep.document(_rb_doc)) : {}
-                  _census = _els.select do |el|
-                    next false unless el.is_a?(Hash) && el['visibleAsSource'] != false
-                    owner = _page_by[el['id'].to_s]
-                    !(owner && (owner['name'].to_s.strip.casecmp?('Data') ||
-                                owner['id'].to_s.downcase.include?('data')))
-                  end
-                                .map { |el| _fam.call(el['kind']) }
-                                .select { |f| _chartf.include?(f) }
-                end
-              end
+              # One implementation of the census + family vocabulary
+              # (lib/blind_grade.rb): excludes the Data page, hidden pages, and
+              # DM-only visibleAsSource:false masters; returns nil on no readback.
+              require_relative 'lib/blind_grade'
+              _census = BlindGrade.census_from_readback(File.join(opts[:tab], 'wb-readback.json'))
               if _census.is_a?(Array) && _census.any?
-                _blind = Array(_bg_doc['per_tile']).map { |t| _fam.call(t.is_a?(Hash) ? t['target_family'] : nil) }
-                                                   .select { |f| _chartf.include?(f) }
+                _blind = Array(_bg_doc['per_tile']).map { |t| BlindGrade.family(t.is_a?(Hash) ? t['target_family'] : nil) }
+                                                   .select { |f| BlindGrade.chart_family?(f) }
                 _bc = _blind.each_with_object(Hash.new(0)) { |f, h| h[f] += 1 }
                 _cc = _census.each_with_object(Hash.new(0)) { |f, h| h[f] += 1 }
                 _matched = _cc.map { |f, n| [n, _bc[f]].min }.reduce(0, :+)

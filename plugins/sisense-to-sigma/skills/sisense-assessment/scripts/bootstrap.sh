@@ -14,9 +14,10 @@
 #
 # Contract:
 #   * IDEMPOTENT — a complete environment no-ops straight into a doctor run.
-#   * NON-INTERACTIVE / no-TTY-safe — never prompts; the creds flow runs only
-#     when SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET (and Tableau PAT vars, where the
-#     tableau scripts ship) are already exported (setup.rb --from-env).
+#   * NON-INTERACTIVE / no-TTY-safe — never prompts and never opens a browser.
+#     A current token or existing browser-keychain session is reused. The
+#     one-time browser-login command is explained when auth is missing; client
+#     flags/env remain the unattended fallback (setup.rb --from-env).
 #   * NEVER requires admin — activates runtimes already installed via version
 #     managers (rbenv/nvm/fnm/asdf/pyenv, Homebrew keg-only) by prepending
 #     their bin dirs, installs via user-scoped Homebrew where present (apt-get
@@ -691,6 +692,127 @@ fi
 
 # ── credentials (non-interactive only — setup.rb is the single writer) ──────
 NEUTRAL_ENV="$STATE_DIR/env"
+sigma_env_file_has() {
+  local key="$1" file="${2:-$HOME/.sigma-migration/env}"
+  [ -f "$file" ] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}=.+" "$file" 2>/dev/null
+}
+sigma_base_configured() {
+  [ -n "${SIGMA_BASE_URL:-}" ] || sigma_env_file_has SIGMA_BASE_URL
+}
+sigma_browser_session_present() {
+  sigma_base_configured || return 1
+  if command -v security >/dev/null 2>&1; then
+    security find-generic-password -a "${USER:-$(id -un 2>/dev/null)}" \
+      -s "sigma-api:refresh-token" >/dev/null 2>&1
+  elif command -v secret-tool >/dev/null 2>&1; then
+    secret-tool lookup service sigma-api key refresh-token >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+# The published Sigma API hosts (same list as get_token.py / get-token.sh).
+sigma_published_base() {
+  local d="sigma""computing.com"
+  case "$1" in
+    "https://aws-api.$d"|"https://api.us-a.aws.$d"|"https://api.ca.aws.$d"|\
+    "https://api.eu.aws.$d"|"https://api.au.aws.$d"|"https://api.uk.aws.$d"|\
+    "https://api.us.azure.$d"|"https://api.eu.azure.$d"|"https://api.ca.azure.$d"|\
+    "https://api.uk.azure.$d"|"https://api.au.azure.$d"|"https://api.$d"|\
+    "https://api.sa.gcp.$d") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# One KEY's value from the neutral env file ("" if absent), quotes stripped.
+sigma_env_file_value() {
+  local key="$1" f="${2:-$HOME/.sigma-migration/env}" v=""
+  if [ -f "$f" ]; then
+    v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=(.*)$/\\2/p" "$f" 2>/dev/null | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  fi
+  printf '%s' "$v"
+}
+# SIGMA_BASE_URL from the environment, else the neutral env file ("" if unset).
+sigma_configured_base() {
+  local v="${SIGMA_BASE_URL:-}"
+  [ -n "$v" ] || v="$(sigma_env_file_value SIGMA_BASE_URL)"
+  printf '%s' "${v%/}"
+}
+# Run argv with no stdin and a hard time limit (macOS has no `timeout`).
+# Combined stdout+stderr lands in _SIGMA_OUT; the exit status is returned.
+_SIGMA_OUT=""
+sigma_bounded() {
+  local limit="$1" tmp pid ticks=0 rc=0
+  shift
+  tmp="$(mktemp 2>/dev/null)" || return 1
+  "$@" </dev/null >"$tmp" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge $((limit * 10)) ]; then
+      kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$tmp"
+      _SIGMA_OUT=""; return 124
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+    ticks=$((ticks + 1))
+  done
+  wait "$pid" || rc=$?
+  _SIGMA_OUT="$(cat "$tmp" 2>/dev/null)"
+  rm -f "$tmp"
+  return "$rc"
+}
+# A working, signed-in Sigma CLI profile? (KEEP IN LOCKSTEP with doctor.sh; see
+# test-bootstrap-lockstep.sh.) Noninteractive: only `auth --help` and
+# `auth status` are run (never `auth login`, never `auth token`). Sets
+# _SIGMA_CLI_BASE to the profile's validated Base URL; _SIGMA_CLI_WHY explains a
+# refusal when a Sigma CLI is present but unusable.
+_SIGMA_CLI_BASE=""
+_SIGMA_CLI_WHY=""
+sigma_cli_session_ok() {
+  local bin profile="${SIGMA_CLI_PROFILE:-}" line base="" auth_ok=0 conf
+  local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]'
+  local re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
+  local re_prof='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
+  local re_tok='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
+  local -a pargs=()
+  _SIGMA_CLI_BASE=""; _SIGMA_CLI_WHY=""
+  bin="$(command -v sigma 2>/dev/null || true)"
+  [ -n "$bin" ] || return 1
+  # SIGMA_CLI_PROFILE may be persisted in the neutral env file; env wins.
+  [ -n "$profile" ] || profile="$(sigma_env_file_value SIGMA_CLI_PROFILE)"
+  if [ -n "$profile" ]; then
+    if ! [[ "$profile" =~ $re_prof ]]; then
+      _SIGMA_CLI_WHY="SIGMA_CLI_PROFILE is not a valid profile name"; return 1
+    fi
+    pargs=(-p "$profile")
+  fi
+  # An unrelated tool (SigmaHQ) can own the name `sigma`; require the Sigma CLI.
+  sigma_bounded 20 "$bin" auth --help || return 1
+  [[ "$_SIGMA_OUT" =~ $re_tok ]] || return 1
+  if ! sigma_bounded 20 "$bin" auth status ${pargs[@]+"${pargs[@]}"}; then
+    _SIGMA_CLI_WHY="'sigma auth status' failed or timed out"; return 1
+  fi
+  while IFS= read -r line; do
+    if [[ "$line" =~ $re_auth ]]; then
+      auth_ok=1
+    elif [ -z "$base" ] && [[ "$line" =~ $re_base ]]; then
+      base="${BASH_REMATCH[1]}"
+    fi
+  done <<<"$_SIGMA_OUT"
+  if [ "$auth_ok" -ne 1 ]; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile is not signed in (Auth: is not OK)"; return 1
+  fi
+  base="${base%/}"
+  if [ -z "$base" ] || ! sigma_published_base "$base"; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
+  fi
+  conf="$(sigma_configured_base)"
+  if [ -n "$conf" ] && [ "$conf" != "$base" ]; then
+    _SIGMA_CLI_WHY="the Sigma CLI profile host differs from SIGMA_BASE_URL (the provider refuses a token minted for another host); select the matching profile with SIGMA_CLI_PROFILE"
+    return 1
+  fi
+  _SIGMA_CLI_BASE="$base"
+  return 0
+}
+
 SETUP_RUN=()
 SETUP_LABEL=""
 if [ "$SKIP_RUBY" = true ] && [ -n "$PY_RUN" ] && [ -f "$HERE/setup.py" ]; then
@@ -714,9 +836,22 @@ if [ "${#CRED_ARGS[@]}" -gt 0 ]; then
       INSTALL_FAILED=1; note "credential setup (flag form) FAILED — check the flag values and selected runtime profile"
     fi
   fi
-elif [ -f "$NEUTRAL_ENV" ] && grep -q 'SIGMA_CLIENT_ID' "$NEUTRAL_ENV" 2>/dev/null; then
-  okay "Sigma credentials present ($NEUTRAL_ENV)"
-elif [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; then
+elif sigma_base_configured \
+     && { [ -n "${SIGMA_API_TOKEN:-}" ] || sigma_env_file_has SIGMA_API_TOKEN "$NEUTRAL_ENV"; }; then
+  okay "Sigma current API token configuration present (bootstrap will not replace it)"
+elif [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && sigma_browser_session_present; then
+  okay "Sigma browser refresh session present in the OS keychain (bootstrap stays noninteractive)"
+elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] \
+     && sigma_cli_session_ok; then
+  okay "Sigma CLI profile signed in (bootstrap only reads 'sigma auth status'; it never runs login or mints a token)"
+elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && sigma_base_configured \
+     && sigma_env_file_has SIGMA_CLIENT_ID "$NEUTRAL_ENV" \
+     && sigma_env_file_has SIGMA_CLIENT_SECRET "$NEUTRAL_ENV"; then
+  okay "Sigma client credentials present ($NEUTRAL_ENV)"
+elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; then
   plan "Sigma credentials not yet persisted (env vars ARE exported)" \
        "$SETUP_LABEL --from-env (persists them; values never echoed)"
   if [ "$MODE" = full ]; then
@@ -728,8 +863,9 @@ elif [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; then
     fi
   fi
 else
-  plan "Sigma credentials MISSING (no $NEUTRAL_ENV, no SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET in the env)" \
-       "export SIGMA_CLIENT_ID + SIGMA_CLIENT_SECRET (+ SIGMA_BASE_URL) and re-run bootstrap — or run the selected profile's setup script once in a real terminal"
+  [ -z "$_SIGMA_CLI_WHY" ] || note "Sigma CLI found but not usable: $_SIGMA_CLI_WHY"
+  plan "Sigma authentication MISSING (need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" \
+       "in an interactive terminal, set SIGMA_BASE_URL and run: eval \"\$(bash scripts/browser-login.sh)\" (one-time browser sign-in; bootstrap never opens it). Or sign in with the Sigma CLI: sigma auth login (then optionally export SIGMA_CLI_PROFILE=<profile>). Unattended fallback: re-run bootstrap with --client-id ID --client-secret SECRET [--base-url URL], or export the client values and use --from-env"
   # Not an install failure: bootstrap cannot invent credentials. Doctor will
   # fail-close on them below, keeping the run honestly red until they exist.
 fi
