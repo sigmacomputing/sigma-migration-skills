@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-source = File.read(File.join(__dir__, 'build-charts-from-signals.rb'))
+source = File.read(File.join(__dir__, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[
   map_column qualify_master_formula normalize_mapped_formula
   rewrite_page_control_text

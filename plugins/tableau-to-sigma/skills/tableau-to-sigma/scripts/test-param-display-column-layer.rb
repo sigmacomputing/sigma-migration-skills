@@ -52,7 +52,8 @@ check(pattern && pattern['cases'] == [
 check(persisted == result, 'conv-meta.json persists the normalized workbook-layer handoff', fails)
 
 # Exercise the existing workbook-pattern consumer against the recovered pattern.
-builder_source = File.read(File.join(HERE, 'build-charts-from-signals.rb'))
+builder_source = File.read(File.join(HERE, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[map_column coerce_case_literal remap_param_branch load_param_switches
    param_switch_for param_switch_inline].each do |method_name|
   method_source = builder_source.match(/^def #{method_name}\b.*?\n^end$/m)

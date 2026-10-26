@@ -23,7 +23,8 @@
 # must supply the polyfill itself. See shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 SRC = File.join(__dir__, 'build-charts-from-signals.rb')
-src = File.read(SRC)
+src = File.read(SRC) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[map_column param_filter_targets].each do |fn|
   block = src[/^def #{fn}\b.*?^end$/m]
   abort "could not extract #{fn} from #{SRC}" unless block

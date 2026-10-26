@@ -19,7 +19,8 @@ require 'json'
 require_relative 'lib/ruby_compat'
 
 DIR = __dir__
-SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[map_column materialized_calc_column].each do |fn|
   m = SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn}")
   eval(m[0]) # rubocop:disable Security/Eval — test-only extraction of first-party code

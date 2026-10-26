@@ -305,10 +305,15 @@ def artifact_diff(
 
 
 def run_command(command: list[str], *, cwd: Path, timeout: int) -> dict[str, Any]:
+    env = clean_environment()
+    # The Ruby scanner applies the operator's ~/.tableau-to-sigma learned rules
+    # (the Python runtime has no loader); point it at an empty home so the
+    # comparison never depends on machine-local rules.
+    env["TABLEAU_TO_SIGMA_HOME"] = str(cwd / ".tableau-to-sigma-home")
     completed = subprocess.run(
         command,
         cwd=cwd,
-        env=clean_environment(),
+        env=env,
         text=True,
         capture_output=True,
         check=False,

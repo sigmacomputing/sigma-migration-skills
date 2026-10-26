@@ -26,7 +26,8 @@ require 'json'
 require_relative 'lib/ruby_compat'
 
 DIR = __dir__
-SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 
 USER_AGG_FN = { 'SUM' => 'Sum', 'AVG' => 'Avg', 'MIN' => 'Min', 'MAX' => 'Max', 'MEDIAN' => 'Median' }.freeze
 %w[map_column guid_from_text placeholder_calc? pick_kpi_measure resolve_shelf_field translate_kpi_measure_formula].each do |fn|

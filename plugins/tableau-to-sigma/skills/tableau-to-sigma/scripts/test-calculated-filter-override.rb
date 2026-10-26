@@ -9,7 +9,8 @@
 # must supply the polyfill itself. See shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 DIR = __dir__
-SOURCE = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+SOURCE = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[
   map_column strip_tableau_comments translate_row_level_calc
   translate_dim_calc master_calc_filter_override
