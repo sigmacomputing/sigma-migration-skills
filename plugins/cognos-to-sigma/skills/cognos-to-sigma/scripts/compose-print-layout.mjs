@@ -8,6 +8,12 @@ import { parseArgs } from './lib/sigma-rest.mjs';
 import { reportSpecErrors } from './lib/report-spec.mjs';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Layout ids are data: find blocks with literal patterns and compare the id
+// string, as reportSpecErrors does. An id spliced into a RegExp mis-matched
+// metacharacters (`a.b` hit page `axb`). Self-closing panels are tried first
+// so one cannot swallow the next panel's body.
+const PAGE_BLOCK = /(<Page\b[^>]*\bid="([^"]+)"[^>]*>)([\s\S]*?)(<\/Page>)/g;
+const PANEL_BLOCK = /<Panel\b[^>]*\bid="([^"]+)"[^>]*\/>|<Panel\b[^>]*\bid="([^"]+)"[^>]*>[\s\S]*?<\/Panel>/g;
 const id = () => randomBytes(8).toString('hex');
 const number = (n, field) => {
   if (!Number.isFinite(n) || n < 0) throw new Error(`${field} must be a nonnegative number`);
@@ -99,8 +105,13 @@ export function composePrintLayout(input, manifest) {
   let layout = spec.layout;
   const created = [];
   const referenced = new Set();
+  const pageMatch = (pageId) => [...layout.matchAll(PAGE_BLOCK)].find((m) => m[2] === pageId);
+  const editPage = (pageId, edit) => {
+    const m = pageMatch(pageId);
+    if (m) layout = layout.slice(0, m.index) + edit(m[1], m[3], m[4]) + layout.slice(m.index + m[0].length);
+  };
   const removePanel = (panel) => {
-    const fragment = layout.match(new RegExp(`<Panel\\b[^>]*\\bid="${panel.id}"[^>]*>[\\s\\S]*?<\/Panel>|<Panel\\b[^>]*\\bid="${panel.id}"[^>]*/>`, 'g')) || [];
+    const fragment = [...layout.matchAll(PANEL_BLOCK)].filter((m) => (m[1] ?? m[2]) === panel.id).map((m) => m[0]);
     if (fragment.length !== 1) throw new Error(`panel ${panel.id} has no unique layout block`);
     const childIds = [...fragment[0].matchAll(/elementId="([^"]+)"/g)].map((match) => match[1]);
     if (childIds.some((elementId) => layout.split(`elementId="${elementId}"`).length !== 2)) throw new Error(`panel ${panel.id} shares an element with other layouts`);
@@ -125,12 +136,13 @@ export function composePrintLayout(input, manifest) {
     }
     const font = block.fontSize;
     if (font != null && (!Number.isFinite(font) || font < 6 || font > 48)) throw new Error('fontSize must be between 6 and 48');
-    const body = font == null ? block.body : block.body.split('\n').map((line) => line ? `<span style="font-size: ${font}px">${esc(line)}</span>` : '').join('  \n');
+    // `font` is a validated finite number in [6, 48] and every line is
+    // HTML-escaped, so the span carries no unescaped caller text.
+    const body = font == null ? block.body : block.body.split('\n').map((line) => line ? `<span style="font-size: ${font}px">${esc(line)}</span>` : '').join('  \n'); // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
     const element = { id: id(), kind: 'text', body };
     spec.elements.push(element);
     const node = `<Element elementId="${element.id}" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
-    layout = layout.replace(new RegExp(`(<Page\\b[^>]*\\bid="${esc(pageId)}"[^>]*>)([\\s\\S]*?)(<\\/Page>)`),
-      (_m, open, inner, close) => `${open}${inner}\n  ${node}\n${close}`);
+    editPage(pageId, (open, inner, close) => `${open}${inner}\n  ${node}\n${close}`);
     return element;
   };
   const backgrounds = [];
@@ -162,8 +174,8 @@ export function composePrintLayout(input, manifest) {
       if (!w || !h || !fitsPrintablePage(x, y, w, h)) throw new Error('emblem exceeds the printable page canvas');
       const image = { id: id(), kind: 'image', source: { kind: 'url', url: emblemImage(box, w, h) } };
       spec.elements.push(image);
-      layout = layout.replace(new RegExp(`(<Page\\b[^>]*\\bid="${esc(page.id)}"[^>]*>)`),
-        `$1\n  <Element elementId="${image.id}" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+      editPage(page.id, (open, inner, close) =>
+        `${open}\n  <Element elementId="${image.id}" x="${x}" y="${y}" width="${w}" height="${h}"/>${inner}${close}`);
     }
     if (cfg.removeSourceHeader) {
       if (!cfg.sourcePage) throw new Error('removeSourceHeader requires sourcePage');
@@ -174,9 +186,8 @@ export function composePrintLayout(input, manifest) {
     }
     if (cfg.tableBox || cfg.tableTitle) {
       if (!cfg.sourcePage) throw new Error('table edits require an existing sourcePage');
-      const pattern = new RegExp(`(<Page\\b[^>]*\\bid="${esc(page.id)}"[^>]*>)([\\s\\S]*?)(<\/Page>)`);
-      const match = layout.match(pattern);
-      const tables = (match?.[2].match(/<Element\b[^>]*flow="paginated"[^>]*\/>/g) || []);
+      const match = pageMatch(page.id);
+      const tables = (match?.[3].match(/<Element\b[^>]*flow="paginated"[^>]*\/>/g) || []);
       if (tables.length !== 1) throw new Error('table edits require exactly one paginated table on the source page');
       const tableId = tables[0].match(/elementId="([^"]+)"/)?.[1];
       const table = spec.elements.find((e) => e.id === tableId && e.kind === 'table');
@@ -209,8 +220,7 @@ export function composePrintLayout(input, manifest) {
       // image layer renders in the PDF without creating spill pages.
       const image = { id: id(), kind: 'image', source: { kind: 'url', url } };
       spec.elements.unshift(image);
-      const pagePattern = new RegExp(`(<Page\\b[^>]*\\bid="${esc(page.id)}"[^>]*>)([\\s\\S]*?)(<\\/Page>)`);
-      layout = layout.replace(pagePattern, (_m, open, inner, close) =>
+      editPage(page.id, (open, inner, close) =>
         `${open}\n  <Element elementId="${image.id}" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>${inner}${close}`);
       backgrounds.push(page.name);
     }

@@ -42,6 +42,19 @@ class PdfComparisonTests(unittest.TestCase):
                  patch.object(module, 'text', return_value='Value 12'), redirect_stdout(StringIO()):
                 self.assertEqual(module.main(), 1 if identical or wrong_later_size else 0)
 
+    def test_input_paths_cannot_be_read_as_poppler_options(self):
+        seen = []
+
+        def record(*args):
+            seen.append(args)
+            raise RuntimeError('stop after the first Poppler call')
+        with patch('sys.argv', ['compare', '--cognos=-opw.pdf', '--sigma', 'b.pdf']), \
+             patch.object(module, 'digest', return_value='a'), \
+             patch.object(module, 'command', side_effect=record):
+            with self.assertRaises(RuntimeError):
+                module.main()
+        self.assertTrue(seen[0][-1].startswith('/'), seen[0])
+
 
 if __name__ == '__main__':
     unittest.main()

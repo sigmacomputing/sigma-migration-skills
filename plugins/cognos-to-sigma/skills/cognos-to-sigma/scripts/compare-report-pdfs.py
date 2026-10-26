@@ -7,6 +7,7 @@ requires a human check of fonts and pagination against a genuine source PDF.
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,7 +19,9 @@ from PIL import Image, ImageChops, ImageStat
 
 
 def command(*args):
-    p = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    # Fixed Poppler argv without a shell; main() makes both PDF paths absolute,
+    # so a caller-supplied path can never be parsed as a Poppler option.
+    p = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
     if p.returncode:
         raise RuntimeError(f"{args[0]} failed: {p.stderr.decode(errors='replace')[:300]}")
     return p.stdout
@@ -86,6 +89,7 @@ def main():
     a = ap.parse_args()
     if not 0 <= a.max_mean_diff <= 1 or not 0 <= a.min_text_ratio <= 1:
         raise ValueError('comparison thresholds must be in [0, 1]')
+    a.cognos, a.sigma = os.path.abspath(a.cognos), os.path.abspath(a.sigma)
     identical_input = digest(a.cognos) == digest(a.sigma)
     n_source, size_source = info(a.cognos)
     n_target, size_target = info(a.sigma)

@@ -81,4 +81,16 @@ const shared = { ...withFooter, pages: [...withFooter.pages, { id: 'second', nam
   panels: [{ ...withFooter.panels[0], pages: ['summary', 'second'] }],
   layout: `${withFooter.layout}<Page id="second"></Page>` };
 assert.throws(() => composePrintLayout(shared, { pages: [{ sourcePage: 'Regional orders' }], footer: { body: 'Replacement', pages: ['Regional orders'] } }), /shared with unselected/);
+// Layout ids are data, not patterns: `a.b` must not match the earlier `axb`
+// page, and a panel id with parentheses must still be found for replacement.
+const metaIds = { ...base, pages: [{ id: 'axb', name: 'Decoy' }, { id: 'a.b', name: 'Target' }],
+  layout: '<Page id="axb"></Page><Page id="a.b"><Element elementId="table" x="48" y="48" width="720" height="350" flow="paginated"/></Page>' };
+const placed = composePrintLayout(metaIds, { pages: [{ sourcePage: 'Target', blocks: [{ x: 48, y: 420, width: 300, height: 40, body: 'Target note' }] }] }).contents;
+const note = placed.elements.find((e) => e.kind === 'text' && e.body === 'Target note');
+const pageOf = (spec, elementId) => [...spec.layout.matchAll(/<Page\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/Page>/g)]
+  .find((m) => m[2].includes(`elementId="${elementId}"`))?.[1];
+assert.equal(pageOf(placed, note.id), 'a.b');
+const metaPanel = { ...withFooter, panels: [{ ...withFooter.panels[0], id: 'old(panel)' }],
+  layout: withFooter.layout.replace('id="old-panel"', 'id="old(panel)"') };
+assert(!composePrintLayout(metaPanel, bp).contents.layout.includes('old(panel)'));
 console.log('test-compose-print-layout: PASS');

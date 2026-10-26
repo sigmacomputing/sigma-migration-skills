@@ -6161,8 +6161,12 @@ var findAll2 = (node, tag, out = []) => {
 var text = (v) => String(typeof v === "object" ? v?.["#text"] || "" : v || "").trim();
 var esc = (value) => String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 var style = (node) => findAll2(node?.style || {}, "CSS").map((s) => String(s["@_value"] || "")).join(";");
+var CSS_SIZE = {
+  width: /(?:^|;)\s*width\s*:\s*([0-9.]+)\s*(px|pt|%)/i,
+  height: /(?:^|;)\s*height\s*:\s*([0-9.]+)\s*(px|pt|%)/i
+};
 var cssSize = (node, prop, base) => {
-  const match = style(node).match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([0-9.]+)\\s*(px|pt|%)`, "i"));
+  const match = style(node).match(CSS_SIZE[prop]);
   if (!match) return null;
   const n = Number(match[1]);
   return match[2] === "%" ? base * n / 100 : match[2].toLowerCase() === "pt" ? n * 4 / 3 : n;
