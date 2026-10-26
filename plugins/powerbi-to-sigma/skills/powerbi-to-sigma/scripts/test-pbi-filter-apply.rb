@@ -53,7 +53,8 @@ SIGNALS = {
         'x' => 0, 'y' => 0, 'w' => 600, 'h' => 300, 'bindings' => { 'Category' => ['T.Region'], 'Y' => ['T.Amount'] },
         'filters' => [
           # top-N (desc): rank the Region dimension BY the Amount measure -> columnId must be the Amount col
-          { 'scope' => 'visual', 'target' => 'T.Region', 'type' => 'top-n', 'n' => 5, 'direction' => 'desc', 'rankBy' => 'T.Amount', 'mode' => 'include' },
+          # Public PBIR Aggregation OrderBy extracts as Sum(Amount), not T.Amount.
+          { 'scope' => 'visual', 'target' => 'T.Region', 'type' => 'top-n', 'n' => 5, 'direction' => 'desc', 'rankBy' => 'Sum(Amount)', 'mode' => 'include' },
           # bottom-N (asc): must NOT ship as a Top-N -> coverage
           { 'scope' => 'visual', 'target' => 'T.Region', 'type' => 'top-n', 'n' => 3, 'direction' => 'asc', 'rankBy' => 'T.Amount', 'mode' => 'include' },
           # list exclude on the projected dim -> applied

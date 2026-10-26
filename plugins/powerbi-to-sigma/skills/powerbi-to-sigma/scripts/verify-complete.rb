@@ -38,9 +38,10 @@ abort 'FATAL: --workdir required' unless opts[:wd]
 succ = File.join(opts[:wd], 'phase6-success.json')
 unless File.exist?(succ)
   warn '⛔ NOT DONE — no phase6-success.json in the workdir.'
-  warn '   The conversion did not complete a resolution-verified build. If pages exist but are empty,'
-  warn '   they were NOT produced by a real migrate-powerbi.rb run — re-run the orchestrator'
-  warn "   (never hand-author a workbook). Workdir checked: #{opts[:wd]}"
+  warn '   The conversion did not complete the standard Phase-6 gate. Re-run the orchestrator, or'
+  warn '   for an existing repaired/hand-authored workbook run:'
+  warn "     ruby scripts/adopt-workbook.rb --workdir #{opts[:wd]} --workbook-id <id>"
+  warn "   Workdir checked: #{opts[:wd]}"
   exit 2
 end
 

@@ -6,7 +6,7 @@ Every documented source construct maps to a real, current Sigma target or a loud
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 49 documented constructs across 5 dimensions; 3 live-verified.
+**Coverage:** 50 documented constructs across 5 dimensions; 3 live-verified.
 
 ## Visualization / chart kind
 
@@ -98,6 +98,8 @@ Authoritative source: <https://learn.microsoft.com/en-us/power-bi/visuals/power-
 |---|---|---|---|---|
 | `slicer` | [doc](https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-slicers) | `list` | 🟡 n | warn+skip |
 | | | | | _Categorical list control (documented default): controlType:list + mode:include + selectionMode:multiple + source{kind:source,...} + filters[]. A slicer bound to a date column is overridden to date-range in code._ |
+| `slicer:sync` | [doc](https://github.com/microsoft/skills-for-fabric/blob/main/skills/powerbi-report-authoring/references/slicers.md#slicer-sync-groups) | `synced` | 🟡 n | record-gap |
+| | | | | _PBIR visual.syncGroup members: the first slicer is the normal primary; later same-group/same-field members emit minimal controlType:synced copies whose controlId names the primary. A group whose members bind different fields degrades to independent controls and is recorded._ |
 | `slicer:date` | [doc](https://learn.microsoft.com/en-us/power-bi/create-reports/power-bi-slicer-numeric-range) | `date-range` | 🟡 n | warn+skip |
 | | | | | _Date/datetime-typed slicer: controlType:date-range + mode:between + includeNulls. Needs NO source (columns come from filters[]) but DOES require the flat mode or the POST 400s 'Invalid kind: control'._ |
 | `slicer:hierarchy` | [doc](https://learn.microsoft.com/en-us/power-bi/create-reports/power-bi-slicer-hierarchy-multiple-fields) | `hierarchy` | 🟡 n | record-gap |

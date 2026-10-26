@@ -189,7 +189,26 @@ module ControlLint
                 page: info[:page], control_type: el['controlType'],
                 filter_targets: live, ghost_targets: tgt_ids - live,
                 formula_refs: frefs, reach: reach, page_queryable: page_q,
-                uncovered: page_q.reject { |q| reach.include?(q) } }
+                uncovered: page_q.reject { |q| reach.include?(q) },
+                synced: el['controlType'].to_s == 'synced' }
+    end
+    # A synced control intentionally carries no source/filters of its own. Its
+    # controlId names the primary control whose wiring it mirrors. Inherit that
+    # primary's closure for dead/partial checks while retaining the copy's page.
+    primaries = rows.reject { |r| r[:synced] }
+                    .group_by { |r| r[:control_id] }
+    rows.each do |row|
+      next unless row[:synced]
+      primary = Array(primaries[row[:control_id]]).first
+      unless primary
+        row[:primary_missing] = true
+        next
+      end
+      row[:filter_targets] = primary[:filter_targets]
+      row[:ghost_targets] = primary[:ghost_targets]
+      row[:formula_refs] = primary[:formula_refs]
+      row[:reach] = primary[:reach]
+      row[:uncovered] = row[:page_queryable].reject { |qid| row[:reach].include?(qid) }
     end
     rows
   end
@@ -331,6 +350,11 @@ module ControlLint
       ann = scope_by_cid.delete(r[:control_id]) || {}
       ann_scope = ann['scope'] || elems[r[:control_element_id]][:el]['controlScope']
       ctl_label = "control #{label(elems, r[:control_element_id])}#{r[:control_id] ? " [#{r[:control_id]}]" : ''} on page #{r[:page].inspect}"
+
+      if r[:primary_missing]
+        violations << "orphan synced control: #{ctl_label} names no primary non-synced control with controlId #{r[:control_id].inspect}"
+        next
+      end
 
       r[:ghost_targets].each do |g|
         violations << "ghost target: #{ctl_label} lists filter target #{g.inspect} which does not " \

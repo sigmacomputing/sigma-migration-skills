@@ -11,9 +11,12 @@
 
 require 'json'
 require 'tmpdir'
+require 'open3'
+require 'rbconfig'
 
 DIR = __dir__
 VC  = File.join(DIR, 'verify-complete.rb')
+ADOPT = File.join(DIR, 'adopt-workbook.rb')
 fails = []
 def check(c, m, fails) fails << m unless c; puts "  #{c ? 'PASS' : 'FAIL'}  #{m}" end
 def run_vc(vc, wd, wb: nil)
@@ -26,8 +29,8 @@ Dir.mktmpdir do |wd|
   # 1) nothing → NOT DONE (2)
   code, out = run_vc(VC, wd)
   check(code == 2, "no marker => exit 2 (got #{code})", fails)
-  check(out.include?('NOT DONE') && out.include?('never hand-author'),
-        'empty-workdir message warns against hand-authoring', fails)
+  check(out.include?('NOT DONE') && out.include?('adopt-workbook.rb'),
+        'empty-workdir message gives the supported existing-workbook adoption path', fails)
 
   # 2) resolution marker alone is not value parity → NOT DONE (5)
   File.write(File.join(wd, 'phase6-success.json'),
@@ -66,14 +69,39 @@ Dir.mktmpdir do |wd|
              JSON.generate('workbookId' => 'wb-1', 'chartCount' => 9))
   code, = run_vc(VC, wd, wb: 'wb-OTHER')
   check(code == 4, "workbook mismatch => exit 4 (got #{code})", fails)
+
+  # 7) a repaired/hand-authored workbook has a supported route through the
+  # real gate contract. The test substitutes only the expensive gate process;
+  # the adoption wrapper must pass its inputs, accept the gate-minted marker,
+  # and run verify-complete successfully.
+  File.write(File.join(wd, 'wb-spec.json'), JSON.generate('document' => { 'elements' => [] }))
+  File.write(File.join(wd, 'parity-final.json'),
+             JSON.generate('status' => 'PASS', 'charts_total' => 2,
+                           'charts_pass' => 2, 'charts_fail' => 0))
+  fake_gate = File.join(wd, 'fake-gate.rb')
+  File.write(fake_gate, <<~'RUBY')
+    require 'json'
+    wd = ARGV[ARGV.index('--tableau') + 1]
+    wb = ARGV[ARGV.index('--workbook-id') + 1]
+    File.write(File.join(wd, 'phase6-success.json'),
+               JSON.generate('workbookId' => wb, 'chartCount' => 2,
+                             'gates' => 'all-pass', 'generatedAt' => '2026-10-26T00:00:00Z'))
+  RUBY
+  env = { 'PBI_ASSERT_PHASE6' => fake_gate, 'PBI_VERIFY_COMPLETE' => VC }
+  out, st = Open3.capture2e(env, RbConfig.ruby, ADOPT,
+                           '--workdir', wd, '--workbook-id', 'wb-adopted')
+  check(st.success? && out.include?('DONE') && out.include?('wb-adopted'),
+        'adoption path runs the standard gate then verify-complete', fails)
 end
 
-# 7) the orchestrator wires the empty-workbook guard + success stamp.
+# 8) the orchestrator wires the empty-workbook guard + success stamp.
 mt = File.read(File.join(DIR, 'migrate-powerbi.rb'))
 check(mt.include?('built_ok = parity_ok && chart_els.size.positive?'),
       'orchestrator requires real elements for a green (no vacuous empty pass)', fails)
 check(mt.include?('phase6-success.json'), 'orchestrator stamps the success sentinel', fails)
-# 8) missing-input aborts point at the device-code connect, not a bare "missing".
+check(mt.match?(/preflight_lint\.rb.*validate-spec\.rb.*post-and-readback\.rb/m),
+      'orchestrator runs mandatory workbook preflight before POST', fails)
+# 9) missing-input aborts point at the device-code connect, not a bare "missing".
 check(mt.include?('fabric-extract.py') && mt.include?('microsoft.com/devicelogin'),
       'missing --tmsl/--pbir abort prompts device-code Power BI connect', fails)
 

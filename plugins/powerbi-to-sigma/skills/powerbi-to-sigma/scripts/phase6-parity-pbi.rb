@@ -64,6 +64,10 @@ OptionParser.new do |p|
   p.on('--out-dir DIR')         { |v| opts[:outdir] = v }
   p.on('--extract-mode')        { opts[:extract] = true }
   p.on('--extract-tol F', Float){ |v| opts[:tol] = v }
+  p.on('--source-timezone IANA',
+       'Power BI report timezone; converts UTC Export API dates before day-grain parity') do |v|
+    opts[:source_timezone] = v
+  end
   # bead fmte — freshness.json from pbi-freshness.py. When present, the
   # SOURCE-FRESHNESS banner leads both passes, and finalize classifies each
   # chart MATCH / STALE-EXPLAINED / DIVERGENT. STALE is reported honestly but
@@ -112,11 +116,11 @@ HARNESS_SRC = <<~PY
   import truststore; truststore.inject_into_ssl()
   import sys, os, json, msal, requests
   _T=os.environ.get("PBI_TENANT","organizations")  # #347: guest/B2B tenant via PBI_TENANT
-  CACHE=os.environ.get("PBI_TOKEN_CACHE") or ("/tmp/pbiauth/cache.bin" if _T=="organizations" else "/tmp/pbiauth/cache-"+_T+".bin")
+  CACHE=os.environ.get("PBI_TOKEN_CACHE") or ("/tmp/pbiauth/cache.bin" if _T=="organizations" else f"/tmp/pbiauth/cache-{_T}.bin")
   cache=msal.SerializableTokenCache()
   if os.path.exists(CACHE): cache.deserialize(open(CACHE).read())
   app=msal.PublicClientApplication("ea0616ba-638b-4df5-95b9-636659ae5121",
-      authority="https://login.microsoftonline.com/"+_T, token_cache=cache)
+      authority=f"https://login.microsoftonline.com/{_T}", token_cache=cache)
   SCOPE=["https://analysis.windows.net/powerbi/api/.default"]
   tok=None
   for a in app.get_accounts():
@@ -241,12 +245,30 @@ if opts[:finalize]
   actuals = JSON.parse(File.read(opts[:actuals]))
   plan['charts'].each do |c|
     a = actuals[c['chart']]
+    # executeQueries emits a null dimension for Power BI's blank member, while
+    # Sigma renders that same member as "(Blank)". Reconcile only in columns
+    # where the source actually contains a null bucket so a literal "(Blank)"
+    # category is not silently rewritten.
+    blank_columns = (c['expected'] || []).flat_map do |row|
+      row.each_index.select { |index| row[index].nil? }
+    end.uniq
+    if a && blank_columns.any?
+      a = a.map do |row|
+        row = row.dup
+        blank_columns.each do |index|
+          value = row[index]
+          row[index] = nil if value.is_a?(String) && value.strip.casecmp('(blank)').zero?
+        end
+        row
+      end
+    end
     c['actual'] = { 'rows' => a } if a
   end
   File.write(opts[:plan], JSON.pretty_generate(plan))
   freshness_banner # bead fmte — staleness leads, before the side-by-side
   args = ['ruby', File.join(HERE, 'verify-parity.rb'), '--plan', opts[:plan]]
   args.concat(['--extract-mode', '--extract-tol', opts[:tol].to_s]) if opts[:extract]
+  args.concat(['--source-timezone', opts[:source_timezone]]) if opts[:source_timezone]
   out, err, st = Open3.capture3(*args)
   puts out
   warn err unless err.empty?
@@ -295,6 +317,7 @@ if opts[:finalize]
     'ran_at' => Time.now.utc.iso8601,
     'source' => plan['source'] || 'powerbi-executequeries',
     'mode' => opts[:extract] ? 'extract' : 'strict',
+    'source_timezone' => opts[:source_timezone],
     'charts_total' => total, 'charts_pass' => passed.size, 'charts_fail' => divergent,
     'charts_stale_explained' => stale_expl,
     'charts_verified' => passed.size,

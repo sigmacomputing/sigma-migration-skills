@@ -48,7 +48,7 @@ module PbiTimeIntelRoute
     expr = expression.to_s
     return :yoy if name =~ /YoY|Y\/Y|growth/i
     return :ytd if name =~ /\bYTD\b/i
-    return :prior if name =~ /\b(PY|Prior Year|Last Year|LY)\b/i
+    return :prior if name =~ /\b(PY|Prior Year|Previous Year|Last Year|LY)\b/i
     return :generic if expr =~ TIME_INTEL_RE
     return :yoy if expr =~ /ALL\s*\([^)]*\[Year\]/i
 

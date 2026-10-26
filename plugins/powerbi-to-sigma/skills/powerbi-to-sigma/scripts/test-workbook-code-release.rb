@@ -130,6 +130,8 @@ Dir.mktmpdir('pbi-workbook-code') do |dir|
        drill.dig('targets', 0, 'source', 'elementId') == waterfall['id'] &&
        drill.dig('targets', 0, 'columnIds').length == 2)
   bar = doc['elements'].find { |e| e['name'] == 'Regional Trend' }
+  ok('bar background is left to the theme so PNG exports do not blank the tile',
+     bar && !bar.dig('style', 'backgroundColor'))
   legend = doc['elements'].find { |e| e['controlType'] == 'legend' }
   ok('bound visible Power BI legend emits native legend control',
      bar && legend &&
@@ -145,9 +147,11 @@ Dir.mktmpdir('pbi-workbook-code') do |dir|
   donut = doc['elements'].find { |e| e['kind'] == 'donut-chart' }
   ok('donut category sort pins the positional Power BI palette',
      donut && donut.dig('color', 'sort') == {
-       'by' => donut.dig('color', 'id'), 'direction' => 'ascending'
+       'by' => donut.dig('color', 'columnId'), 'direction' => 'ascending'
      })
-  donut_dim = donut && donut['columns'].find { |c| c['id'] == donut.dig('color', 'id') }
+  ok('donut uses the live Sigma color channel contract',
+     donut && donut.dig('color', 'columnId') && !donut.dig('color', 'id'))
+  donut_dim = donut && donut['columns'].find { |c| c['id'] == donut.dig('color', 'columnId') }
   blank_safe = doc['elements'].find { |e| e['id'] == 'master-s' }
                               &.fetch('columns', [])
                               &.find { |c| c['id'] == 'm-region-blank' }

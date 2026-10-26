@@ -133,6 +133,13 @@ def main():
     ok_end = parse_ts(last_ok.get("endTime") or last_ok.get("startTime")) if last_ok else None
     if ok_end:
         stale_days = round((now - ok_end).total_seconds() / 86400, 1)
+        # A successful refresh clears older credential failures. Keeping them
+        # active would incorrectly mark a newly refreshed model as stale and
+        # continue warning that its current credentials are expired.
+        failures = [
+            entry for entry in failures
+            if (parse_ts(entry.get("endTime") or entry.get("startTime")) or now) > ok_end
+        ]
 
     def fail_info(e):
         raw = e.get("serviceExceptionJson") or ""

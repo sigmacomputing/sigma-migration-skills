@@ -1681,6 +1681,10 @@ begin
   # the cross-ref context (master/DM element names + ids).
   dm_ctx = File.join(WORK, 'dm-context.json')
   File.write(dm_ctx, JSON.generate(dm_rb))
+  # The generic shape validator does not cover live-render hazards such as
+  # element-level KPI/bar backgrounds or unresolved local filter references.
+  # Run the mandatory preflight before the first network write.
+  run_wb!(['ruby', File.join(HERE, 'lib', 'preflight_lint.rb'), wb_spec])
   run_wb!(['ruby', File.join(HERE, 'validate-spec.rb'), '--type', 'workbook',
            '--dm-context', dm_ctx, wb_spec])
   wb_readback = File.join(WORK, 'wb-readback.json')

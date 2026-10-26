@@ -247,19 +247,26 @@ elements.each do |el|
     if %w[pie-chart donut-chart].include?(kind)
       errors << "#{name}: #{kind} missing color" unless el['color']
       errors << "#{name}: #{kind} missing value" unless el['value']
+      if (color = el['color']).is_a?(Hash) && color['id'] && !color['columnId']
+        errors << "#{name}: #{kind} color uses old shape {id: ...} — must be {columnId: ...}"
+      end
+      if (value = el['value']).is_a?(Hash) && value['id'] && !value['columnId']
+        errors << "#{name}: #{kind} value uses old shape {id: ...} — must be {columnId: ...}"
+      end
     end
 
     if kind == 'donut-chart' && el['holeValue']
       hv = el['holeValue']
       if !hv.is_a?(Hash) || !hv['id']
         errors << "#{name}: donut-chart holeValue must be {\"id\":...}"
-      elsif hv['id'] == el.dig('value', 'id')
-        errors << "#{name}: donut-chart holeValue.id equals value.id — element silently dropped"
+      elsif hv['id'] == el.dig('value', 'columnId')
+        errors << "#{name}: donut-chart holeValue.id equals value.columnId — element silently dropped"
       end
     end
 
-    # --- Color-channel shape — cartesian + map charts use {by, column}, NOT {id}.
-    # Pie/donut use {id}. Caught 2 of Superstore's HTTP 400s (area + region-map).
+    # --- Color-channel shape — cartesian + map charts use {by, column};
+    # pie/donut use {columnId}. Caught 2 of Superstore's HTTP 400s
+    # (area + region-map) plus the live donut POST regression.
     if %w[bar-chart line-chart area-chart combo-chart scatter-chart region-map point-map].include?(kind)
       if (color = el['color']).is_a?(Hash) && color['id'] && !color['by'] && !color['column']
         errors << "#{name}: #{kind} color uses pie/donut shape {id: ...} — must be {by: \"category\"|\"scale\", column: \"...\"} for cartesian + map charts (API rejects with `Invalid value: object`)"

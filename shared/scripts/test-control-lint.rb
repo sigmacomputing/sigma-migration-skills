@@ -16,6 +16,7 @@
 require 'json'
 require 'set'
 require_relative 'lib/control_lint'
+require_relative 'lib/preflight_lint'
 
 fails = []
 def check(cond, msg, fails)
@@ -102,6 +103,63 @@ vp = ControlLint.lint(SPEC_CTLS, scope: partial_scope)
 check(!drift_msg.call(vp), 'a matched control present → NOT treated as wholesale drift', fails)
 check(vp.any? { |v| v.include?('missing control') && v.include?('ctl-dropped') },
       'genuine single dropped filter still flagged per-entry (not swallowed by drift)', fails)
+
+# --- synced controls mirror their primary instead of linting as dead ----------
+synced_spec = {
+  'pages' => [{ 'id' => 'p1', 'name' => 'P1' }, { 'id' => 'p2', 'name' => 'P2' }],
+  'elements' => [
+    { 'id' => 'tbl-sync', 'kind' => 'table', 'name' => 'Data',
+      'columns' => [{ 'id' => 'c-region', 'name' => 'Region', 'formula' => '[Region]' }] },
+    { 'id' => 'chart-sync', 'kind' => 'bar-chart', 'name' => 'By Region',
+      'source' => { 'kind' => 'table', 'elementId' => 'tbl-sync' }, 'columns' => [] },
+    { 'id' => 'ctl-primary', 'kind' => 'control', 'controlType' => 'list',
+      'controlId' => 'RegionFilter', 'name' => 'Region',
+      'filters' => [{ 'source' => { 'kind' => 'table', 'elementId' => 'tbl-sync' }, 'columnId' => 'c-region' }] },
+    { 'id' => 'ctl-copy', 'kind' => 'control', 'controlType' => 'synced',
+      'controlId' => 'RegionFilter' }
+  ],
+  'layout' => '<Page id="p1"><Element elementId="tbl-sync"/><Element elementId="ctl-primary"/></Page>' \
+              '<Page id="p2"><Element elementId="chart-sync"/><Element elementId="ctl-copy"/></Page>'
+}
+vs = ControlLint.lint(synced_spec)
+check(vs.none? { |v| v.include?('dead control') && v.include?('ctl-copy') },
+      'synced copy inherits the primary control reach and is not dead', fails)
+
+orphan_synced = JSON.parse(JSON.generate(synced_spec))
+orphan_synced['elements'].delete_if { |el| el['id'] == 'ctl-primary' }
+vo = ControlLint.lint(orphan_synced)
+check(vo.any? { |v| v.include?('orphan synced control') && v.include?('RegionFilter') },
+      'synced copy without a primary is rejected', fails)
+preflight_synced = lint(synced_spec)
+check(preflight_synced.none? { |v| v.include?('unknown controlType "synced"') },
+      'preflight accepts the live-schema synced controlType', fails)
+
+inherited_filter = JSON.parse(JSON.generate(synced_spec))
+inherited_filter['elements'].find { |el| el['id'] == 'chart-sync' }['filters'] = [
+  { 'columnId' => 'c-region' }
+]
+check(lint(inherited_filter).none? { |v| v.include?('R1') },
+      'preflight resolves an element filter column through its source table', fails)
+
+remapped_filter = JSON.parse(JSON.generate(inherited_filter))
+remapped_filter['elements'] << {
+  'id' => 'tbl-remapped', 'kind' => 'table', 'name' => 'Remapped Data',
+  'source' => { 'kind' => 'table', 'elementId' => 'tbl-sync' },
+  'columns' => [{ 'id' => 'src-c0', 'name' => 'Region', 'formula' => '[Data/Region]' }]
+}
+remapped_filter['elements'].find { |el| el['id'] == 'chart-sync' }['source']['elementId'] = 'tbl-remapped'
+check(lint(remapped_filter).any? { |v| v.include?('R1') && v.include?('c-region') },
+      'preflight does not resolve a stale filter id past an explicitly remapped schema', fails)
+
+bad_ref = JSON.parse(JSON.generate(synced_spec))
+bad_ref['elements'].find { |el| el['id'] == 'ctl-primary' }['filters'][0]['columnId'] = 'missing-column'
+check(lint(bad_ref).any? { |v| v.include?('R1') && v.include?('missing-column') },
+      'preflight rejects a filter column that /spec/verify may incorrectly accept', fails)
+
+count_option = JSON.parse(JSON.generate(synced_spec))
+count_option['elements'].find { |el| el['id'] == 'ctl-primary' }['hideValueCounts'] = true
+check(lint_warnings(count_option).any? { |v| v.include?('A4') && v.include?('hideValueCounts') },
+      'preflight warns that list-control value-count visibility is not spec-authorable', fails)
 
 puts
 if fails.empty?

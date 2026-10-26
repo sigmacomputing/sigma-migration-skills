@@ -16,7 +16,7 @@ def check(condition, message, fails)
   puts "  #{condition ? 'PASS' : 'FAIL'}  #{message}"
 end
 
-def run_case(expected:, actual:, freshness: nil)
+def run_case(expected:, actual:, freshness: nil, source_timezone: nil)
   Dir.mktmpdir do |dir|
     plan = {
       'source' => 'powerbi-executequeries',
@@ -34,6 +34,7 @@ def run_case(expected:, actual:, freshness: nil)
       File.write(freshness_path, JSON.generate(freshness))
       args += ['--freshness', freshness_path]
     end
+    args += ['--source-timezone', source_timezone] if source_timezone
     out, err, status = Open3.capture3(*args)
     summary = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
     [status.exitstatus, summary, out + err]
@@ -44,6 +45,16 @@ puts 'strict match'
 code, summary, = run_case(expected: [['East', 10]], actual: [['East', 10]])
 check(code.zero? && summary['status'] == 'PASS' && summary['charts_pass'] == 1,
       '1/1 strict match is the only PASS path', fails)
+
+puts 'Power BI blank member'
+code, summary, = run_case(expected: [[nil, 10]], actual: [['(Blank)', 10]])
+check(code.zero? && summary['status'] == 'PASS' && summary['charts_pass'] == 1,
+      'DAX null bucket matches Sigma rendered (Blank) bucket', fails)
+
+puts 'Power BI blank member in later dimension'
+code, summary, = run_case(expected: [['East', nil, 10]], actual: [['East', '(Blank)', 10]])
+check(code.zero? && summary['status'] == 'PASS' && summary['charts_pass'] == 1,
+      'DAX null bucket matches Sigma rendered (Blank) in every dimension', fails)
 
 puts 'shape-safe stale value delta'
 stale = { 'staleDays' => 82, 'credsSuspect' => true, 'failures' => [{ 'errorCode' => 'refresh' }] }
@@ -75,6 +86,25 @@ check(code == 2 && summary['status'] == 'FAIL' &&
       'integer Year versus ISO date is DIVERGENT, never stale-explained', fails)
 check(summary['fail_names'] == ['Chart A'],
       'shape-divergent chart is named in fail_names', fails)
+
+puts 'Export API UTC date normalized to the report timezone'
+code, summary, = run_case(
+  expected: [['2025-12-31', 10]],
+  actual: [['2026-01-01T00:00:00Z', 10]],
+  source_timezone: 'America/Los_Angeles'
+)
+check(code.zero? && summary['status'] == 'PASS' &&
+      summary['source_timezone'] == 'America/Los_Angeles',
+      'UTC export timestamp compares at the source report local calendar day', fails)
+
+puts 'single-label IANA timezone'
+code, summary, = run_case(
+  expected: [['2026-01-01', 10]],
+  actual: [['2026-01-01T00:00:00Z', 10]],
+  source_timezone: 'UTC'
+)
+check(code.zero? && summary['status'] == 'PASS' && summary['source_timezone'] == 'UTC',
+      'UTC is accepted as an IANA timezone name', fails)
 
 if fails.empty?
   puts 'ALL PASS'

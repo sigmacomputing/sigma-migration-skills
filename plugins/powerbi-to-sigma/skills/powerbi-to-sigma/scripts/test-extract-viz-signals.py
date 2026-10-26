@@ -119,6 +119,12 @@ check(epb._role_bindings(pbir_hierarchy) == {"Category": ["D.Month"]},
 check(epb._drill_signal(pbir_hierarchy) == {
           "role": "Category", "levels": ["D.Year", "D.Month"], "active": "D.Month"
       }, "PBIR extractor separately preserves full hierarchy for native drill")
+# Public PBIR shape from microsoft/skills-for-fabric:
+# skills/powerbi-report-authoring/references/slicers.md
+check(epb._sync_group({"syncGroup": {
+          "groupName": "DateSync", "fieldChanges": True, "filterChanges": True
+      }}) == "DateSync", "PBIR extractor preserves the public synced-slicer groupName")
+check(epb._sync_group({}) is None, "ordinary slicer has no synthetic sync group")
 
 print("\n3. Azure Maps roles are canonicalized without touching scatter axes")
 azure_roles = {

@@ -60,6 +60,9 @@ For CI and unattended hosts, use OAuth client credentials: bootstrap's
 `SIGMA_CLIENT_ID`, and `SIGMA_CLIENT_SECRET` and use `--from-env` /
 `-FromEnv`. This is also the fallback for cloud agents, containers, Windows
 hosts without `secret-tool`, locked keychains, and other headless environments.
+Exported credentials without `--from-env` remain session-only: bootstrap may
+use them for its doctor run but does not write them to
+`~/.sigma-migration/env` or agent settings. Persistence is explicit opt-in.
 
 The shared REST clients resolve Sigma authentication in this order:
 
