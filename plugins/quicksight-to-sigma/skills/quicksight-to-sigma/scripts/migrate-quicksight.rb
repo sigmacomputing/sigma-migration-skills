@@ -50,6 +50,7 @@ require 'fileutils'
 require 'open3'
 require_relative 'lib/scout_gate'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
+require_relative 'lib/dm_column_index' # per-element column labels + value types stamped into dm-readback.json
 begin; require_relative 'lib/modeling_advisory'; rescue LoadError; end # shared, vendor-neutral CDW join-cost advisory (optional; synced from shared/)
 
 HERE = __dir__
@@ -523,7 +524,19 @@ elsif opts[:reuse_dm]
     require 'date'
     YAML.safe_load(raw, permitted_classes: [Date, Time]) || {}
   end
-  dm_rb = { 'dataModelId' => opts[:reuse_dm] }.merge(spec)
+  # `reusedDataModel` marks this readback as one the workbook was NOT built from: the
+  # builder must not pair it with a leftover dm-spec.json (index-based element pick).
+  dm_rb = { 'dataModelId' => opts[:reuse_dm], 'reusedDataModel' => true }.merge(spec)
+  # The spec's column `name` is optional and never carries Sigma's relationship suffixes,
+  # so attach the data model's REAL column index (labels + value types) from /columns —
+  # exhaustively paginated — exactly as post-and-readback.rb does for a new model. The
+  # builder resolves formulas, picks the master element and chooses control kinds from it.
+  begin
+    DmColumnIndex.enrich_readback!(dm_rb, Sigma.list_entries("/v2/dataModels/#{opts[:reuse_dm]}/columns"))
+  rescue Sigma::Error => e
+    puts "   WARN: could not read #{opts[:reuse_dm]} /columns (#{e.message.lines.first.to_s.strip}) — the readback has no " \
+         'column labels/types, so unresolved column references cannot be checked and control kinds fall back to the dataset types'
+  end
   File.write(dm_readback, JSON.pretty_generate(dm_rb))
   dm_id = opts[:reuse_dm]
   puts "   reusing dataModelId = #{dm_id} ('#{spec['name']}') — shape preflight: " \
@@ -571,7 +584,11 @@ unless wb_id
 build = ['ruby', File.join(HERE, 'build-workbook-from-quicksight.rb'),
          '--analysis', File.join(WORK, 'analysis.json'),
          '--dm-readback', dm_readback, '--out', wb_spec]
-build += ['--dm-spec', dm_spec] if File.exist?(dm_spec)
+# dm-spec.json is only ever written by the NEW-model path above. On --reuse-dm (explicit or
+# auto-picked) a file of that name is left over from an earlier run of this workdir and
+# describes a different data model — the builder picks the master element by INDEX into
+# it, so passing it would silently point the master at the wrong element.
+build += ['--dm-spec', dm_spec] if File.exist?(dm_spec) && !opts[:reuse_dm]
 build += ['--discover-dir', WORK]   # datasets/*.json -> boolean-flag predicate rewrite (RCA #3)
 build += ['--folder-id', opts[:folder]] if opts[:folder]
 filters = File.join(WORK, 'dm-filters.json')
@@ -649,7 +666,16 @@ end # resume_parity skip of phases 1-5
 # ---------------------------------------------------------------------------
 hdr(6, TOTAL, 'Parity (two-pass, hard-gated)')
 require 'sigma_rest'
-cols = (Sigma.request(:get, "/v2/workbooks/#{wb_id}/columns") rescue { 'entries' => [] })
+# Paginated: the server default page is 50, so a bare first-page read hid every error column
+# past it. A failed read is announced — it used to fall through as "0 error-typed".
+col_entries = begin
+  Sigma.list_entries("/v2/workbooks/#{wb_id}/columns")
+rescue Sigma::Error => e
+  puts "   WARN: guard could not read /v2/workbooks/#{wb_id}/columns (#{e.message.lines.first.to_s.strip}) — " \
+       'error-column guard SKIPPED here; assert-phase6-ran.rb gates 3/7 still audit every column'
+  nil
+end
+cols = { 'entries' => col_entries || [] }
 err_cols = (cols['entries'] || []).select { |c| c.dig('type', 'type') == 'error' }
 total_cols = (cols['entries'] || []).size
 unless err_cols.empty?
@@ -657,7 +683,7 @@ unless err_cols.empty?
   err_cols.first(8).each { |c| puts "     [#{c['elementId']}] #{c['label']}: #{c['formula']}" }
   exit 3
 end
-puts "   guard: #{total_cols} workbook column(s) resolve (0 error-typed)"
+puts "   guard: #{col_entries ? "#{total_cols} workbook column(s) resolve (0 error-typed)" : 'NOT RUN (see warning above)'}"
 
 have_parity_inputs = File.exist?(exp_path) && File.exist?(act_path)
 unless File.exist?(File.join(WORK, 'parity-plan.json')) && have_parity_inputs

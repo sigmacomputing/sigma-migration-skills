@@ -230,29 +230,66 @@ sidecar = {}   # pageId -> container/header spec elements (put-layout.rb injects
 total_placed = 0
 
 # Sigma control elements per page (built from QS sheet FilterControls/ParameterControls).
-# They have no QS visual-grid coords, so we LIFT them into a clean full-width band at the
-# top of the page (qlik-to-sigma parity): the chart bands keep their QS geometry below.
+# They have no QS visual-grid coords, so we LIFT them into clean full-width bands at the
+# top of the page (below the navigation): the chart bands keep their QS geometry below.
 control_eids = map['controlElementIds'] || {}
+control_layout = map['controlLayout'] || {}
+nav_eids = map['navigationElementIds'] || {}
 page_element_ids = map['pageElementIds'] || {}
 page_break_ids = (map['pageBreakElementIds'] || []).to_set
 repeated_containers = map['repeatedContainers'] || {}
 
-# Prepend a controls band: tile the page's control eids edge-to-edge across the full grid
-# at the top (rows 1..3), then shift all chart items DOWN by that band's height so nothing
-# overlaps. Returns the augmented `placed`.
-def lift_controls(placed, ctl_ids)
-  return placed if ctl_ids.nil? || ctl_ids.empty?
-  band_h = 3
+NAV_H = 3            # navigation band height (grid rows)
+CTL_H = 3            # one row of controls
+MAX_CONTROLS_PER_ROW = 4   # when QuickSight gave no control grid (a row wider than this is cramped)
+
+# Rows of controls, in order, each row [[eid, columnSpan_or_nil], ...].
+#   * QuickSight's SheetControlLayouts (map['controlLayout'][page]) -> its own rows; a row wider
+#     than 6 controls is split; controls the grid does not list follow, packed 4 per row;
+#   * no control grid -> the controls in QuickSight order, 4 per row.
+def control_rows(ctl_ids, cells)
+  ids = Array(ctl_ids)
+  return [] if ids.empty?
+  by_id = Array(cells).each_with_object({}) { |c, h| h[c['id']] = c }
+  listed, unlisted = ids.partition { |id| by_id[id] && by_id[id]['row'] }
+  rows = []
+  listed.group_by { |id| by_id[id]['row'] }.sort_by { |row, _| row }.each do |_row, row_ids|
+    row_ids.each_slice(6) { |sl| rows << sl.map { |id| [id, by_id[id]['span']] } }
+  end
+  unlisted.each_slice(MAX_CONTROLS_PER_ROW) { |sl| rows << sl.map { |id| [id, nil] } }
+  rows
+end
+
+# One row of controls tiled across the full 24-column grid, widths proportional to ColumnSpan
+# (equal when QuickSight gave none). A band always fills the grid, so reflow_bands never sees an
+# under-filled control band and never re-flows the chart geometry below it.
+def control_row_cells(items, r0, r1)
+  weights = items.map { |_eid, span| span.to_f > 0 ? span.to_f : 1.0 }
+  total = weights.sum
+  acc = 0.0
+  c0 = 1
+  items.each_with_index.map do |(eid, _span), j|
+    acc += weights[j]
+    c1 = j == items.size - 1 ? 25 : [1 + (24 * acc / total).round, c0 + 1].max
+    cell = [eid, c0, c1, r0, r1]
+    c0 = c1
+    cell
+  end
+end
+
+# Top bands of a page: the NAVIGATION element(s) first, then the control rows, then the chart
+# items shifted below them so nothing overlaps. (Controls have no QuickSight visual-grid
+# coordinates; Sigma's grid has no z-order, so floating one over a chart would render stacked.)
+def lift_top_bands(placed, nav_ids, ctl_rows)
+  return placed if Array(nav_ids).empty? && ctl_rows.empty?
+  bands = []
+  r = 1
+  Array(nav_ids).each { |id| bands << [id, 1, 25, r, r + NAV_H]; r += NAV_H }
+  ctl_rows.each { |row| bands.concat(control_row_cells(row, r, r + CTL_H)); r += CTL_H }
   shift = placed.map { |i| i[3] }.min.to_i
   shift = 1 if shift.zero?
-  charts = placed.map { |eid, c0, c1, r0, r1| [eid, c0, c1, r0 - shift + 1 + band_h, r1 - shift + 1 + band_h] }
-  n = ctl_ids.size
-  ctl_band = ctl_ids.each_with_index.map do |eid, j|
-    c0 = 1 + (24 * j / n.to_f).round
-    c1 = 1 + (24 * (j + 1) / n.to_f).round
-    [eid, c0, c1, 1, 1 + band_h]
-  end
-  ctl_band + charts
+  charts = placed.map { |eid, c0, c1, r0, r1| [eid, c0, c1, r0 - shift + r, r1 - shift + r] }
+  bands + charts
 end
 
 if sheet_pages && !sheet_pages.empty?
@@ -267,7 +304,7 @@ if sheet_pages && !sheet_pages.empty?
       eids_for_sheet = (sheet['Visuals'] || []).map { |v| _t, inner = v.first; v2e[inner['VisualId']] }.compact.to_set
     end
     placed, src = layout_sheet(sheet, v2e, eids_for_sheet)
-    placed = lift_controls(placed, control_eids[sp['pageId']])
+    placed = lift_top_bands(placed, nav_eids[sp['pageId']], control_rows(control_eids[sp['pageId']], control_layout[sp['pageId']]))
     missing = eids_for_sheet - placed.map(&:first).to_set
     row = (placed.map { |item| item[4] }.max || 1) + 1
     missing.each do |eid|
@@ -316,7 +353,7 @@ else
   # legacy single-page path (old map without sheetPages)
   all_eids = v2e.values.to_set
   placed, src = layout_sheet(sheets[0] || {}, v2e, all_eids)
-  placed = lift_controls(placed, control_eids[map['dashPageId']])
+  placed = lift_top_bands(placed, nav_eids[map['dashPageId']], control_rows(control_eids[map['dashPageId']], control_layout[map['dashPageId']]))
   total_placed += placed.size
   xml, extra = banded_page(map['dashPageId'], placed, title: (sheets[0] || {})['Name'] || 'Dashboard')
   pages_xml << xml

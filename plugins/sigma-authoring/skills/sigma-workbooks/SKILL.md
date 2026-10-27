@@ -288,7 +288,7 @@ corrected write, stop and report the unresolved contract mismatch. See
 
 ### Step 7b — Verify the workbook actually compiles
 
-**Do not skip.** A successful POST is necessary but not sufficient — Sigma accepts specs whose formulas don't resolve, then surfaces the failures at query time by embedding the error as a string literal in the compiled SQL (`'Unknown column "[X]"'`, `'Circular column reference to [Y]'`). Affected elements render empty in the UI. Only Sigma's compiler knows whether your formula references actually resolve.
+**Do not skip.** A successful POST is necessary but not sufficient — Sigma accepts specs whose formulas don't resolve, then surfaces the failures at query time by embedding the error as a string literal in the compiled SQL (`'Unknown column "[X]"'`, `'Circular column reference to [Y]'`, `'Column "[Element/col]" does not exist'` — the last is what a workbook column compiles to after the data-model column it references is dropped or renamed). Affected elements render empty in the UI. Only Sigma's compiler knows whether your formula references actually resolve.
 
 ```bash
 ./scripts/verify-workbook.sh "$WORKBOOK_ID"
@@ -472,6 +472,10 @@ The most common spec issue. A bare `[column_name]` was used where `[TABLE/column
 ### "Unknown column" errors
 
 The column name in the formula doesn't match what the warehouse actually has. Re-confirm the column names via `GET /v2/connections/tables/{inodeId}/columns` (raw warehouse names) and the readback (`GET /v2/workbooks/<id>/spec`, which may preserve the raw spelling or show Sigma's canonicalized friendly form). Raw names are accepted authoring input; use the returned readback form for later edits.
+
+### `Column "[Element/col]" does not exist` in compiled SQL
+
+A workbook column references a source column that no longer exists — typically the data-model column was dropped or renamed after the workbook was built. The write succeeds and the element renders empty; `scripts/verify-workbook.sh` fails on it, and `POST /v2/workbooks/spec/verify` reports `Dependency not found`. Re-read the data model's elements (`reference/workflows/discover.md`) and point the workbook column at a column that exists, or restore the data-model column.
 
 ### `jq` or `yq` not installed
 
