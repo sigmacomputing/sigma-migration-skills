@@ -393,6 +393,11 @@ def normalize_filter(f)
     'datatype'       => info && info[:datatype],
     'is_action'      => is_action
   }
+  # A quick filter applied to SELECTED worksheets is stored as a per-worksheet
+  # `<filter filter-group='N'>` on each targeted sheet (no <shared-view>); the
+  # shared group id is the only link between them. Stamped only when present.
+  fg = f.attributes['filter-group'].to_s
+  out['filter_group'] = fg unless fg.empty?
 
   if is_action
     out['kind'] = 'action'
@@ -656,6 +661,34 @@ def parse_shelf(shelf_str)
   out
 end
 
+# Measure Names member order. With the Measure Names pill on Rows/Cols, Tableau
+# lays the measures out in (1) the worksheet's explicit manual sort on
+# [:Measure Names] —
+#   <manual-sort column='[ds].[:Measure Names]'><dictionary>
+#     <bucket>"[ds].[sum:X:qk]"</bucket> ...
+# — else (2) data-source order, which for measure-ordering='alphabetic' on the
+# datasource's <layout> is alphabetical by caption. Returns
+# {'kind'=>'manual','members'=>[raw refs in bucket order]} /
+# {'kind'=>'alphabetic'} / nil (sheet has no pill, or no ordering signal).
+# Mirrored in parse-twb-layout.py.
+def parse_measure_names_sort(xml, ws, rows_shelf, cols_shelf)
+  mn_field = (rows_shelf['fields'] + cols_shelf['fields']).find { |f| f['role'] == 'measure-names' }
+  return nil unless mn_field
+  manual = ws.elements.to_a('.//manual-sort').find do |n|
+    n.attributes['column'].to_s.end_with?('[:Measure Names]')
+  end
+  if manual
+    members = manual.elements.to_a('.//bucket').map { |b| b.text.to_s.strip.sub(/\A"/, '').sub(/"\z/, '') }
+    members.reject!(&:empty?)
+    return { 'kind' => 'manual', 'members' => members } unless members.empty?
+  end
+  ds_name = mn_field['raw'].to_s[/\A\[([^\]]+)\]\./, 1]
+  ds = xml.elements.to_a('/workbook/datasources/datasource').find { |d| d.attributes['name'] == ds_name }
+  layout = ds && ds.elements['layout']
+  return { 'kind' => 'alphabetic' } if layout && layout.attributes['measure-ordering'].to_s == 'alphabetic'
+  nil
+end
+
 # Build a lookup of worksheet name → metadata extracted from <worksheet> elements.
 # - mark_class: the <mark class="..."> value (Bar / Line / Pie / Filled / Circle / etc.)
 # - geo_role:   the first geographic semantic-role we find on any column (e.g. "geo:state")
@@ -748,6 +781,23 @@ def parse_customized_label(ws)
   { 'label'           => (label.empty? ? nil : label),
     'value_font_size' => ban_font,
     'annotation_runs' => (runs[(ban_i + 1)..] || []) }.compact
+end
+
+# An info-icon sheet (Shape mark, empty shelves) carries its whole payload in the
+# pane's <customized-tooltip>: the popup's plain text. Runs are joined; Tableau's
+# line break is `Æ` + a real newline, so `Æ\n` → "\n" and any stray `Æ` is
+# dropped. Dynamic `<[field]>` tokens cannot be carried (the text is static in
+# Sigma), so they are stripped and reported. Returns [text, dropped_dynamic] or
+# nil when the sheet has no tooltip text.
+def parse_customized_tooltip(ws)
+  ct = ws.elements['.//customized-tooltip']
+  return nil unless ct
+  raw = ct.elements.to_a('.//run').map { |r| r.text.to_s }.join
+  txt = raw.gsub("Æ\n", "\n").gsub("Æ", '')
+  dropped = !txt.match(/<\[[^<>]*\]>/).nil?
+  txt = txt.gsub(/<\[[^<>]*\]>/, '').strip
+  return nil if txt.empty?
+  [txt, dropped]
 end
 
 worksheets = {}
@@ -1084,6 +1134,23 @@ xml.elements.each('//worksheet') do |ws|
     end
   end
 
+  # Hidden field-label bands. Tableau's Format ▸ "Show Field Labels for Rows /
+  # Columns" toggle is a worksheet-level style-rule:
+  #   <style-rule element='worksheet'>
+  #     <format attr='display-field-labels' scope='cols' value='false' />
+  # Only an EXPLICIT value='false' counts (absent = Tableau's default, shown).
+  # Surfaced as the ordered list of scopes whose labels are hidden
+  # (subset of ['rows', 'cols']); the pivot emitter maps them to
+  # tableComponents.rowHeaders / columnHeaders = 'hidden'. The last rule per
+  # scope wins. Mirrored in parse-twb-layout.py.
+  field_label_state = {}
+  ws.elements.each(".//style-rule[@element='worksheet']/format") do |f|
+    next unless f.attributes['attr'].to_s == 'display-field-labels'
+    scope = f.attributes['scope'].to_s
+    field_label_state[scope] = f.attributes['value'].to_s if %w[rows cols].include?(scope)
+  end
+  field_labels_hidden = %w[rows cols].select { |sc| field_label_state[sc] == 'false' }
+
   # Rows/Cols shelf parsing for pivot-table detection. Tableau emits these as
   # sibling elements under <table> in the worksheet. We pick the first match
   # (worksheets rarely have multiples).
@@ -1188,6 +1255,7 @@ xml.elements.each('//worksheet') do |ws|
     hf['members'] = fi['members'] if fi['kind'] == 'list' && fi['members']
     hf['min']     = fi['min']     if fi['min']
     hf['max']     = fi['max']     if fi['max']
+    hf['topn']    = true          if fi['topn']
     hf.compact
   end
 
@@ -1286,6 +1354,7 @@ xml.elements.each('//worksheet') do |ws|
     ref_marks:        ref_marks,
     axis_formats:     axis_formats,
     mark_labels_show: mark_labels_show,
+    field_labels_hidden: field_labels_hidden,
     rows_shelf:       rows_shelf,
     cols_shelf:       cols_shelf,
     is_crosstab:      is_crosstab,
@@ -1298,6 +1367,16 @@ xml.elements.each('//worksheet') do |ws|
     kpi_value_font_size:  (kpi_ban && kpi_ban['value_font_size']) || source_kpi_font_size,
     kpi_annotation_runs:  kpi_ban && kpi_ban['annotation_runs']
   }
+  # Measure Names member order (only when the sheet carries the pill, so other
+  # workbooks' output is unchanged). See parse_measure_names_sort.
+  if (mns = parse_measure_names_sort(xml, ws, rows_shelf, cols_shelf))
+    worksheets[name][:measure_names_sort] = mns
+  end
+  # Info-popup text (only when present, so other workbooks' output is unchanged).
+  if (tt = parse_customized_tooltip(ws))
+    worksheets[name][:tooltip_text] = tt[0]
+    worksheets[name][:tooltip_dynamic_dropped] = true if tt[1]
+  end
 end
 
 # ---- Tableau format → Sigma format translator -----------------------------
@@ -1950,6 +2029,7 @@ xml.elements.each('//dashboard') do |d|
       'ref_marks'    => (kind == 'chart' ? ws_meta&.dig(:ref_marks)     : nil),
       'axis_formats' => (kind == 'chart' ? ws_meta&.dig(:axis_formats)  : nil),
       'mark_labels_show' => (kind == 'chart' ? ws_meta&.dig(:mark_labels_show) : nil),
+      'field_labels_hidden' => (kind == 'chart' ? ws_meta&.dig(:field_labels_hidden) : nil),
       'rows_shelf'   => (kind == 'chart' ? ws_meta&.dig(:rows_shelf)    : nil),
       'cols_shelf'   => (kind == 'chart' ? ws_meta&.dig(:cols_shelf)    : nil),
       'is_crosstab'  => (kind == 'chart' ? ws_meta&.dig(:is_crosstab)   : nil),
@@ -1992,6 +2072,15 @@ xml.elements.each('//dashboard') do |d|
       'button_font_color'       => zbtn['button_font_color'],
       'button_font_size'        => zbtn['button_font_size']
     }
+    # Measure Names member order (only stamped when the sheet carries the pill).
+    if kind == 'chart' && ws_meta&.dig(:measure_names_sort)
+      zones.last['measure_names_sort'] = ws_meta[:measure_names_sort]
+    end
+    # Info-popup text for Shape-mark icon sheets (only stamped when present).
+    if kind == 'chart' && ws_meta&.dig(:tooltip_text)
+      zones.last['tooltip_text'] = ws_meta[:tooltip_text]
+      zones.last['tooltip_dynamic_dropped'] = true if ws_meta[:tooltip_dynamic_dropped]
+    end
   end
   # A "storyboard" dashboard is Tableau's story container (sequential story
   # points in a flipboard zone) — flag it so downstream layout builders don't
@@ -2097,6 +2186,7 @@ if dashboards.empty? && !worksheets.empty?
         'ref_marks'    => ws_meta[:ref_marks],
         'axis_formats' => ws_meta[:axis_formats],
         'mark_labels_show' => ws_meta[:mark_labels_show],
+        'field_labels_hidden' => ws_meta[:field_labels_hidden],
         'rows_shelf'   => ws_meta[:rows_shelf],
         'cols_shelf'   => ws_meta[:cols_shelf],
         'is_crosstab'  => ws_meta[:is_crosstab],
@@ -2108,6 +2198,9 @@ if dashboards.empty? && !worksheets.empty?
         'filter_column_datatype' => nil
       }]
     }
+    if ws_meta[:measure_names_sort]
+      dashboards.last['zones'][0]['measure_names_sort'] = ws_meta[:measure_names_sort]
+    end
   end
 end
 

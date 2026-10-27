@@ -371,13 +371,36 @@ def hidden_filters(
         if isinstance(item, dict) and item.get("status") in {"translated", "waived"}:
             prior[(item.get("tile"), item.get("calc_ref"))] = item
 
+    def norm(text) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
     output = []
     for dashboard in dashboards:
+        # A worksheet filter whose field is ALSO a quick filter on this
+        # dashboard is not hidden - it is the visible control's own filter.
+        # Left at "All" (a plain member list with no members) it restricts
+        # nothing. A restrictive one still gates, and so do wildcard, condition
+        # and top-N filters, which also carry an empty member list.
+        quick_filter_caps = {
+            norm(z.get("filter_column_caption"))
+            for z in dashboard.get("zones") or []
+            if z.get("kind") == "filter"
+        }
         for zone in dashboard.get("zones") or []:
             if not chart_zone(zone):
                 continue
             for item in zone.get("hidden_filters") or []:
                 if not isinstance(item, dict):
+                    continue
+                if (
+                    str(item.get("filter_type") or "") == "categorical"
+                    and str(item.get("kind") or "") == "list"
+                    and not item.get("topn")
+                    and not item.get("members")
+                    and item.get("min") is None
+                    and item.get("max") is None
+                    and norm(item.get("caption")) in quick_filter_caps
+                ):
                     continue
                 entry = {
                     "tile": zone.get("caption"),

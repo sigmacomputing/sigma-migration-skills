@@ -291,6 +291,65 @@ class ScanWorkbookGapsTest(unittest.TestCase):
             [feature["name"] for feature in gaps["detected_features"]],
         )
 
+    def test_refusal_reach_unused_never_gates_and_dependents_attribute_sheets(self):
+        fixture = HERE / "fixtures" / "refusal-reach.twb"
+        temporary, directory, _report, completed = run_scanner(
+            fixture.read_text(encoding="utf-8")
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        gaps = json.loads((directory / "gaps.json").read_text(encoding="utf-8"))
+        audit = json.loads(
+            (directory / "formula-audit.json").read_text(encoding="utf-8")
+        )
+        rows = {row["caption"]: row for row in audit["formulas"]}
+        features = {f["name"]: f for f in gaps["detected_features"]}
+        prefix = "Converter-refused calculated field — Orders: "
+
+        self.assertTrue(rows["Unused Script"].get("unused"))
+        self.assertNotIn(prefix + "Unused Script", features)
+        unused = features["Converter-refused calculated fields not used on any worksheet"]
+        self.assertEqual(("hint", 1), (unused["status"], unused["count"]))
+
+        # Reached only through "Order Recency", which "Recency" references in
+        # column-instance form only; Calculation_103 must not match the
+        # Calculation_1031 on "Regions".
+        latest = features[prefix + "Latest Order Date"]
+        self.assertEqual("unhandled", latest["status"])
+        self.assertEqual(["Recency"], latest["worksheets"])
+        self.assertEqual(["Latest Order Date"], rows["Order Recency"]["blocked_by"])
+        self.assertEqual(["Order Recency"], rows["Latest Order Date"]["dependents"])
+        self.assertEqual(["Scripted"], features[prefix + "Script Direct"]["worksheets"])
+        self.assertNotIn("unused", rows["Filter & Risk"])
+        self.assertEqual("unhandled", features[prefix + "Filter & Risk"]["status"])
+        self.assertTrue(rows["Filter & Risk"]["datasource_level"])
+        self.assertNotIn("worksheets", features[prefix + "Filter & Risk"])
+
+        # The same filter as an EXTRACT filter is still datasource-level.
+        source = fixture.read_text(encoding="utf-8")
+        start = source.index("      <filter class='categorical' column='[federated.refreach0001]")
+        end = source.index("</filter>", start) + len("</filter>")
+        extract_source = (
+            source[:start]
+            + "      <extract enabled='true' count='-1'>\n"
+            + source[start:end]
+            + "\n      </extract>"
+            + source[end:]
+        )
+        temporary2, directory2, _report2, completed2 = run_scanner(extract_source)
+        self.addCleanup(temporary2.cleanup)
+        self.assertEqual(0, completed2.returncode, completed2.stderr)
+        extract_rows = {
+            row["caption"]: row
+            for row in json.loads(
+                (directory2 / "formula-audit.json").read_text(encoding="utf-8")
+            )["formulas"]
+        }
+        self.assertTrue(extract_rows["Filter & Risk"]["datasource_level"])
+        self.assertNotIn("worksheets", extract_rows["Filter & Risk"])
+        self.assertNotIn("unused", rows["Sheet & Risk"])
+        self.assertEqual(["Regions"], features[prefix + "Sheet & Risk"]["worksheets"])
+
     def test_malformed_xml_still_emits_gate_consumable_fail_closed_artifacts(self):
         temporary, directory, _report, completed = run_scanner(
             "<workbook><datasources><datasource name='broken'></workbook>"

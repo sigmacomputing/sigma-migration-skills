@@ -33,6 +33,7 @@ require 'json'
 require 'set'
 require 'csv'
 require 'open3'
+require 'cgi'
 # Nokogiri-backed REXML drop-in — REXML is O(n^2) on large .twb files. See lib/twb_xml.rb.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'twb_xml'
@@ -593,18 +594,90 @@ def detect_multi_datasource(xml, blend_plan = nil)
     }
   end
 
+  # The row NAME is a stable scout-ledger key — the vendored converter no
+  # longer collapses (it builds one element set per datasource) and
+  # build-charts routes outlier-datasource charts onto per-datasource
+  # sub-masters. What routing cannot move: charts that need a window / LOD /
+  # two-stage helper (they stay on the master — wrong numbers) and sources
+  # with no warehouse table to build from. Only those keep the row blocking.
+  dominant = entries.max_by { |e| e['worksheets'].size }
+  helper_sheets = multi_ds_helper_sheets(xml, entries, dominant['name'])
+  file_only = entries.select do |e|
+    e['sqlproxy'] || ds_info[e['name']]['connections'].all? { |c| FILE_ONLY_CONNECTION_CLASSES.include?(c['class']) }
+  end
+  routing_off = ENV['SIGMA_MULTI_DS_ROUTING'] == 'off'
   assigns = detail.map { |d| "#{d['caption']} → #{d['worksheets'].length} sheet(s)" }.join('; ')
-  blurb = "Workbook spans #{primaries.size} INDEPENDENT datasources across worksheets " \
-          "(#{assigns}). The local converter collapses all sheets onto the primary datasource " \
-          'and silently drops the other sources\' columns/calcs, so the workbook POST fails with ' \
-          'unresolved [Master/...] refs. This needs a MULTI-ELEMENT data model (one element per ' \
-          'datasource + relationships) or landing the extras and repointing — it is NOT a Tableau ' \
-          'blend. Per-datasource worksheet assignments are in the gaps JSON (multi_datasource); ' \
-          'route: multi-element DM (refs/multi-datasource.md); per-datasource worksheet/dashboard ' \
-          'routing table in multi-ds-plan.json.'
-  feat = { name: 'Multiple independent datasources (converter collapses to primary)',
-           status: :unhandled, count: primaries.size, blurb: blurb }
+  blurb = "Workbook spans #{primaries.size} INDEPENDENT datasources across worksheets (#{assigns}); not a " \
+          'Tableau blend. The converter builds a multi-element data model (one element set per datasource) ' \
+          "and build-charts routes the non-dominant sources' charts onto per-datasource sub-masters " \
+          '(multi-ds-plan.json; route: multi-element DM (refs/multi-datasource.md)).'
+  blockers = []
+  blockers << 'multi-datasource routing is disabled (SIGMA_MULTI_DS_ROUTING=off)' if routing_off
+  if file_only.any?
+    blockers << "#{file_only.map { |e| e['caption'] }.join(', ')} " \
+                'has no warehouse table to build from (published or file source — land it first)'
+  end
+  if helper_sheets.any?
+    blockers << "these non-dominant-datasource sheets plot window/LOD calcs that routing does not move off " \
+                "the master: #{helper_sheets.first(8).join(', ')}#{helper_sheets.length > 8 ? ', …' : ''}"
+  end
+  if blockers.empty?
+    blurb += ' Every chart is routable, so this is a review item, not a stop.'
+    feat = { name: MULTI_DS_GAP_NAME, status: :hint, count: primaries.size, blurb: blurb }
+  else
+    blurb += " Needs work: #{blockers.join('; ')}."
+    feat = { name: MULTI_DS_GAP_NAME, status: :unhandled, count: primaries.size, blurb: blurb }
+    # Scope attribution only when the helper sheets are the WHOLE problem; a
+    # source-level blocker affects every sheet (no key → fail open).
+    feat[:worksheets] = helper_sheets if file_only.empty? && !routing_off
+  end
   [feat, detail, { 'independent' => true, 'datasources' => entries }]
+end
+
+MULTI_DS_GAP_NAME = 'Multiple independent datasources (converter collapses to primary)'
+# Every class the extract-landing route already treats as file/SaaS-backed,
+# plus the remaining non-warehouse ones.
+FILE_ONLY_CONNECTION_CLASSES = (FILE_CONN_CLASSES + %w[msaccess dataengine]).uniq.freeze
+# Calcs build-charts translates through a helper / window plan, which it
+# never re-sources onto a sub-master.
+MULTI_DS_HELPER_RE = /\{\s*(?:FIXED|INCLUDE|EXCLUDE)\b|\b(?:LOOKUP|PREVIOUS_VALUE|WINDOW_[A-Z]+|RUNNING_[A-Z]+|RANK(?:_[A-Z]+)?|TOTAL|INDEX|FIRST|LAST|SIZE)\s*\(/i
+
+# Dashboard sheets of the NON-dominant datasources that plot a calc which is,
+# or is built on, a window / LOD calc.
+def multi_ds_helper_sheets(xml, entries, dominant_name)
+  outliers = entries.reject { |e| e['name'] == dominant_name }.each_with_object({}) { |e, h| h[e['name']] = e['worksheets'] }
+  return [] if outliers.empty?
+  plotted = plotted_calc_contexts(xml)
+  sheets = Set.new
+  xml.elements.each('/workbook/datasources/datasource') do |ds|
+    ds_name = ds.attributes['name'].to_s
+    next unless outliers.key?(ds_name)
+    formulas = {}
+    by_caption = {}
+    ds.elements.each('column') do |col|
+      f = col.elements['calculation']&.attributes&.[]('formula')
+      next unless f
+      formulas[col.attributes['name'].to_s.downcase] = f
+      by_caption["[#{col.attributes['caption'] || col.attributes['name']}]".downcase] = col.attributes['name'].to_s.downcase
+    end
+    memo = {}
+    needs = lambda do |key, depth = 0|
+      return memo[key] if memo.key?(key)
+      memo[key] = false # cycle guard
+      f = formulas[key].to_s
+      memo[key] = f.match?(MULTI_DS_HELPER_RE) ||
+                  (depth < 20 && formula_field_refs(f).any? do |ref|
+                    dep = formulas.key?(ref.downcase) ? ref.downcase : by_caption[ref.downcase]
+                    dep && needs.call(dep, depth + 1)
+                  end)
+    end
+    plotted.each do |pkey, placement|
+      pds, internal = pkey.split("\0", 2)
+      next unless pds == ds_name && needs.call(internal.to_s.downcase)
+      Array(placement['worksheets']).each { |w| sheets << w if outliers[ds_name].include?(w) }
+    end
+  end
+  sheets.to_a.sort
 end
 
 # Detect the SINGLE-datasource multi-table relationship model (2020.2+
@@ -745,8 +818,52 @@ end
 # physical warehouse field omitted from the Tableau metadata and is therefore
 # not called an orphan. Only Tableau's generated [Calculation_*] namespace is
 # safe to identify as a missing internal calc definition.
+def worksheet_bodies(content)
+  content.to_s.scan(%r{<worksheet\s[^>]*?name=(?:'([^']*)'|"([^"]*)")[^>]*>(.*?)</worksheet>}m)
+         .each_with_object({}) { |(sq, dq, body), h| h[CGI.unescapeHTML((sq || dq).to_s)] = CGI.unescapeHTML(body.to_s) }
+end
+
+# Worksheets whose section references a calc's internal name, in either the
+# bracketed column form ([Calculation_1]) or a column-instance form
+# ([none:Calculation_1:nk]). Bounded so Calculation_1 never matches
+# Calculation_12.
+def calc_name_referenced?(text, internal_name)
+  bare = internal_name.to_s.sub(/\A\[/, '').sub(/\]\z/, '')
+  !bare.empty? && text.match?(/(?<![\w])#{Regexp.escape(bare)}(?![\w])/)
+end
+
+def calc_worksheet_refs(calcs, bodies)
+  calcs.each_with_object({}) do |calc, h|
+    hits = bodies.select { |_, body| calc_name_referenced?(body, calc['internal_name']) }.keys.sort
+    h[calc['internal_name']] = hits if hits.any?
+  end
+end
+
+def datasource_object_usage_text(datasource)
+  values = []
+  visit = nil
+  visit = lambda do |element, inside_usage|
+    name = element.name.to_s.split(':').last
+    usage = inside_usage || %w[filter extract-filter group groupfilter set].include?(name) ||
+            (name == 'calculation' && element.attributes['class'].to_s.match?(/(?:set|group)/i))
+    if usage
+      if element.respond_to?(:node)
+        element.node.attribute_nodes.each { |attribute| values << attribute.value.to_s }
+        element.node.xpath('text()').each { |text| values << text.content.to_s }
+      else
+        element.attributes.each_attribute { |attribute| values << attribute.value.to_s }
+        element.texts.each { |text| values << text.value.to_s }
+      end
+    end
+    element.elements.each('*') { |child| visit.call(child, usage) }
+  end
+  visit.call(datasource, false)
+  values.join("\n")
+end
+
 def calculation_inventory(doc, content)
-  ref_region = content.split('</datasources>', 2)[1] || content
+  ref_region = CGI.unescapeHTML(content.split('</datasources>', 2)[1] || content)
+  bodies = worksheet_bodies(content)
   inputs = []
   datasource_rows = []
 
@@ -850,8 +967,14 @@ def calculation_inventory(doc, content)
                        .map { |c| c.map { |n| captions[n] || n }.sort }
                        .sort_by { |c| c.join("\0") }
 
+    # Bare, bounded name match: a worksheet may carry only the column-instance
+    # form ([none:Calculation_1:nk]), never the bracketed [Calculation_1].
+    # Now that an unused refusal stops gating, a false "unused" would hide a
+    # real stop.
+    ds_usage = datasource_object_usage_text(ds)
+    usage_text = "#{ref_region}\n#{ds_usage}"
     directly_used = calcs.map { |calc| calc['internal_name'] }
-                         .select { |internal| ref_region.include?(internal) }
+                         .select { |internal| calc_name_referenced?(usage_text, internal) }
                          .to_set
     used = directly_used.dup
     changed = true
@@ -880,7 +1003,12 @@ def calculation_inventory(doc, content)
       'calculation_cycles' => cycles,
       'orphan_internal_calculation_references' => orphan_refs.sort_by { |r| [r['calculation'], r['reference']] },
       'unused_calculations' => unused.sort_by { |r| [r['calculation'], r['internal_name']] },
-      'columns_by_guid' => columns_by_guid
+      'columns_by_guid' => columns_by_guid,
+      'dependency_graph' => graph,
+      'calc_worksheets' => calc_worksheet_refs(calcs, bodies),
+      # Calcs a datasource filter / set / group uses: they shape every sheet.
+      'datasource_level_calcs' => calcs.map { |calc| calc['internal_name'] }
+                                       .select { |internal| calc_name_referenced?(ds_usage, internal) }
     }
   end
 
@@ -1148,6 +1276,56 @@ def apply_chart_translators_to_audit!(batch, inventory)
   batch
 end
 
+# Where each still-refused formula actually reaches. A refusal nothing uses
+# (the inventory's own transitive unused set) is marked `unused` and never
+# gates. Otherwise the calcs built on top of it inherit the break — they pass
+# the converter (`spec`) yet carry a dangling ref to the refused calc — so
+# they get `blocked_by`, and the refused row records its `dependents` plus
+# the worksheets that use it directly or through any dependent (the gate's
+# scope filter reads those; a row with none fails open).
+def annotate_refusal_reach!(batch, inventory)
+  sources = (inventory['datasources'] || []).each_with_object({}) { |ds, h| h[ds['datasource_index']] = ds }
+  unused = (inventory['unused_calculations'] || []).map { |u| [u['datasource'], u['internal_name']] }.to_set
+  batch.fetch('formulas').group_by { |row| row['datasource_index'] }.each do |ds_index, rows|
+    source = sources[ds_index] || {}
+    graph = source['dependency_graph'] || {}
+    calc_ws = source['calc_worksheets'] || {}
+    ds_level = (source['datasource_level_calcs'] || []).to_set
+    by_internal = rows.each_with_object({}) { |row, h| h[row['internal_name']] = row }
+    reverse = Hash.new { |h, k| h[k] = [] }
+    graph.each { |calc, deps| deps.each { |dep| reverse[dep] << calc } }
+    rows.each do |row|
+      next unless %w[not_converted unmapped].include?(row['status'])
+      if unused.include?([row['datasource'], row['internal_name']])
+        row['unused'] = true
+        next
+      end
+      seen = Set.new
+      queue = [row['internal_name']]
+      until queue.empty?
+        reverse[queue.shift].each { |dep| queue << dep if seen.add?(dep) }
+      end
+      seen.delete(row['internal_name'])
+      dependents = seen.map { |name| by_internal[name] }.compact
+      row['dependents'] = dependents.map { |d| d['caption'] }.uniq.sort if dependents.any?
+      reach = [row['internal_name']] + seen.to_a
+      if reach.any? { |name| ds_level.include?(name) }
+        # A datasource-level use applies to every sheet: leave the row
+        # unattributed so a scoped run fails open instead of dropping it.
+        row['datasource_level'] = true
+      else
+        worksheets = reach.flat_map { |name| calc_ws[name] || [] }.uniq.sort
+        row['worksheets'] = worksheets if worksheets.any?
+      end
+      dependents.each do |dep|
+        next unless FORMULA_AUDIT_TRANSLATED.include?(dep['status'])
+        dep['blocked_by'] = ((dep['blocked_by'] || []) + [row['caption']]).uniq.sort
+      end
+    end
+  end
+  batch
+end
+
 def recount_formula_audit!(batch)
   formulas = batch.fetch('formulas')
   counts = FORMULA_AUDIT_STATUSES.each_with_object({}) { |name, h| h[name] = 0 }
@@ -1172,6 +1350,7 @@ def run_formula_audit(inventory)
   batch = JSON.parse(stdout)
   apply_learned_rules_to_audit!(batch)
   apply_chart_translators_to_audit!(batch, inventory)
+  annotate_refusal_reach!(batch, inventory)
   results_by_ds = batch.fetch('formulas').group_by { |row| row['datasource_index'] }
 
   datasources = inventory['datasources'].map do |source|
@@ -1232,28 +1411,52 @@ end
 # internal name.
 CONVERTER_REFUSED_GAP_PREFIX = 'Converter-refused calculated field — '
 
+TABLE_SCOPED_FIXED_RE = /\A\s*\{\s*FIXED\s*:/i
+
 def converter_refused_gap_rows(formulas)
-  refused = Array(formulas).select { |row| %w[not_converted unmapped].include?(row['status']) }
+  refused = Array(formulas).select { |row| %w[not_converted unmapped].include?(row['status']) && !row['unused'] }
   labels = refused.map { |row| "#{row['datasource_caption'] || row['datasource']}: #{row['caption'] || row['internal_name']}" }
   dupes = labels.group_by(&:itself).select { |_, v| v.length > 1 }.keys
   refused.each_with_index.map do |row, i|
     label = labels[i]
     label = "#{label} (#{row['internal_name']})" if dupes.include?(label)
-    {
-      name: "#{CONVERTER_REFUSED_GAP_PREFIX}#{label}",
-      status: :unhandled,
-      count: 1,
-      blurb: "The vendored converter #{row['status'] == 'unmapped' ? 'could not map' : 'refused'} this formula: " \
-             "#{row['formula'].to_s.gsub(/\s+/, ' ')[0, 160]}. Scout a validated rewrite (learned rule) or " \
-             'explicitly account for it before conversion; token-only catalog coverage is not accepted.'
-    }
+    blurb = "The vendored converter #{row['status'] == 'unmapped' ? 'could not map' : 'refused'} this formula: " \
+            "#{row['formula'].to_s.gsub(/\s+/, ' ')[0, 160]}."
+    if row['dependents']
+      blurb += " Calcs built on it inherit the break and are what the dashboards plot: " \
+               "#{row['dependents'].first(6).join(', ')}#{row['dependents'].length > 6 ? ', …' : ''}."
+    end
+    if row['formula'].to_s =~ TABLE_SCOPED_FIXED_RE
+      blurb += ' Table-scoped FIXED (no dimensions) is one grand-total value over the whole source; ' \
+               'the build does not emit it, so build that single value by hand and point the calcs above at it.'
+    end
+    blurb += ' Scout a validated rewrite (learned rule) or explicitly account for it before conversion; ' \
+             'token-only catalog coverage is not accepted.'
+    gap = { name: "#{CONVERTER_REFUSED_GAP_PREFIX}#{label}", status: :unhandled, count: 1, blurb: blurb }
+    gap[:worksheets] = row['worksheets'] if row['worksheets']
+    gap
   end
+end
+
+def unused_refused_gap_row(formulas)
+  unused = Array(formulas).select { |row| %w[not_converted unmapped].include?(row['status']) && row['unused'] }
+  return nil if unused.empty?
+  {
+    name: 'Converter-refused calculated fields not used on any worksheet',
+    status: :hint,
+    count: unused.length,
+    blurb: "#{unused.length} refused formula(s) that no worksheet uses, directly or through another calc: " \
+           "#{unused.first(12).map { |row| "#{row['datasource_caption'] || row['datasource']}: #{row['caption']}" }.join(', ')}. " \
+           'Nothing is built from them, so they do not stop the conversion.'
+  }
 end
 
 def formula_audit_gap_results(audit)
   counts = audit.is_a?(Hash) ? audit['counts'] : {}
   review = counts.to_h['verify'].to_i + counts.to_h['chart_only'].to_i
   rows = converter_refused_gap_rows(audit.is_a?(Hash) ? audit['formulas'] : [])
+  unused_row = unused_refused_gap_row(audit.is_a?(Hash) ? audit['formulas'] : [])
+  rows << unused_row if unused_row
   if review.positive?
     rows << {
       name: 'Converter-translated formulas requiring contextual verification',

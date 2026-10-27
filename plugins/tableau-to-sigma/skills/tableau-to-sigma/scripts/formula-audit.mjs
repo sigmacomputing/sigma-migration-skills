@@ -24,6 +24,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SKILL = resolve(HERE, '..');
 const BUNDLE = join(SKILL, 'converter', 'tableau.mjs');
 const TABLE = join(SKILL, 'refs', 'functions.json');
+// Same keyword source as lib/calc_coverage.rb: `IN (`, `AND (`, `NOT (` are
+// operators, not calls, and must not be scored as unmapped functions.
+const CATALOG = join(HERE, 'lib', 'tableau_functions.json');
 const STATUSES = ['spec', 'verify', 'chart_only', 'rls', 'not_converted', 'unmapped'];
 const TRANSLATED = new Set(['spec', 'verify', 'chart_only', 'rls']);
 const SHIM = '\nexport { tableauFormulaToSigma as __auditToSigma, tableauWindowToSigmaChart as __auditWindow, tableauFormulaIsRls as __auditIsRls };\n';
@@ -56,7 +59,7 @@ function stdinText() {
 // Mask comments, quoted strings, and bracketed field references before
 // collecting calls. This mirrors the important property of CalcCoverage:
 // function-looking text inside a literal or field caption is not a function.
-function tableauFunctionNames(formula) {
+function tableauFunctionNames(formula, keywords) {
   const text = String(formula || '');
   let masked = '';
   for (let i = 0; i < text.length;) {
@@ -98,7 +101,7 @@ function tableauFunctionNames(formula) {
   let match;
   while ((match = re.exec(masked)) !== null) {
     const name = match[1].toUpperCase();
-    if (!['IF', 'CASE', 'WHEN', 'THEN', 'ELSE', 'ELSEIF', 'END', 'FIXED', 'INCLUDE', 'EXCLUDE'].includes(name)) {
+    if (!keywords.has(name)) {
       names.add(name);
     }
   }
@@ -165,6 +168,10 @@ try {
 
   const table = JSON.parse(readFileSync(TABLE, 'utf8'));
   const tableIndex = new Map(table.functions.map((row) => [row.tableau_fn.toUpperCase(), row]));
+  const catalogKeywords = JSON.parse(readFileSync(CATALOG, 'utf8')).keywords || {};
+  const keywords = new Set([...(catalogKeywords.logicals || []), ...(catalogKeywords.lod || [])]
+    .map((name) => String(name).toUpperCase()));
+  if (!keywords.has('IN')) throw new Error(`keyword list missing from ${CATALOG}`);
 
   tempDir = mkdtempSync(join(tmpdir(), 'tableau-formula-audit-'));
   const tempBundle = join(tempDir, 'tableau-audit.mjs');
@@ -182,7 +189,15 @@ try {
     const chart = converter.__auditWindow(entry.formula);
     const translated = converter.__auditToSigma(entry.formula, warnings);
     const sigmaFormula = chart && chart.formula ? chart.formula : translated;
-    const functionNames = tableauFunctionNames(entry.formula);
+    // The bundled IN expansion takes only the last bracket token as its
+    // operand, so `[Parameters].[P] IN (...)` comes back as
+    // `[Parameters].([P] = ... or ...)` — invalid Sigma. Refuse it rather than
+    // pass it as spec.
+    if (/\]\s*\.\s*\(/.test(String(sigmaFormula || ''))) {
+      warnings.push('⚠ Qualified reference split by the IN expansion — NOT converted: ' +
+                    String(sigmaFormula).slice(0, 120));
+    }
+    const functionNames = tableauFunctionNames(entry.formula, keywords);
     const status = statusFor({
       formula: entry.formula,
       sigmaFormula,

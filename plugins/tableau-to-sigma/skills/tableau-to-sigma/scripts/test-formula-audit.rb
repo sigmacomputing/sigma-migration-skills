@@ -6,10 +6,12 @@ require 'json'
 require 'open3'
 require 'rbconfig'
 require 'tmpdir'
+require 'fileutils'
 
 HELPER = File.join(__dir__, 'formula-audit.mjs')
 SCANNER = File.join(__dir__, 'scan-workbook-gaps.rb')
 STATUSES = %w[spec verify chart_only rls not_converted unmapped].freeze
+CONVERTER_PREFIX = 'Converter-refused calculated field — '
 
 $failures = []
 def check(description, condition)
@@ -56,6 +58,28 @@ check('result includes Sigma formula, warnings, and both function-name lists',
 check('status counts use the closed deterministic vocabulary',
       parsed.fetch('counts', {}).keys == STATUSES)
 check('temporary shim directory is always removed', temp_after == temp_before)
+
+puts 'formula-audit.mjs: IN / AND / OR / NOT are operators, not unmapped functions'
+operators = [
+  { 'id' => 'in', 'formula' => "IF [DEVICE_CATEGORY] IN ('mobile', 'desktop') THEN 'Website' ELSE 'App' END" },
+  { 'id' => 'not_in', 'formula' => "IF [CHANNEL] NOT IN ('Display') THEN 1 END" },
+  { 'id' => 'logicals', 'formula' => 'IF NOT ([A] > 1) AND ([B] < 2) OR ([C] = 3) THEN 1 END' },
+  { 'id' => 'param_in', 'formula' => "IF [Parameters].[Parameter 2] IN ('x', 'y') THEN TRUE ELSE FALSE END" },
+  { 'id' => 'unknown', 'formula' => 'FOOBAR([X])' }
+]
+op_out, op_err, op_status = run_helper(JSON.generate(operators))
+op_rows = (op_status.success? ? JSON.parse(op_out)['formulas'] : []).each_with_object({}) { |row, h| h[row['id']] = row }
+check("operator batch exits 0 (#{op_err.strip[0, 80]})", op_status.success?)
+check('IN classification with a converted If(... or ...) is spec, not unmapped',
+      op_rows.dig('in', 'status') == 'spec' && op_rows.dig('in', 'function_names') == [] &&
+        op_rows.dig('in', 'sigma_formula').to_s.include?(' or '))
+check('NOT IN and NOT/AND/OR before a parenthesis are spec',
+      op_rows.dig('not_in', 'status') == 'spec' && op_rows.dig('logicals', 'status') == 'spec')
+check('[Parameters].[P] IN (...) split by the converter is refused, not passed as spec',
+      op_rows.dig('param_in', 'status') == 'not_converted' &&
+        op_rows.dig('param_in', 'warnings').to_a.any? { |w| w.include?('Qualified reference split') })
+check('a genuinely unknown function is still unmapped',
+      op_rows.dig('unknown', 'status') == 'unmapped' && op_rows.dig('unknown', 'function_names') == ['FOOBAR'])
 
 Dir.mktmpdir('formula-audit-input') do |dir|
   input = File.join(dir, 'formulas.json')
@@ -438,6 +462,59 @@ Dir.mktmpdir('formula-audit-chart') do |dir|
           still_refused.all? { |cap| names.include?("Converter-refused calculated field — Master: #{cap}") })
   check('counts reflect the reclassification',
         audit['counts']['chart_only'] == 6 && audit['counts'].values.sum == audit['formulas'].length)
+end
+
+puts
+puts 'scan-workbook-gaps.rb: refusal reach — unused never gates, dependents carry the break'
+Dir.mktmpdir('formula-audit-reach') do |dir|
+  twb = File.join(dir, 'workbook-content.twb')
+  report = File.join(dir, 'report.md')
+  FileUtils.cp(File.join(__dir__, 'fixtures', 'refusal-reach.twb'), twb)
+  empty_home = File.join(dir, 'empty-home')
+  Dir.mkdir(empty_home)
+  _out, err, st = Open3.capture3({ 'TABLEAU_TO_SIGMA_HOME' => empty_home }, RbConfig.ruby, SCANNER, twb, report)
+  result = JSON.parse(File.read(File.join(dir, 'report.json')))
+  rows = result['formula_audit']['formulas'].each_with_object({}) { |row, h| h[row['caption']] = row }
+  features = result['detected_features'].each_with_object({}) { |f, h| h[f['name']] = f }
+  check('scanner exits 0 on the refusal-reach fixture', st.success? && !err.include?('FAILED CLOSED'))
+  check('a refusal nothing uses is marked unused and gets no gating row',
+        rows.dig('Unused Script', 'unused') == true &&
+          !features.key?("#{CONVERTER_PREFIX}Orders: Unused Script"))
+  unused_row = features['Converter-refused calculated fields not used on any worksheet'] || {}
+  check('unused refusals are listed on one non-blocking hint row',
+        unused_row['status'] == 'hint' && unused_row['count'] == 1 && unused_row['blurb'].to_s.include?('Unused Script'))
+  latest = features["#{CONVERTER_PREFIX}Orders: Latest Order Date"] || {}
+  check('a refusal reached only through a dependent still gates, attributed to the dependent\'s sheet ' \
+        '(column-instance-only reference; Calculation_103 does not match Calculation_1031)',
+        latest['status'] == 'unhandled' && latest['worksheets'] == ['Recency'])
+  check('its row names the plotted dependent and the table-scoped FIXED recipe',
+        latest['blurb'].to_s.include?('Order Recency') && latest['blurb'].to_s.include?('grand-total'))
+  check('the translated dependent is marked blocked_by the refusal',
+        rows.dig('Order Recency', 'status') == 'spec' && rows.dig('Order Recency', 'blocked_by') == ['Latest Order Date'] &&
+          rows.dig('Latest Order Date', 'dependents') == ['Order Recency'])
+  check('a directly plotted refusal gates with its own sheet',
+        features.dig("#{CONVERTER_PREFIX}Orders: Script Direct", 'worksheets') == ['Scripted'])
+  check('datasource filters keep refused calculations live',
+        rows.dig('Filter & Risk', 'unused') != true &&
+          features.dig("#{CONVERTER_PREFIX}Orders: Filter & Risk", 'status') == 'unhandled')
+  check('a datasource-level use leaves the row unattributed even where a sheet also names it (fails open)',
+        rows.dig('Filter & Risk', 'datasource_level') == true &&
+          !features.fetch("#{CONVERTER_PREFIX}Orders: Filter & Risk", {}).key?('worksheets'))
+  # Same workbook with that filter as an EXTRACT filter (kept out of the shared
+  # parity fixture: the runtimes' extract feature rules differ, unrelated).
+  extract_twb = File.join(dir, 'extract', 'workbook-content.twb')
+  FileUtils.mkdir_p(File.dirname(extract_twb))
+  File.write(extract_twb, File.read(twb, encoding: 'UTF-8').sub(%r{(\s*<filter class='categorical' column='\[federated\.refreach0001\]\.\[none:Calculation_Filter&amp;Risk:nk\]'>.*?</filter>)}m,
+                                             "\n      <extract enabled='true' count='-1'>\\1\n      </extract>"))
+  Open3.capture3({ 'TABLEAU_TO_SIGMA_HOME' => empty_home }, RbConfig.ruby, SCANNER, extract_twb, File.join(dir, 'extract', 'r.md'))
+  extract_rows = JSON.parse(File.read(File.join(dir, 'extract', 'r.json')))['formula_audit']['formulas']
+                     .each_with_object({}) { |row, h| h[row['caption']] = row }
+  check('an extract filter is a datasource-level use too (row stays unattributed)',
+        File.read(extract_twb, encoding: 'UTF-8').include?('<extract enabled') &&
+          extract_rows.dig('Filter & Risk', 'datasource_level') == true && !extract_rows['Filter & Risk'].key?('worksheets'))
+  check('entity-escaped worksheet references keep refused calculations live and attribute the sheet',
+        rows.dig('Sheet & Risk', 'unused') != true &&
+          features.dig("#{CONVERTER_PREFIX}Orders: Sheet & Risk", 'worksheets') == ['Regions'])
 end
 
 puts

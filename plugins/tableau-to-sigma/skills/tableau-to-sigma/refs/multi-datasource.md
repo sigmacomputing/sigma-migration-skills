@@ -5,11 +5,15 @@
 **Disposition: detected + auto-built by the CURRENT vendored converter.**
 `converter/tableau.mjs` (PROVENANCE `source_commit: cc3e81a`, 2026-07-08+)
 natively emits a MULTI-ELEMENT data model for this shape — one element set
-per independent datasource, nothing dropped (§2). The gap scan still flags
-the shape ❌-unhandled so the orchestrator STOPS (exit 11) and a human/agent
-confirms the converter output before POSTing. The **guided manual path (§3)
-remains the fallback** for older vendored converters (pre-`cc3e81a`) and for
-edge cases the native merge mishandles.
+per independent datasource, nothing dropped (§2), and build-charts routes the
+non-dominant datasources' charts onto per-datasource sub-masters. The gap scan
+keeps the shape ❌-unhandled (orchestrator STOP, exit 11) only for what that
+cannot carry — a published/file source with no warehouse table, routing
+switched off (`SIGMA_MULTI_DS_ROUTING=off`), or a window/LOD calc plotted on a
+non-dominant datasource (routing never moves those charts off the master).
+Otherwise the row is a review hint. The **guided manual path (§3) remains the
+fallback** for older vendored converters (pre-`cc3e81a`) and for edge cases
+the native merge mishandles.
 
 ## 1. What this shape is (and is not)
 
@@ -43,11 +47,15 @@ route differently:
 `scripts/scan-workbook-gaps.rb` triggers when ≥2 real datasources are each
 the primary (first `<view>` datasource) of at least one worksheet and at
 least one pair of those primaries is not blend-linked. One detection pass
-emits three outputs: an ❌-`unhandled` gap row ("Multiple independent
-datasources (converter collapses to primary)" — the name is a stable
-scout-ledger key; the CURRENT converter no longer collapses, see §2) that
-hard-stops `migrate-tableau.rb` at the gap gate (exit 11) with the
-datasource→sheet breakdown; a `multi_datasource` detail block in the gaps
+emits three outputs: a gap row ("Multiple independent datasources
+(converter collapses to primary)" — the name is a stable scout-ledger key;
+the CURRENT converter no longer collapses, see §2) that is ❌-`unhandled`
+(stops `migrate-tableau.rb` at the gap gate, exit 11) when a source has no
+warehouse table, routing is off, or a non-dominant datasource's dashboard
+sheet plots a window/LOD calc (directly or through a calc built on one) — in
+that last case the row's `worksheets` names just those sheets, so a
+dashboard-scoped run that doesn't include them is not stopped — and a
+`hint` otherwise; a `multi_datasource` detail block in the gaps
 JSON; and a `multi-ds-plan.json` sidecar next to the gaps report — **the
 sidecar shape is a contract**:
 

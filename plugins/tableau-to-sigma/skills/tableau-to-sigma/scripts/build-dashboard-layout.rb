@@ -244,6 +244,13 @@ def augment_els_by_name!(els_by_name, elements)
     ws = rec['worksheet'].to_s
     els_by_name[ws] = e unless ws.empty? || els_by_name.key?(ws)
   end
+  # Info-popup icon sheets are emitted as `btn-<zoneid>` icon buttons (no name,
+  # no provenance row). Index them under a key no display name can collide with
+  # so find_zone_el can resolve their Shape-mark chart zone by zone id.
+  elements.each do |e|
+    next unless e['kind'] == 'button' && e['id'].to_s =~ /\Abtn-(\d+)\z/
+    els_by_name["\0btn-#{Regexp.last_match(1)}"] ||= e
+  end
   els_by_name
 end
 
@@ -252,7 +259,8 @@ end
 # provenance alias when the tile was renamed. Shared by all three layout paths
 # and their census counts so matching cannot drift between them.
 def find_zone_el(els_by_name, z, renames)
-  els_by_name[zone_el_name(z, renames)] || els_by_name[z['caption'].to_s]
+  els_by_name[zone_el_name(z, renames)] || els_by_name[z['caption'].to_s] ||
+    (z['tooltip_text'].to_s.empty? ? nil : els_by_name["\0btn-#{z['id']}"])
 end
 
 # Page lookups
@@ -398,6 +406,11 @@ def resolve_leaf(node, ctx)
   when 'chart'
     name = ctx[:renames][node['caption']] || node['caption']
     el = ctx[:els_by_name][name]
+    # Info-popup icon sheet (Shape mark + tooltip text) → its `btn-<zoneid>` button.
+    if el.nil? && !ctx[:zone_by_id].dig(node['id'], 'tooltip_text').to_s.empty?
+      btn = ctx[:els_by_id]["btn-#{node['id']}"]
+      el = btn if btn && btn['kind'] == 'button'
+    end
     el && el['id']
   when 'filter', 'parameter'
     # Pre-assigned by build_page_from_tree (caption match, then rail-fill) so a

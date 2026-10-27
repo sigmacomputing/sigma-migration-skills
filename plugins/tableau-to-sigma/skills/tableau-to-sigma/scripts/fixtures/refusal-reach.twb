@@ -1,0 +1,107 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for the formula
+     audit's refusal reach: an unused refusal never gates; a table-scoped FIXED
+     refusal reached only through a dependent calc gates with that calc's sheet;
+     a directly plotted refusal gates with its own sheet, and datasource-level
+     or entity-escaped references also keep refusals live, and a datasource
+     filter calc stays unattributed even where a sheet also names it. "Recency" references
+     its calc in column-instance form only. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Orders' inline='true' name='federated.refreach0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.refreach0001'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.refreach0001' name='ORDERS' table='[SALES].[ORDERS]' type='table' />
+      </connection>
+      <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+      <column caption='Sales' datatype='real' name='[SALES]' role='measure' type='quantitative' />
+      <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+      <column caption='Unused Script' datatype='real' name='[Calculation_101]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SCRIPT_REAL(&quot;return 1&quot;, SUM([SALES]))' />
+      </column>
+      <column caption='Latest Order Date' datatype='date' name='[Calculation_102]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='{ FIXED : MAX([ORDER_DATE]) }' />
+      </column>
+      <column caption='Order Recency' datatype='string' name='[Calculation_103]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [ORDER_DATE] = [Calculation_102] THEN &quot;Latest&quot; ELSE &quot;Older&quot; END' />
+      </column>
+      <column caption='Script Direct' datatype='real' name='[Calculation_104]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SCRIPT_REAL(&quot;return 2&quot;, SUM([SALES]))' />
+      </column>
+      <column caption='Region Label' datatype='string' name='[Calculation_1031]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='UPPER([REGION])' />
+      </column>
+      <column caption='Filter &amp; Risk' datatype='real' name='[Calculation_Filter&amp;Risk]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SCRIPT_REAL(&quot;return 3&quot;, SUM([SALES]))' />
+      </column>
+      <column caption='Sheet &amp; Risk' datatype='real' name='[Calculation_Sheet&amp;Risk]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SCRIPT_REAL(&quot;return 4&quot;, SUM([SALES]))' />
+      </column>
+      <filter class='categorical' column='[federated.refreach0001].[none:Calculation_Filter&amp;Risk:nk]'>
+        <groupfilter function='member' level='[none:Calculation_Filter&amp;Risk:nk]' member='true' />
+      </filter>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Recency'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.refreach0001' />
+          </datasources>
+          <filter class='categorical' column='[federated.refreach0001].[none:Calculation_Filter&amp;Risk:nk]' />
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.refreach0001].[none:Calculation_103:nk]</rows>
+        <cols>[federated.refreach0001].[sum:SALES:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Scripted'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.refreach0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.refreach0001'>
+            <column caption='Script Direct' datatype='real' name='[Calculation_104]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SCRIPT_REAL(&quot;return 2&quot;, SUM([SALES]))' />
+            </column>
+            <column-instance column='[Calculation_104]' derivation='User' name='[usr:Calculation_104:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[REGION]' derivation='None' name='[none:REGION:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.refreach0001].[none:REGION:nk]</rows>
+        <cols>[federated.refreach0001].[usr:Calculation_104:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Regions'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.refreach0001' />
+          </datasources>
+        </view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>[federated.refreach0001].[none:Calculation_1031:nk]</rows>
+        <cols>[federated.refreach0001].[sum:Calculation_Sheet&amp;Risk:qk]</cols>
+        <filter class='categorical' column='[federated.refreach0001].[none:Calculation_Filter&amp;Risk:nk]' />
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Overview'>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' name='Recency' w='33333' x='0' y='0' />
+          <zone h='100000' id='3' name='Scripted' w='33333' x='33333' y='0' />
+          <zone h='100000' id='4' name='Regions' w='33334' x='66666' y='0' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

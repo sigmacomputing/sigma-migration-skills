@@ -188,6 +188,43 @@ class AutoParityPlanTest(unittest.TestCase):
         self.assertEqual("needs_review", changed["plan_status"])
         self.assertEqual("unresolved", changed["hidden_filters"][0]["status"])
 
+    def test_quick_filter_left_at_all_is_not_a_hidden_filter(self):
+        root, spec_path = self.fixture()
+        layout = json.loads((root / "dashboard-layout.json").read_text())
+        layout[0]["zones"][0]["hidden_filters"][0]["members"] = []
+        layout[0]["zones"][0]["hidden_filters"][0]["kind"] = "list"
+        (root / "dashboard-layout.json").write_text(json.dumps(layout))
+        # No quick-filter zone for the field: an empty categorical calc
+        # filter still gates (it may be an empty inclusive set).
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        self.assertEqual("needs_review", plan["plan_status"])
+
+        layout[0]["zones"].append({"kind": "filter", "filter_column_caption": "Current"})
+        (root / "dashboard-layout.json").write_text(json.dumps(layout))
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        self.assertEqual("green", plan["plan_status"])
+        self.assertEqual([], plan["hidden_filters"])
+
+        # Wildcard, condition and top-N filters also carry no members but
+        # still restrict rows, so they gate.
+        for kind, extra in (("wildcard", {}), ("list+condition", {}), ("list", {"topn": True})):
+            with self.subTest(kind=kind, extra=extra):
+                hidden = {k: v for k, v in layout[0]["zones"][0]["hidden_filters"][0].items() if k != "topn"}
+                hidden.update(kind=kind, **extra)
+                layout[0]["zones"][0]["hidden_filters"][0] = hidden
+                (root / "dashboard-layout.json").write_text(json.dumps(layout))
+                plan = auto_parity_plan.build_plan(root, spec_path)
+                self.assertEqual("needs_review", plan["plan_status"])
+
+        # A RESTRICTIVE quick filter (members selected) still gates.
+        layout[0]["zones"][0]["hidden_filters"][0] = {
+            k: v for k, v in layout[0]["zones"][0]["hidden_filters"][0].items() if k != "topn"
+        }
+        layout[0]["zones"][0]["hidden_filters"][0].update(kind="list", members=["Yes"])
+        (root / "dashboard-layout.json").write_text(json.dumps(layout))
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        self.assertEqual("needs_review", plan["plan_status"])
+
     def test_missing_or_empty_displayed_tile_csv_fails_closed(self):
         for body in ("Region,Sales\n", ""):
             with self.subTest(body=body):

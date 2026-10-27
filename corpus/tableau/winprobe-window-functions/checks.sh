@@ -28,8 +28,15 @@ assert all(ds["total"] == sum(ds["counts"].values()) for ds in a["datasources"])
 assert a["counts"]["not_converted"] > 0, a["counts"]
 refused = [row for row in d["detected_features"]
            if row["name"].startswith("Converter-refused calculated field — ")]
-assert len(refused) == a["counts"]["not_converted"] + a["counts"]["unmapped"], refused
+audit_refused = [row for row in a["formulas"] if row["status"] in ("not_converted", "unmapped")]
+used = [row for row in audit_refused if not row.get("unused")]
+unused = [row for row in audit_refused if row.get("unused")]
+# One gating row per USED refusal; every unused one rides the single hint row.
+assert len(refused) == len(used), (refused, used)
 assert all(row["status"] == "unhandled" and row["count"] == 1 for row in refused)
+hint = [row for row in d["detected_features"]
+        if row["name"] == "Converter-refused calculated fields not used on any worksheet"]
+assert (hint[0]["status"], hint[0]["count"]) == ("hint", len(unused)) if unused else not hint, (hint, unused)
 PY
 
 cat >"$TMP/parity-final.json" <<'JSON'

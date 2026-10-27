@@ -67,6 +67,14 @@ check(fs.call('HH:mm:ss')   == '%H:%M:%S', 'HH:mm:ss → %H:%M:%S (mm after hour
 check(fs.call('dddd, MMMM d, yyyy') == '%A, %B %-d, %Y',
       "weekday+long month → %A, %B %-d, %Y (got #{fs.call('dddd, MMMM d, yyyy').inspect})", fails)
 
+# Tableau's leading '*' marks a locale-default date format — strip it (only a
+# leading one), never print it as a literal.
+check(fs.call('*m/d/yy') == '%-m/%-d/%y',
+      "locale-default '*m/d/yy' → %-m/%-d/%y (got #{fs.call('*m/d/yy').inspect})", fails)
+check(fs.call('m/d/yy') == '%-m/%-d/%y', "'m/d/yy' unchanged → %-m/%-d/%y", fails)
+check(fs.call('**m/d/yy') == '*%-m/%-d/%y',
+      "only ONE leading '*' is stripped ('**m/d/yy' keeps the second)", fails)
+
 # ---- 4. the literal-format hazard ------------------------------------------
 # "MMM D, YYYY" (moment style) previously leaked 'YYYY'/'D' literals through
 # the gsub chain ('%b D, YYYY'). Contract: fully-mapped d3-time OR nil.

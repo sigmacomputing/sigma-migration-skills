@@ -70,6 +70,7 @@ require 'workbook_code'
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
+require_relative 'lib/button_fallback'
 begin
   require 'offramp' # off-ramp trail (waiver observability); optional — never load-bearing
 rescue LoadError
@@ -264,6 +265,21 @@ def verify_spec!(body, skip_reason, update: false)
   end
 end
 def opts_type_workbook?; $opts_type == 'workbook'; end
+
+# Info-icon buttons are workspace-gated in some Sigma workspaces (verify 200,
+# write 400 "`button` elements are not enabled"). On exactly that error,
+# rewrite them to text elements carrying the same words and re-send ONCE, so one
+# gated element never fails the whole workbook. Returns [resp, body].
+def retry_without_gated_buttons(resp, body)
+  return [resp, body] if resp.is_a?(Net::HTTPSuccess) || !ButtonFallback.gated_error?(resp.body)
+  doc = (JSON.parse(body) rescue nil)
+  ids = doc ? ButtonFallback.rewrite!(doc) : []
+  return [resp, body] if ids.empty?
+  warn "WARN: this workspace rejects button elements — rewrote #{ids.size} info-icon button(s) " \
+       "(#{ids.join(', ')}) as inline text and re-sending once (tooltip popup → text)"
+  new_body = JSON.generate(doc)
+  [yield(new_body), new_body]
+end
 $opts_type = opts[:type]
 
 # W2.6 (review fix-wave, 2026-07-30, Important finding 3): derivedVia/partial/
@@ -466,6 +482,7 @@ if update_id
     $dm_pre_ids = _pre.is_a?(Hash) ? (_pre['pages'] || []).flat_map { |p| (p['elements'] || []).map { |e| e['id'] } }.compact : nil
   end
   resp = http(:put, format(GET_PATH, update_id), put_body)
+  resp, put_body = retry_without_gated_buttons(resp, put_body) { |b| http(:put, format(GET_PATH, update_id), b) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed[ID_FIELD] || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.is_a?(Net::HTTPSuccess)
@@ -517,6 +534,7 @@ else
   end
   verify_spec!(post_body, opts[:skip_spec_verify])
   resp = http(:post, POST_PATH, post_body)
+  resp, post_body = retry_without_gated_buttons(resp, post_body) { |b| http(:post, POST_PATH, b) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed.is_a?(Hash) ? parsed[ID_FIELD] : nil
   # Rec5 quarantine (opt-in): a POST killed by ONE broken element must not lose
