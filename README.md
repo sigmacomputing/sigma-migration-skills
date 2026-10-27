@@ -34,6 +34,7 @@ shared `~/.sigma-migration/env` under any agent.
 /plugin install metabase-to-sigma@sigma-migration-skills
 /plugin install streamlit-to-sigma@sigma-migration-skills
 /plugin install spotfire-to-sigma@sigma-migration-skills
+/plugin install omni-to-sigma@sigma-migration-skills
 ```
 
 **Other agents (Cursor, Cortex Code, …)** — clone the repo and point your agent at the
@@ -93,6 +94,7 @@ and the skill drives discovery → translation → build → parity.
 | [`metabase-to-sigma`](plugins/metabase-to-sigma/) | Metabase (OSS / Pro / Enterprise) | `metabase-to-sigma`, `metabase-assessment` |
 | [`streamlit-to-sigma`](plugins/streamlit-to-sigma/) | Streamlit (incl. Streamlit in Snowflake) | `streamlit-to-sigma`, `streamlit-assessment` (scaffold) |
 | [`spotfire-to-sigma`](plugins/spotfire-to-sigma/) | Spotfire Analyst / Server | `spotfire-to-sigma`, `spotfire-assessment` (foundation; live-unvalidated) |
+| [`omni-to-sigma`](plugins/omni-to-sigma/) | Omni | `omni-to-sigma`, `omni-assessment` (foundation) |
 | [`sigma-authoring`](plugins/sigma-authoring/) | (companion) | `sigma-workbooks`, `sigma-data-models`, … — install alongside every converter |
 
 In Claude Code, installed skills are namespaced — e.g. `/powerbi-to-sigma:powerbi-assessment`.
@@ -147,7 +149,7 @@ The canonical phase arc and a per-skill phase-number mapping live in
 [`corpus/`](corpus/README.md) is a regression corpus: real (demo-data) source
 artifacts for every tool — .twb, .bim, classic + PBIR report JSON, Qlik app
 metadata, ThoughtSpot TML, QuickSight describes, Cognos modules/reports,
-LookML, and Metabase card/dashboard JSON — with **golden converter outputs**
+LookML, Metabase card/dashboard JSON, Spotfire Application API manifests, and Omni topic/view YAML — with **golden converter outputs**
 and a runner. Smoke-test converter or builder changes without a live tenant:
 
 ```
