@@ -93,7 +93,9 @@ If you need an explicit one-series-per-category breakdown instead (e.g., for sta
 }
 ```
 
-`stacking` values: `"none"` (default, grouped), `"stacked"` (absolute), `"normalized"` (100% stacked). Live-verified 2026-06-15 — `"100"` / `"percent"` are **rejected** (`Invalid value: string`); the 100%-stacked value is `"normalized"`.
+`stacking` values: `"none"` (side-by-side / grouped), `"stacked"` (absolute), `"normalized"` (100% stacked). Live-verified 2026-06-15 — `"100"` / `"percent"` are **rejected** (`Invalid value: string`); the 100%-stacked value is `"normalized"`.
+
+**Several `yAxis` measures with no `stacking` key render STACKED** (live-verified 2026-10-27, `stacking: none` renders them side by side). The converter therefore emits `stacking: "none"` when Tableau puts Measure Names on a shelf (Rows/Columns) next to the dimension — Tableau draws each measure as its own bar there — and `orientation: "horizontal"` when Measure Values sits on Columns with the dimension on Rows. Measure Names only on Color keeps Tableau's stacking (no key emitted).
 
 ### Area chart
 

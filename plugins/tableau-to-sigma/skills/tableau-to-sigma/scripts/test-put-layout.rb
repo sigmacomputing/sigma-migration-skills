@@ -194,5 +194,58 @@ Dir.mktmpdir do |work|
   puts out3 unless st3.exitstatus == 0
 end
 
+puts
+puts 'Case 4 - text-link nav button: placeholder becomes an in-workbook page link'
+# Default mode (no kind:button) emits a markdown link to the nav.invalid
+# placeholder. The rewrite must open the workbook ON that page (?:nodeId=),
+# never the standalone /page/ view, which has no header and no page tabs.
+Dir.mktmpdir do |work|
+  put_bodies = []
+  srv = WEBrick::HTTPServer.new(Port: 0, BindAddress: '127.0.0.1',
+                                Logger: WEBrick::Log.new(File::NULL), AccessLog: [])
+  port = srv.config[:Port]
+  live = {
+    'workbookId' => 'wb-test',
+    'document' => {
+      'schemaVersion' => 1, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'page-dash-1', 'name' => 'Overview' }, { 'id' => 'page-dash-2', 'name' => 'Detail View' }],
+      'elements' => [{ 'id' => 'btn-10', 'kind' => 'text',
+                       'body' => '<p style="text-align: center">[**Details**](https://nav.invalid/#page=Detail%20View)</p>' }],
+      'layout' => LAYOUT_XML_1
+    }
+  }
+  srv.mount_proc('/') do |req, res|
+    if req.request_method == 'GET' && req.path.end_with?('/spec')
+      res.body = JSON.generate(live)
+    elsif req.request_method == 'GET'
+      res.body = JSON.generate('url' => 'https://app.example.test/org/workbook/AbC123')
+    else
+      put_bodies << req.body
+      res.body = { 'workbookId' => 'wb-test' }.to_json
+    end
+    res['Content-Type'] = 'application/json'
+    res.status = 200
+  end
+  Thread.new { srv.start }
+  File.write(File.join(work, 'auth.json'),
+             { 'SIGMA_API_TOKEN' => 'filetok', 'SIGMA_BASE_URL' => "http://127.0.0.1:#{port}" }.to_json)
+  layout = File.join(work, 'layout.xml')
+  File.write(layout, LAYOUT_XML_1, encoding: 'UTF-8')
+  File.write(File.join(work, 'layout-nav-buttons.json'),
+             JSON.generate([{ 'element_id' => 'btn-10', 'dashboard' => 'Overview', 'target_page_name' => 'Detail View' }]))
+  scrub = { 'SIGMA_API_TOKEN' => nil, 'SIGMA_BASE_URL' => nil,
+            'SIGMA_CLIENT_ID' => nil, 'SIGMA_CLIENT_SECRET' => nil, 'HOME' => work }
+  out4, st4 = Open3.capture2e(scrub.merge('SIGMA_WORKDIR' => work),
+                              'ruby', SCRIPT, '--workbook', 'wb-test', '--layout', layout)
+  srv.shutdown
+  body = put_bodies.map { |b| JSON.parse(b) rescue {} }.map { |r| r['document'] || r }
+                   .flat_map { |d| elements_from_spec(d) }.find { |e| e['id'] == 'btn-10' }.to_h['body'].to_s
+  check(st4.exitstatus == 0, "exits 0 — got #{st4.exitstatus}")
+  check(body.include?('(https://app.example.test/org/workbook/AbC123?:nodeId=page-dash-2)'),
+        "nav link opens the workbook on the target page (got #{body[/\(([^)]*)\)/, 1].inspect})")
+  check(!body.include?('/page/'), 'nav link is not the standalone /page/ view')
+  puts out4 unless st4.exitstatus == 0
+end
+
 puts($fails.empty? ? "\nALL PASS" : "\n#{$fails.size} FAILED")
 exit($fails.empty? ? 0 : 1)

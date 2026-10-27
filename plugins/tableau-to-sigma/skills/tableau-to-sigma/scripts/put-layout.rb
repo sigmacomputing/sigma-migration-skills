@@ -205,7 +205,8 @@ page_id_by_name = (spec['pages'] || []).each_with_object({}) { |p, h| h[p['name'
 # https://nav.invalid/#page=<name> (the workbook URL doesn't exist until the
 # POST returns). Now that it does: resolve each target page NAME to its live
 # page id and rewrite the placeholder — in button `actions[].effects[].url`
-# AND in text-pill markdown bodies (the workspace-gated-button fallback).
+# AND in text-pill markdown bodies (the SIGMA_BUTTON_ELEMENTS=off form and
+# post-and-readback's gated-workspace fallback).
 nav_path = opts[:nav_buttons] || (opts[:layout] && Dir.glob(File.join(File.dirname(opts[:layout]), '*-nav-buttons.json')).first)
 if nav_path && File.exist?(nav_path)
   wb_meta = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}").body) rescue {}
@@ -221,7 +222,10 @@ if nav_path && File.exist?(nav_path)
         pid = page_id_by_name[name.strip.downcase]
         if pid
           rewritten += 1
-          "#{wb_url}/page/#{pid}"
+          # `?:nodeId=<page>` opens the workbook on that page with Sigma's header
+          # and page tabs. `<url>/page/<page>` is the standalone page view: no
+          # header, no tabs, so the viewer is stranded (live-checked 2026-10-27).
+          "#{wb_url}?:nodeId=#{pid}"
         else
           unresolved << name
           Regexp.last_match(0)
@@ -242,7 +246,7 @@ if nav_path && File.exist?(nav_path)
 end
 
 # ---- v5.5: navigate-button target.page repair -------------------------------
-# `navigate` effects on real kind:button elements (SIGMA_BUTTON_ELEMENTS=on)
+# `navigate` effects on real kind:button elements (the default emission)
 # carry a PROVISIONAL target.page id: two page-id schemes coexist in this
 # codebase — build-workbook-spec.rb:177 assigns "page-<slug>" while
 # mechanical-specs.rb:1881 (the orchestrated pipeline customers actually run)

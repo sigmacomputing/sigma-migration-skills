@@ -36,8 +36,9 @@ from-signals.rb` writes next to its `--out` (in the tableau-to-sigma
 orchestrator this is always `<workdir>/chart-specs-actions-emitted.json`).
 **Never omit it in the live pipeline**: the guide joins detected interactions
 against that manifest and renders ONLY the ones NOT already auto-wired
-(currently: navigate nav-buttons). Omit it (or point it at a missing file)
-and the guide will re-instruct the user to hand-wire actions the converter
+(currently: navigate nav-buttons emitted as native buttons; ones downgraded to text pills — a
+gated workspace, or `SIGMA_BUTTON_ELEMENTS=off` — are not in the manifest and stay manual).
+Omit it (or point it at a missing file) and the guide will re-instruct the user to hand-wire actions the converter
 already built — the exact defect this generator exists to prevent. A missing
 file is read as "nothing auto-wired" (never an error), which is only correct
 when nothing genuinely was — e.g. `--page-per-worksheet` mode, where
@@ -84,6 +85,32 @@ Work through POSTPUBLISH_GUIDE.md's checklist." Silently dropping
 interactivity — or burying it as a footnote — is a report defect: the user
 must leave the conversion knowing exactly which interactions survived as
 controls, which they can add in the UI, and which have no equivalent.
+
+## Drill hierarchies on a crosstab: optional MCP collapse step
+
+Tableau shows a crosstab whose Rows hold a drill hierarchy collapsed to its
+first level, with a + per row. A Sigma pivot does the same, but the collapsed
+state is not in the REST workbook spec; only the Sigma MCP Code Mode SDK can
+set it (live-verified 2026-10-27). The builder puts every lower level on the
+pivot as an off-shelf column and lists the pivot in
+`<workdir>/auto-interactions.json` (kind `pivot-collapse`). When the Sigma MCP
+`build_workbook` tool is available:
+
+1. Wait until the last REST spec write is done (layout, repairs, finalize).
+   Any later `PUT /v2/workbooks/{id}/spec` expands the pivot again, so re-run
+   these steps after one.
+2. `ruby scripts/emit-pivot-collapse-program.rb --workdir <workdir> --json`
+   (or the `.py` twin) prints `workbookId` and a Code Mode `program`.
+3. Call `build_workbook` with that program and
+   `target: {type: existing, workbookId: <id>}`. Each pivot prints
+   `collapsed <element> at <level>`; `MISSING pivot` means the element id
+   changed, so regenerate the sidecar.
+4. Check the page in Sigma: the pivot shows the first level with + toggles.
+
+Without the Sigma MCP, skip it; the guide keeps the manual step (add the lower
+levels under the first one on the pivot's Rows and collapse it). The drill
+control (`controlType: drill`) only drills charts, so the builder never aims
+it at a pivot or table.
 
 ## Truthfulness rule
 

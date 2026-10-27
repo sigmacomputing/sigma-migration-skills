@@ -76,10 +76,13 @@ f, k = relative_date_filter_fields('day', -6, 0, NOW)
 check(k == :last && f['unit'] == 'day' && f['value'] == 7,
       "last 7 days → mode:last value:7 unit:day (got #{f.inspect})", fails)
 
-# ── shifted/spanning window (no rolling mode fits) → frozen mode:between ────
+# ── shifted/spanning window → ROLLING mode:custom with relative bounds ──────
+# (was a frozen mode:between; custom unit-ed bounds roll and are calendar-aligned)
 f, k = relative_date_filter_fields('month', -8, -3, NOW)
-check(k == :frozen && f['mode'] == 'between' && f['startDate'] && f['endDate'],
-      "shifted month window → frozen mode:between with bounds (got #{k} #{f.inspect})", fails)
+check(k == :custom && f['mode'] == 'custom' &&
+      f['startDate'] == { 'op' => 'now-minus', 'unit' => 'month', 'value' => 8 } &&
+      f['endDate'] == { 'op' => 'now-minus', 'unit' => 'month', 'value' => 3 },
+      "shifted month window → rolling mode:custom now-minus 8 .. now-minus 3 (got #{k} #{f.inspect})", fails)
 
 # ── unsupported grain + unboundable window → [nil,:unsupported] (dropped) ───
 f, k = relative_date_filter_fields('weekday', -8, -3, NOW)
@@ -94,12 +97,12 @@ all = [
 ].map(&:first).compact
 check(all.none? { |x| x['mode'] == 'relative' || x.key?('count') },
       "never emits invalid mode:'relative' or 'count' key", fails)
-check(all.all? { |x| %w[current last next between].include?(x['mode']) },
+check(all.all? { |x| %w[current last next custom between].include?(x['mode']) },
       "every emitted mode is a valid Sigma date-range mode", fails)
 
 puts
 if fails.empty?
-  puts 'ALL PASS — relative-date filters emit rolling mode:current/last/next (frozen only for shifted windows)'
+  puts 'ALL PASS — relative-date filters emit rolling mode:current/last/next (custom relative bounds for shifted windows)'
   exit 0
 else
   puts "FAILURES (#{fails.length}):"

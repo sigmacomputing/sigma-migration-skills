@@ -396,6 +396,21 @@ spec.fetch('pages', []).each do |page|
         errors << "#{name}.#{col['name']}: #{hint}"
       end
 
+      # A ref INSIDE Lookup(...) is Sigma's one sanctioned cross-element read (the scalar-LOD
+      # helper pull, `Lookup([Fixed Scalar 1/Value], 1, [Fixed Scalar 1/Key])` — live-verified to
+      # render and export; the plain-ref render-500 guard below does not apply to it).
+      lookup_refs = []
+      f.to_enum(:scan, /\bLookup\s*\(/).each do
+        from = Regexp.last_match.end(0)
+        depth = 1
+        upto = from
+        while upto < f.length && depth.positive?
+          depth += 1 if f[upto] == '('
+          depth -= 1 if f[upto] == ')'
+          upto += 1
+        end
+        lookup_refs.concat(f[from...upto].scan(/\[([^\]]+)\]/).flatten)
+      end
       f.scan(/\[([^\]]+)\]/).flatten.each do |ref|
         if ref.include?('/')
           prefix = ref.split('/', 2)[0] # split with limit 2: the name half may itself contain '/'
@@ -453,7 +468,11 @@ spec.fetch('pages', []).each do |page|
           # whitelists them and the ref resolves inside the DM), and a
           # duplicate NAME counts as the source when ANY of its ids is the
           # source id.
-          if src['kind'].to_s == 'table' && src['elementId'] &&
+          # A Lookup() bridge (value arg / lookup-key arg) to a workbook helper is
+          # the supported cross-element read — the top-N rank bridge renders and
+          # exports fine (live-probed incl. PNG); only BARE cross-element refs 500.
+          lookup_arg = f.include?("Lookup([#{ref}]") || f.include?(", [#{ref}])")
+          if src['kind'].to_s == 'table' && src['elementId'] && !lookup_refs.include?(ref) && !lookup_arg &&
              wb_el_ids_by_name.key?(prefix) && !own_prefixes.include?(prefix) &&
              !wb_el_ids_by_name[prefix].include?(src['elementId']) && prefix != el['name']
             errors << "#{name}.#{col['name']}: ref [#{ref}] targets workbook element \"#{prefix}\" which is " \
@@ -505,6 +524,20 @@ spec.fetch('pages', []).each do |page|
     if %w[bar-chart line-chart area-chart combo-chart scatter-chart region-map point-map].include?(kind)
       if (color = el['color']).is_a?(Hash) && color['id'] && !color['by'] && !color['column']
         errors << "#{name}: #{kind} color uses pie/donut shape {id: ...} — must be {by: \"category\"|\"scale\", column: \"...\"} for cartesian + map charts (API rejects with `Invalid value: object`)"
+      end
+    end
+
+    # --- region-map is {region:{columnId, regionType}} — NOT an x/y axis chart. The API rejects a
+    # region-map without `region` (and an invalid regionType), one opaque 400 at a time.
+    if kind == 'region-map'
+      region = el['region']
+      if !region.is_a?(Hash) || region['columnId'].to_s.empty?
+        errors << "#{name}: region-map missing region:{columnId, regionType} (a map is keyed on its geographic column, not xAxis/yAxis)"
+      elsif !%w[country us-state us-county us-zipcode us-cbsa us-postal-place ca-province].include?(region['regionType'].to_s)
+        errors << "#{name}: region-map regionType #{region['regionType'].inspect} is not one of country/us-state/us-county/us-zipcode/us-cbsa/us-postal-place/ca-province"
+      end
+      %w[xAxis yAxis].each do |axis_key|
+        errors << "#{name}: region-map carries #{axis_key} — only cartesian charts do; key the map with region:{columnId, regionType}" if el[axis_key]
       end
     end
 

@@ -97,6 +97,39 @@ check.call(result['status'] == 'pass' &&
            result['generated_model_relationships_excluded'] == 1,
            'generated helper relationships are excluded from source relationship coverage')
 
+# computed-key (converter/tableau.mjs computed-key rung): a relationship keyed
+# on a calculated join-key column carried Tableau's whole condition, so it is
+# wired like a serialized one; only a dropped condition makes it block.
+computed_meta = metadata.call([
+  { 'left' => 'ORDER_FACT', 'right' => 'DIM_TIME', 'derivedVia' => 'computed-key', 'keyCount' => 1 }
+])
+result = RelationshipCoverage.evaluate(computed_meta)
+check.call(result['status'] == 'pass' && result['wired'] == 1 &&
+           result.dig('entries', 0, 'derived_via') == 'computed-key',
+           'computed-key relationship coverage passes and keeps its disposition')
+result = RelationshipCoverage.evaluate(metadata.call([
+  { 'left' => 'FACT', 'right' => 'DIM', 'derivedVia' => 'computed-key', 'keyCount' => 1,
+    'partial' => true, 'droppedConditions' => 1 }
+]))
+check.call(result['status'] == 'fail' && result['blockers'].map { |row| row['kind'] } == %w[partial],
+           'a computed-key relationship that still dropped a condition blocks as partial')
+# verify-complete re-derives coverage against dm-readback.json, where
+# post-and-readback.rb has already stripped derivedVia: the computed-key edge
+# must still count as the one data-model relationship for the one source edge.
+result = RelationshipCoverage.evaluate(
+  computed_meta, source_text: '<object-graph/>',
+  model: {
+    'pages' => [{ 'elements' => [{
+      'relationships' => [{
+        'targetElementId' => 'dim-time',
+        'keys' => [{ 'sourceColumnId' => 'order-date-join-key', 'targetColumnId' => 'date-key' }]
+      }]
+    }] }]
+  }
+)
+check.call(result['status'] == 'pass' && result['model_relationships'] == 1,
+           'computed-key coverage matches a readback relationship with its provenance fields stripped')
+
 if fails.empty?
   puts 'ALL PASS'
   exit 0

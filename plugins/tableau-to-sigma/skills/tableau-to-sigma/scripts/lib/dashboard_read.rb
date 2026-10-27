@@ -314,11 +314,16 @@ module DashboardRead
 
   # Best-effort metric column for a tile: the first measure that's a real base
   # column — skip Calculation_<guid> internal calcs, "(copy)" growth calcs, and
-  # the Date dim. Returns nil (→ operator supplies it) when none is clean.
+  # the Date dim. The measures PLOTTED on Rows/Columns come first: the
+  # worksheet's `measures` list follows the datasource dependencies, so a
+  # Tooltip-shelf field can precede the plotted one. Returns nil (→ operator
+  # supplies it) when none is clean.
   def self.seed_measure(wmeta)
     return nil unless wmeta
-    (wmeta['measures'] || []).each do |m|
-      col = m['column'].to_s.gsub(/\A\[|\]\z/, '').strip
+    shelf = %w[rows_shelf cols_shelf].flat_map { |k| wmeta[k].is_a?(Hash) ? Array(wmeta[k]['fields']) : [] }
+                                     .select { |f| f.is_a?(Hash) && f['role'] == 'measure' && f['guid'] }
+                                     .map { |f| f['guid'].to_s }
+    (shelf + (wmeta['measures'] || []).map { |m| m['column'].to_s.gsub(/\A\[|\]\z/, '').strip }).each do |col|
       next if col.empty? || col =~ /\ACalculation_\d+\z/ || col =~ /\(copy\)/i || col =~ /\ADate\z/i
       return col
     end

@@ -57,7 +57,7 @@ Per-series chart type for combo-chart goes in the `yAxis.columnIds` entry as `{"
 | `page-break` | Released print break; Tableau dashboard XML has no reliable authored-break signal |
 | `repeated-container` | Released record repeater; Tableau small multiples remain chart `trellis`, not a record repeater |
 | `tabbed-container` | Released alternate-view container; use only when mutually-exclusive view membership and labels are known |
-| `divider` / `button` | Thin rules and dashboard actions (`button` remains workspace-gated) |
+| `divider` / `button` | Thin rules and dashboard actions (`button` is native by default; some workspaces gate it, with an automatic text fallback) |
 
 > **`pie-chart` not `pie`, `donut-chart` not `donut`.** The API rejects `"kind": "pie"` and `"kind": "donut"` with `Invalid kind`. Always use the `-chart` suffix for these two. The official example library shows the wrong values — do not follow it.
 
@@ -353,18 +353,33 @@ containers / blank-text bars ≤12px with a fill — `ZoneCensus.divider_zone?`)
 builder emits them automatically (`dv-<page>-<zone>` ids). Unfilled thin zones are true gaps
 and stay dropped.
 
-### Button element (workspace-gated)
+### Button element (native by default, workspace-gated on some tenants)
 
 `kind: "button"` ({text, appearance filled|outline|text, fillColor/fontColor, actions:
-[{trigger: "on-click", effects: [{effect: "open-url", openTarget: "_self|_blank|_parent",
-url}]}]}) is in the OpenAPI and passes spec/verify, but the live PUT is FEATURE-FLAGGED per
-workspace (probed 2026-07-11: 400 "`button` elements are not enabled for this workspace").
-Default emission for Tableau navigation buttons is therefore a **text-pill link**
-(`[**Label**](url)` + pill background); set `SIGMA_BUTTON_ELEMENTS=on` to emit real buttons
-on workspaces with the flag. Either way the URL is the placeholder
-`https://nav.invalid/#page=<name>` — put-layout.rb rewrites it to the live workbook page URL
-after publish (the URL doesn't exist until the POST returns). Export/toggle buttons emit
-nothing (named residue in coverage.json).
+[{trigger: "on-click", effects: [{effect: "navigate", target: {type: "page", page}}]}]}) is in
+the OpenAPI and passes spec/verify, but the live write is FEATURE-FLAGGED per workspace
+(probed 2026-07-11: 400 "`button` elements are not enabled for this workspace").
+
+Tableau navigation buttons emit as **native buttons** with an on-click `navigate` action by
+default. The target page id is provisional; put-layout.rb repairs it by page NAME after publish
+(`targetPageName` on the actions-emitted manifest entry). Fallbacks, both ending in the same
+**text pill** (`[**Label**](https://nav.invalid/#page=<name>)` in a centered paragraph, pill
+background when the button had a fill; built by `ButtonFallback.nav_pill`):
+
+- **Automatic.** On exactly the gate error, `post-and-readback.rb` rewrites every action-less
+  info-icon button to inline text and every button whose only action is one on-click `navigate`
+  to a page into the pill, then re-sends ONCE (one WARN names each id and what it became).
+  The target page NAME is resolved from the body's `pages`; an unresolvable page id falls back
+  to the button text. Buttons with any other action (writeback etc.) are left alone, so a gated
+  workspace still fails loudly on them. After the re-send succeeds, the downgraded buttons'
+  entries are removed from `<workdir>/*-actions-emitted.json` and the on-disk spec is rewritten
+  to match, so the post-publish guide lists them for manual wiring like any text-mode nav button.
+- **Up front.** `SIGMA_BUTTON_ELEMENTS=off` (or `0`/`false`) makes the builder emit the pill
+  directly, skipping the rejected first write. `on` is accepted and is the default.
+
+put-layout.rb rewrites the `nav.invalid` placeholder to `<workbook url>?:nodeId=<page id>` after
+publish (the URL doesn't exist until the POST returns). Export/toggle buttons emit nothing
+(named residue in coverage.json).
 
 ### Container element
 

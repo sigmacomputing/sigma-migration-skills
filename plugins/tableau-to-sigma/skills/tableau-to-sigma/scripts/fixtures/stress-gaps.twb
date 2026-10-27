@@ -1,0 +1,325 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for six converter gaps hit by real
+     stress migrations of star-schema workbooks:
+     - "Customer Scatter": AVG of two CUSTOMER-dimension measures per customer; its view CSV
+       leads with the dimension TWICE (a Detail copy), so the CSV column POSITIONS are not the
+       two plotted measures (the old scatter path resolved both axes to the same dim and
+       raised on the first tile, killing the whole build).
+     - "Promo Lift": a calc referencing another calc ({FIXED : ...} with no dimensions, itself
+       built on a row-level Promo Flag calc) -> never a dangling [Master/Calculation_<id>].
+     - "Tenure Bar": groups by a row-level calc built on a FIXED LOD WITH dimensions — not
+       expressible inline; the tile is dropped with a named warning, the rest still build.
+     - "Margin vs Threshold": Color = an aggregate boolean calc compared with a parameter.
+     - "Revenue Map": a filled map whose Rows/Cols are Tableau's generated Latitude/Longitude.
+     - "YoY Growth": a crosstab with the years on Columns and NOTHING on Rows. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Margin Threshold' datatype='real' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='0.67'>
+        <calculation class='tableau' formula='0.67' />
+        <range granularity='0.01' max='1.0' min='0.0' />
+      </column>
+    </datasource>
+    <datasource caption='Orders' inline='true' name='federated.sgap0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.sgap0001'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.sgap0001' name='ORDERS' table='[SALES].[ORDERS]' type='table' />
+      </connection>
+      <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+      <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+      <column caption='Promo Type' datatype='string' name='[PROMO_TYPE]' role='dimension' type='nominal' />
+      <column caption='Customer Id' datatype='string' name='[CUSTOMER_ID]' role='dimension' type='nominal' />
+      <column caption='Customer Segment' datatype='string' name='[CUSTOMER_SEGMENT]' role='dimension' type='nominal' />
+      <column caption='Lifetime Orders' datatype='integer' name='[LIFETIME_ORDERS]' role='measure' type='quantitative' />
+      <column caption='Lifetime Revenue' datatype='real' name='[LIFETIME_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+      <column caption='State' datatype='string' name='[STATE]' role='dimension' semantic-role='[State].[Name]' type='nominal' />
+      <column caption='Promo Flag' datatype='string' name='[Calculation_1001]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF ISNULL([PROMO_TYPE]) OR [PROMO_TYPE] = &apos;None&apos; THEN &apos;No Promo&apos; ELSE &apos;Promo&apos; END' />
+      </column>
+      <column caption='Baseline Non-Promo Revenue' datatype='real' name='[Calculation_1002]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED : AVG(IF [Calculation_1001] = &apos;No Promo&apos; THEN [NET_REVENUE] END)}' />
+      </column>
+      <column caption='Promo Lift %' datatype='real' name='[Calculation_1003]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='AVG([NET_REVENUE]) / MAX([Calculation_1002]) - 1' />
+      </column>
+      <column caption='Gross Margin %' datatype='real' name='[Calculation_1004]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+      </column>
+      <column caption='Margin Above Threshold' datatype='boolean' name='[Calculation_1005]' role='measure' type='nominal'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &gt;= [Parameters].[Parameter 1]' />
+      </column>
+      <column caption='First Order' datatype='date' name='[Calculation_1006]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='{FIXED [CUSTOMER_ID] : MIN([ORDER_DATE])}' />
+      </column>
+      <column caption='Tenure Days' datatype='integer' name='[Calculation_1007]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='DATEDIFF(&apos;day&apos;, [Calculation_1006], [ORDER_DATE])' />
+      </column>
+      <column caption='YoY Growth %' datatype='real' name='[Calculation_1008]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='(ZN(SUM([NET_REVENUE])) - LOOKUP(ZN(SUM([NET_REVENUE])), -1)) / ABS(LOOKUP(ZN(SUM([NET_REVENUE])), -1))'>
+          <table-calc ordering-type='Rows' />
+        </calculation>
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Customer Scatter'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Customer Id' datatype='string' name='[CUSTOMER_ID]' role='dimension' type='nominal' />
+            <column caption='Customer Segment' datatype='string' name='[CUSTOMER_SEGMENT]' role='dimension' type='nominal' />
+            <column caption='Lifetime Orders' datatype='integer' name='[LIFETIME_ORDERS]' role='measure' type='quantitative' />
+            <column caption='Lifetime Revenue' datatype='real' name='[LIFETIME_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column-instance column='[CUSTOMER_ID]' derivation='None' name='[none:CUSTOMER_ID:nk]' pivot='key' type='nominal' />
+            <column-instance column='[CUSTOMER_SEGMENT]' derivation='None' name='[none:CUSTOMER_SEGMENT:nk]' pivot='key' type='nominal' />
+            <column-instance column='[LIFETIME_ORDERS]' derivation='Avg' name='[avg:LIFETIME_ORDERS:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[LIFETIME_REVENUE]' derivation='Avg' name='[avg:LIFETIME_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Circle' />
+            <encodings>
+              <color column='[federated.sgap0001].[none:CUSTOMER_ID:nk]' />
+              <size column='[federated.sgap0001].[sum:NET_REVENUE:qk]' />
+              <tooltip column='[federated.sgap0001].[none:CUSTOMER_SEGMENT:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.sgap0001].[avg:LIFETIME_REVENUE:qk]</rows>
+        <cols>[federated.sgap0001].[avg:LIFETIME_ORDERS:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Promo Lift'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Promo Type' datatype='string' name='[PROMO_TYPE]' role='dimension' type='nominal' />
+            <column caption='Promo Flag' datatype='string' name='[Calculation_1001]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF ISNULL([PROMO_TYPE]) OR [PROMO_TYPE] = &apos;None&apos; THEN &apos;No Promo&apos; ELSE &apos;Promo&apos; END' />
+            </column>
+            <column caption='Baseline Non-Promo Revenue' datatype='real' name='[Calculation_1002]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{FIXED : AVG(IF [Calculation_1001] = &apos;No Promo&apos; THEN [NET_REVENUE] END)}' />
+            </column>
+            <column caption='Promo Lift %' datatype='real' name='[Calculation_1003]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='AVG([NET_REVENUE]) / MAX([Calculation_1002]) - 1' />
+            </column>
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_1003]' derivation='User' name='[usr:Calculation_1003:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.sgap0001].[usr:Calculation_1003:qk]</rows>
+        <cols>[federated.sgap0001].[none:ORDER_CHANNEL:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Tenure Bar'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Customer Id' datatype='string' name='[CUSTOMER_ID]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column caption='First Order' datatype='date' name='[Calculation_1006]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='{FIXED [CUSTOMER_ID] : MIN([ORDER_DATE])}' />
+            </column>
+            <column caption='Tenure Days' datatype='integer' name='[Calculation_1007]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='DATEDIFF(&apos;day&apos;, [Calculation_1006], [ORDER_DATE])' />
+            </column>
+            <column-instance column='[Calculation_1007]' derivation='None' name='[none:Calculation_1007:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.sgap0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.sgap0001].[none:Calculation_1007:ok]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Margin vs Threshold'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+            <datasource caption='Parameters' name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+            <column caption='Gross Margin %' datatype='real' name='[Calculation_1004]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+            </column>
+            <column caption='Margin Above Threshold' datatype='boolean' name='[Calculation_1005]' role='measure' type='nominal'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &gt;= [Parameters].[Parameter 1]' />
+            </column>
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_1004]' derivation='User' name='[usr:Calculation_1004:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_1005]' derivation='User' name='[usr:Calculation_1005:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.sgap0001].[usr:Calculation_1005:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.sgap0001].[none:ORDER_CHANNEL:nk]</rows>
+        <cols>[federated.sgap0001].[usr:Calculation_1004:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Revenue Map'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+          </datasources>
+          <mapsources>
+            <mapsource name='Tableau' />
+          </mapsources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+            <column caption='State' datatype='string' name='[STATE]' role='dimension' semantic-role='[State].[Name]' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[GROSS_PROFIT]' derivation='Sum' name='[sum:GROSS_PROFIT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[STATE]' derivation='None' name='[none:STATE:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Multipolygon' />
+            <encodings>
+              <color column='[federated.sgap0001].[sum:NET_REVENUE:qk]' />
+              <lod column='[federated.sgap0001].[none:STATE:nk]' />
+              <geometry column='[federated.sgap0001].[Geometry (generated)]' />
+              <tooltip column='[federated.sgap0001].[sum:NET_REVENUE:qk]' />
+              <tooltip column='[federated.sgap0001].[sum:GROSS_PROFIT:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.sgap0001].[Latitude (generated)]</rows>
+        <cols>[federated.sgap0001].[Longitude (generated)]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='YoY Growth'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.sgap0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.sgap0001'>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column caption='YoY Growth %' datatype='real' name='[Calculation_1008]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='(ZN(SUM([NET_REVENUE])) - LOOKUP(ZN(SUM([NET_REVENUE])), -1)) / ABS(LOOKUP(ZN(SUM([NET_REVENUE])), -1))'>
+                <table-calc ordering-type='Rows' />
+              </calculation>
+            </column>
+            <column-instance column='[ORDER_DATE]' derivation='Year' name='[yr:ORDER_DATE:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[Calculation_1008]' derivation='User' name='[usr:Calculation_1008:qk]' pivot='key' type='quantitative'>
+              <table-calc ordering-field='[federated.sgap0001].[yr:ORDER_DATE:ok]' ordering-type='Field' />
+            </column-instance>
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.sgap0001].[usr:Calculation_1008:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows />
+        <cols>[federated.sgap0001].[yr:ORDER_DATE:ok]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Stress Gaps'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Orders' name='federated.sgap0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='vert' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='33000' id='3' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+              <zone h='33000' id='21' name='Customer Scatter' w='50000' x='0' y='0' />
+              <zone h='33000' id='22' name='Promo Lift' w='50000' x='50000' y='0' />
+            </zone>
+            <zone h='33000' id='4' param='horz' type-v2='layout-flow' w='100000' x='0' y='33000'>
+              <zone h='33000' id='23' name='Tenure Bar' w='50000' x='0' y='33000' />
+              <zone h='33000' id='24' name='Margin vs Threshold' w='50000' x='50000' y='33000' />
+            </zone>
+            <zone h='34000' id='5' param='horz' type-v2='layout-flow' w='100000' x='0' y='66000'>
+              <zone h='34000' id='25' name='Revenue Map' w='50000' x='0' y='66000' />
+              <zone h='34000' id='26' name='YoY Growth' w='50000' x='50000' y='66000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

@@ -6,7 +6,7 @@
 #
 #   finalize_chain_predicate — the STRICT empty-actuals predicate behind the
 #     in-process --finalize chain (#2b): trips ONLY when every exportable plan
-#     chart is machine-collected, no pivot grids, no agent-mediated markers,
+#     chart is machine-collected (pivot grids included), no agent-mediated markers,
 #     no per-tile visual sidecar, AND the agent-side gate obligations are
 #     already discharged (visual verdict recorded on parity-final.json unless
 #     --fast; staged RCF ledger resolved) — a cold chain was guaranteed
@@ -102,7 +102,13 @@ Dir.mktmpdir do |d|
   plan(d, [CHART_A, { 'chart' => 'Grid', 'sigma_kind' => 'pivot-table', 'sigma_columns' => %w[r c v] }])
   actuals(d, 'Alpha Sales' => [['East', 10]], 'Grid' => [['r', 'c', 1]])
   ok, why = finalize_chain_predicate(d)
-  check(!ok && why =~ /pivot grid/, "pivot grid in plan → no chain (#{why})", fails)
+  check(why !~ /pivot/, "a collected pivot grid does not block the chain by kind (#{why})", fails)
+end
+Dir.mktmpdir do |d|
+  plan(d, [CHART_A, { 'chart' => 'Grid', 'sigma_kind' => 'pivot-table', 'sigma_columns' => %w[r c v] }])
+  actuals(d, 'Alpha Sales' => [['East', 10]])
+  ok, why = finalize_chain_predicate(d)
+  check(!ok && why =~ /not machine-collected/, "an UNCOLLECTED pivot grid → no chain (missing actuals) (#{why})", fails)
 end
 Dir.mktmpdir do |d|
   plan(d, [CHART_A])

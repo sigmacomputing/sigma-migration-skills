@@ -82,6 +82,26 @@ def attr(node: ET.Element | None, name: str) -> str | None:
     return next((value for key, value in node.attrib.items() if local_name(key) == name), None)
 
 
+def quantitative_bound(node: ET.Element, name: str) -> object:
+    """A quantitative filter's bounds. Tableau writes them as child elements
+    (<min>0</min><max>10</max>); attributes are accepted too. Numbers come back
+    numeric, and date literals lose their #...# delimiters."""
+    raw = node.get(name)
+    if raw is None:
+        child = node.find(name)
+        raw = child.text if child is not None else None
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if len(text) > 1 and text.startswith("#") and text.endswith("#"):
+        text = text[1:-1].strip()
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    if re.fullmatch(r"-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text):
+        return float(text)
+    return text
+
+
 def compact(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item is not None}
 
@@ -110,6 +130,16 @@ def float_value(value: str | None) -> float:
         return float(value or 0)
     except ValueError:
         return 0.0
+
+
+# Tableau's built-in sequential ramps referenced by name (palette='orange_10_0'
+# on an interpolated color encoding) are NOT written into the .twb. Low / mid /
+# high stops measured from Tableau-rendered heat cells; names not listed keep the
+# previous behavior (no source ramp -> the caller's default scale).
+BUILTIN_SEQUENTIAL_PALETTES = {
+    "orange_10_0": ["#ffc685", "#f07825", "#9e3d22"],
+    "blue_10_0": ["#bedef0", "#79a6ca", "#3d658d"],
+}
 
 
 def unquote_value(value: str | None, *, null_is_none: bool = False) -> str | None:
@@ -210,6 +240,36 @@ class TableauLayoutParser:
                 key=lambda item: (-item[1], item[0]),
             )
         ]
+
+    def datasource_color_maps(self) -> dict[str, list[dict[str, str]]]:
+        """Datasource-scoped categorical color assignments, keyed
+        "<datasource>|<field guid>" (also "|<guid>"). Document order, first map
+        per key wins; ramp encodings are excluded (numeric breakpoints)."""
+        cached = getattr(self, "_datasource_color_maps", None)
+        if cached is not None:
+            return cached
+        maps: dict[str, list[dict[str, str]]] = {}
+        datasources = first_child(self.root, "datasources")
+        for datasource in children(datasources, "datasource") if datasources is not None else []:
+            ds_name = attr(datasource, "name") or ""
+            for style in children(datasource, "style"):
+                for rule in children(style, "style-rule"):
+                    for encoding in children(rule, "encoding"):
+                        if attr(encoding, "attr") != "color" or "interpolated" in (attr(encoding, "type") or ""):
+                            continue
+                        pairs = []
+                        for mapping in children(encoding, "map"):
+                            color = (attr(mapping, "to") or "").strip().lower()
+                            bucket = first_child(mapping, "bucket")
+                            member = unquote_value(text_of(bucket) if bucket is not None else None, null_is_none=True)
+                            if re.fullmatch(r"#[0-9a-f]{6}", color) and member:
+                                pairs.append({"member": member, "color": color})
+                        guid = self.guid_from_param(attr(encoding, "field"))
+                        if pairs and guid:
+                            maps.setdefault(f"{ds_name}|{guid}", pairs)
+                            maps.setdefault(f"|{guid}", pairs)
+        self._datasource_color_maps = maps
+        return maps
 
     def _index_columns(self) -> None:
         guid_shape = re.compile(r"^(?:[0-9a-f]{8}-[0-9a-f-]{20,}|Calculation_\d+)", re.I)
@@ -415,7 +475,8 @@ class TableauLayoutParser:
                 "include_null": attr(node, "include-null"),
             })
         elif filter_class == "quantitative":
-            result.update({"kind": "number-range", "min": attr(node, "min"), "max": attr(node, "max")})
+            result.update({"kind": "number-range", "min": quantitative_bound(node, "min"),
+                           "max": quantitative_bound(node, "max")})
         else:
             result["kind"] = "unknown"
         if (
@@ -493,6 +554,79 @@ class TableauLayoutParser:
                 result["fields"].append({"raw": raw, "role": "measure-names"})
         return result
 
+    @staticmethod
+    def split_top_level(text: str | None, separator: str) -> list[str]:
+        """Split on `separator` at bracket depth 0 (a `[Sales + Profit]` caption keeps its `+`)."""
+        parts: list[str] = []
+        buffer: list[str] = []
+        bracket_depth = 0
+        for char in text or "":
+            if char == "[":
+                bracket_depth += 1
+            elif char == "]" and bracket_depth:
+                bracket_depth -= 1
+            if char == separator and bracket_depth == 0:
+                parts.append("".join(buffer))
+                buffer = []
+            else:
+                buffer.append(char)
+        parts.append("".join(buffer))
+        return parts
+
+    def parse_dual_axis_series(
+        self, worksheet: ET.Element, rows_shelf: dict[str, Any], cols_shelf: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Unsynchronized dual-axis combo: `([ds].[sum:A:qk] + [ds].[usr:B:qk])` plus one
+        `<pane y-axis-name=...>` per measure carrying its own mark class. Series in shelf
+        order, primary axis first; None unless BOTH the two-measure `+` shelf and a
+        matching pane per measure exist. Mirrors parse_dual_axis_series in
+        parse-twb-layout.rb."""
+        if rows_shelf["has_measure_values"] or cols_shelf["has_measure_values"]:
+            return None
+        terms: list[str] | None = None
+        axis_attr = ""
+        for shelf, attr_name in ((rows_shelf, "y-axis-name"), (cols_shelf, "x-axis-name")):
+            for field in self.split_top_level(shelf["raw"], "/"):
+                parts = [re.sub(r"^[\s(]+|[)\s]+$", "", term.strip())
+                         for term in self.split_top_level(field, "+")]
+                if len(parts) != 2:
+                    continue
+                classes = [self.classify_shelf_field(term) for term in parts]
+                if not all(role == "measure" and not discrete for role, _d, discrete in classes):
+                    continue
+                terms, axis_attr = parts, attr_name
+                break
+            if terms:
+                break
+        if not terms:
+            return None
+        panes = []
+        for pane in descendants(worksheet, "pane"):
+            name = attr(pane, axis_attr) or ""
+            if not name:
+                continue
+            mark = first_child(pane, "mark")
+            panes.append({"name": name, "mark_class": attr(mark, "class") if mark is not None else None})
+
+        def instance(ref: str) -> str | None:
+            found = re.search(r"(\[[^\[\]]*\])\s*$", ref or "")
+            return found.group(1) if found else None
+
+        series = []
+        for index, term in enumerate(terms):
+            pane = next((item for item in panes if instance(item["name"]) == instance(term)), None)
+            if pane is None:
+                return None
+            _role, derivation, _discrete = self.classify_shelf_field(term)
+            series.append({
+                "raw": term, "guid": self.guid_from_param(term), "derivation": derivation,
+                "mark_class": pane["mark_class"] or None,
+                "axis": "primary" if index == 0 else "secondary",
+            })
+        if len({item["raw"] for item in series}) < 2:
+            return None
+        return series
+
     def parse_measure_names_sort(
         self, worksheet: ET.Element, rows_shelf: dict[str, Any], cols_shelf: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -545,6 +679,24 @@ class TableauLayoutParser:
         if not text:
             return None
         return text, dropped
+
+    def parse_tooltip_fields(self, worksheet: ET.Element) -> list[str]:
+        # Raw field refs a chart's hover tooltip shows: every Tooltip-shelf channel
+        # (`<encoding attr='tooltip' column=…>` or `<tooltip column=…>`) plus the
+        # `<[ds].[prefix:field:kind]>` tokens in the customized tooltip's runs.
+        # Ordered, deduped; Measure Names / Measure Values / Multiple Values dropped.
+        refs: list[str] = []
+        for encodings in descendants(worksheet, "encodings"):
+            for encoding in children(encodings):
+                channel = attr(encoding, "attr") if local_name(encoding.tag) == "encoding" else local_name(encoding.tag)
+                column = (attr(encoding, "column") or "").strip()
+                if channel == "tooltip" and column:
+                    refs.append(column)
+        for tooltip in descendants(worksheet, "customized-tooltip"):
+            for run in descendants(tooltip, "run"):
+                refs.extend(match.strip() for match in re.findall(r"<(\[[^<>]*\]\.\[[^<>]*\])>", text_of(run)))
+        refs = list(dict.fromkeys(refs))
+        return [ref for ref in refs if not re.search(r"Measure Names|Measure Values|Multiple Values", ref, re.I)]
 
     def parse_customized_label(self, worksheet: ET.Element) -> dict[str, Any] | None:
         label = first_desc(worksheet, "customized-label")
@@ -780,6 +932,7 @@ class TableauLayoutParser:
             # An empty `<rows />` is None (Ruby's twb_xml text normalizes the
             # genuinely-empty case to nil), so 'raw' is dropped identically.
             rows_shelf, cols_shelf = self.parse_shelf(text_of(rows_node) or None if rows_node is not None else None), self.parse_shelf(text_of(cols_node) or None if cols_node is not None else None)
+            dual_axis_series = self.parse_dual_axis_series(worksheet, rows_shelf, cols_shelf)
             text_mark = str(mark_class or "").lower() in {"text", "square"}
             automatic = str(mark_class or "").lower() == "automatic" or not str(mark_class or "").strip()
             both_dims = rows_shelf["dim_count"] >= 1 and cols_shelf["dim_count"] >= 1
@@ -857,9 +1010,13 @@ class TableauLayoutParser:
                             + r"(.*?)</color-palette>"
                         )
                         body = re.search(pattern, self.twb_text, re.I | re.DOTALL)
-                        colors = re.findall(r"#[0-9a-fA-F]{6}", body.group(1) if body else "")
+                        colors = [color.lower() for color in re.findall(r"#[0-9a-fA-F]{6}", body.group(1) if body else "")]
+                        # Built-in named ramps are not serialized in the .twb:
+                        # fall back to the measured built-in ends.
+                        if len(colors) < 2:
+                            colors = list(BUILTIN_SEQUENTIAL_PALETTES.get(palette_name.lower(), []))
                         if len(colors) >= 2:
-                            heat_scheme = [color.lower() for color in colors]
+                            heat_scheme = colors
                 if "interpolated" not in encoding_type and series_colors is None:
                     pairs = []
                     for mapping in children(encoding, "map"):
@@ -872,6 +1029,25 @@ class TableauLayoutParser:
                         series_colors = pairs
                         guid = self.guid_from_param(attr(encoding, "field"))
                         series_color_field = (self.columns_by_guid.get(guid or "") or {}).get("caption") or guid
+
+            # DATASOURCE-scoped assignments: Tableau also persists the
+            # member->color map on the <datasource>, keyed by the encoded field
+            # with no worksheet-level copy, so a sheet coloring by that field
+            # carries no <encoding> of its own. A worksheet-level map always
+            # wins; the datasource map is the fallback, matched on
+            # (datasource, field).
+            color_ref = (channels.get("color") or {}).get("column")
+            if series_colors is None and color_ref:
+                ds_match = re.match(r"\[([^\]]+)\]\.", color_ref)
+                color_guid = self.guid_from_param(color_ref)
+                maps = self.datasource_color_maps()
+                hit = color_guid and (
+                    maps.get(f"{ds_match.group(1) if ds_match else ''}|{color_guid}")
+                    or maps.get(f"|{color_guid}")
+                )
+                if hit:
+                    series_colors = [dict(pair) for pair in hit]
+                    series_color_field = (self.columns_by_guid.get(color_guid) or {}).get("caption") or color_guid
 
             mark_labels_show = any(
                 attr(fmt, "attr") == "mark-labels-show" and attr(fmt, "value") == "true"
@@ -900,7 +1076,8 @@ class TableauLayoutParser:
                 "series_color_field": series_color_field, "filters": filters,
                 "hidden_filters": hidden_filters, "aggregations": aggregations,
                 "channels": channels, "formats": formats, "calculations": calculations,
-                "dual_axis": axis_synced, "measures": measures, "ref_marks": ref_marks,
+                "dual_axis": axis_synced, "dual_axis_series": dual_axis_series,
+                "measures": measures, "ref_marks": ref_marks,
                 "axis_formats": axis_formats, "mark_labels_show": mark_labels_show,
                 "field_labels_hidden": field_labels_hidden,
                 "rows_shelf": rows_shelf, "cols_shelf": cols_shelf,
@@ -918,6 +1095,9 @@ class TableauLayoutParser:
                 self.worksheets[name]["tooltip_text"] = tooltip[0]
                 if tooltip[1]:
                     self.worksheets[name]["tooltip_dynamic_dropped"] = True
+            tooltip_fields = self.parse_tooltip_fields(worksheet)
+            if tooltip_fields:
+                self.worksheets[name]["tooltip_fields"] = tooltip_fields
 
     @staticmethod
     def infer_automatic_kind(meta: dict[str, Any]) -> str:
@@ -1248,6 +1428,7 @@ class TableauLayoutParser:
             "formats": chart.get("formats") if kind == "chart" else None,
             "calculations": chart.get("calculations") if kind == "chart" else None,
             "dual_axis": chart.get("dual_axis") if kind == "chart" else None,
+            "dual_axis_series": chart.get("dual_axis_series") if kind == "chart" else None,
             "measures": chart.get("measures") if kind == "chart" else None,
             "ref_marks": chart.get("ref_marks") if kind == "chart" else None,
             "axis_formats": chart.get("axis_formats") if kind == "chart" else None,
@@ -1288,6 +1469,9 @@ class TableauLayoutParser:
             flat["tooltip_text"] = chart["tooltip_text"]
             if chart.get("tooltip_dynamic_dropped"):
                 flat["tooltip_dynamic_dropped"] = True
+        # Hover-tooltip field refs (only stamped when present).
+        if kind == "chart" and chart.get("tooltip_fields"):
+            flat["tooltip_fields"] = chart["tooltip_fields"]
         return flat
 
     def parse_dashboards(self) -> list[dict[str, Any]]:
@@ -1355,7 +1539,8 @@ class TableauLayoutParser:
                     "hidden_filters": meta.get("hidden_filters") or [],
                     "aggregations": meta.get("aggregations"), "channels": meta.get("channels"),
                     "formats": meta.get("formats"), "calculations": meta.get("calculations"),
-                    "dual_axis": meta.get("dual_axis"), "measures": meta.get("measures"),
+                    "dual_axis": meta.get("dual_axis"), "dual_axis_series": meta.get("dual_axis_series"),
+                    "measures": meta.get("measures"),
                     "ref_marks": meta.get("ref_marks"), "axis_formats": meta.get("axis_formats"),
                     "mark_labels_show": meta.get("mark_labels_show"),
                     "field_labels_hidden": meta.get("field_labels_hidden"),
@@ -1445,6 +1630,30 @@ class TableauLayoutParser:
             if pairs and len(pairs) > len(result.get(caption, [])):
                 result[caption] = pairs
         return result
+
+    def parse_drill_paths(self) -> list[dict[str, Any]]:
+        # <datasource><drill-paths><drill-path name='H'><field>[level]</field>…:
+        # the datasource's hierarchies in level order. `fields` keeps the raw
+        # names; `captions` resolves each through the column lookup.
+        paths: list[dict[str, Any]] = []
+        for datasource in descendants(self.root, "datasource"):
+            drills = [drill for container in children(datasource, "drill-paths") for drill in children(container, "drill-path")]
+            for drill in drills:
+                raw_fields = [text_of(field).strip() for field in children(drill, "field") if text_of(field).strip()]
+                if not raw_fields:
+                    continue
+                captions = []
+                for raw in raw_fields:
+                    guid = self.guid_from_param(raw)
+                    captions.append(
+                        ((self.columns_by_guid.get(guid or "") or {}).get("caption")) or guid
+                        or re.sub(r"^\[|\]$", "", raw)
+                    )
+                entry = {"name": attr(drill, "name") or "", "datasource": attr(datasource, "name") or "",
+                         "fields": raw_fields, "captions": captions}
+                if entry not in paths:
+                    paths.append(entry)
+        return paths
 
     def parse_shared_filters(self) -> list[dict[str, Any]]:
         datasource_names = {attr(item, "name") for item in self.top_level_datasources() if attr(item, "name")}
@@ -1542,6 +1751,9 @@ class TableauLayoutParser:
             "parameters": parameters, "column_aliases": self.parse_column_aliases(),
             "column_formats": self.column_formats, "columns_by_guid": self.columns_by_guid,
         }
+        drill_paths = self.parse_drill_paths()
+        if drill_paths:
+            meta["drill_paths"] = drill_paths
         return dashboards, meta, stories
 
 

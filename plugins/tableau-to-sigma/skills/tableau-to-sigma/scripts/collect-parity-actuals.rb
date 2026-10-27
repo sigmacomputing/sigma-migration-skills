@@ -7,11 +7,16 @@
 # element CSV export (POST /v2/workbooks/{wb}/export → poll
 # GET /v2/query/{q}/download — the same verified flow export-chart-png.rb uses)
 # returns exactly the plotted channels of a chart element with column display
-# names as headers, so it can fill the parity plan's actuals for every chart
-# kind EXCEPT pivot-tables (their CSV export is the WIDE pivot grid, not the
-# long row/col/value tuples the plan compares — verified on a wide field
-# crosstab element 2026-06-12). Grouped "level" tables export in
-# long form and ARE poolable (verified on el-fat-status-table).
+# names as headers, so it fills the parity plan's actuals for every chart kind.
+# A pivot-table's CSV export is the WIDE pivot grid, not the long row/col/value
+# tuples the plan compares (verified on a wide field crosstab element
+# 2026-06-12), so pivots read the element's JSON export instead, which returns
+# the long-form leaf rows keyed by column display name (live-verified
+# 2026-10-27 on single- and multi-measure pivots, with and without totals and
+# the stacked Measure Names layout; extra subtotal keys are ignored by the
+# by-name mapping). Matches the Python twin. No Sigma MCP is needed for parity.
+# Grouped "level" tables export in long form and ARE poolable (verified on
+# el-fat-status-table).
 #
 # Pooled N-wide (default 5 — the discovery pool's measured sweet spot) with the
 # same backoff-retry pattern tableau-discover.rb uses. Runs through
@@ -37,9 +42,10 @@
 #
 # Output: --out gets { "<chart name>": [[v, v, ...], ...], ... } for every
 # chart it could collect (MERGED into an existing file, never clobbering keys
-# it didn't collect). Charts it cannot serve (pivot grids, export errors,
-# unmappable columns) are listed on stdout — the agent supplies those via
-# mcp-v2 (phase6-parity prints the exact queries).
+# it didn't collect). Charts it cannot serve (export errors, unmappable
+# columns) are listed on stdout — the agent supplies those via a Sigma MCP
+# query when one is connected, otherwise via render-verify or warehouse SQL
+# (phase6-parity prints the exact queries).
 #
 # PIVOT-TOTALS JSON FALLBACK (SPEED — issue #422). Sigma's element CSV export
 # 500s server-side for ANY pivot carrying a `totals` key (probe-isolated live;
@@ -284,7 +290,6 @@ end
 # data is meaningless; agent-mediated/warehouse path) /
 # [:timeout, reason] (the shared total deadline expired).
 def collect_chart(c, el_by_id, wb, deadline)
-  return [:skip, 'pivot-table — CSV export is the wide grid; agent-mediated (mcp-v2)'] if c['sigma_kind'] == 'pivot-table'
   el = el_by_id[c['sigma_element_id']]
   return [:fail, 'element not in workbook spec'] unless el
   name_for = (el['columns'] || []).each_with_object({}) { |col, h| h[col['id']] = col['name'].to_s.strip }
@@ -293,11 +298,13 @@ def collect_chart(c, el_by_id, wb, deadline)
   want_formats = (c['sigma_columns'] || []).map { |id| format_for[id] }
   return [:fail, "plan column id(s) missing from element: #{(c['sigma_columns'] || []).zip(want_names).select { |_, n| n.nil? }.map(&:first).join(', ')}"] if want_names.any?(&:nil?)
 
-  # PROACTIVE pivot-totals fallback (SPEED — issue #422): a `totals` key 500s
-  # this element's CSV export every time, so skip the doomed round-trip + retry
-  # and read the JSON export straight away.
-  if el.is_a?(Hash) && el.key?('totals') && !el['totals'].nil? &&
-     !(el['totals'].respond_to?(:empty?) && el['totals'].empty?)
+  # A pivot's CSV export is the wide grid, so it always reads the long-form
+  # JSON export. PROACTIVE pivot-totals fallback (SPEED — issue #422): a
+  # `totals` key 500s this element's CSV export every time, so skip the doomed
+  # round-trip + retry and read the JSON export straight away.
+  if c['sigma_kind'] == 'pivot-table' ||
+     (el.is_a?(Hash) && el.key?('totals') && !el['totals'].nil? &&
+      !(el['totals'].respond_to?(:empty?) && el['totals'].empty?))
     return collect_chart_json(c['sigma_element_id'], want_names, want_formats, wb, deadline)
   end
 
@@ -432,7 +439,7 @@ end
 File.write(opts[:out], JSON.pretty_generate(existing))
 
 wall = (Time.now - t_start).round(1)
-puts "collect-parity-actuals: #{ok.size}/#{charts.size} chart(s) collected via pooled CSV export " \
+puts "collect-parity-actuals: #{ok.size}/#{charts.size} chart(s) collected via pooled element export (CSV; JSON for pivots) " \
      "in #{wall}s (pool=#{opts[:pool]}) → #{opts[:out]}"
 skipped.each { |name, (_, why)| puts "  AGENT-MEDIATED  #{name}: #{why}" }
 if marked.any?

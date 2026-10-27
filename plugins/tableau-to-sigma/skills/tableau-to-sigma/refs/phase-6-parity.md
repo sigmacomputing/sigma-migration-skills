@@ -147,14 +147,14 @@ The output is wrapped as `{ "extract": <bool>, "charts": [...] }` — the `extra
 `scripts/collect-parity-actuals.rb` automatically: it pools the element CSV
 exports (`POST /v2/workbooks/{wb}/export` → poll `GET /v2/query/{q}/download`,
 5-wide, with the discovery pool's backoff pattern, under `lib/sigma_rest`'s
-auto-refresh) and fills `parity-actuals.json` for every chart kind except
-pivot-tables — the export returns exactly the plotted channels with column
-display names as headers, in the long form the plan compares (verified on the
-40-chart fat workbook: grouped "level" tables included; pivot CSV export is
-the WIDE grid, so pivots stay agent-mediated). ~40 charts collect in well
+auto-refresh) and fills `parity-actuals.json` for every chart kind — the
+export returns exactly the plotted channels with column display names as
+headers, in the long form the plan compares (verified on the 40-chart fat
+workbook: grouped "level" tables included); pivots use the JSON export (long
+form; their CSV is the wide grid). No Sigma MCP needed. ~40 charts collect in well
 under a minute vs ~6 minutes of serial MCP queries.
 
-For every REMAINING chart (pass 1 prints exactly those), query Sigma via the MCP tool. **Fire all N chart queries in a SINGLE parallel tool-use batch** — one message with N `mcp__sigma-mcp-v2__query` tool blocks side-by-side. Each individual query takes ~5–20s; parallel cap is bounded by the slowest one, sequential is N × that.
+For every REMAINING chart (export failures/timeouts/truncations only): without the MCP, re-run `collect-parity-actuals.rb` (higher `--timeout`/`--row-limit`) or use warehouse SQL; with it, query via the MCP. **Fire all N queries in ONE parallel tool-use batch** (N `mcp__sigma-mcp-v2__query` blocks side-by-side): each takes ~5–20s, so parallel is bounded by the slowest, sequential is N × that.
 
 ```
 mcp__sigma-mcp-v2__query  type="workbook"  workbookId="<wbId>"

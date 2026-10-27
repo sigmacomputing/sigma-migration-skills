@@ -8,6 +8,10 @@
 #
 # Top-level defs on purpose: build-charts-from-signals.rb has always defined
 # these at top level, and the offline tests extract them by `^def <name>`.
+#
+# The one piece of state is scalar_fixed_lods (below): a provenance note for the
+# GrandTotal(...) text a no-dimension FIXED LOD translates to, so the chart builder
+# can tell that text from any other and re-route it.
 
 # Tableau "User"-aggregated calc fields (derivation=User) are already-aggregated
 # expressions like `SUM([Returns]) / COUNT([Order Id])` — wrapping them in
@@ -36,16 +40,101 @@ def worksheet_calculation_for(calculations, *candidates)
   end
 end
 
-def translated_calc_reference(name, mmap, columns_by_guid)
+def translated_calc_reference(name, mmap, columns_by_guid, depth: 0)
   key = name.to_s.gsub(/^\[|\]$/, '').strip
-  return nil if key.empty?
+  return nil if key.empty? || depth > 5
   mapped = map_column(key, mmap)
   return "[Master/#{mapped['name']}]" if mapped
   info = (columns_by_guid || {})[key]
+  # A calc referenced by its Tableau-internal name (Calculation_<id>) may already
+  # live on the master under its CAPTION — the master-map keys captions, never
+  # internal names.
+  caption = info && info['caption'].to_s.strip
+  if caption && !caption.empty? && !caption.casecmp?(key) && (by_caption = map_column(caption, mmap))
+    return "[Master/#{by_caption['name']}]"
+  end
   active = strip_tableau_comments(info && info['formula']).strip
   return nil if active.empty?
-  translate_dim_calc(active, mmap, columns_by_guid) ||
-    translate_row_level_calc(active, mmap, columns_by_guid)
+  translate_dim_calc(active, mmap, columns_by_guid, depth: depth + 1) ||
+    translate_row_level_calc(active, mmap, columns_by_guid, depth: depth + 1)
+end
+
+# A Tableau-INTERNAL calc name — `Calculation_<digits>` or `<Field> (copy)_<digits>`.
+# It is the .twb's private identifier for a calc, never a Sigma/master column, so
+# `[Master/<internal name>]` can only ever be a dangling reference.
+INTERNAL_CALC_NAME_RE = /\A(?:Calculation_\d+|.+\(copy\)(?:\s*\d+)?_\d+)\z/
+
+# Resolve ONE bracketed token that appears inside a calc formula (a calc-on-calc
+# reference) to a Sigma fragment over master columns. Returns [kind, text]:
+#   [:plain, '[Master/X]']        an ordinary token — the caller's historical
+#                                 `[Master/<token>]` (a physical column, or a caption
+#                                 the master-map does not know)
+#   [:ref,   '[Master/X]']        resolves to a master column (by name or caption)
+#   [:expr,  '(<sigma>)']         a ROW-LEVEL calc inlined as a parenthesized expression
+#   [:scalar,'GrandTotal(Agg(..))'] a table-scoped `{FIXED : AGG(expr)}` LOD (no dims) —
+#                                 one value for the whole view, whatever it is grouped by
+#   [:unresolved, nil]            an internal calc name nothing above could express
+#                                 (e.g. a FIXED LOD with dims, or an aggregate calc used as
+#                                 a row-level operand). The caller MUST degrade, never emit
+#                                 `[Master/Calculation_<id>]`.
+def resolve_calc_token(token, mmap, columns_by_guid, depth: 0)
+  key = token.to_s.gsub(/^\[|\]$/, '').strip
+  m = map_column(key, mmap)
+  return [:ref, "[Master/#{m['name']}]"] if m
+  cbg = columns_by_guid || {}
+  info = cbg[key]
+  info ||= cbg.values.find { |v| v.is_a?(Hash) && v['caption'].to_s.strip == key && !v['formula'].to_s.strip.empty? }
+  internal = key =~ INTERNAL_CALC_NAME_RE
+  return [:plain, "[Master/#{key}]"] unless info.is_a?(Hash) && (internal || !info['formula'].to_s.strip.empty?)
+  caption = info['caption'].to_s.strip
+  if !caption.empty? && !caption.casecmp?(key) && (mc = map_column(caption, mmap))
+    return [:ref, "[Master/#{mc['name']}]"]
+  end
+  active = strip_tableau_comments(info['formula']).gsub(/\s+/, ' ').strip
+  if depth <= 5 && !active.empty?
+    if (scalar = translate_scalar_fixed_lod(active, mmap, cbg, depth: depth + 1))
+      return [:scalar, scalar]
+    end
+    expr = translate_dim_calc(active, mmap, cbg, depth: depth + 1) ||
+           translate_row_level_calc(active, mmap, cbg, depth: depth + 1)
+    return [:expr, "(#{expr})"] if expr
+  end
+  internal ? [:unresolved, nil] : [:plain, "[Master/#{key}]"]
+end
+
+# The `GrandTotal(<aggregate>)` texts translate_scalar_fixed_lod has emitted, mapped to
+# their bare aggregate (`Avg(If(...))`). A GrandTotal is evaluated AFTER a chart's own
+# filters, but a Tableau `{FIXED : AGG(x)}` ignores the view's dimension filters, so a
+# chart that carries such a scalar replaces it with a filter-proof helper lookup
+# (build-charts-from-signals.rb route_scalar_lods!) — and needs to know which
+# GrandTotal(...) in its formulas came from a FIXED LOD (a window TOTAL() must keep
+# the view's filters).
+def scalar_fixed_lods
+  $scalar_fixed_lods ||= {}
+end
+
+# `{FIXED : AGG(<expr>)}` — a FIXED LOD with NO dimensions is one table-wide value,
+# independent of the view's grouping: Sigma's GrandTotal(<aggregate>) (the verified
+# unbounded-window idiom, refs/coverage-matrix.md). The <expr> is a bare column/calc
+# ref or a row-level IF/CASE/arithmetic expression. Returns nil for anything else
+# (dims present, nested LOD, inner that does not translate). GrandTotal still sees the
+# view's own filters; a chart re-routes it through a helper (scalar_fixed_lods).
+def translate_scalar_fixed_lod(formula, mmap, columns_by_guid = {}, depth: 0)
+  s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
+  m = s.match(/\A\{\s*FIXED\s*:\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\((.+)\)\s*\}\z/i)
+  return nil unless m
+  inner = m[2].strip
+  return nil if inner =~ /\{\s*(?:FIXED|INCLUDE|EXCLUDE)\b/i
+  arg = translate_dim_calc(inner, mmap, columns_by_guid, depth: depth + 1) ||
+        translate_row_level_calc(inner, mmap, columns_by_guid, depth: depth + 1)
+  return nil unless arg
+  agg = case m[1].upcase
+        when 'COUNT'  then "CountIf(IsNotNull(#{arg}))"
+        when 'COUNTD' then "CountDistinct(#{arg})"
+        else "#{USER_AGG_FN[m[1].upcase]}(#{arg})"
+        end
+  scalar_fixed_lods["GrandTotal(#{agg})"] = agg
+  "GrandTotal(#{agg})"
 end
 
 def translate_sla_ratio(formula, mmap, columns_by_guid)
@@ -136,7 +225,7 @@ end
 # extra_fns: additional Sigma function names the residue validator should
 # accept (the window-calc path passes WINDOW_SIGMA_FNS so Cumulative*/Moving*/
 # Rank/Lag/... formulas validate; plain ratio decomposition passes none).
-def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [])
+def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [], depth: 0)
   s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
   return nil if s.empty?
   sla = translate_sla_ratio(s, mmap, columns_by_guid)
@@ -177,15 +266,37 @@ def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [
       return "#{function}(#{row_formula}) #{conditional[3]}".strip
     end
   end
+  # An aggregate over a calc referenced by its Tableau-internal name must resolve to
+  # the calc's caption/translation — a `[Master/Calculation_<id>]` is a dangling ref.
+  # When a calc-on-calc ref cannot be expressed the WHOLE translation is refused (nil)
+  # so the caller takes its honest degraded path.
+  unresolved_calc = false
   out = s.gsub(/\b(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[([^\]]+)\]\s*\)/i) do
+    whole = Regexp.last_match(0)
     agg = Regexp.last_match(1).upcase
     col = Regexp.last_match(2)
     m   = map_column(col, mmap)
     ref = if m
             "[Master/#{m['name']}]"
+          elsif respond_to?(:resolve_calc_token, true)
+            kind, text = resolve_calc_token(col, mmap, columns_by_guid, depth: depth)
+            case kind
+            when :scalar
+              # AGG over a table-wide constant is that constant for MAX/MIN/AVG/MEDIAN;
+              # SUM/COUNT of it would multiply the constant by the row count.
+              if %w[MAX MIN AVG MEDIAN].include?(agg)
+                next text
+              else
+                unresolved_calc = true
+                next whole
+              end
+            when :unresolved
+              unresolved_calc = true
+              next whole
+            else text
+            end
           else
-            translated_calc_reference(col, mmap, columns_by_guid) ||
-              "[Master/#{col}]"
+            translated_calc_reference(col, mmap, columns_by_guid) || "[Master/#{col}]"
           end
     case agg
     when 'COUNT'  then "CountIf(IsNotNull(#{ref}))"
@@ -193,6 +304,7 @@ def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [
     else "#{USER_AGG_FN[agg]}(#{ref})"
     end
   end
+  return nil if unresolved_calc
   # ZN(expr) → Coalesce(expr, 0). One nesting level of parens is enough for
   # ZN(Sum([x]))-style wrappers; loop to handle repeated occurrences.
   while out =~ /\bZN\s*\(((?:[^()]|\([^()]*(?:\([^()]*\)[^()]*)*\))*)\)/i
@@ -203,11 +315,42 @@ def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [
   residue = out.dup
   residue.gsub!(/"(?:\\.|[^"\\])*"/, '1') # string literals ("desc", "grand_total")
   residue.gsub!(/\[Master\/[^\]]+\]/, '1')
-  allowed = %w[Sum Avg Min Max Median CountDistinct CountIf IsNotNull Coalesce If Abs Null NULL] + extra_fns
+  residue.gsub!(/\[ctl-[^\]]+\]/, '1') # control refs from translate_param_aggregate_calc
+  allowed = %w[Sum Avg Min Max Median CountDistinct CountIf IsNotNull IsNull Coalesce If Abs GrandTotal Null NULL] + extra_fns
   residue.gsub!(/\b(#{allowed.map { |f| Regexp.escape(f) }.join('|')})\b/, '')
   residue.gsub!(/\b(?:and|or|not|null)\b/i, '')
   return nil unless residue =~ %r{\A[\s()+\-*/.,\d!=<>]*\z}
   out
+end
+
+# A PARAMETER-DRIVEN aggregate calc — `SUM([a]) / SUM([b]) >= [Parameters].[Threshold]`,
+# `SUM([x]) * [Parameters].[Scale]` — cannot live on the data model (a DM/master column
+# has no workbook control to read), so it is an ELEMENT-LEVEL Sigma formula whose
+# parameter refs are the workbook control ids (`[ctl-param-<caption>]`, see
+# param_control_ref — the same ids the Switch/If parameter swaps and the auto-emitted
+# parameter controls use). `parameters` is meta['parameters'] ({name, caption}).
+# Returns { 'formula' =>, 'control_ids' => [...] } or nil (no parameter ref, or the
+# aggregate part does not translate).
+def translate_param_aggregate_calc(formula, parameters, mmap, columns_by_guid = {})
+  s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
+  return nil unless s =~ /\[Parameters?(?:\s*\([^)]*\))?\]\s*\.\s*\[/i
+  names = {}
+  Array(parameters).each do |parameter|
+    n = parameter['name'].to_s.gsub(/^\[|\]$/, '').strip
+    c = parameter['caption'].to_s.strip
+    names[n] = c unless n.empty? || c.empty?
+  end
+  controls = []
+  with_controls = s.gsub(/\[Parameters?(?:\s*\([^)]*\))?\]\s*\.\s*\[([^\]]+)\]/i) do
+    token = Regexp.last_match(1).strip
+    ref = param_control_ref(names[token] || token)
+    controls << ref[1..-2]
+    ref
+  end
+  out = translate_user_agg_formula(with_controls, mmap, columns_by_guid)
+  return nil unless out
+  out = out.gsub(/\bAND\b/, 'and').gsub(/\bOR\b/, 'or').gsub(/\bNOT\b/, 'not')
+  { 'formula' => out, 'control_ids' => controls.uniq }
 end
 
 # Row-level (non-aggregated) Tableau worksheet calc → Sigma formula over master
@@ -215,11 +358,11 @@ end
 # DATEDIFF calc). Resolves GUID refs to captions, renames the common Tableau
 # date/logic functions, rewrites bare refs to [Master/...]. Returns nil when
 # the result still contains constructs we can't vouch for.
-def translate_row_level_calc(formula, mmap, columns_by_guid = {})
+def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
   return nil if s.empty?
   if (wrapped_if = s.match(/\A\(?\s*(IF\b.*\bEND)\s*\)?\s*(.*)\z/i))
-    translated_if = translate_dim_calc(wrapped_if[1], mmap, columns_by_guid)
+    translated_if = translate_dim_calc(wrapped_if[1], mmap, columns_by_guid, depth: depth)
     return "#{translated_if} #{wrapped_if[2]}".strip if translated_if
   end
   s = s.gsub(/\[([0-9a-f\-]{36})\]/i) do
@@ -259,12 +402,22 @@ def translate_row_level_calc(formula, mmap, columns_by_guid = {})
        .gsub(/\bSTARTSWITH\s*\(/i, 'StartsWith(').gsub(/\bENDSWITH\s*\(/i, 'EndsWith(')
        .gsub(/\bMID\s*\(/i, 'Mid(')
   s = s.gsub(/'([^']*)'/) { %("#{Regexp.last_match(1)}") } # remaining single-quoted strings
+  unresolved_calc = false
   out = s.gsub(/\[([^\]]+)\]/) do
     cap = Regexp.last_match(1).strip
     next Regexp.last_match(0) if cap.start_with?('Master/') || cap.start_with?('ctl-')
     m = map_column(cap, mmap)
-    "[Master/#{m ? m['name'] : cap}]"
+    next "[Master/#{m['name']}]" if m
+    next "[Master/#{cap}]" unless respond_to?(:resolve_calc_token, true)
+    kind, text = resolve_calc_token(cap, mmap, columns_by_guid, depth: depth)
+    # A scalar (FIXED, no dims) LOD is an AGGREGATE — never a row-level operand.
+    if kind == :unresolved || kind == :scalar
+      unresolved_calc = true
+      next Regexp.last_match(0)
+    end
+    text
   end
+  return nil if unresolved_calc
   residue = out.dup
   residue.gsub!(/"(?:\\.|[^"\\])*"/, '1')
   residue.gsub!(/\[Master\/[^\]]+\]/, '1')
@@ -282,6 +435,7 @@ def translate_boolean_filter_calc(formula, mmap, columns_by_guid, parameters)
     caption = parameter['caption'].to_s.strip
     parameter_names[name] = caption unless name.empty? || caption.empty?
   end
+  unresolved_calc = false
   source = source.gsub(/\[Parameters?\]\s*\.\s*\[([^\]]+)\]/i) do
     token = Regexp.last_match(1)
     param_control_ref(parameter_names[token] || token)
@@ -292,9 +446,12 @@ def translate_boolean_filter_calc(formula, mmap, columns_by_guid, parameters)
     translated_calc_reference(token, mmap, columns_by_guid) ||
       begin
         mapped = map_column(token, mmap)
+        # a Tableau-internal calc name nothing resolved is a dangling master ref
+        (unresolved_calc = true) if !mapped && token =~ /\A(?:Calculation_\d+|.+\(copy\)(?:\s*\d+)?_\d+)\z/
         "[Master/#{mapped ? mapped['name'] : token}]"
       end
   end
+  return nil if unresolved_calc
   source = source.gsub(/\bIFNULL\s*\(/i, 'Coalesce(')
                  .gsub(/\bISNULL\s*\(/i, 'IsNull(')
                  .gsub(/\bDATE\s*\(/i, 'Date(')
@@ -315,7 +472,7 @@ end
 #   CASE [col] WHEN "a" THEN "b" ... [ELSE e] END -> Switch([Master/col], ...)
 #   IF c THEN r [ELSEIF c2 THEN r2]* [ELSE e] END -> nested If(...)
 # Returns nil when the construct isn't recognized.
-def translate_dim_calc(formula, mmap, columns_by_guid = {})
+def translate_dim_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
   return nil if s.empty?
   s = s.gsub(/\[([0-9a-f\-]{36})\]/i) do
@@ -324,12 +481,22 @@ def translate_dim_calc(formula, mmap, columns_by_guid = {})
   end
   return nil if s =~ /\[[0-9a-f\-]{36}\]/i
   s = s.gsub(/'([^']*)'/) { %("#{Regexp.last_match(1)}") }
+  unresolved_calc = false
   master_ref = lambda do |str|
     str.gsub(/\[([^\]]+)\]/) do
       cap = Regexp.last_match(1).strip
       next Regexp.last_match(0) if cap.start_with?('Master/') || cap.start_with?('ctl-')
       m = map_column(cap, mmap)
-      "[Master/#{m ? m['name'] : cap}]"
+      next "[Master/#{m['name']}]" if m
+      next "[Master/#{cap}]" unless respond_to?(:resolve_calc_token, true)
+      # calc-on-calc: resolve the referenced calc (caption on the master, or its own
+      # translation inlined) instead of leaking its Tableau-internal name.
+      kind, text = resolve_calc_token(cap, mmap, columns_by_guid, depth: depth)
+      if kind == :unresolved || kind == :scalar
+        unresolved_calc = true
+        next Regexp.last_match(0)
+      end
+      text
     end
   end
   if (m = s.match(/\ACASE\s+(\[[^\]]+\])\s+(WHEN\b.*?)\s*\bEND\z/i))
@@ -341,7 +508,7 @@ def translate_dim_calc(formula, mmap, columns_by_guid = {})
     parts = [subject]
     pairs.each { |a, b| parts << a.strip << b.strip }
     parts << else_m[1].strip if else_m
-    return "Switch(#{parts.join(', ')})"
+    return unresolved_calc ? nil : "Switch(#{parts.join(', ')})"
   end
   if (m = s.match(/\AIF\s+(.+)\s+END\z/i))
     body = m[1]
@@ -359,7 +526,9 @@ def translate_dim_calc(formula, mmap, columns_by_guid = {})
     end
     expr = else_expr || 'Null'
     conds.reverse_each { |c, r| expr = "If(#{c}, #{r}, #{expr})" }
-    return master_ref.call(expr.gsub(/\bAND\b/, 'and').gsub(/\bOR\b/, 'or').gsub(/\bNOT\b/, 'not'))
+    out = master_ref.call(expr.gsub(/\bAND\b/, 'and').gsub(/\bOR\b/, 'or').gsub(/\bNOT\b/, 'not'))
+    out = out.gsub(/\bISNULL\s*\(/i, 'IsNull(')
+    return unresolved_calc ? nil : out
   end
   nil
 end
@@ -395,6 +564,17 @@ end
 #     (requires ≥2 `{FIXED` occurrences): emits a helper-element CHAIN plan
 #     into the -lod-chains.json sidecar for the agent to build. Never reaches
 #     this path, and single-level LODs never reach the chain path.
+# A column ref inside an LOD formula, as the caption the master map knows.
+# Published datasources name columns by GUID; a plain federated datasource uses
+# the internal name ([ORDER_CHANNEL]) — both are keys of columns_by_guid, so
+# look either up. An unknown GUID is unresolvable (nil); an unknown plain name
+# is kept as written.
+def lod_ref_caption(ref, columns_by_guid)
+  info = columns_by_guid[ref.strip]
+  return info['caption'].strip if info && info['caption'] && !info['caption'].strip.empty?
+  ref =~ /\A[0-9a-f\-]{36}\z/i ? nil : ref.strip
+end
+
 def parse_fixed_lod(formula, columns_by_guid = {})
   s = formula.to_s.gsub(/\s+/, ' ').strip
   # The inner aggregate argument is captured greedily (.+) rather than as a bare
@@ -410,14 +590,7 @@ def parse_fixed_lod(formula, columns_by_guid = {})
   # above): it routes through decompose_nested_fixed (helper-element chain). The
   # loosened inner would otherwise match the outer of a nest — reject it here.
   return nil if inner =~ /\{\s*(?:FIXED|INCLUDE|EXCLUDE)\b/i
-  resolve = lambda do |ref|
-    if ref =~ /\A[0-9a-f\-]{36}\z/i
-      info = columns_by_guid[ref]
-      info && info['caption'] && info['caption'].strip
-    else
-      ref.strip
-    end
-  end
+  resolve = ->(ref) { lod_ref_caption(ref, columns_by_guid) }
   dims = m[1].scan(/\[([^\]]+)\]/).flatten.map { |d| resolve.call(d) }
   return nil if dims.empty? || dims.any?(&:nil?)
   out = { 'dims' => dims, 'agg' => m[2].upcase }
@@ -445,14 +618,7 @@ def parse_relative_lod(formula, columns_by_guid = {})
   s = formula.to_s.gsub(/\s+/, ' ').strip
   m = s.match(/\A\{\s*(INCLUDE|EXCLUDE)\s+(\[[^\]]+\](?:\s*,\s*\[[^\]]+\])*)\s*:\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[([^\]]+)\]\s*\)\s*\}\z/i)
   return nil unless m
-  resolve = lambda do |ref|
-    if ref =~ /\A[0-9a-f\-]{36}\z/i
-      info = columns_by_guid[ref]
-      info && info['caption'] && info['caption'].strip
-    else
-      ref.strip
-    end
-  end
+  resolve = ->(ref) { lod_ref_caption(ref, columns_by_guid) }
   dims = m[2].scan(/\[([^\]]+)\]/).flatten.map { |d| resolve.call(d) }
   meas = resolve.call(m[4])
   return nil if dims.empty? || dims.any?(&:nil?) || meas.nil?
@@ -916,7 +1082,7 @@ def translate_window_calc(formula, mmap, columns_by_guid = {}, depth: 0)
 
   agg_src = '(?:SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[[^\]]+\]\s*\)'
   norm = ->(x) { x.to_s.gsub(/\s+/, '').downcase }
-  tx_agg = ->(a) { translate_user_agg_formula(a, mmap, {}) }
+  tx_agg = ->(a) { translate_user_agg_formula(a, mmap, columns_by_guid) }
 
   # v5.1 Rule W1 — window-wrapped share (the round-4 exit-4 class):
   # WINDOW_MAX|MIN|AVG( agg/TOTAL(agg) | agg/WINDOW_SUM(agg) | agg1/agg2 ).
@@ -966,7 +1132,7 @@ def translate_window_calc(formula, mmap, columns_by_guid = {}, depth: 0)
     # count, so they only get the inline/manual note (no top-n filter).
     ranking  = (tn[0] =~ /_UNIQUE/i) ? 'row-number' : 'rank'
     row_count = (op == '<=') ? n.to_i : (op == '<' ? n.to_i - 1 : nil)  # nil ⇒ not a top-n filter
-    ranked = translate_user_agg_formula(operand, mmap, {})
+    ranked = translate_user_agg_formula(operand, mmap, columns_by_guid)
     base = { 'top_op' => op, 'ranking' => ranking, 'operand_raw' => operand.to_s.gsub(/\s+/, ' ') }
     base['top_n'] = row_count if row_count
     if ranked
@@ -1042,7 +1208,7 @@ def translate_window_calc(formula, mmap, columns_by_guid = {}, depth: 0)
     return { 'mode' => 'manual',
              'note' => "window construct #{left[0].sub(/\s*\(\s*\)?\z/, '')}() has no validated mapping in this shape (stays manual)" }
   end
-  final = translate_user_agg_formula(rewritten, mmap, {}, extra_fns: WINDOW_SIGMA_FNS)
+  final = translate_user_agg_formula(rewritten, mmap, columns_by_guid, extra_fns: WINDOW_SIGMA_FNS)
   return { 'mode' => 'manual', 'note' => 'window formula did not reduce to translated aggregates + arithmetic glue' } unless final
   return nil unless WINDOW_SIGMA_FNS.any? { |f| final =~ /\b#{f}\s*\(/ }
   { 'mode' => 'inline', 'formula' => final,

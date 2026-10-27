@@ -68,7 +68,10 @@ fixture's design, not a downgrade of coverage — the ladder's other 3 rungs
 (serialized, mixed/partial, unwired-but-recorded) are all still exercised, and
 the STORE case alone is sufficient to prove name-inference recovery (see
 `test-relationship-derivation.rb`'s test 7, repointed from
-`LMOG_DIM_CUSTOMER` to `LMOG_DIM_STORE` accordingly).
+`LMOG_DIM_CUSTOMER` to `LMOG_DIM_STORE` accordingly). **Superseded
+2026-10-27:** the STORE case's `IFNULL` now wires by the computed-key rung
+(see case 4 below); the name-inference rung is pinned on that test's
+`ZN([STORE_KEY])` variant instead.
 
 **One further live-only implication:** a relationship this repo's own
 `converter/tableau.mjs` treats as "no serialized key at all" (the ladder's
@@ -104,16 +107,19 @@ One fact (`LMOG_FACT_WIDE`, 64 columns) related to five dimensions:
    on the fact), so the name-inference fallback also fails. Expected:
    recorded in the ledger, `derivedVia: "unwired"`, never silently dropped
    from the report.
-4. **`LMOG_FACT_WIDE` → `LMOG_DIM_STORE` (computed-only, inference SUCCEEDS —
-   this fixture's sole remaining name-inference case; see the live-finding
-   note above).** The sole condition is `IFNULL([STORE_KEY],-1) =
-   [STORE_KEY]` — computed on its left operand, so no physical pair survives.
-   `LMOG_FACT_WIDE` and `LMOG_DIM_STORE` DO share a key-shaped column name
-   (`STORE_KEY`, metadata-record ordinal **62** on `LMOG_FACT_WIDE`), so
-   name-inference fires and wires it — but the `IFNULL` null-coalescing
-   Tableau required is dropped, making the wired join WIDER than Tableau's.
-   Expected: `derivedVia: "name-inference"`, `partial: true`,
-   `droppedConditions: 1`, plus a dropped-condition warning.
+4. **`LMOG_FACT_WIDE` → `LMOG_DIM_STORE` (computed key, carried).** The sole
+   condition is `IFNULL([STORE_KEY],-1) = [STORE_KEY]`. Since the converter's
+   computed-key rung (2026-10-27, live-verified that Sigma relationships can
+   key on a calculated column), the `IFNULL` side becomes a calculated key
+   column on the fact (`Store Key (join key)` = `Coalesce([Store Key], -1)`)
+   and the relationship keys on it, carrying Tableau's full condition.
+   Expected: `derivedVia: "computed-key"`, `keyCount: 1`, not partial. The
+   name-inference rung this case used to exercise (`derivedVia:
+   "name-inference"`, `partial: true`, `droppedConditions: 1`) is now pinned
+   by `test-relationship-derivation.rb` on a `ZN([STORE_KEY])` variant of this
+   fixture, since `ZN` is outside the computed-key whitelist. Cases 2 and 3
+   stay as described: their computed conditions translate, but their key
+   types differ (date vs string, date vs number), so the rung refuses them.
 5. **`LMOG_FACT_WIDE` → `LMOG_DIM_REGION` (plain serialized physical key —
    NEW, added for this live pass, orthogonal to the derivation ladder above).**
    `REGION_KEY = REGION_KEY` (metadata-record ordinal **63** on
@@ -192,7 +198,7 @@ of this file — that parser takes the FIRST ```json fenced block it finds):
     { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_CUSTOMER", "derivedVia": "serialized", "keyCount": 1 },
     { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_PRODUCT", "derivedVia": "serialized", "keyCount": 1, "partial": true, "droppedConditions": 1 },
     { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_DATE", "derivedVia": "unwired", "reason": "no existing column name matches on both sides", "candidates": [] },
-    { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_STORE", "derivedVia": "name-inference", "keyCount": 1, "partial": true, "droppedConditions": 1 },
+    { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_STORE", "derivedVia": "computed-key", "keyCount": 1 },
     { "left": "LMOG_FACT_WIDE", "right": "LMOG_DIM_REGION", "derivedVia": "serialized", "keyCount": 1 }
   ]
 }

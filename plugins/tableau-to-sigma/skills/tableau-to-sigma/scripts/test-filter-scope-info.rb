@@ -12,8 +12,9 @@
 #      filter every OTHER chart on that master, so the control targets the
 #      intended CHART ELEMENTS instead (an existing plain column, or an extra
 #      axis-less helper column on a master-sourced chart) = Tableau's exact
-#      selected-worksheet scope; a root target + "will ALSO filter" warning stays
-#      only where an element cannot take a column.
+#      selected-worksheet scope; a master-sourced table takes the same column
+#      with hidden:true. A root target + "will ALSO filter" warning stays only
+#      where an element cannot take a column (see test-drill-tooltip-scope.rb).
 #   2. A Tableau "info button" (Shape-mark sheet, empty shelves, tooltip-only
 #      content) used to be dropped; it is now a Sigma icon-only button whose
 #      hover text is the tooltip text, placed by the layout stage.
@@ -248,11 +249,10 @@ if pd_groups[:ok] && pd_groups[:specs].is_a?(Hash)
 end
 
 puts
-puts 'Part 2c - root fallback where an element cannot take a column'
-# Revenue by Region as a Text-mark table: it renders every column, so no hidden
-# helper column may be added. The Order Channel control cannot narrow anything
-# (the master root still feeds Revenue by Channel), so it keeps the root target
-# and the over-filter warning rather than adding noise.
+puts 'Part 2c - a table takes a hidden filter column instead of falling back to the root'
+# Revenue by Region as a Text-mark table: it renders every column, so the extra
+# Order Channel column is added with hidden:true and targeted directly. The master
+# root no longer has to carry the control, so Revenue by Channel stays unfiltered.
 head2, tail2 = FIXTURE_TEXT.split("<worksheet name='Revenue by Region'>", 2)
 tbl_text = head2 + "<worksheet name='Revenue by Region'>" + tail2.sub("<mark class='Bar' />", "<mark class='Text' />")
 fb = run_pipeline(tbl_text)
@@ -260,18 +260,17 @@ fspecs = fb[:specs] || []
 check(fspecs.find { |e| e['id'] == 'el-revenue-by-region' }&.dig('kind') == 'table',
       'variant: Revenue by Region is a table element', fails)
 foc = fspecs.find { |e| e['kind'] == 'control' && e['name'] == 'Order Channel' }
-check(foc && foc['filters'] == [{ 'source' => { 'kind' => 'table', 'elementId' => 'master' }, 'columnId' => 'm-order_channel' }],
-      "table element cannot take a column: the control keeps its master root target (got #{foc && foc['filters'].inspect})", fails)
-check((fspecs.find { |e| e['id'] == 'el-revenue-by-region' }['columns'] || []).none? { |c| c['id'].start_with?('f-') },
-      'no helper column added to the table', fails)
-check(fb[:log] =~ /'Order Channel' quick-filter control \(filter group 3.*will ALSO filter Revenue by Channel/ &&
-      fb[:log].lines.any? { |l| l.start_with?('  WARN') && l.include?('will ALSO filter') },
-      'the over-filter warning still fires and names Revenue by Channel', fails)
+check(foc && foc['filters'] == oc_filters,
+      "table element is targeted through its hidden column (got #{foc && foc['filters'].inspect})", fails)
+check((fspecs.find { |e| e['id'] == 'el-revenue-by-region' }['columns'] || [])
+        .find { |c| c['id'] == 'f-order-channel-el-revenue-by-region' } ==
+      { 'id' => 'f-order-channel-el-revenue-by-region', 'name' => 'Order Channel',
+        'formula' => '[Master/Order Channel]', 'hidden' => true },
+      'the table gets the Order Channel column with hidden:true', fails)
+check(!fb[:log].include?('will ALSO filter'), 'no over-filter warning once the table is targeted directly', fails)
 frec = ((fb[:scope] || {})['controls'] || []).find { |r| r['name'] == 'Order Channel' }
-check(frec && frec['target_mode'] == 'roots' && frec['over_filtered'] == ['Revenue by Channel'],
-      'record: target_mode roots + over_filtered kept', fails)
-check(((fb[:coverage] || {})['unresolved'] || []).any? { |u| u['visual'] == 'Order Channel' && u['severity'] == 'approximated' },
-      'the fallback over-filter still lands in coverage.json as approximated', fails)
+check(frec && frec['target_mode'] == 'elements' && !frec.key?('over_filtered'),
+      'record: target_mode elements, nothing over-filtered', fails)
 # The Region control is unaffected by the variant: still exact.
 frg = fspecs.find { |e| e['kind'] == 'control' && e['name'] == 'Region' }
 check(frg && frg['filters'] == rg_filters, 'the Region control still targets its chart directly', fails)

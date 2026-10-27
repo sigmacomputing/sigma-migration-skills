@@ -48,6 +48,22 @@ class RelationshipCoverageTest(unittest.TestCase):
         self.assertEqual("pass", result["status"])
         self.assertEqual([], result["blockers"])
 
+    def test_computed_key_relationship_passes(self):
+        result = relationship_coverage.evaluate(
+            metadata(
+                [
+                    {
+                        "left": "ORDER_FACT",
+                        "right": "DIM_TIME",
+                        "derivedVia": "computed-key",
+                        "keyCount": 1,
+                    }
+                ]
+            )
+        )
+        self.assertEqual("pass", result["status"])
+        self.assertEqual("computed-key", result["entries"][0]["derived_via"])
+
     def test_unwired_and_partial_relationships_fail(self):
         result = relationship_coverage.evaluate(
             metadata(

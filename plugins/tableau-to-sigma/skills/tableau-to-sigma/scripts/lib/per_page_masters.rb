@@ -63,7 +63,7 @@ module PerPageMasters
   # control's filters can still contain workbook-wide targets at this point;
   # those are NOT page dependencies and must not pull every page's helper
   # closure into every clone.
-  def page_source_ids(page)
+  def page_source_ids(page, pool_by_id = nil)
     nodes = (page['elements'] || []).map do |element|
       if element['kind'] == 'control'
         { 'source' => element['source'] }
@@ -71,7 +71,35 @@ module PerPageMasters
         element
       end
     end
-    referenced_ids(nodes)
+    ids = referenced_ids(nodes)
+    ids.concat(formula_helper_ids(page, pool_by_id)) if pool_by_id
+    ids
+  end
+
+  # Data-page helpers a page reaches only through a FORMULA ref, never an
+  # `elementId` source — the top-N rank bridge reads its dim-grain helper with
+  # `Lookup([<helper name>/Rank], …)`. Without this the helper had no consumer
+  # and the clone pass dropped it (the Lookup then dangled). Masters are named
+  # the same on every page and are sourced structurally, so only workbook-local
+  # helpers (not data-model-sourced) are matched, by their unique name.
+  def formula_helper_ids(page, pool_by_id)
+    names = {}
+    pool_by_id.each_value do |e|
+      next if e.dig('source', 'kind') == 'data-model' || e['name'].to_s.empty?
+      (names[e['name']] ||= []) << e['id']
+    end
+    return [] if names.empty?
+    found = []
+    scan = lambda do |n|
+      case n
+      when Hash then n.each_value { |v| scan.call(v) }
+      when Array then n.each { |v| scan.call(v) }
+      when String
+        n.scan(%r{\[([^\]/]+)/[^\]]+\]}) { |m| found.concat(names[m[0]] || []) if names.key?(m[0]) }
+      end
+    end
+    scan.call(page['elements'])
+    found.uniq
   end
 
   # Every elementId reference value reachable inside a node (source.elementId,
@@ -108,6 +136,45 @@ module PerPageMasters
         end
       when Array
         n.each { |v| walk.call(v) }
+      end
+    end
+    walk.call(node)
+    node
+  end
+
+  # Pool elements a page reads by NAME inside a formula — `Lookup([Fixed Scalar 1/Value], 1,
+  # [Fixed Scalar 1/Key])`, the hidden scalar-LOD helper pull — rather than as a source. They
+  # are page dependencies too: the elementId walk above cannot see them.
+  def formula_ref_ids(page, pool_by_id)
+    by_name = pool_by_id.each_with_object({}) { |(id, e), h| h[e['name']] = id if e['name'].is_a?(String) }
+    found = []
+    walk = lambda do |n|
+      case n
+      when Hash then n.each { |k, v| k == 'formula' && v.is_a?(String) ? scan_formula_refs(v, by_name, found) : walk.call(v) }
+      when Array then n.each { |v| walk.call(v) }
+      end
+    end
+    walk.call(page['elements'])
+    found.uniq
+  end
+
+  def scan_formula_refs(formula, by_name, found)
+    formula.scan(%r{\[([^\[\]/]+)/}) { |m| found << by_name[m[0]] if by_name.key?(m[0]) }
+  end
+
+  # Re-prefix `[<from>/col]` refs in every formula under `node` (in place).
+  def rename_formula_refs!(node, from, to)
+    walk = lambda do |n|
+      case n
+      when Hash
+        n.each do |k, v|
+          if k == 'formula' && v.is_a?(String)
+            n[k] = v.gsub("[#{from}/", "[#{to}/")
+          else
+            walk.call(v)
+          end
+        end
+      when Array then n.each { |v| walk.call(v) }
       end
     end
     walk.call(node)
@@ -275,7 +342,12 @@ module PerPageMasters
     masters_made = Set.new
     using.each do |pg|
       slug = page_suffix(pg, used_slugs)
-      closure = pool_closure(pool_by_id, page_source_ids(pg))
+      # Helpers a page reaches only by NAME inside a formula (the scalar-LOD and
+      # top-N rank helpers, both read with Lookup) are page dependencies too, and
+      # each page's clone needs a name of its own (renamed below).
+      source_closure = pool_closure(pool_by_id, page_source_ids(pg))
+      lookup_ids = (formula_ref_ids(pg, pool_by_id) | formula_helper_ids(pg, pool_by_id)) - source_closure
+      closure = pool_closure(pool_by_id, page_source_ids(pg) + lookup_ids)
       mapping = closure.each_with_object({}) { |id, h| h[id] = "#{id}-#{slug}" }
       page_element_ids = (pg['elements'] || []).filter_map { |element| element['id'] }.to_set
       (pg['elements'] || []).select { |element| element['kind'] == 'control' }.each do |control|
@@ -294,6 +366,15 @@ module PerPageMasters
         masters_made << clone['id'] if master_ids.include?(id)
       end
       rewrite_refs!(pg['elements'], mapping)
+      # A helper this page reads by NAME (Lookup) needs a name of its own per page, or two pages'
+      # clones would answer to the same `[Fixed Scalar 1/..]` prefix.
+      lookup_ids.each do |id|
+        clone = page_clones.find { |c| c['id'] == mapping[id] }
+        next unless clone && clone['name'].is_a?(String)
+        old_name = clone['name']
+        clone['name'] = "#{old_name} (#{slug})"
+        rename_formula_refs!(pg['elements'], old_name, clone['name'])
+      end
       page_clones.select { |clone| master_ids.include?(mapping.key(clone['id'])) }.each do |master|
         consumers = pg['elements'] + page_clones.reject { |clone| clone.equal?(master) }
         widths = slim_master!(master, consumers)

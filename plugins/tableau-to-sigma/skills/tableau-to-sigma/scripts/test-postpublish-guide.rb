@@ -28,6 +28,7 @@
 require 'json'
 require 'tmpdir'
 require 'rbconfig'
+require 'fileutils'
 
 DIR     = __dir__
 SCRIPT  = File.join(DIR, 'build-postpublish-guide.rb')
@@ -279,6 +280,81 @@ Dir.mktmpdir do |d|
         'residue still appears in the guide')
   check(led5['residue'].none? { |e| e['kind'] == 'nav-button' && e['caption'] == 'Go to Detail' },
         'the emitted nav-button is excluded from residue')
+end
+
+# ---- Auto-built drill controls / tooltip fields (auto-interactions.json) -------
+# The builder's sidecar removes covered entries BEFORE the ledger join (so
+# detectedCount conservation holds), keeps a tooltip entry only for unresolved
+# fields and a drill entry only for pivot/table sheets, and renders a short
+# "Built automatically" list.
+puts "== auto-interactions.json =="
+Dir.mktmpdir do |d|
+  twb = File.join(FIXTURE, 'postpublish-actions.twb')
+  _md0, led0 = run_guide(twb, Dir.mktmpdir)
+  total0 = led0['detectedCount']
+  side = File.join(d, 'auto-interactions.json')
+  manifest = File.join(d, 'chart-specs-actions-emitted.json')
+  File.write(manifest, '[]')
+  write_side = lambda do |interactions|
+    File.write(side, JSON.generate('version' => 1, 'source' => 'tableau', 'interactions' => interactions))
+  end
+  # a) fully covered drill + tooltip: both leave the manual list
+  write_side.call([
+    { 'kind' => 'drill-hierarchy', 'caption' => 'Product', 'fields' => %w[Category Sub-Category Product\ Name],
+      'targets' => ['Sales by Region'], 'manual_worksheets' => [] },
+    { 'kind' => 'custom-tooltip', 'caption' => 'Sales by Region', 'fields_added' => ['Profit Ratio'], 'fields_unresolved' => [] }
+  ])
+  mda, leda = run_guide(twb, Dir.mktmpdir, ['--emitted-manifest', manifest, '--auto-interactions', side])
+  check(leda['detectedCount'] == total0 - 2, 'covered drill + tooltip entries are removed before the ledger join')
+  check(leda['detectedCount'] == leda['emitted'].size + leda['residue'].size, 'CONSERVATION holds with auto-built entries dropped')
+  check(leda['residue'].none? { |e| e['kind'] == 'drill-hierarchy' } &&
+        leda['residue'].none? { |e| e['kind'] == 'custom-tooltip' && e['caption'] == 'Sales by Region' },
+        'covered entries are not in the residue')
+  check(leda['residue'].any? { |e| e['kind'] == 'custom-tooltip' && e['caption'] == 'Region Detail' },
+        'a viz-in-tooltip entry stays manual even when other tooltips are built')
+  check(mda.include?('## Built automatically') && mda.include?("Drill hierarchy 'Product'") &&
+        mda.include?("Tooltip fields on 'Sales by Region'"),
+        'the guide lists what was built automatically')
+  # b) partly covered: unresolved tooltip field + pivot sheet keep manual entries
+  write_side.call([
+    { 'kind' => 'drill-hierarchy', 'caption' => 'Product', 'fields' => %w[Category Sub-Category Product\ Name],
+      'targets' => ['Sales by Region'], 'manual_worksheets' => ['Region Pivot'], 'pivot_worksheets' => ['Region Pivot'] },
+    { 'kind' => 'custom-tooltip', 'caption' => 'Sales by Region', 'fields_added' => [], 'fields_unresolved' => ['Profit Ratio'] }
+  ])
+  mdb, ledb = run_guide(twb, Dir.mktmpdir, ['--emitted-manifest', manifest, '--auto-interactions', side])
+  check(ledb['detectedCount'] == total0, 'partly covered entries stay in the ledger')
+  drill = ledb['residue'].find { |e| e['kind'] == 'drill-hierarchy' }
+  check(drill && drill['ui_steps'].include?('Region Pivot') &&
+        drill['ui_steps'].include?("add Sub-Category under Category on the pivot's Rows and collapse it to the first level; the workbook spec cannot store the collapsed state."),
+        'the kept drill entry names the pivot sheet and carries the pivot wording')
+  check(mdb.include?('Region Pivot'), 'the guide names the pivot sheet')
+  tip = ledb['residue'].find { |e| e['kind'] == 'custom-tooltip' && e['caption'] == 'Sales by Region' }
+  check(tip && tip['fields'] == ['Profit Ratio'], 'the kept tooltip entry lists only the unresolved fields')
+  check(!(tip['ui_steps'].include?('other tooltip fields were built automatically')),
+        'no "other tooltip fields were built" claim when nothing was added')
+  # b2) a chart-only manual sheet keeps the generic text (no pivot-Rows instruction)
+  write_side.call([
+    { 'kind' => 'drill-hierarchy', 'caption' => 'Product', 'fields' => %w[Category Sub-Category Product\ Name],
+      'targets' => ['Sales by Region'], 'manual_worksheets' => ['Helper Chart'], 'pivot_worksheets' => [] },
+    { 'kind' => 'custom-tooltip', 'caption' => 'Sales by Region', 'fields_added' => ['Profit Ratio'], 'fields_unresolved' => ['Margin'] }
+  ])
+  _mdb2, ledb2 = run_guide(twb, Dir.mktmpdir, ['--emitted-manifest', manifest, '--auto-interactions', side])
+  drill2 = ledb2['residue'].find { |e| e['kind'] == 'drill-hierarchy' }
+  check(drill2 && drill2['ui_steps'].include?('Helper Chart') && !drill2['ui_steps'].include?("pivot's Rows") &&
+        !drill2['ui_steps'].include?('pivot-collapse'),
+        'a chart-only manual hierarchy keeps the generic drill text (no pivot-Rows instruction)')
+  tip2 = ledb2['residue'].find { |e| e['kind'] == 'custom-tooltip' && e['caption'] == 'Sales by Region' }
+  check(tip2 && tip2['ui_steps'].include?('(the other tooltip fields were built automatically).'),
+        'the "other tooltip fields" note appears when some fields were added')
+  # c) no sidecar: untouched; default location is next to the emitted manifest
+  FileUtils.rm_f(side)
+  _mdc, ledc = run_guide(twb, Dir.mktmpdir, ['--emitted-manifest', manifest])
+  check(ledc['detectedCount'] == total0 && ledc['residue'].any? { |e| e['kind'] == 'drill-hierarchy' },
+        'no sidecar: nothing is dropped')
+  write_side.call([{ 'kind' => 'drill-hierarchy', 'caption' => 'Product', 'fields' => [], 'targets' => ['X'], 'manual_worksheets' => [] }])
+  _mdd, ledd = run_guide(twb, Dir.mktmpdir, ['--emitted-manifest', manifest])
+  check(ledd['residue'].none? { |e| e['kind'] == 'drill-hierarchy' },
+        'the sidecar is found next to --emitted-manifest by default')
 end
 
 puts ''

@@ -197,6 +197,16 @@ Dir.mktmpdir do |d|
   check(brand && brand['target_tiles'] == ['A1'], "shared-view filter reaches only its own dashboard's tiles (got #{brand && brand['target_tiles'].inspect})", fails)
 end
 
+# The tile's measure is the one PLOTTED on Rows/Columns, even when the
+# worksheet's measures list (datasource-dependency order) starts with a
+# Tooltip-shelf field.
+wm = { 'measures' => [{ 'column' => '[GROSS_REVENUE]', 'derivation' => 'Sum' }, { 'column' => '[NET_REVENUE]', 'derivation' => 'Sum' }],
+       'rows_shelf' => { 'fields' => [{ 'role' => 'measure', 'guid' => 'NET_REVENUE' }] },
+       'cols_shelf' => { 'fields' => [{ 'role' => 'dim', 'guid' => 'ORDER_DATE' }] } }
+check(DashboardRead.seed_measure(wm) == 'NET_REVENUE', "seed_measure prefers the plotted shelf measure (got #{DashboardRead.seed_measure(wm).inspect})", fails)
+check(DashboardRead.seed_measure(wm.merge('rows_shelf' => 'raw string')) == 'GROSS_REVENUE',
+      'seed_measure falls back to the measures list when shelves carry no fields', fails)
+
 puts
 if fails.empty?
   puts 'ALL PASS — .twb draft seeded; gate still requires visual verification'

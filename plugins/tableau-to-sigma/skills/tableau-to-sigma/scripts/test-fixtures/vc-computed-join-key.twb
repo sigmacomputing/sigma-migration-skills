@@ -1,0 +1,103 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook original-version='18.1' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Sales (Demo VC)' inline='true' name='federated.vcdemo0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Demo VC' name='publishedConnection.vcdemo0001'>
+            <connection class='publishedConnection' resourceId='00000000-0000-4000-8000-000000000001' resourceName='Demo VC' workgroup-auth-mode='as-is' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='publishedConnection.vcdemo0001' name='SALES_FACT (DEMO.SALES_FACT)' table='[00000000-0000-4000-8000-0000000000a1].[SALES_FACT (DEMO.SALES_FACT)]' type='table'>
+            <columns>
+              <column datatype='date' date-parse-format='yyyyMMdd' name='11111111-1111-4111-8111-111111111111' />
+            </columns>
+          </relation>
+          <relation connection='publishedConnection.vcdemo0001' name='CALENDAR (DEMO.CALENDAR)' table='[00000000-0000-4000-8000-0000000000a2].[CALENDAR (DEMO.CALENDAR)]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>22222222-2222-4222-8222-222222222222</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[22222222-2222-4222-8222-222222222222]</local-name>
+            <parent-name>[SALES_FACT (DEMO.SALES_FACT)]</parent-name>
+            <remote-alias>22222222-2222-4222-8222-222222222222</remote-alias>
+            <caption>Sale Id</caption>
+            <local-type>string</local-type>
+            <object-id>[SALES_FACT (DEMO.SALES_FACT)_AAAA1111BBBB2222CCCC3333DDDD4444]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>33333333-3333-4333-8333-333333333333</remote-name>
+            <remote-type>5</remote-type>
+            <local-name>[33333333-3333-4333-8333-333333333333]</local-name>
+            <parent-name>[SALES_FACT (DEMO.SALES_FACT)]</parent-name>
+            <remote-alias>33333333-3333-4333-8333-333333333333</remote-alias>
+            <caption>Net Amount</caption>
+            <local-type>real</local-type>
+            <object-id>[SALES_FACT (DEMO.SALES_FACT)_AAAA1111BBBB2222CCCC3333DDDD4444]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>11111111-1111-4111-8111-111111111111</remote-name>
+            <remote-type>7</remote-type>
+            <local-name>[11111111-1111-4111-8111-111111111111]</local-name>
+            <parent-name>[SALES_FACT (DEMO.SALES_FACT)]</parent-name>
+            <remote-alias>11111111-1111-4111-8111-111111111111</remote-alias>
+            <local-type>date</local-type>
+            <object-id>[SALES_FACT (DEMO.SALES_FACT)_AAAA1111BBBB2222CCCC3333DDDD4444]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>44444444-4444-4444-8444-444444444444</remote-name>
+            <remote-type>7</remote-type>
+            <local-name>[44444444-4444-4444-8444-444444444444]</local-name>
+            <parent-name>[CALENDAR (DEMO.CALENDAR)]</parent-name>
+            <remote-alias>44444444-4444-4444-8444-444444444444</remote-alias>
+            <caption>Calendar Date</caption>
+            <local-type>date</local-type>
+            <object-id>[CALENDAR (DEMO.CALENDAR)_EEEE5555FFFF6666AAAA7777BBBB8888]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>55555555-5555-4555-8555-555555555555</remote-name>
+            <remote-type>129</remote-type>
+            <local-name>[55555555-5555-4555-8555-555555555555]</local-name>
+            <parent-name>[CALENDAR (DEMO.CALENDAR)]</parent-name>
+            <remote-alias>55555555-5555-4555-8555-555555555555</remote-alias>
+            <caption>Fiscal Year</caption>
+            <local-type>string</local-type>
+            <object-id>[CALENDAR (DEMO.CALENDAR)_EEEE5555FFFF6666AAAA7777BBBB8888]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Sale Date ' datatype='date' datatype-customized='true' name='[11111111-1111-4111-8111-111111111111]' role='dimension' type='ordinal' />
+      <column caption='Calendar Date' datatype='date' name='[44444444-4444-4444-8444-444444444444]' role='dimension' type='ordinal' />
+      <object-graph>
+        <objects>
+          <object caption='SALES_FACT (DEMO.SALES_FACT)' id='SALES_FACT (DEMO.SALES_FACT)_AAAA1111BBBB2222CCCC3333DDDD4444'>
+            <properties context=''>
+              <relation connection='publishedConnection.vcdemo0001' name='SALES_FACT (DEMO.SALES_FACT)' table='[00000000-0000-4000-8000-0000000000a1].[SALES_FACT (DEMO.SALES_FACT)]' type='table'>
+                <columns>
+                  <column datatype='date' date-parse-format='yyyyMMdd' name='11111111-1111-4111-8111-111111111111' />
+                </columns>
+              </relation>
+            </properties>
+          </object>
+          <object caption='Sale Date' id='CALENDAR (DEMO.CALENDAR)_EEEE5555FFFF6666AAAA7777BBBB8888'>
+            <properties context=''>
+              <relation connection='publishedConnection.vcdemo0001' name='CALENDAR (DEMO.CALENDAR)' table='[00000000-0000-4000-8000-0000000000a2].[CALENDAR (DEMO.CALENDAR)]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='>
+              <expression op='DATE([11111111-1111-4111-8111-111111111111])' />
+              <expression op='[44444444-4444-4444-8444-444444444444]' />
+            </expression>
+            <first-end-point object-id='SALES_FACT (DEMO.SALES_FACT)_AAAA1111BBBB2222CCCC3333DDDD4444' />
+            <second-end-point object-id='CALENDAR (DEMO.CALENDAR)_EEEE5555FFFF6666AAAA7777BBBB8888' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+</workbook>

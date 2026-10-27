@@ -5,9 +5,12 @@
 # 61 thin filled rules (spacers / childless containers / blank-text bars) were
 # dropped or emitted as whitespace text; 145 dashboard-object buttons vanished
 # silently. Dividers now emit the NATIVE Sigma divider (live-verified
-# POST+readback); navigate buttons emit a text-pill link (kind:button is
-# workspace-gated — live-probed PUT 400 "not enabled for this workspace");
-# export/toggle buttons become named residue in coverage.json.
+# POST+readback); navigate buttons emit native kind:button by default, with
+# SIGMA_BUTTON_ELEMENTS=off forcing the text-pill link (kind:button is
+# workspace-gated on some tenants — live-probed PUT 400 "not enabled for this
+# workspace" — and post-and-readback.rb falls back to the pill on that error;
+# see test-button-fallback.rb); export/toggle buttons become named residue in
+# coverage.json.
 #
 # Usage:  ruby scripts/test-divider-button-emit.rb
 require 'json'
@@ -174,7 +177,7 @@ check(tog.size == 1 && tog.first['visual'].include?('×3'),
       "3 identical toggles dedupe to ONE ledger row with a count (got #{tog.map { |t| t['visual'] }.inspect})", fails)
 
 puts
-puts 'Part 5 — Stage 1: navigate buttons emit a valid action (SIGMA_BUTTON_ELEMENTS=on)'
+puts 'Part 5 — Stage 1: navigate buttons emit a valid action (default mode, SIGMA_BUTTON_ELEMENTS unset)'
 # Re-run the SAME fixture (the TWB constant from Part 3, zones 10 + 11) through
 # the REAL parse + emit path (parse-twb-layout.rb -> build-charts-from-signals.rb
 # as subprocesses, exactly like Parts 3/4 drive the real parser/residue code) —
@@ -183,7 +186,7 @@ puts 'Part 5 — Stage 1: navigate buttons emit a valid action (SIGMA_BUTTON_ELE
 els = nil
 manifest = nil
 charts_log = ''
-ENV['SIGMA_BUTTON_ELEMENTS'] = 'on'
+ENV.delete('SIGMA_BUTTON_ELEMENTS') # the default IS native buttons
 Dir.mktmpdir do |d|
   twb = File.join(d, 'wb.twb')
   lay = File.join(d, 'layout.json')
@@ -215,7 +218,7 @@ if els.nil?
 end
 
 btn = els.find { |e| e['kind'] == 'button' }
-check(!btn.nil?, 'a kind:button element is emitted with the flag on', fails)
+check(!btn.nil?, 'a kind:button element is emitted by default', fails)
 act = btn && (btn['actions'] || []).first
 check(!act.nil?, 'the button carries an action', fails)
 check(!act.nil? && !act['id'].to_s.empty?,
@@ -324,7 +327,7 @@ XML
 spec2 = nil
 manifest2 = nil
 charts_log2 = ''
-ENV['SIGMA_BUTTON_ELEMENTS'] = 'on'
+ENV.delete('SIGMA_BUTTON_ELEMENTS') # the default IS native buttons
 Dir.mktmpdir do |d|
   twb = File.join(d, 'wb.twb')
   lay = File.join(d, 'layout.json')
@@ -400,16 +403,15 @@ else
 end
 
 puts
-puts 'Part 7 - Default mode (flag OFF): nav buttons stay kind:text with the nav.invalid placeholder'
+puts 'Part 7 - Opt-out (SIGMA_BUTTON_ELEMENTS=off): nav buttons are kind:text with the nav.invalid placeholder'
 # Same fixture, same real subprocess pipeline as Part 5 (parse-twb-layout.rb ->
-# build-charts-from-signals.rb) - but with SIGMA_BUTTON_ELEMENTS explicitly
-# UNSET, not merely absent by luck of part ordering. Save/restore whatever the
-# env held before so this part's outcome can never depend on what ran earlier
-# (Parts 5/6 set the flag to 'on'). The brief calls a regression here Critical:
-# this is the path every real conversion runs by default.
+# build-charts-from-signals.rb) - but with SIGMA_BUTTON_ELEMENTS=off, the
+# text-pill path for a workspace known to gate buttons (post-and-readback's
+# automatic fallback rewrites to this same shape). Save/restore whatever the
+# env held before so this part's outcome can never depend on what ran earlier.
 had_flag = ENV.key?('SIGMA_BUTTON_ELEMENTS')
 prev_flag = ENV['SIGMA_BUTTON_ELEMENTS']
-ENV.delete('SIGMA_BUTTON_ELEMENTS')
+ENV['SIGMA_BUTTON_ELEMENTS'] = 'off'
 
 els7 = nil
 manifest7 = nil
@@ -439,7 +441,7 @@ begin
     manifest7 = JSON.parse(File.read(mpath)) if File.exist?(mpath)
   end
 ensure
-  check(!ENV.key?('SIGMA_BUTTON_ELEMENTS'), 'SIGMA_BUTTON_ELEMENTS stayed unset for the whole subprocess run', fails)
+  check(ENV['SIGMA_BUTTON_ELEMENTS'] == 'off', 'SIGMA_BUTTON_ELEMENTS stayed off for the whole subprocess run', fails)
   if had_flag
     ENV['SIGMA_BUTTON_ELEMENTS'] = prev_flag
   else
@@ -454,30 +456,45 @@ end
 
 nav_els7 = els7.select { |e| %w[btn-10 btn-11].include?(e['id']) }
 check(nav_els7.size == 2,
-      "both nav-button elements (zones 10 + 11) present in default mode (got ids #{els7.map { |e| e['id'] }.inspect})", fails)
+      "both nav-button elements (zones 10 + 11) present in opt-out mode (got ids #{els7.map { |e| e['id'] }.inspect})", fails)
 
 nav_els7.each do |e|
   check(e['kind'] == 'text',
-        "default mode: nav-button #{e['id'].inspect} is kind:text (got #{e['kind'].inspect})", fails)
+        "opt-out mode: nav-button #{e['id'].inspect} is kind:text (got #{e['kind'].inspect})", fails)
   check(e['kind'] != 'button',
-        "default mode: nav-button #{e['id'].inspect} is NOT kind:button", fails)
+        "opt-out mode: nav-button #{e['id'].inspect} is NOT kind:button", fails)
   check(JSON.generate(e).include?('nav.invalid'),
-        "default mode: nav-button #{e['id'].inspect} still carries the nav.invalid placeholder URL", fails)
+        "opt-out mode: nav-button #{e['id'].inspect} still carries the nav.invalid placeholder URL", fails)
   check(!e.key?('actions'),
-        "default mode: nav-button #{e['id'].inspect} has no actions key " \
+        "opt-out mode: nav-button #{e['id'].inspect} has no actions key " \
         "(kind:text cannot host actions -- got keys #{e.keys.inspect})", fails)
 end
 
-check(!manifest7.nil?, 'default mode: the emitted-actions manifest sidecar was still written (empty is meaningful)', fails)
+check(!manifest7.nil?, 'opt-out mode: the emitted-actions manifest sidecar was still written (empty is meaningful)', fails)
 manifest7_hosts = Array(manifest7).map { |m| m['hostElementId'] }
 check((manifest7_hosts & %w[btn-10 btn-11]).empty?,
-      "default mode: manifest claims NO entry for either nav-button (nothing was auto-wired; got hosts #{manifest7_hosts.inspect})", fails)
+      "opt-out mode: manifest claims NO entry for either nav-button (nothing was auto-wired; got hosts #{manifest7_hosts.inspect})", fails)
 check(Array(manifest7).empty?,
-      "default mode: manifest is an empty array -- no actions were auto-emitted at all (got #{manifest7.inspect})", fails)
+      "opt-out mode: manifest is an empty array -- no actions were auto-emitted at all (got #{manifest7.inspect})", fails)
+
+puts
+puts 'Part 8 - the flag spellings: off/0/false opt out, on/unset/anything else keep native buttons'
+require 'button_fallback'
+check(ButtonFallback.native_buttons?(nil), 'unset -> native buttons', fails)
+check(ButtonFallback.native_buttons?('on'), 'on -> native buttons (the old opt-in still works)', fails)
+check(ButtonFallback.native_buttons?(''), 'empty -> native buttons', fails)
+%w[off 0 false OFF False].each do |v|
+  check(!ButtonFallback.native_buttons?(v), "#{v.inspect} -> text pills", fails)
+end
+# The pill the builder emitted in Part 7 is the shared one: rebuild it from the
+# Part 7 element's own inputs and compare byte for byte.
+pill7 = nav_els7.find { |e| e['id'] == 'btn-10' }
+check(pill7 == ButtonFallback.nav_pill('btn-10', 'Details', 'Detail View'),
+      "builder's text pill == ButtonFallback.nav_pill (got #{pill7.inspect})", fails)
 
 puts
 if fails.empty?
-  puts 'OK — divider synthesis + button semantics hold (predicate, shapes, parser, residue dedupe)'
+  puts 'OK — divider synthesis + button semantics hold (predicate, shapes, parser, residue dedupe, button default + opt-out)'
   exit 0
 else
   warn "FAIL — #{fails.size} check(s) failed:"

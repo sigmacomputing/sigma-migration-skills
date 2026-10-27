@@ -43,8 +43,8 @@ full workbook, and no Sigma objects were created.
 DM-reuse is **reuse-first** (auto-reuses a covering DM, skipping the POST);
 `--reuse-dm <id>` pins one, `--skip-reuse-scan` forces build-new. Optional
 `--enhance [--enhance-accept <ids|all-low-risk>]` runs Phase E after all gates
-are green. **Still manual by design** (pivot-grid parity actuals,
-empty-view-CSV recovery, `--master-col` overrides, gap-scout escalations,
+are green. **Still manual by design** (parity actuals the exporter could not
+collect, empty-view-CSV recovery, `--master-col` overrides, gap-scout escalations,
 DM-reuse shape preflight): `refs/orchestration.md` §Still manual.
 
 Exit `17` routes to `refs/extract-landing.md` (extract landing); exit `2` from

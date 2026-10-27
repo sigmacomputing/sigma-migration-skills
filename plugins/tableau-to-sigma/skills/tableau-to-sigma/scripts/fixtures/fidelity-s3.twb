@@ -1,0 +1,241 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for three chart-fidelity gaps a live
+     Tableau-vs-Sigma comparison of a star-schema promotion workbook found:
+     - "Margin vs Threshold": Color = an aggregate boolean calc compared with a parameter, plotted
+       per Subcategory; the Category quick filter applies to this sheet only (filter-group 5).
+     - "Promo Lift": y = AVG(x) / MAX(<a no-dimension {FIXED} LOD>) - 1, with a worksheet filter on
+       Promo Type that drops the 'None' members the baseline is computed over.
+     - "Promo Avg Revenue": Measure Names on Rows next to the dimension and Measure Values on
+       Columns (horizontal bars, one bar per measure side by side); one of the two measures is the
+       same no-dimension FIXED LOD scalar. The sheet also filters Promo Type to two members, and its
+       view CSV shows no null Promo Type bucket. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <preferences>
+    <color-palette name='Fidelity' type='regular'>
+      <color>#4e79a7</color>
+      <color>#f28e2b</color>
+      <color>#e15759</color>
+      <color>#76b7b2</color>
+      <color>#59a14f</color>
+    </color-palette>
+  </preferences>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Margin Threshold' datatype='real' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='0.67'>
+        <calculation class='tableau' formula='0.67' />
+        <range granularity='0.01' max='0.9' min='0.4' />
+      </column>
+    </datasource>
+    <datasource caption='Sales' inline='true' name='federated.fidel0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.fidel0001'>
+            <connection class='snowflake' dbname='SALESDB' schema='DEMO' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.fidel0001' name='ORDER_FACT' table='[DEMO].[ORDER_FACT]' type='table' />
+      </connection>
+      <column caption='Category' datatype='string' name='[CATEGORY]' role='dimension' type='nominal' />
+      <column caption='Subcategory' datatype='string' name='[SUBCATEGORY]' role='dimension' type='nominal' />
+      <column caption='Promo Type' datatype='string' name='[PROMO_TYPE]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+      <column caption='Promo Flag' datatype='string' name='[Calculation_3001]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF ISNULL([PROMO_TYPE]) OR [PROMO_TYPE] = &apos;None&apos; THEN &apos;No Promo&apos; ELSE &apos;Promo&apos; END' />
+      </column>
+      <column caption='Baseline No Promo' datatype='real' name='[Calculation_3002]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED : AVG(IF [Calculation_3001] = &apos;No Promo&apos; THEN [NET_REVENUE] END)}' />
+      </column>
+      <column caption='Promo Lift %' datatype='real' name='[Calculation_3003]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='AVG([NET_REVENUE]) / MAX([Calculation_3002]) - 1' />
+      </column>
+      <column caption='Gross Margin %' datatype='real' name='[Calculation_3004]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+      </column>
+      <column caption='Margin Above Threshold' datatype='boolean' name='[Calculation_3005]' role='measure' type='nominal'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &gt;= [Parameters].[Parameter 1]' />
+      </column>
+      <column caption='Avg Revenue No Promo' datatype='real' name='[Calculation_3006]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='MAX([Calculation_3002])' />
+      </column>
+      <column caption='Avg Revenue on Promo' datatype='real' name='[Calculation_3007]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='AVG(IF [Calculation_3001] = &apos;Promo&apos; THEN [NET_REVENUE] END)' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Margin vs Threshold'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales' name='federated.fidel0001' />
+            <datasource caption='Parameters' name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fidel0001'>
+            <column caption='Category' datatype='string' name='[CATEGORY]' role='dimension' type='nominal' />
+            <column caption='Subcategory' datatype='string' name='[SUBCATEGORY]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+            <column caption='Gross Margin %' datatype='real' name='[Calculation_3004]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+            </column>
+            <column caption='Margin Above Threshold' datatype='boolean' name='[Calculation_3005]' role='measure' type='nominal'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &gt;= [Parameters].[Parameter 1]' />
+            </column>
+            <column-instance column='[CATEGORY]' derivation='None' name='[none:CATEGORY:nk]' pivot='key' type='nominal' />
+            <column-instance column='[SUBCATEGORY]' derivation='None' name='[none:SUBCATEGORY:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_3004]' derivation='User' name='[usr:Calculation_3004:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_3005]' derivation='User' name='[usr:Calculation_3005:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fidel0001].[none:CATEGORY:nk]' filter-group='5'>
+            <groupfilter function='level-members' level='[none:CATEGORY:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.fidel0001].[none:CATEGORY:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.fidel0001].[usr:Calculation_3005:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.fidel0001].[none:SUBCATEGORY:nk]</rows>
+        <cols>[federated.fidel0001].[usr:Calculation_3004:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Promo Lift'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales' name='federated.fidel0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fidel0001'>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Promo Type' datatype='string' name='[PROMO_TYPE]' role='dimension' type='nominal' />
+            <column caption='Promo Flag' datatype='string' name='[Calculation_3001]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF ISNULL([PROMO_TYPE]) OR [PROMO_TYPE] = &apos;None&apos; THEN &apos;No Promo&apos; ELSE &apos;Promo&apos; END' />
+            </column>
+            <column caption='Baseline No Promo' datatype='real' name='[Calculation_3002]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{FIXED : AVG(IF [Calculation_3001] = &apos;No Promo&apos; THEN [NET_REVENUE] END)}' />
+            </column>
+            <column caption='Promo Lift %' datatype='real' name='[Calculation_3003]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='AVG([NET_REVENUE]) / MAX([Calculation_3002]) - 1' />
+            </column>
+            <column-instance column='[PROMO_TYPE]' derivation='None' name='[none:PROMO_TYPE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_3003]' derivation='User' name='[usr:Calculation_3003:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fidel0001].[none:PROMO_TYPE:nk]'>
+            <groupfilter function='union' user:ui-domain='database' user:ui-enumeration='inclusive' user:ui-marker='enumerate'>
+              <groupfilter function='member' level='[none:PROMO_TYPE:nk]' member='&quot;BOGO&quot;' />
+              <groupfilter function='member' level='[none:PROMO_TYPE:nk]' member='&quot;Percentage Off&quot;' />
+            </groupfilter>
+          </filter>
+          <slices>
+            <column>[federated.fidel0001].[none:PROMO_TYPE:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.fidel0001].[none:PROMO_TYPE:nk]</rows>
+        <cols>[federated.fidel0001].[usr:Calculation_3003:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Promo Avg Revenue'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Sales' name='federated.fidel0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fidel0001'>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Promo Type' datatype='string' name='[PROMO_TYPE]' role='dimension' type='nominal' />
+            <column caption='Promo Flag' datatype='string' name='[Calculation_3001]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF ISNULL([PROMO_TYPE]) OR [PROMO_TYPE] = &apos;None&apos; THEN &apos;No Promo&apos; ELSE &apos;Promo&apos; END' />
+            </column>
+            <column caption='Baseline No Promo' datatype='real' name='[Calculation_3002]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{FIXED : AVG(IF [Calculation_3001] = &apos;No Promo&apos; THEN [NET_REVENUE] END)}' />
+            </column>
+            <column caption='Avg Revenue No Promo' datatype='real' name='[Calculation_3006]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='MAX([Calculation_3002])' />
+            </column>
+            <column caption='Avg Revenue on Promo' datatype='real' name='[Calculation_3007]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='AVG(IF [Calculation_3001] = &apos;Promo&apos; THEN [NET_REVENUE] END)' />
+            </column>
+            <column-instance column='[PROMO_TYPE]' derivation='None' name='[none:PROMO_TYPE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_3006]' derivation='User' name='[usr:Calculation_3006:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_3007]' derivation='User' name='[usr:Calculation_3007:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fidel0001].[none:PROMO_TYPE:nk]'>
+            <groupfilter function='union' user:ui-domain='database' user:ui-enumeration='inclusive' user:ui-marker='enumerate'>
+              <groupfilter function='member' level='[none:PROMO_TYPE:nk]' member='&quot;BOGO&quot;' />
+              <groupfilter function='member' level='[none:PROMO_TYPE:nk]' member='&quot;Percentage Off&quot;' />
+            </groupfilter>
+          </filter>
+          <filter class='categorical' column='[federated.fidel0001].[:Measure Names]'>
+            <groupfilter function='union' user:ui-domain='database' user:ui-enumeration='inclusive' user:ui-marker='enumerate'>
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.fidel0001].[usr:Calculation_3006:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.fidel0001].[usr:Calculation_3007:qk]&quot;' />
+            </groupfilter>
+          </filter>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.fidel0001].[:Measure Names]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>([federated.fidel0001].[none:PROMO_TYPE:nk] / [federated.fidel0001].[:Measure Names])</rows>
+        <cols>[federated.fidel0001].[Multiple Values]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Fidelity S3'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Sales' name='federated.fidel0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='3' param='vert' type-v2='layout-flow' w='18000' x='0' y='0'>
+              <zone h='8000' id='10' mode='checkdropdown' name='Margin vs Threshold' param='[federated.fidel0001].[none:CATEGORY:nk]' type-v2='filter' values='relevant' w='18000' x='0' y='0' />
+              <zone h='8000' id='11' mode='compact' param='[Parameters].[Parameter 1]' type-v2='paramctrl' w='18000' x='0' y='8000' />
+            </zone>
+            <zone h='100000' id='4' param='vert' type-v2='layout-flow' w='82000' x='18000' y='0'>
+              <zone h='50000' id='21' name='Margin vs Threshold' w='82000' x='18000' y='0' />
+              <zone h='25000' id='22' name='Promo Lift' w='82000' x='18000' y='50000' />
+              <zone h='25000' id='23' name='Promo Avg Revenue' w='82000' x='18000' y='75000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

@@ -772,7 +772,15 @@ def build_page_from_tree(dashboard, page, opts)
                   HEADER_ROWS].max
     end
     extra_els << container_el(hdr_id, hdr_style)
-    children << header_band_xml(hdr_id, title_el['id'], rows: hdr_rows)
+    # The source's header-row nav button rides in the band beside the title;
+    # it leaves the tree (pruning the row container it sat in) so the body
+    # does not reserve a phantom row for it.
+    hdr_buttons = header_nav_buttons(dashboard, page, zone_by_id, title_el)
+    hdr_buttons.each do |b|
+      ctx[:placed] << b[:id]
+      remove_zone_from_tree!(tree, b[:zone_id])
+    end
+    children << header_band_xml(hdr_id, title_el['id'], rows: hdr_rows, buttons: hdr_buttons)
     ctx[:title_used] = true
     # Mark the title element as PLACED so the unplaced-elements safety net below
     # doesn't append it a SECOND time in the bottom band — a duplicate element id
@@ -805,7 +813,12 @@ def build_page_from_tree(dashboard, page, opts)
     extra_els << container_el(hdr_id, hdr_style)
     txt_id = "tc-#{page['id']}-hdrtext"
     extra_els << header_text_el(txt_id, page['name'], hdr_dark ? '#FFFFFF' : nil)
-    children << header_band_xml(hdr_id, txt_id)
+    hdr_buttons = header_nav_buttons(dashboard, page, zone_by_id, nil)
+    hdr_buttons.each do |b|
+      ctx[:placed] << b[:id]
+      remove_zone_from_tree!(tree, b[:zone_id])
+    end
+    children << header_band_xml(hdr_id, txt_id, buttons: hdr_buttons)
   end
   body_rows = hdr_rows.zero? ? page_rows : [page_rows - hdr_rows, 4].max
   if canvas_fixed && page_pseudo['y_pct'].to_f.positive?
@@ -1014,22 +1027,12 @@ def clip_extracted_title_zone!(tree, tz, eps = 1.5)
   return nil unless path
   ty = tz['y_pct'].to_f
   tb = ty + tz['h_pct'].to_f
-  (path.empty? ? tree : (path.last['children'] || [])).reject! { |k| k['id'] == tz['id'] }
-  # Prune ancestors the removal left CONTENT-FREE (spacers only): a dead
+  # Removal also prunes ancestors left CONTENT-FREE (spacers only): a dead
   # title-row container still maps to a rect at its siblings' top edge, and
   # that phantom collision trips decollide_rects' equal-slicing — which throws
   # away every sibling's source proportions (live-caught: the whole page
   # re-flowed into uniform bands, dead space intact).
-  placeable = lambda do |n|
-    next false if n['kind'] == 'spacer'
-    next true unless n['kind'] == 'container'
-    (n['children'] || []).any? { |c| placeable.call(c) }
-  end
-  (path.length - 1).downto(0) do |i|
-    node = path[i]
-    break if placeable.call(node)
-    (i.zero? ? tree : (path[i - 1]['children'] || [])).reject! { |k| k['id'] == node['id'] }
-  end
+  remove_zone_from_tree!(tree, tz['id'])
   # Clip surviving top-aligned ancestors so children map from the title's
   # bottom edge.
   path.each do |a|
@@ -1066,6 +1069,68 @@ def header_content_above?(zones, cand)
     next false unless header_guard_content?(z)
     (z['y_pct'].to_f + z['h_pct'].to_f) <= cand_top + 1.5
   end
+end
+
+# Navigation buttons the SOURCE puts in its header row (top strip, beside the
+# title — a "Back to X" / "Next page ->" button at the top right). They belong
+# in the header band at their own columns, not in a full-width bottom band
+# (safety net) or a tall pseudo-row of the body tree. Returns
+# [{id:, c0:, c1:, zone_id:}] sorted left to right, container-relative columns
+# of the 24-col header band; [] when the page has none. A button that would
+# crowd the title (starts left of column 7) or overlaps a neighbouring header
+# button stays where the normal placement puts it.
+HEADER_BUTTON_MIN_COLS = 4
+HEADER_TITLE_MIN_COLS = 6
+
+def header_nav_buttons(dashboard, page, zone_by_id, title_el)
+  els_by_id = page['elements'].each_with_object({}) { |e, h| h[e['id']] = e if e['id'] }
+  tz = title_el && zone_by_id[title_el['id'].to_s.sub(/\Atext-/, '')]
+  title_bottom = tz && tz['y_pct'] && tz['h_pct'] ? tz['y_pct'].to_f + tz['h_pct'].to_f : nil
+  found = []
+  (dashboard['zones'] || []).each do |z|
+    next unless z['kind'].to_s == 'dashboard-object' && z['id']
+    el = els_by_id["btn-#{z['id']}"]
+    # Native `button` or the text-link fallback (`text`, same btn-<zone> id).
+    next unless el && %w[button text].include?(el['kind'].to_s)
+    y0 = (z['y_pct'] || 0).to_f
+    cy = y0 + (z['h_pct'] || 0).to_f / 2.0
+    in_header = y0 < SigmaLayout::HEADER_MAX_Y_PCT && (title_bottom.nil? || cy <= title_bottom + 1.5)
+    next unless in_header
+    x0 = (z['x_pct'] || 0).to_f
+    c0 = clampc(1 + (x0 / 100.0 * 24).round, 1, 24)
+    c1 = clampc(1 + ((x0 + (z['w_pct'] || 0).to_f) / 100.0 * 24).round, c0 + 1, 25)
+    c0 = c1 - HEADER_BUTTON_MIN_COLS if c1 - c0 < HEADER_BUTTON_MIN_COLS
+    found << { id: el['id'], c0: c0, c1: c1, zone_id: z['id'] }
+  end
+  out = []
+  found.sort_by { |b| [b[:c0], b[:id].to_s] }.each do |b|
+    next if b[:c0] < 1 + HEADER_TITLE_MIN_COLS
+    next if out.any? && b[:c0] < out.last[:c1]
+    out << b
+  end
+  out
+end
+
+# Remove a zone from the tree and prune ancestors the removal left
+# CONTENT-FREE (spacers only) — a dead container still maps to a rect at its
+# siblings' top edge, and that phantom collision trips decollide_rects'
+# equal-slicing (every sibling loses its source proportions). Shared by the
+# title extraction and the header-button hoist.
+def remove_zone_from_tree!(tree, zid)
+  path = find_zone_path(tree, zid)
+  return false unless path
+  (path.empty? ? tree : (path.last['children'] || [])).reject! { |k| k['id'] == zid }
+  placeable = lambda do |n|
+    next false if n['kind'] == 'spacer'
+    next true unless n['kind'] == 'container'
+    (n['children'] || []).any? { |c| placeable.call(c) }
+  end
+  (path.length - 1).downto(0) do |i|
+    node = path[i]
+    break if placeable.call(node)
+    (i.zero? ? tree : (path[i - 1]['children'] || [])).reject! { |k| k['id'] == node['id'] }
+  end
+  true
 end
 
 def detect_header_title_el(page, zone_by_id)
@@ -1224,13 +1289,19 @@ def build_page_synthesized(dashboard, page, opts, structure)
   hdr_rows = hdr_ids.empty? ? 0 : HEADER_ROWS
   unless hdr_ids.empty?
     extra_els << container_el(hdr_id, hdr_style)
+    # Header-row nav buttons keep their own columns at the right of the band;
+    # the title / header texts share the columns to their left.
+    hdr_buttons = header_nav_buttons(dashboard, page, zone_by_id, title_el)
+    hdr_buttons.each { |b| placed << b[:id] }
+    span_end = hdr_buttons.empty? ? 25 : hdr_buttons.map { |b| b[:c0] }.min
     nh = hdr_ids.length
-    hdr_inner = hdr_ids.each_with_index.map do |eid, i|
-      c0 = 1 + (24 * i / nh.to_f).round
-      c1 = i == nh - 1 ? 25 : [1 + (24 * (i + 1) / nh.to_f).round, c0 + 1].max
+    hdr_cells = hdr_ids.each_with_index.map do |eid, i|
+      c0 = 1 + ((span_end - 1) * i / nh.to_f).round
+      c1 = i == nh - 1 ? span_end : [1 + ((span_end - 1) * (i + 1) / nh.to_f).round, c0 + 1].max
       le(eid, c0, c1, 1, 1 + hdr_rows)
-    end.join("\n")
-    children << gc(hdr_id, 1, 25, 1, 1 + hdr_rows, hdr_inner)
+    end
+    hdr_cells += hdr_buttons.map { |b| le(b[:id], b[:c0], b[:c1], 1, 1 + hdr_rows) }
+    children << gc(hdr_id, 1, 25, 1, 1 + hdr_rows, hdr_cells.join("\n"))
   end
 
   # --- controls: sidebar rail vs top control band -----------------------------
@@ -1580,8 +1651,10 @@ def build_page_for_dashboard(dashboard, page, opts)
   hdr_rows = HEADER_ROWS
   if title_el
     extra_els << container_el(hdr_id, hdr_style)
-    children << header_band_xml(hdr_id, title_el['id'])
+    hdr_buttons = header_nav_buttons(dashboard, page, zone_by_id, title_el)
+    children << header_band_xml(hdr_id, title_el['id'], buttons: hdr_buttons)
     placed << title_el['id']
+    placed.concat(hdr_buttons.map { |b| b[:id] })
   elsif o[:no_synthetic_title]
     # #422: synthetic banner suppressed (flag or prior-state) — no fabricated
     # page-name header; content starts at the top of the grid.
@@ -1590,7 +1663,9 @@ def build_page_for_dashboard(dashboard, page, opts)
     extra_els << container_el(hdr_id, hdr_style)
     txt_id = "#{ov_prefix}-hdrtext"
     extra_els << header_text_el(txt_id, page['name'], hdr_dark ? '#FFFFFF' : nil)
-    children << header_band_xml(hdr_id, txt_id)
+    hdr_buttons = header_nav_buttons(dashboard, page, zone_by_id, nil)
+    children << header_band_xml(hdr_id, txt_id, buttons: hdr_buttons)
+    placed.concat(hdr_buttons.map { |b| b[:id] })
   end
 
   # Control band: dashboard-global controls side-by-side under the header.

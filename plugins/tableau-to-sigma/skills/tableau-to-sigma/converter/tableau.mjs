@@ -2328,7 +2328,7 @@ function buildDerivedElements(elements, warnings) {
   for (const srcEl of elements) {
     if (!srcEl.relationships?.length)
       continue;
-    if (srcEl.source?.kind !== "warehouse-table")
+    if (srcEl.source?.kind !== "warehouse-table" && srcEl.source?.kind !== "join")
       continue;
     const srcPath = srcEl.source.path || [];
     const srcTableName = srcPath[srcPath.length - 1] || "";
@@ -2341,7 +2341,11 @@ function buildDerivedElements(elements, warnings) {
         continue;
       let dispName;
       const fm = col.formula.match(/^\[([^\/\]]+)\/([^\]]+)\]$/);
-      if (fm)
+      // A join element's columns are addressed by their own names: an alias
+      // column "[Alias/Net Revenue]" is exposed as "Net Revenue (Alias)".
+      if (srcEl.source.kind === "join" && col.name)
+        dispName = String(col.name);
+      else if (fm)
         dispName = fm[2];
       else if (col.name)
         dispName = String(col.name);
@@ -4656,12 +4660,20 @@ function convertTableauToSigma(xmlContent, options = {}) {
   const elements = [];
   let relationshipCoverage = null;
   let joinTableIndex = null;
+  const selfJoins = [];
+  const innerJoinRels = {};
   const connId = connectionId || "<CONNECTION_ID>";
   const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const colTypeById = {};
   const guidCaption = {};
   const physicalGuidCaption = {};
   const guidOwnerRel = {};
+  const fieldOwnerRel = {};
+  const aliasFieldCaption = {};
+  // Tableau disambiguates a caption shared across joined tables by appending
+  // the owning table: "Customer Key (CUSTOMER_DIM)". That suffix is display
+  // text, not part of the warehouse column name.
+  const stripOwnerSuffix = (cap, tableName) => tableName ? String(cap).replace(new RegExp(`\\s*\\(${String(tableName).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)\\s*$`, "i"), "") : String(cap);
   {
     for (const colsBlock of [
       ...asArray(ds.ds?.cols || []),
@@ -4674,6 +4686,11 @@ function convertTableauToSigma(xmlContent, options = {}) {
         const ownerRel = (val.match(/^\[([^\]]+)\]/) || [])[1];
         if (guid && ownerRel)
           guidOwnerRel[guid.toLowerCase()] = ownerRel;
+        // Keyed by the FULL field key: two aliases of one table share every
+        // column GUID ("<guid>" vs "<guid> (Customer Day Detail)"), so the
+        // GUID-only map above keeps whichever alias was written last.
+        if (key && ownerRel)
+          fieldOwnerRel[key.toLowerCase()] = ownerRel;
       }
     }
     for (const mr of asArray(rootConn?.["metadata-records"]?.["metadata-record"] || [])) {
@@ -4693,6 +4710,11 @@ function convertTableauToSigma(xmlContent, options = {}) {
       if (!cap)
         continue;
       const g = guid.toLowerCase();
+      // "<guid> (<Alias>)" is the same physical column read through a second
+      // relation over its table; its own caption ("Net Revenue (Alias)") is
+      // the name calcs and the self-join reshape address it by.
+      if (nm.toLowerCase() !== g)
+        aliasFieldCaption[nm.toLowerCase()] = String(attr(col, "caption") || "").trim();
       if (!guidCaption[g])
         guidCaption[g] = cap;
       if (!col.calculation && !physicalGuidCaption[g])
@@ -4730,6 +4752,9 @@ function convertTableauToSigma(xmlContent, options = {}) {
   }
   const rewriteGuidRefs = (formula) => decodeXmlEntities(formula).replace(/\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi, (m, g) => {
     const cap = guidCaption[g.toLowerCase()];
+    return cap ? `[${cap}]` : m;
+  }).replace(/\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} \([^\[\]]+\))\]/gi, (m, key) => {
+    const cap = aliasFieldCaption[key.toLowerCase()];
     return cap ? `[${cap}]` : m;
   }).replace(/\[([^\]]+)\]/g, (m, name) => {
     if (!CALC_REF_RE.test(name))
@@ -4776,8 +4801,20 @@ function convertTableauToSigma(xmlContent, options = {}) {
         for (const t of tables) {
           const path = extractPath(t.rel, dbEff, schEff, whCasing);
           const tableName = path[path.length - 1] || attr(t.rel, "name") || "";
-          if (elementMap[tableName])
-            continue;
+          const relName = attr(t.rel, "name") || tableName;
+          // A second relation over a physical table already in the tree is an
+          // ALIAS (a self-join such as Order Lines x Customer Day Detail, or a
+          // role-played dimension): it gets its own element, keyed and named by
+          // its Tableau relation name. Collapsing it onto the first element
+          // made the join a relationship from that element to itself, which
+          // the DM POST rejects as a circular dependency.
+          let mapKey = tableName;
+          if (elementMap[tableName]) {
+            if (relName === elementMap[tableName].relName || elementMap[relName])
+              continue;
+            mapKey = relName;
+          }
+          t._mapKey = mapKey;
           const columns = [], order = [];
           const guidColIds = {};
           for (const col of asArray(t.rel?.columns?.column || [])) {
@@ -4809,6 +4846,7 @@ function convertTableauToSigma(xmlContent, options = {}) {
           const el = {
             id: elemId,
             kind: "table",
+            ...mapKey !== tableName ? { name: relName } : {},
             source: { connectionId: connId, kind: "warehouse-table", path },
             columns,
             order
@@ -4822,7 +4860,7 @@ function convertTableauToSigma(xmlContent, options = {}) {
             }
           });
           Object.assign(colIdMap, guidColIds);
-          elementMap[tableName] = { element: el, colIdMap };
+          elementMap[mapKey] = { element: el, colIdMap, relName, tableName, alias: mapKey !== tableName };
           elements.push(el);
         }
         const primaryTableName = extractPath(tables[0].rel, dbEff, schEff, whCasing).pop() || "";
@@ -4838,11 +4876,12 @@ function convertTableauToSigma(xmlContent, options = {}) {
             const cap = guidCaption[key.toLowerCase()];
             if (!cap)
               return { display: key, unresolvedGuid: key };
-            const phys = captionToPhysical(cap);
+            const base = stripOwnerSuffix(cap, tableName);
+            const phys = captionToPhysical(base);
             colId = entry.colIdMap[cap.toUpperCase()] || entry.colIdMap[phys];
             if (!colId) {
               colId = sigmaInodeId(phys);
-              entry.element.columns.push({ id: colId, formula: `[${tableName}/${cap}]`, name: cap });
+              entry.element.columns.push({ id: colId, formula: `[${tableName}/${base}]`, name: cap });
               entry.element.order.push(colId);
               entry.colIdMap[phys] = colId;
               entry.colIdMap[cap.toUpperCase()] = colId;
@@ -4863,10 +4902,11 @@ function convertTableauToSigma(xmlContent, options = {}) {
           const rightRaw = t.rightKeys && t.rightKeys.length ? t.rightKeys : t.rightKey ? [t.rightKey] : [];
           if (!leftRaw.length || leftRaw.length !== rightRaw.length)
             continue;
-          const tgtName = extractPath(t.rel, dbEff, schEff, whCasing).pop() || "";
-          const tgtEntry = elementMap[tgtName];
-          if (!primaryEntry || !tgtEntry)
+          const tgtEntry = elementMap[t._mapKey];
+          if (!primaryEntry || !tgtEntry || tgtEntry === primaryEntry)
             continue;
+          const tgtTable = tgtEntry.tableName;
+          const tgtName = tgtEntry.alias ? tgtEntry.relName : tgtTable;
           const keys = [];
           const pairDesc = [];
           const badGuids = [];
@@ -4876,14 +4916,14 @@ function convertTableauToSigma(xmlContent, options = {}) {
             if (!leftKey || !rightKey)
               continue;
             const src = resolveJoinKey(primaryEntry, leftKey, primaryTableName);
-            const tgt = resolveJoinKey(tgtEntry, rightKey, tgtName);
+            const tgt = resolveJoinKey(tgtEntry, rightKey, tgtTable);
             if (src.unresolvedGuid || tgt.unresolvedGuid || !src.colId || !tgt.colId) {
               for (const g of [src.unresolvedGuid, tgt.unresolvedGuid])
                 if (g)
                   badGuids.push(g);
               continue;
             }
-            keys.push({ sourceColumnId: src.colId, targetColumnId: tgt.colId });
+            keys.push({ sourceColumnId: src.colId, targetColumnId: tgt.colId, sourceDisplay: src.display, targetDisplay: tgt.display });
             pairDesc.push(`${src.display} = ${tgt.display}`);
           }
           if (badGuids.length > 0) {
@@ -4898,14 +4938,26 @@ function convertTableauToSigma(xmlContent, options = {}) {
           }
           if (!keys.length)
             continue;
+          if (tgtEntry.alias && tgtTable === primaryTableName) {
+            // Self-join: a Sigma relationship is a many-to-one lookup, but
+            // Tableau's join FANS OUT the primary rows (every same-key alias
+            // row joins). Only a real join element reproduces that row set;
+            // it is built after the column pass (reshapeSelfJoins).
+            selfJoins.push({ primaryEntry, aliasEntry: tgtEntry, keys, joinType: t.joinType || "left" });
+            warnings.push(`\u2139 Self-join ${primaryEntry.relName} \u2192 ${tgtEntry.relName} (${t.joinType || "left"}) on ${pairDesc.join(" AND ")} \u2014 both aliases of ${primaryTableName}; emitted as a join element, not a relationship.`);
+            continue;
+          }
           if (!primaryEntry.element.relationships)
             primaryEntry.element.relationships = [];
+          const relId = sigmaShortId();
           primaryEntry.element.relationships.push({
-            id: sigmaShortId(),
+            id: relId,
             targetElementId: tgtEntry.element.id,
-            keys,
+            keys: keys.map(({ sourceColumnId, targetColumnId }) => ({ sourceColumnId, targetColumnId })),
             name: tgtName
           });
+          if (String(t.joinType || "left").toLowerCase() === "inner")
+            innerJoinRels[relId] = keys;
           warnings.push(`\u2139 Join ${primaryTableName} \u2192 ${tgtName} (${t.joinType || "left"}) on ${pairDesc.join(" AND ")}`);
         }
         joinTableIndex = { byTable: elementMap, primaryTableName };
@@ -4922,6 +4974,13 @@ function convertTableauToSigma(xmlContent, options = {}) {
       } else {
         const metaByObjId = {};
         const metaByParent = {};
+        // GUID-only column records (no caption/alias beyond the GUID itself,
+        // e.g. a virtual-connection date the workbook re-typed with a
+        // date-parse-format) are dropped as element columns below, but a
+        // relationship endpoint expression may still name them. Keep their
+        // structural owner + type so the computed-key rung can place a
+        // placeholder on the OWNING table only.
+        const guidOnlyMeta = {};
         const colSqlNameById = {};
         const metaRecords = asArray(rootConn?.["metadata-records"]?.["metadata-record"] || []);
         const stripBrackets = (s) => s.replace(/^\[|\]$/g, "");
@@ -4937,6 +4996,7 @@ function convertTableauToSigma(xmlContent, options = {}) {
           if (!uuid || !cap)
             continue;
           if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cap)) {
+            guidOnlyMeta[uuid.toLowerCase()] = { objId: objIdRaw, parent: parentRaw, localType };
             const known = physicalGuidCaption[uuid.toLowerCase()];
             warnings.push(known ? `\u26A0 Dropped column "${known}" (Tableau-renamed to internal GUID ${uuid}): its warehouse identity is the GUID, so a [TABLE/${known}] ref won't resolve in Sigma. Re-add manually if needed (needs warehouse-column\u2192display aliasing).` : `\u26A0 Dropped column "${uuid}" \u2014 referenced only by an internal Tableau GUID with no recoverable caption; emitting it would produce an unresolvable [TABLE/${uuid}] reference.`);
             continue;
@@ -5019,7 +5079,7 @@ function convertTableauToSigma(xmlContent, options = {}) {
           const el = { id: sigmaShortId(), kind: "table", source, columns, order };
           if (source.kind === "sql")
             el._sqlOrigin = "source-custom-sql";
-          elementMap[fullName] = { element: el, colIdMap, cleanName, objId: relObjId };
+          elementMap[fullName] = { element: el, colIdMap, cleanName, objId: relObjId, fullName };
           elements.push(el);
         }
         const objGraph = nsChild(ds.ds, "object-graph");
@@ -5210,13 +5270,197 @@ function convertTableauToSigma(xmlContent, options = {}) {
             collectNonEq(k, acc);
         };
         const isPhysical = (op) => /^\[[^\]]+\]$/.test(op.trim());
+        // --- computed-key rung ---
+        // A relationship side that is a WHITELISTED expression over exactly one
+        // column (DATE / DATETIME / INT / STR casts, DATETRUNC('<part>', c),
+        // IFNULL(c, <literal>)) becomes a calculated key column on that side's
+        // element and the relationship keys on it. Sigma relationships accept
+        // calculated key columns: live-verified 2026-10-27 with
+        // DateTrunc("day", [Order Date]) -> DIM_TIME.DATE_KEY, whose grouped
+        // rows matched the hand-written warehouse LEFT JOIN exactly. Anything
+        // outside the whitelist, an unresolvable column, or a key whose two
+        // sides have different type families keeps the refuse path
+        // (name-inference, then unwired) unchanged.
+        const COMPUTED_KEY_DATE_PARTS = /* @__PURE__ */ new Set(["year", "quarter", "month", "day", "hour", "minute", "second"]);
+        const parseComputedEndpoint = (raw) => {
+          const s = String(raw || "").trim();
+          let m = s.match(/^(DATE|DATETIME|INT|STR)\s*\(\s*\[([^\[\]]+)\]\s*\)$/i);
+          if (m)
+            return { fn: m[1].toUpperCase(), ref: m[2] };
+          m = s.match(/^DATETRUNC\s*\(\s*(['"])([A-Za-z]+)\1\s*,\s*\[([^\[\]]+)\]\s*\)$/i);
+          if (m)
+            return { fn: "DATETRUNC", part: m[2].toLowerCase(), ref: m[3] };
+          m = s.match(/^IFNULL\s*\(\s*\[([^\[\]]+)\]\s*,\s*(-?\d+(?:\.\d+)?|'[^'"\\]*'|"[^'"\\]*")\s*\)$/i);
+          if (m)
+            return { fn: "IFNULL", ref: m[1], literal: m[2] };
+          return null;
+        };
+        const typeFamily = (t) => {
+          const v = String(t || "").toLowerCase();
+          return v === "date" || v === "datetime" ? "date" : v === "integer" || v === "real" ? "number" : v === "string" ? "string" : v === "boolean" ? "boolean" : "";
+        };
+        // Resolve the endpoint's inner column on ITS OWN entry: an existing
+        // column, or a GUID-only virtual-connection column whose metadata
+        // record is structurally owned by this entry (object-id or
+        // parent-name) and has a caption elsewhere in the .twb. The latter is
+        // materialized via ensureCol as the same-caption placeholder
+        // ([TABLE/Caption]) the skill's GUID-date recovery replaces in place
+        // with the live warehouse formula. Nothing is created here: the caller
+        // commits only once BOTH sides of the equality are known to wire.
+        const resolveComputedRef = (entry, ref) => {
+          const key = ref.replace(/\s*\(.*\)$/, "").trim().toUpperCase();
+          if (!key)
+            return null;
+          if (hasCol(entry, key)) {
+            // Same collision guard as name inference: a name that normalizes
+            // onto more than one real column must not take whichever colIdMap
+            // write won last.
+            if (!GUID_RE.test(key) && (candidateNameIndex(entry).get(key.replace(/\s+/g, "_"))?.size || 0) > 1)
+              return { collision: true };
+            const id = entry.colIdMap[key] || entry.colIdMap[key.replace(/-/g, "_")];
+            const col = entry.element.columns.find((c) => c.id === id);
+            const fm = col && String(col.formula || "").match(/^\[[^/\]]+\/([^\]]+)\]$/);
+            return { key, disp: col && col.name || fm && fm[1] || "", type: colTypeById[id], commit: () => id };
+          }
+          const rec = guidOnlyMeta[key.toLowerCase()];
+          const cap = guidCaption[key.toLowerCase()];
+          const owned = rec && (rec.objId && rec.objId === entry.objId || rec.parent && rec.parent === entry.fullName);
+          // Only the date-parse-format family: that is the one the skill's
+          // GUID-date recovery rebuilds (or refuses loudly) downstream.
+          if (!owned || !cap || typeFamily(rec.localType) !== "date" || !derivedRelColGuids.has(key.toLowerCase()))
+            return null;
+          return {
+            key,
+            disp: cap,
+            type: rec.localType,
+            placeholder: true,
+            commit: () => {
+              const id = ensureCol(entry, key);
+              if (rec.localType && !colTypeById[id])
+                colTypeById[id] = rec.localType;
+              return id;
+            }
+          };
+        };
+        const computedKeyFormula = (ep, disp, type) => {
+          const ref = `[${disp}]`;
+          const fam = typeFamily(type);
+          const dateArg = fam === "date" ? ref : `Date(${ref})`;
+          const refuse = (why) => ({ refuse: why });
+          switch (ep.fn) {
+            case "DATE":
+              return fam === "" || fam === "date" || fam === "string" ? { formula: `DateTrunc("day", ${dateArg})`, family: "date" } : refuse(`DATE() over a ${type} column`);
+            case "DATETIME":
+              return fam === "" || fam === "date" || fam === "string" ? { formula: `Date(${ref})`, family: "date" } : refuse(`DATETIME() over a ${type} column`);
+            case "DATETRUNC":
+              if (!COMPUTED_KEY_DATE_PARTS.has(ep.part))
+                return refuse(ep.part === "week" ? "DATETRUNC('week') depends on the data source's start-of-week" : `DATETRUNC('${ep.part}') is not a supported date part`);
+              return fam === "" || fam === "date" || fam === "string" ? { formula: `DateTrunc("${ep.part}", ${dateArg})`, family: "date" } : refuse(`DATETRUNC() over a ${type} column`);
+            case "INT":
+              return fam === "" || fam === "number" || fam === "string" ? { formula: `Int(${ref})`, family: "number" } : refuse(`INT() over a ${type} column`);
+            case "STR":
+              return fam === "" || fam === "string" || String(type).toLowerCase() === "integer" ? { formula: `Text(${ref})`, family: "string" } : refuse(`STR() over a ${type} column`);
+            case "IFNULL": {
+              const litFam = /^-?\d/.test(ep.literal) ? "number" : "string";
+              if (fam && fam !== litFam)
+                return refuse(`IFNULL() literal ${ep.literal} does not match the ${type} column`);
+              const lit = litFam === "string" ? `"${ep.literal.slice(1, -1)}"` : ep.literal;
+              return { formula: `Coalesce(${ref}, ${lit})`, family: fam || litFam };
+            }
+            default:
+              return refuse(`${ep.fn}() is not a supported join-key function`);
+          }
+        };
+        const ensureComputedKeyCol = (entry, base, ep, formula) => {
+          const mapKey = `COMPUTED_KEY::${formula}`;
+          if (entry.colIdMap[mapKey])
+            return entry.colIdMap[mapKey];
+          const taken = new Set((entry.element.columns || []).map((c) => String(c.name || (String(c.formula || "").match(/\/([^\]]+)\]$/) || [])[1] || "").toUpperCase()));
+          const label = (ep.part || ep.fn).toLowerCase();
+          let name = `${base.disp} (join key)`;
+          if (taken.has(name.toUpperCase()))
+            name = `${base.disp} (${label} join key)`;
+          for (let n = 2; taken.has(name.toUpperCase()); n++)
+            name = `${base.disp} (${label} join key ${n})`;
+          const id = sigmaInodeId(`${base.key.replace(/[^0-9A-Za-z]+/g, "_")}_${label.toUpperCase()}_JOIN_KEY`);
+          entry.element.columns.push({ id, name, formula });
+          entry.element.order.push(id);
+          entry.colIdMap[mapKey] = id;
+          return id;
+        };
+        // One endpoint operand -> a plan { family, computed, commit() } on the
+        // given entry, { refuse } when it belongs to the entry but cannot be
+        // carried, or null when it does not belong to this entry (the caller
+        // may try the other side). commit() creates any placeholder / calc key
+        // column and returns the column id.
+        const resolveKeyOperand = (entry, raw) => {
+          if (isPhysical(raw)) {
+            const key = parseOpRef(raw);
+            if (!key || !hasCol(entry, key))
+              return null;
+            const id = entry.colIdMap[key] || entry.colIdMap[key.replace(/-/g, "_")];
+            return { family: typeFamily(colTypeById[id]), computed: false, commit: () => id };
+          }
+          const ep = parseComputedEndpoint(raw);
+          if (!ep)
+            return { refuse: `${String(raw).trim()} is not a whitelisted single-column expression` };
+          const base = resolveComputedRef(entry, ep.ref);
+          if (!base)
+            return null;
+          if (base.collision)
+            return { refuse: `[${ep.ref}] matches more than one column on ${entry.cleanName} after name normalization` };
+          if (!base.disp || base.disp.includes("/"))
+            return { refuse: `${String(raw).trim()} wraps a column with no plain display name` };
+          const built = computedKeyFormula(ep, base.disp, base.type);
+          if (built.refuse)
+            return built;
+          return {
+            family: built.family,
+            computed: true,
+            placeholder: !!base.placeholder,
+            expr: `${ep.fn}([${base.disp}])`,
+            commit: () => {
+              base.commit();
+              return ensureComputedKeyCol(entry, base, ep, built.formula);
+            }
+          };
+        };
+        // Plan one '=' clause whose operands are not both physical. Tries the
+        // serialized operand order first, then the swapped order (operand
+        // order follows end-point order by convention only).
+        const planComputedPair = (firstEntry, secondEntry, srcRaw, tgtRaw) => {
+          const tryOrder = (aRaw, bRaw) => {
+            const a = resolveKeyOperand(firstEntry, aRaw);
+            const b = resolveKeyOperand(secondEntry, bRaw);
+            if (!a || !b)
+              return null;
+            if (a.refuse || b.refuse)
+              return { refuse: a.refuse || b.refuse };
+            if (a.family && b.family && a.family !== b.family)
+              return { refuse: `key types differ (${a.family} vs ${b.family})` };
+            return { a, b };
+          };
+          // Serialized operand order wins when both orders resolve (the same
+          // convention the physical-key path uses for a name present on both
+          // tables). A refusal in that order is not final: a wrong-side
+          // assignment of a shared name can be what made the types differ, so
+          // the swapped order is still tried before refusing.
+          const first = tryOrder(srcRaw, tgtRaw);
+          if (first && !first.refuse)
+            return first;
+          const swapped = tryOrder(tgtRaw, srcRaw);
+          if (swapped && !swapped.refuse)
+            return swapped;
+          return first || swapped || { refuse: "the wrapped column does not resolve on either end-point table" };
+        };
         // PASS 1 \u2014 collect every wire-able edge WITHOUT attaching it. Tableau
         // serializes the already-on-canvas (base) table as first-end-point and
         // the base is pure authoring order (docs: "the first table that you
         // drag"), so endpoint order carries NO fact semantics. Attachment is
         // decided after election, in pass 2.
         // Composition with the PR2a ladder: the ladder decides WHICH keys
-        // wire (serialized -> name-inference -> unwired-and-recorded); the
+        // wire (serialized | computed-key -> name-inference ->
+        // unwired-and-recorded); the
         // object-model passes decide HOW edges attach (fact election,
         // orientation, role-played instancing).
         const relEdges = [];
@@ -5343,6 +5587,7 @@ function convertTableauToSigma(xmlContent, options = {}) {
           }
           const keys = [];
           let skippedComputed = 0;
+          let computedKeys = 0;
           for (const eq of eqExprs) {
             const inner = asArray(eq.expression || []);
             if (inner.length < 2)
@@ -5350,55 +5595,20 @@ function convertTableauToSigma(xmlContent, options = {}) {
             let srcOpRaw = nsAttr(inner[0], "op") || "";
             let tgtOpRaw = nsAttr(inner[1], "op") || "";
             if (!isPhysical(srcOpRaw) || !isPhysical(tgtOpRaw)) {
-              // DATE()/DATETIME()-wrapped side (role-played date joins): when
-              // the wrapped column resolves on one of THIS relationship's own
-              // end-point entries, synthesize a deterministic calc key column
-              // (Date([Col])) on that side and wire the equality on it — the
-              // role's key stays on its own instance. Unknown functions and
-              // unresolvable wrapped columns keep the refuse path (computed-only
-              // named gap), never a guess.
-              const fnKeySigma = { DATE: "Date", DATETIME: "Date" };
-              const fnWrapOf = (raw) => {
-                const m = String(raw).trim().match(/^([A-Za-z_]+)\(\[?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]?\)$/i);
-                return m && fnKeySigma[m[1].toUpperCase()] ? { fn: fnKeySigma[m[1].toUpperCase()], raw: m[1].toUpperCase(), uuid: m[2].toUpperCase() } : null;
-              };
-              const ensureCalcKey = (entry, wrap) => {
-                const baseId = entry.colIdMap[wrap.uuid] || entry.colIdMap[wrap.uuid.replace(/-/g, "_")];
-                if (!baseId)
-                  return "";
-                const baseCol = entry.element.columns.find((c) => c.id === baseId);
-                const bm = baseCol && String(baseCol.formula || "").match(/^\[[^/\]]+\/([^\]]+)\]$/);
-                const baseDisp = baseCol && baseCol.name || bm && bm[1] || "";
-                if (!baseDisp || baseDisp.includes("/"))
-                  return "";
-                const calcMapKey = `${wrap.uuid}::${wrap.fn}KEY`;
-                let calcId = entry.colIdMap[calcMapKey];
-                if (!calcId) {
-                  calcId = sigmaInodeId(wrap.uuid.replace(/-/g, "_") + "_KEY");
-                  entry.element.columns.push({ id: calcId, name: `${baseDisp} Join Key`, formula: `${wrap.fn}([${baseDisp}])` });
-                  entry.element.order.push(calcId);
-                  entry.colIdMap[calcMapKey] = calcId;
-                  warnings.push(`ℹ Relationship ${firstEntry.cleanName} → ${secondEntry.cleanName}: computed key ${wrap.raw}([${baseDisp}]) wired via synthesized calc key column "${baseDisp} Join Key".`);
-                }
-                return calcId;
-              };
-              const srcWrap = fnWrapOf(srcOpRaw);
-              const tgtWrap = fnWrapOf(tgtOpRaw);
-              let aId = "", bId = "";
-              if (srcWrap && !tgtWrap && isPhysical(tgtOpRaw)) {
-                aId = ensureCalcKey(firstEntry, srcWrap);
-                if (aId)
-                  bId = ensureCol(secondEntry, parseOpRef(tgtOpRaw));
-              } else if (tgtWrap && !srcWrap && isPhysical(srcOpRaw)) {
-                bId = ensureCalcKey(secondEntry, tgtWrap);
-                if (bId)
-                  aId = ensureCol(firstEntry, parseOpRef(srcOpRaw));
-              }
-              if (aId && bId) {
-                keys.push({ aColId: aId, bColId: bId });
+              // Computed-key rung (see parseComputedEndpoint): each side lands
+              // on its OWN end-point entry, so a role-played date join keeps
+              // its key on its own instance. A refusal keeps the condition on
+              // the dropped/unwired path below, never a guess.
+              const plan = planComputedPair(firstEntry, secondEntry, srcOpRaw, tgtOpRaw);
+              if (plan.refuse) {
+                warnings.push(`⚠ Relationship ${firstEntry.cleanName} → ${secondEntry.cleanName}: computed condition ${String(srcOpRaw).trim()} = ${String(tgtOpRaw).trim()} not carried as a join key — ${plan.refuse}.`);
+                skippedComputed++;
                 continue;
               }
-              skippedComputed++;
+              keys.push({ aColId: plan.a.commit(), bColId: plan.b.commit() });
+              computedKeys++;
+              const exprs = [plan.a, plan.b].filter((p) => p.computed).map((p) => p.expr).join(" and ");
+              warnings.push(`ℹ Relationship ${firstEntry.cleanName} → ${secondEntry.cleanName}: computed key ${exprs} wired via a calculated join-key column.${[plan.a, plan.b].some((p) => p.placeholder) ? " Its wrapped column is a virtual-connection field the converter cannot see; the skill's GUID-backed date recovery must replace its [TABLE/Caption] placeholder with the warehouse formula before POST." : ""}`);
               continue;
             }
             let srcKey = parseOpRef(srcOpRaw), tgtKey = parseOpRef(tgtOpRaw);
@@ -5443,14 +5653,14 @@ function convertTableauToSigma(xmlContent, options = {}) {
             dbUniqueA: /^true$/i.test(String(attr(firstEp, "is-db-set-unique-key") || "")),
             dbUniqueB: /^true$/i.test(String(attr(secondEp, "is-db-set-unique-key") || "")),
             relExprText: JSON.stringify(rel.expression || ""),
-            derivedVia: "serialized",
+            derivedVia: computedKeys > 0 ? "computed-key" : "serialized",
             ...skippedComputed > 0 ? { droppedConditions: skippedComputed } : {}
           });
           relCoverage.wired += 1;
           relCoverage.entries.push({
             left: firstEntry.cleanName,
             right: secondEntry.cleanName,
-            derivedVia: "serialized",
+            derivedVia: computedKeys > 0 ? "computed-key" : "serialized",
             keyCount: keys.length,
             ...skippedComputed > 0 ? { partial: true, droppedConditions: skippedComputed } : {}
           });
@@ -5613,11 +5823,12 @@ function convertTableauToSigma(xmlContent, options = {}) {
               // every [Base/REL/Field] ref resolves to its OWN instance.
               name: target.roleCaption ? `${target.cleanName} (${target.roleCaption})` : target.cleanName,
               // PR2a provenance survives orientation: how the key was derived
-              // (serialized | name-inference) rides on every attached edge.
+              // (serialized | name-inference | computed-key) rides on every
+              // attached edge.
               derivedVia: e.derivedVia || "serialized",
               ...e.droppedConditions > 0 ? { partial: true, droppedConditions: e.droppedConditions } : {}
             });
-            warnings.push(`\u2139 Relationship ${carrier.cleanName} \u2192 ${target.cleanName} wired on ${keys.length} ${e.derivedVia === "name-inference" ? "name-inferred" : "physical"} key(s).`);
+            warnings.push(`\u2139 Relationship ${carrier.cleanName} \u2192 ${target.cleanName} wired on ${keys.length} ${e.derivedVia === "name-inference" ? "name-inferred" : e.derivedVia === "computed-key" ? "physical/computed" : "physical"} key(s).`);
           }
           if (hintContradicted.length > 0) {
             warnings.push(`\u26A0 Tableau performance-option hints (unique-key) mark the SOURCE side unique on ${hintContradicted.length} oriented edge(s): ${hintContradicted.join(", ")}. As oriented these would be one-to-many, which a Sigma relationship cannot express (many-to-one left join into a unique target) \u2014 the hints are often db-derived or stale, so VERIFY each edge's direction and target uniqueness; model a genuinely one-to-many edge as a join element instead.`);
@@ -7005,6 +7216,31 @@ ${joinSql}
           }
           continue;
         }
+        // Join datasource: a column the <cols> map assigns to a joined table
+        // other than the fact (a dimension) belongs on THAT table's element.
+        // Landing it on the fact made it a phantom the skill's warehouse
+        // filter drops, taking every calc and relationship over it along.
+        // Alias-of-the-fact columns are left to the self-join reshape.
+        // A relationship already DROPPED for unresolvable VC join keys keeps
+        // its columns on the fact, where the joined-side cull removes them
+        // loudly; routing them onto the unreachable table would hide that.
+        const _ownerRel = fieldOwnerRel[fieldKey.toLowerCase()];
+        const _ownerEntry = joinTableIndex && guidMatch && !droppedVcJoinRels.some((d) => d.relName === _ownerRel) ? Object.values(joinTableIndex.byTable).find((en) => en.relName === _ownerRel) : null;
+        if (_ownerEntry && _ownerEntry.element !== factEl && !(_ownerEntry.alias && _ownerEntry.tableName === joinTableIndex.primaryTableName)) {
+          const _base = stripOwnerSuffix(displayName, _ownerEntry.tableName);
+          const _phys = captionToPhysical(_base);
+          let _cid = _ownerEntry.colIdMap[displayName.toUpperCase()] || _ownerEntry.colIdMap[_phys];
+          if (!_cid) {
+            _cid = sigmaInodeId(_phys);
+            _ownerEntry.element.columns.push({ id: _cid, formula: `[${_ownerEntry.tableName}/${_base}]`, name: displayName });
+            _ownerEntry.element.order.push(_cid);
+            _ownerEntry.colIdMap[_phys] = _cid;
+            _ownerEntry.colIdMap[displayName.toUpperCase()] = _cid;
+          }
+          displayNameMap[displayName.toUpperCase()] = { colId: _cid, el: _ownerEntry.element };
+          globalColMap[displayName.toUpperCase()] = { elId: _ownerEntry.element.id, displayName };
+          continue;
+        }
         {
           if (factEl.source?.kind === "sql")
             continue;
@@ -7529,6 +7765,20 @@ ${suggestion}
       for (const mt of factEl.metrics || [])
         if (mt.name)
           valid.add(mt.name.toLowerCase());
+      // A column may also read a related element's column: the cross-element
+      // pass below moves it onto the derived view and rewrites the ref to
+      // [Base/REL/Field]. Metrics are single-element, so only columns get this.
+      const validForColumns = new Set(valid);
+      for (const r of factEl.relationships || []) {
+        const tgt = elements.find((e) => e.id === r.targetElementId);
+        for (const c of tgt?.columns || []) {
+          const tail = typeof c.formula === "string" && (c.formula.match(/^\[[^\]]+\/([^\]\/]+)\]$/) || [])[1];
+          if (c.name)
+            validForColumns.add(c.name.toLowerCase());
+          if (tail)
+            validForColumns.add(tail.toLowerCase());
+        }
+      }
       const siblingRefs = (f) => typeof f === "string" ? (f.match(/\[([^\]]+)\]/g) || []).map((s) => s.slice(1, -1)).filter((r) => !r.includes("/")) : [];
       const dropped = [];
       let changed = true;
@@ -7539,11 +7789,14 @@ ${suggestion}
             const c = arr[i];
             if (!isMetric && isAliasFormula(c.formula))
               continue;
-            const bad = siblingRefs(c.formula).find((r) => !valid.has(r.toLowerCase()));
+            const ok = isMetric ? valid : validForColumns;
+            const bad = siblingRefs(c.formula).find((r) => !ok.has(r.toLowerCase()));
             if (bad) {
               dropped.push({ name: c.name || "(unnamed)", bad });
-              if (c.name)
+              if (c.name) {
                 valid.delete(c.name.toLowerCase());
+                validForColumns.delete(c.name.toLowerCase());
+              }
               if (!isMetric)
                 factEl.order = (factEl.order || []).filter((id) => id !== c.id);
               arr.splice(i, 1);
@@ -7637,9 +7890,152 @@ ${suggestion}
       }
     }
   }
+  // Self-join reshape: Tableau's join of a table with its own alias fans out
+  // the primary rows, so the alias becomes its own warehouse element and the
+  // pair becomes a real join element. The primary element keeps only its
+  // physical columns; its calcs, metrics and remaining relationships move to
+  // the join element, which is then the carrier the derived view builds on.
+  // The alias's datasource columns arrive on the primary element as
+  // "[TABLE/<Col> (<Alias>)]" passthroughs from the column pass; they become
+  // the alias element's "[TABLE/<Col>]" columns and reappear on the join
+  // element under the same "<Col> (<Alias>)" name the calcs reference.
+  // Several aliases of one primary (current vs prior period, order vs
+  // return) are ONE Tableau join of all of them, so they become ONE join
+  // element: grouping by primary keeps every alias's fan-out in the same row
+  // set and keeps the calcs, which the first alias would otherwise take.
+  const selfJoinGroups = [];
+  for (const sj of selfJoins) {
+    let g = selfJoinGroups.find((x) => x.primaryEntry === sj.primaryEntry);
+    if (!g)
+      selfJoinGroups.push(g = { primaryEntry: sj.primaryEntry, aliases: [] });
+    g.aliases.push(sj);
+  }
+  for (const group of selfJoinGroups) {
+    const A = group.primaryEntry.element;
+    const aliases = group.aliases.filter((sj) => elements.includes(sj.aliasEntry.element));
+    if (!elements.includes(A) || aliases.length === 0)
+      continue;
+    const tableName = group.primaryEntry.tableName;
+    const escRe = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const passthroughOf = (c) => (String(c.formula || "").match(/^\[[^\/\]]+\/([^\]]+)\]$/) || [])[1];
+    const dispOf = (c) => c.name || passthroughOf(c) || "";
+    const removeFromOrder = (el, id) => {
+      const oi = (el.order || []).indexOf(id);
+      if (oi >= 0)
+        el.order.splice(oi, 1);
+    };
+    for (const sj of aliases) {
+      const B = sj.aliasEntry.element;
+      const aliasName = sj.aliasEntry.relName;
+      const aliasColRe = new RegExp(`^\\[${escRe(tableName)}\\/(.+)${escRe(` (${aliasName})`)}\\]$`);
+      const bNames = new Set((B.columns || []).map((c) => dispOf(c).toUpperCase()));
+      A.columns = (A.columns || []).filter((c) => {
+        const m = String(c.formula || "").match(aliasColRe);
+        if (!m)
+          return true;
+        removeFromOrder(A, c.id);
+        if (!bNames.has(m[1].toUpperCase())) {
+          const id = sigmaInodeId(`${captionToPhysical(m[1])}_${captionToPhysical(aliasName)}`);
+          B.columns.push({ id, name: m[1], formula: `[${tableName}/${m[1]}]` });
+          B.order.push(id);
+          bNames.add(m[1].toUpperCase());
+        }
+        return false;
+      });
+    }
+    const primaryRel = group.primaryEntry.relName;
+    const aliasNames = aliases.map((sj) => sj.aliasEntry.relName);
+    const jName = primaryRel && primaryRel.toUpperCase() !== tableName.toUpperCase() && primaryRel !== sigmaDisplayName(tableName) ? primaryRel : `${sigmaDisplayName(tableName)} + ${aliasNames.join(" + ")}`;
+    // The join element addresses its sources by element NAME; name the
+    // primary explicitly (the skill stamps the same display name on unnamed
+    // warehouse elements later, which would orphan a table-name reference).
+    if (!A.name)
+      A.name = sigmaDisplayName(tableName);
+    const aRef = A.name;
+    const jCols = [], jOrder = [], aMap = {};
+    const calcCols = [];
+    for (const c of A.columns) {
+      const disp = passthroughOf(c);
+      if (!disp || c.name && c.name !== disp) {
+        calcCols.push(c);
+        continue;
+      }
+      const id = sigmaShortId();
+      jCols.push({ id, name: disp, formula: `[${aRef}/${disp}]` });
+      jOrder.push(id);
+      aMap[c.id] = id;
+    }
+    for (const sj of aliases) {
+      const aliasName = sj.aliasEntry.relName;
+      for (const c of sj.aliasEntry.element.columns) {
+        const disp = dispOf(c);
+        if (!disp)
+          continue;
+        const id = sigmaShortId();
+        jCols.push({ id, name: `${disp} (${aliasName})`, formula: `[${aliasName}/${disp}]` });
+        jOrder.push(id);
+      }
+    }
+    for (const c of calcCols) {
+      removeFromOrder(A, c.id);
+      jCols.push(c);
+      jOrder.push(c.id);
+    }
+    A.columns = A.columns.filter((c) => !calcCols.includes(c));
+    const joinTypeMap = { inner: "inner", left: "left-outer", right: "right-outer", full: "full-outer" };
+    // Tableau INNER-joined tables also FILTER the joined row set (an order
+    // whose customer key has no dimension row is gone from every viz). A
+    // relationship is a left lookup and keeps those rows, so each inner-joined
+    // relationship target is also joined into the element (inner, keys only);
+    // the relationship stays for its attribute columns.
+    const innerDimJoins = [];
+    for (const r of A.relationships || []) {
+      const keys = innerJoinRels[r.id];
+      if (!keys || !elements.some((e) => e.id === r.targetElementId))
+        continue;
+      innerDimJoins.push({
+        left: { kind: "table", elementId: A.id },
+        right: { kind: "table", elementId: r.targetElementId },
+        columns: keys.map((k) => ({ left: `[${k.sourceDisplay}]`, right: `[${k.targetDisplay}]` })),
+        joinType: "inner"
+      });
+    }
+    const aliasJoins = aliases.map((sj) => ({
+      left: { kind: "table", elementId: A.id },
+      right: { kind: "table", elementId: sj.aliasEntry.element.id },
+      columns: sj.keys.map((k) => ({ left: `[${k.sourceDisplay}]`, right: `[${k.targetDisplay}]` })),
+      joinType: joinTypeMap[String(sj.joinType).toLowerCase()] || "inner"
+    }));
+    const J = {
+      id: sigmaShortId(),
+      kind: "table",
+      name: jName,
+      source: {
+        kind: "join",
+        primarySource: { kind: "table", elementId: A.id },
+        joins: [...aliasJoins, ...innerDimJoins]
+      },
+      columns: jCols,
+      order: jOrder
+    };
+    if (A.metrics?.length) {
+      J.metrics = A.metrics;
+      delete A.metrics;
+    }
+    if (A.relationships?.length) {
+      J.relationships = A.relationships.map((r) => ({
+        ...r,
+        keys: (r.keys || []).map((k) => ({ ...k, sourceColumnId: aMap[k.sourceColumnId] || k.sourceColumnId }))
+      }));
+      delete A.relationships;
+    }
+    const lastAlias = aliases[aliases.length - 1].aliasEntry.element;
+    elements.splice(elements.indexOf(lastAlias) + 1, 0, J);
+    warnings.push(`ℹ Self-join ${primaryRel} → ${aliasNames.join(", ")}: emitted join element "${jName}" (${aliasJoins.map((j) => j.joinType).join(", ")}) over ${aliases.length + 1} ${tableName} elements; ${calcCols.length} calc column(s), ${(J.metrics || []).length} metric(s) and ${(J.relationships || []).length} relationship(s) moved onto it from ${tableName}. A Sigma relationship would return one arbitrary alias row per key and undercount the fan-out Tableau's join produces.`);
+  }
   const crossElCalcsByElId = {};
   for (const el of elements) {
-    if (el.source?.kind !== "warehouse-table")
+    if (el.source?.kind !== "warehouse-table" && el.source?.kind !== "join")
       continue;
     if (!el.relationships?.length)
       continue;

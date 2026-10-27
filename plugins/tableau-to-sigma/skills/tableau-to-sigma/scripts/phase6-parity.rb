@@ -212,10 +212,12 @@ if !opts[:finalize]
     abort("Phase 6 blocked: #{unresolved_hf.size} unresolved hidden calc-filter(s)")
   end
 
-  # Pooled Sigma-side actuals collection (collect-parity-actuals.rb): the
-  # element CSV export serves every chart kind except pivot-tables, N-wide,
-  # under sigma_rest's auto-refresh. Only the genuinely agent-mediated charts
-  # (pivot grids) are printed as MCP instructions below.
+  # Pooled Sigma-side actuals collection (collect-parity-actuals.rb): element
+  # exports over the REST API serve every chart kind (pivots via the long-form
+  # JSON export), N-wide, under sigma_rest's auto-refresh. No Sigma MCP is
+  # required. Only charts the exporter could not serve (export errors,
+  # truncation, timeouts) are printed below, with an MCP query to use when one
+  # is connected and the REST/warehouse route when it is not.
   actuals_path = File.join(opts[:tab], 'parity-actuals.json')
   if plan['oracle_mode'] == 'anchors-warehouse'
     File.write(actuals_path, JSON.pretty_generate({}))
@@ -249,9 +251,9 @@ if !opts[:finalize]
   warn coll_err unless coll_err.empty?
   if coll_st.exitstatus == 3
     warn 'collect-parity-actuals hit its --timeout total deadline — partial actuals recorded; ' \
-         'uncollected charts fall back to agent-mediated MCP queries'
+         're-run it with a higher --timeout (REST exports), or supply the uncollected charts below'
   elsif !coll_st.success?
-    warn 'collect-parity-actuals failed — ALL charts fall back to agent-mediated MCP queries'
+    warn 'collect-parity-actuals failed — re-run it (REST exports), or supply every chart below'
   end
   collected = (JSON.parse(File.read(actuals_path)) rescue {}) if File.exist?(actuals_path)
   collected ||= {}
@@ -295,9 +297,12 @@ if !opts[:finalize]
     end
   else
     puts "The pooled exporter filled #{actuals_path} for #{collected.size} chart(s)."
-    puts "Agent: run ONE mcp__sigma-mcp-v2__query call per REMAINING chart below and"
-    puts "MERGE the results into that same file (shape:"
-    puts '  { "<Sigma chart name>": [[dim, val], [dim, val], ...], ... } ).'
+    puts "Supply each REMAINING chart below and MERGE the rows into that same file (shape:"
+    puts '  { "<Sigma chart name>": [[dim, val], [dim, val], ...], ... } ):'
+    puts "  * Sigma MCP connected: run the mcp__sigma-mcp-v2__query shown per chart."
+    puts "  * No Sigma MCP: re-run scripts/collect-parity-actuals.rb (REST element exports;"
+    puts "    raise --timeout / --row-limit for timeouts and truncation), or compute the same"
+    puts "    aggregate in warehouse SQL; a pivot whose exports 500 gets a render-verify marker."
   end
   puts ""
   puts "Then re-run:"

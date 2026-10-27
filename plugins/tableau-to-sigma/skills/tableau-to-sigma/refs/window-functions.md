@@ -157,6 +157,19 @@ filter** — order-independent, the proper fix:
 - `>=N` / `>N` (rank N-or-worse) are not a fixed-count bottom-N → surfaced, not
   auto-emitted.
 
+**Top-N on a chart with a COLOR series (live-probed).** A chart-level `Rank()` and a
+native `kind:top-n` filter both partition by the color series: "top 10 products"
+colored by Category kept the top 10 *per Category*, and a top-12-cities bar colored by
+Store Type kept every (city, type) group (and the extra aggregate filter column shrank the
+plotted values). Tableau's top-N is global, so build-charts instead ranks the dimension in a
+hidden **dim-grain helper table** (`<el>-topn-rank`: one grouping on the x dim, `Rank Measure`
++ `Rank([Rank Measure], "desc")` — no color key, so unpartitioned) and keeps the chart on its
+master: a column `If(Max(Lookup([<helper>/Rank], <x formula>, [<helper>/Rank Key])) <= N,
+"keep", "cut")` plus a list filter on `keep`. N is a literal or the parameter's control; a
+metric-picker Switch rides the helper too (its `[ctl-…]` ref follows the per-page controlId
+suffix). Without a color series the native filter / `Rank()` idiom is kept. The trellis
+"dynamic top/bottom panels" stay per-panel on purpose.
+
 **As a plotted measure on the yAxis** (rare) → `RowNumber()<=N` + the tile is
 **auto-sorted** by the recorded `ranked_measure` DESC (`RowNumber()` follows the
 viz sort). Prefer re-authoring as a Filters-shelf top-N.

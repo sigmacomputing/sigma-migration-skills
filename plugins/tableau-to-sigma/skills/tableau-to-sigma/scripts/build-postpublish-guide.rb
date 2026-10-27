@@ -150,6 +150,13 @@ module PostpublishGuide
   STEPS_DRILL =
     "Chart editor → the dimension's column menu → 'Drill down' / add drill " \
     "anywhere; configure the drill order to mirror the Tableau hierarchy.".freeze
+  # Pivot/table hierarchies: a Sigma drill control only drives CHART targets (live-
+  # verified), so a hierarchy plotted on a pivot or table stays a manual step.
+  STEPS_DRILL_PIVOT =
+    "Sigma pivot rows expand and collapse natively: add %<inner>s under %<outer>s on the pivot's Rows " \
+    "and collapse it to the first level; the workbook spec cannot store the collapsed state.".freeze
+  PIVOT_COLLAPSE_NOTE =
+    "If the Sigma MCP is connected, the migration's pivot-collapse step does this automatically.".freeze
   STEPS_TOOLTIP =
     "Chart editor → Tooltip panel → add the fields listed.".freeze
 
@@ -626,10 +633,13 @@ module PostpublishGuide
       seen[key] = true
       # No actionName here: a drill-path's `name` is a hierarchy LABEL, not a
       # per-instance action identifier — two different hierarchies (distinct
-      # `levels`) can legitimately share one name. extract_drill_paths already
-      # dedupes on the compound [name, levels] key above; drill-hierarchy is
-      # never auto-emitted by build-charts-from-signals, so it never actually
-      # reaches ActionLedger.join, and [kind, caption] is a fine fallback.
+      # `levels`) can legitimately share one name, and extract_drill_paths dedupes
+      # on the compound [name, levels] key above. The ledger identity falls back to
+      # [kind, caption]. Hierarchies the builder turned into a drill control are
+      # removed from this list BEFORE the ledger join (apply_auto_interactions
+      # matches the builder's auto-interactions.json records by caption + levels).
+      # The steps text carries the pivot guidance for the case no auto record
+      # exists; apply_auto_interactions rewrites it for chart-only hierarchies.
       out << {
         'kind'    => 'drill-hierarchy',
         'caption' => name,
@@ -637,7 +647,8 @@ module PostpublishGuide
         'trigger' => nil,
         'fields'  => levels,
         'targets' => [],
-        'ui_steps' => "#{STEPS_DRILL} Drill order: #{levels.join(' → ')}.",
+        'ui_steps' => "#{STEPS_DRILL} Drill order: #{levels.join(' → ')}. " \
+                      "#{format(STEPS_DRILL_PIVOT, outer: levels[0] || 'the first level', inner: levels[1] || 'the next level')}",
         'notes'   => []
       }
     end
@@ -988,18 +999,125 @@ module PostpublishGuide
     end.join('; ')
   end
 
+  # ==== Auto-built interactions ===============================================
+  # build-charts-from-signals.rb writes <workdir>/auto-interactions.json for the
+  # drill controls and chart tooltip fields it built from the spec. Those detected
+  # entries are removed from the manual list BEFORE the ledger join, so
+  # detectedCount == emitted + residue still holds. (The ActionLedger counts real
+  # spec actions only; these are not actions.) A missing/unreadable file = nothing
+  # auto-built.
+  def load_auto_interactions(path)
+    return [] if path.nil? || !File.exist?(path)
+    data = JSON.parse(File.read(path, encoding: 'UTF-8'))
+    data = data['interactions'] if data.is_a?(Hash)
+    data.is_a?(Array) ? data.select { |d| d.is_a?(Hash) } : []
+  rescue JSON::ParserError
+    []
+  end
+
+  # -> [remaining entries, built list for the "Built automatically" section]
+  def apply_auto_interactions(entries, auto)
+    built = []
+    return [entries, built] if auto.empty?
+    kept = []
+    norm = ->(v) { v.to_s.downcase.gsub(/[^a-z0-9]+/, '') }
+    same_caption = ->(x, e) { x['caption'].to_s.strip.casecmp(e['caption'].to_s.strip).zero? }
+    levels_match = ->(names, e) { Array(names).map(&norm) == Array(e['fields']).map(&norm) }
+    used = {}
+    entries.each do |e|
+      case e['kind']
+      when 'drill-hierarchy'
+        # Same-named hierarchies are told apart by their levels; a caption-only
+        # match is accepted only when exactly one detected hierarchy has that name.
+        peers = entries.count { |o| o['kind'] == 'drill-hierarchy' && same_caption.call(o, e) }
+        cands = auto.each_with_index.select { |x, i| x['kind'] == 'drill-hierarchy' && !used[i] && same_caption.call(x, e) }
+        hit = cands.find { |x, _| levels_match.call(x['fields'], e) } || (peers == 1 ? cands.first : nil)
+        a = hit && hit[0]
+        used[hit[1]] = true if hit
+        # A pivot-collapse record = the pivot carries the level columns off-shelf
+        # and the optional MCP step can collapse its rows; the entry stays manual
+        # (that step may not run).
+        pc = auto.select do |x|
+          x['kind'] == 'pivot-collapse' && same_caption.call(x, e) &&
+            (levels_match.call(Array(x['levels']).map { |l| l['name'] }, e) || peers == 1)
+        end
+        mcp = pc.empty? ? '' : " #{PIVOT_COLLAPSE_NOTE}"
+        if a.nil?
+          kept << (pc.empty? ? e : e.merge('ui_steps' => "#{e['ui_steps']}#{mcp}"))
+          next
+        end
+        manual = Array(a['manual_worksheets'])
+        pivots = manual & Array(a['pivot_worksheets'])
+        charts = manual - pivots
+        built << { 'kind' => 'drill-hierarchy', 'caption' => e['caption'], 'fields' => Array(a['fields']),
+                   'targets' => Array(a['targets']) }
+        next if manual.empty?
+        lv = Array(e['fields'])
+        steps = String.new("A Sigma drill control was built for #{cap_list(Array(a['targets']), 6)} (charts that open on the first level). ")
+        unless charts.empty?
+          steps << "Chart sheet(s) #{cap_list(charts, 6)} plot a level but were not targeted (not master-sourced, " \
+                   "lower level only, or a column conflict): #{STEPS_DRILL} "
+        end
+        unless pivots.empty?
+          steps << "Pivot/table sheet(s) #{cap_list(pivots, 6)} stay manual: " \
+                   "#{format(STEPS_DRILL_PIVOT, outer: lv[0] || 'the first level', inner: lv[1] || 'the next level')}#{mcp}"
+        end
+        kept << e.merge('targets' => manual.map { |w| { 'name' => w } }, 'ui_steps' => steps.strip)
+      when 'custom-tooltip'
+        a = auto.find { |x| x['kind'] == 'custom-tooltip' && same_caption.call(x, e) }
+        if a.nil? || e['viz_in_tooltip']
+          kept << e
+          next
+        end
+        added = Array(a['fields_added'])
+        unresolved = Array(a['fields_unresolved'])
+        built << { 'kind' => 'custom-tooltip', 'caption' => e['caption'], 'fields' => added } if added.any?
+        next if unresolved.empty?
+        steps = "#{STEPS_TOOLTIP.sub(/ listed\.$/, '')}: #{unresolved.join(', ')}"
+        steps += ' (the other tooltip fields were built automatically).' if added.any?
+        kept << e.merge('fields' => unresolved, 'ui_steps' => steps)
+      else
+        kept << e
+      end
+    end
+    [kept, built]
+  end
+
+  def render_built_section(built)
+    return '' if built.empty?
+    md = String.new("## Built automatically\n\n")
+    md << "The converter already built these from the Tableau source — nothing to do, but check them in Sigma.\n\n"
+    built.each do |b|
+      case b['kind']
+      when 'drill-hierarchy'
+        md << "- **Drill hierarchy '#{b['caption']}'** (#{Array(b['fields']).join(' → ')}): a Sigma drill control targeting #{cap_list(Array(b['targets']), 6)}.\n"
+      when 'custom-tooltip'
+        md << "- **Tooltip fields on '#{b['caption']}'**: #{cap_list(Array(b['fields']), 8)} added as chart tooltip columns.\n"
+      end
+    end
+    md << "\n"
+    md
+  end
+
   def render_guide(entries, opts)
     md = String.new
     md << "# Post-publish interactivity guide — #{opts[:workbook_name]}\n\n"
     md << "**Sigma workbook:** #{opts[:sigma_url]}\n\n" if opts[:sigma_url]
     md << "_Generated by `build-postpublish-guide.rb` from `#{File.basename(opts[:twb])}`._\n\n"
 
+    built = opts[:built] || []
     if entries.empty?
-      md << "No interactive actions detected in the Tableau source — no dashboard\n"
-      md << "actions, parameter actions, dynamic zone visibility, drill hierarchies,\n"
-      md << "custom tooltips, or dashboard buttons. Nothing to wire up post-publish.\n"
+      if built.any?
+        md << render_built_section(built)
+        md << "Nothing else to wire up post-publish: every detected interaction was built automatically.\n"
+      else
+        md << "No interactive actions detected in the Tableau source — no dashboard\n"
+        md << "actions, parameter actions, dynamic zone visibility, drill hierarchies,\n"
+        md << "custom tooltips, or dashboard buttons. Nothing to wire up post-publish.\n"
+      end
       return md
     end
+    md << render_built_section(built)
 
     md << "The interactions below exist in the Tableau source but **cannot be expressed\n"
     md << "in Sigma's workbook spec today** — the published workbook has the data, charts,\n"
@@ -1157,7 +1275,7 @@ module PostpublishGuide
   def run(argv)
     opts = {}
     OptionParser.new do |p|
-      p.banner = 'usage: build-postpublish-guide.rb --twb <workbook-content.twb> --out <workdir>/POSTPUBLISH_GUIDE.md [--wb-ids wb-ids.json] [--json-out out.json] [--emitted-manifest actions-emitted.json] [--sigma-url URL]' \
+      p.banner = 'usage: build-postpublish-guide.rb --twb <workbook-content.twb> --out <workdir>/POSTPUBLISH_GUIDE.md [--wb-ids wb-ids.json] [--json-out out.json] [--emitted-manifest actions-emitted.json] [--auto-interactions auto-interactions.json] [--sigma-url URL]' \
                  "\n   or: build-postpublish-guide.rb --twb <workbook-content.twb> --detect-only <workdir>/detected-actions.json"
       p.on('--twb PATH')       { |v| opts[:twb] = v }
       p.on('--out PATH')       { |v| opts[:out] = v }
@@ -1168,6 +1286,10 @@ module PostpublishGuide
         opts[:emitted_manifest] = v
       end
       p.on('--sigma-url URL')  { |v| opts[:sigma_url] = v }
+      p.on('--auto-interactions PATH',
+           'auto-interactions.json from build-charts-from-signals (default: next to --emitted-manifest, else next to --out)') do |v|
+        opts[:auto_interactions] = v
+      end
       p.on('--detect-only PATH',
            'Run detection ONLY from --twb (no --out/--wb-ids/--json-out needed) and write the raw ' \
            'detected-entries ARRAY to PATH, then exit — no guide rendered, no ledger written. Lets an ' \
@@ -1211,6 +1333,11 @@ module PostpublishGuide
     # all because it never attempts the button auto-wiring either) — in both
     # cases "nothing auto-wired" is the correct, honest default.
     emitted = ActionLedger.read_manifest(opts[:emitted_manifest])
+    # Drill controls / tooltip fields the builder already created leave the manual
+    # list BEFORE the join (see apply_auto_interactions).
+    auto_path = opts[:auto_interactions] ||
+                File.join(File.dirname(opts[:emitted_manifest] || opts[:out]), 'auto-interactions.json')
+    entries, opts[:built] = apply_auto_interactions(entries, load_auto_interactions(auto_path))
     ledger  = ActionLedger.join(detected: entries, emitted: emitted)
 
     # The guide instructs the human. It must describe ONLY work still to do —

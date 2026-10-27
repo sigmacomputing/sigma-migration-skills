@@ -76,7 +76,7 @@ changing any gate's semantics:
   are ledgered append-only in `<WORK>/decisions.jsonl` (E3.6 vocab half).
 - **Empty agent-mediated actuals ⇒ finalize chains in-process.** When the
   pass-1 tail derives from the artifacts (strict predicate: every exportable
-  plan chart machine-collected, no pivot grids, no render-verify/too-large
+  plan chart machine-collected (pivots included), no render-verify/too-large
   markers, no per-tile visual sidecar) that there is NOTHING for the agent to
   collect, **and the agent-side gate obligations are already discharged** — a
   visual verdict is recorded on `parity-final.json` (gate 8b; `--fast` waives
