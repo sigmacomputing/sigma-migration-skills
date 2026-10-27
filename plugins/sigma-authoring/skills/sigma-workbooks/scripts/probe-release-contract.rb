@@ -590,7 +590,7 @@ begin
     check!("compiled SQL resolves for #{element_id}") do
       sql = query && query['sql'].to_s
       query_code&.between?(200, 299) && !sql.empty? &&
-        sql !~ /Unknown column|Circular column reference|\{\{ProbeNumber\}\}/i
+        sql !~ /Unknown column|Circular column reference|Column\s+['"]+\[[^\]]+\]['"]+\s+does not exist|\{\{ProbeNumber\}\}/i
     end
   end
 ensure

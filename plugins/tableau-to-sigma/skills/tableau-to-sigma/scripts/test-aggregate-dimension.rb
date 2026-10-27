@@ -28,7 +28,8 @@ require 'tmpdir'
 require_relative 'lib/ruby_compat'
 
 DIR = __dir__
-SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 
 %w[map_column load_aggregate_dims agg_dim_for build_aggregate_dim_helper].each do |fn|
   m = SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn} from build-charts-from-signals.rb")

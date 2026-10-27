@@ -21,6 +21,14 @@ MSTR REST ──extract.py──> bundle.json ──convert.py──> sigma_dm_s
   lookup side — a cross-element passthrough of a join key compiles to type
   `error` in Sigma), metrics (token-parsed; `Count<Distinct=True>` →
   `CountDistinct`), and one workbook page per dossier chapter.
+- **Multi-fact recovery is explicit, not guessed.** `plan_multifact.py` emits
+  report → metric → fact → table topology and the exact projection contract.
+  `convert.py --multi-fact-sql <file>` accepts one read-only conformed
+  `SELECT`/CTE that preserves the executed MSTR multipass grain/outer joins and
+  emits it as the workbook's governed Sigma SQL source. It rejects raw
+  multi-statement volatile-table plans and unresolved placeholders. This keeps
+  the converter as the only spec author while avoiding a blind fact-to-fact
+  join or arbitrary "first fact" selection.
 - Display formats: MSTR bundle format blocks come back empty, so formats are
   derived from semantics (count/quantity → integer, pct/margin/ratio →
   percent, money-named facts → currency).
@@ -45,6 +53,10 @@ distinct in any writeup — don't claim `convert.py` drove a super-cube.
   Sigma DM + workbook, **19/19 + 30/30 + 3/3 rows exact** (money/counts exact,
   ratios rel 1e-6). Includes a `Count<Distinct=True>` metric, a compound
   margin metric, and one AE-collapse report (see `ae-row-collapse.md`).
+- Multi-fact **mechanism**: offline-covered planner, fail-closed diagnostic,
+  single-query validation, SQL-source DM/workbook emission. Customer-specific
+  conformed SQL still requires live source/Sigma parity; the skill does not
+  claim that arbitrary MicroStrategy multipass SQL can be translated blindly.
 
 ## Modeling gotchas that bite conversions (verified)
 

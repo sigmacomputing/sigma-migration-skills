@@ -15,7 +15,8 @@ def check(desc); ok = yield; puts(ok ? "[ok] #{desc}" : "[FAIL] #{desc}"); $fail
 # it runs a whole CLI). Extract the pure def the same way test-kpi-value-
 # fidelity.rb does, so the value-picker fix (never headline a delta/CHANGE
 # measure) can be unit-asserted alongside the detector.
-BUILD_SRC = File.read(File.join(__dir__, 'build-charts-from-signals.rb'))
+BUILD_SRC = File.read(File.join(__dir__, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[map_column guid_from_text placeholder_calc? pick_kpi_measure].each do |fn|
   m = BUILD_SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn} from build-charts-from-signals.rb")
   eval(m[0]) # rubocop:disable Security/Eval — test-only extraction of first-party code

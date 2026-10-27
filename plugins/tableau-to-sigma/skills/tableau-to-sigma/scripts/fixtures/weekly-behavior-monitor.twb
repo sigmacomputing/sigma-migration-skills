@@ -1,0 +1,90 @@
+<?xml version='1.0' encoding='utf-8'?>
+<workbook>
+  <datasources>
+    <datasource name='federated.wbm' caption='Master'>
+      <column name='[Net Revenue]' datatype='real' role='measure' type='quantitative' />
+      <column name='[Week]' datatype='date' role='dimension' type='ordinal' />
+      <column name='[Region]' datatype='string' role='dimension' type='nominal' />
+      <column name='[Customer]' datatype='string' role='dimension' type='nominal' />
+      <column name='[Calculation_WoW]' caption='WoW Change %' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='(ZN(SUM([Net Revenue])) - LOOKUP(ZN(SUM([Net Revenue])), -1)) / ABS(LOOKUP(ZN(SUM([Net Revenue])), -1))' />
+      </column>
+      <column name='[Calculation_TooltipOnly]' caption='WoW Tooltip Only' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN(SUM([Net Revenue])) - LOOKUP(ZN(SUM([Net Revenue])), -1)' />
+      </column>
+      <column name='[Calculation_OffDashboard]' caption='WoW Off Dashboard' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN(SUM([Net Revenue])) - LOOKUP(ZN(SUM([Net Revenue])), -1)' />
+      </column>
+      <column name='[Calculation_Share]' caption='Revenue Share' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([Net Revenue]) / TOTAL(SUM([Net Revenue]))' />
+      </column>
+      <column name='[Calculation_Lod]' caption='Customer Revenue' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED [Customer] : SUM([Net Revenue])}' />
+      </column>
+      <column name='[Calculation_LodText]' caption='Customer Revenue Text' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED [Customer] : MAX([Net Revenue])}' />
+      </column>
+      <column name='[Calculation_Median]' caption='Window Median' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='WINDOW_MEDIAN(SUM([Net Revenue]), -3, 0)' />
+      </column>
+      <column name='[Calculation_Script]' caption='Script Revenue' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SCRIPT_REAL([Net Revenue])' />
+      </column>
+      <column name='[Calculation_ScriptLag]' caption='Script Revenue Lag' datatype='real' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN(SUM([Calculation_Script])) - LOOKUP(ZN(SUM([Calculation_Script])), -1)' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='WoW Pivot A'>
+      <table>
+        <view><datasources><datasource name='federated.wbm' /></datasources></view>
+        <panes><pane><mark class='Text' />
+          <encodings><text column='[federated.wbm].[usr:Calculation_WoW:qk]' />
+            <tooltip column='[federated.wbm].[usr:Calculation_TooltipOnly:qk]' /></encodings>
+        </pane></panes>
+        <rows>[federated.wbm].[none:Region:nk]</rows>
+        <cols>[federated.wbm].[twk:Week:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='WoW Pivot B'>
+      <table>
+        <view>
+          <datasources><datasource name='federated.wbm' /></datasources>
+          <filter class='categorical' column='[federated.wbm].[:Measure Names]'>
+            <groupfilter function='union'>
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.wbm].[usr:Calculation_WoW:qk]&quot;' />
+              <groupfilter function='member' level='[:Measure Names]' member='&quot;[federated.wbm].[sum:Net Revenue:qk]&quot;' />
+            </groupfilter>
+          </filter>
+        </view>
+        <panes><pane><mark class='Text' />
+          <encodings><text column='[federated.wbm].[Multiple Values]' />
+            <text column='[federated.wbm].[usr:Calculation_LodText:qk]' /></encodings>
+        </pane></panes>
+        <rows>[federated.wbm].[none:Region:nk]</rows>
+        <cols>[federated.wbm].[:Measure Names]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Share Bars'>
+      <table>
+        <view><datasources><datasource name='federated.wbm' /></datasources></view>
+        <panes><pane><mark class='Bar' /></pane></panes>
+        <rows>([federated.wbm].[usr:Calculation_Share:qk] / [federated.wbm].[usr:Calculation_Lod:qk] / [federated.wbm].[usr:Calculation_Median:qk] / [federated.wbm].[usr:Calculation_ScriptLag:qk])</rows>
+        <cols>[federated.wbm].[none:Region:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Scratch Sheet'>
+      <table>
+        <view><datasources><datasource name='federated.wbm' /></datasources></view>
+        <rows>[federated.wbm].[usr:Calculation_OffDashboard:qk]</rows>
+        <cols>[federated.wbm].[twk:Week:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Weekly Behavior Monitor'><zones>
+      <zone name='WoW Pivot A' /><zone name='WoW Pivot B' /><zone name='Share Bars' />
+    </zones></dashboard>
+  </dashboards>
+</workbook>
