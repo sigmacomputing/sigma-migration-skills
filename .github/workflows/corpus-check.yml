@@ -605,6 +605,10 @@ jobs:
             plugins/mode-to-sigma/skills/mode-to-sigma/test/test-build-workbook.rb
             plugins/mode-to-sigma/skills/mode-to-sigma/test/test-verify-parity.rb
             plugins/mode-to-sigma/skills/mode-to-sigma/test/test-migrate-mode.rb
+            plugins/omni-to-sigma/skills/omni-to-sigma/test/test-omni-formula.rb
+            plugins/omni-to-sigma/skills/omni-to-sigma/test/test-convert-dm.rb
+            plugins/omni-to-sigma/skills/omni-to-sigma/test/test-build-workbook.rb
+            plugins/omni-to-sigma/skills/omni-to-sigma/test/test-omni-pipeline.rb
           )
           fail=0
           for t in "${tests[@]}"; do
@@ -774,6 +778,15 @@ jobs:
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-scout-ledger-integrity.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-metric-reference.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-warehouse-column-refs.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-remap-wb-to-dm-ids.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-report-pages.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-query-projections.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-query-joins.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-input-validation.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-filter-semantics.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-compose-print-layout.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-report-spec.mjs
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-report-data-model.mjs
             shared/lib/tests/test_code_rep.mjs
             shared/examples/node-orchestration-template/lib/test-auth.mjs
           )

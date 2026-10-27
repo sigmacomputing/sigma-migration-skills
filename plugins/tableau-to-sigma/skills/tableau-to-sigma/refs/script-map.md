@@ -36,6 +36,7 @@ you to.
 | `learned-rules.rb` | Merges `learned/starter-rules.yaml` + `~/.tableau-to-sigma/learned-rules.yaml` |
 | `parse-twb-layout.rb` | `.twb` → per-dashboard zone list + `*-meta.json` (+ `story-plan.json` for stories) |
 | `build-charts-from-signals.rb` | Zones + CSVs + master map → Sigma chart specs; writes `coverage.json`; 🚧 requires `png-read.json` |
+| `lib/chart_calc_translate.rb` | Pure calc translators build-charts applies (window/table calcs, User-agg ratios, row-level/dim calcs, FIXED LOD parse); the gap scan reuses them to reclassify plotted converter refusals `chart_only` |
 | `extract-custom-sql.rb` / `resolve-published-ds.rb` / `hydrate-custom-sql.rb` | Custom-SQL + published-DS (sqlproxy) resolution/hydration — never a phantom table |
 | `lib/tableau_rest.rb` | Tableau REST wrapper |
 | `estimate-cost.rb` | Phase 0c scope + token-cost estimate → `cost-estimate.json` + run-state ack |

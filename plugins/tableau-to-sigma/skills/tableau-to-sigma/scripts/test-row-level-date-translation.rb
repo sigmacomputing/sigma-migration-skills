@@ -12,7 +12,8 @@
 #
 # Usage:  ruby scripts/test-row-level-date-translation.rb
 DIR = __dir__
-src = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+src = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 o = Object.new
 # map_column needs the full mmap infra; nil is fine here — refs fall back to the
 # raw caption inside [Master/…], which is all the residue validator inspects.

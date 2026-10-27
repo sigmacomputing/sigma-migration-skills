@@ -14,7 +14,8 @@
 # Usage:  ruby scripts/test-table-calc-translation.rb
 
 DIR = __dir__
-src = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+src = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 defsrc = src.match(/^def translate_tableau_tc\b.*?\n^end\n/m)
 abort 'test bug: could not extract translate_tableau_tc' unless defsrc
 o = Object.new

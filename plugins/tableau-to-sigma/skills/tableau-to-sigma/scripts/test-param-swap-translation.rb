@@ -34,7 +34,8 @@ end
 # encoding-explicit: BUILD carries UTF-8 prose; with LANG/LC_ALL unset a
 # default-external-encoding read returns US-ASCII and the regex below aborts
 # ("invalid byte sequence in US-ASCII") on a box without a UTF-8 locale.
-src = File.read(BUILD, encoding: 'UTF-8')
+src = File.read(BUILD, encoding: 'UTF-8') +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 defs = %w[canonical_switch_value coerce_case_literal remap_param_branch translate_case_on_param
           translate_if_chain_on_param param_control_ref rewire_param_switch!].map do |fn|
   boundary = fn =~ /[!?]\z/ ? '' : '\b'

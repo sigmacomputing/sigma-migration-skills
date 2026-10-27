@@ -20,14 +20,16 @@ ruby "$S/scan-workbook-gaps.rb" "$TMP/workbook-content.twb" "$TMP/workbook-conte
 
 python3 - "$TMP/workbook-content-gaps-report.json" <<'PY'
 import json, sys
-d = json.load(open(sys.argv[1]))
+d = json.load(open(sys.argv[1], encoding="utf-8"))  # gap names carry an em dash; Windows defaults to cp1252
 a = d["formula_audit"]
 assert a["formulas"], "fixture calculations were not audited"
 assert sum(a["counts"].values()) == len(a["formulas"])
 assert all(ds["total"] == sum(ds["counts"].values()) for ds in a["datasources"])
 assert a["counts"]["not_converted"] > 0, a["counts"]
-assert any(row["name"] == "Converter-refused or unmapped calculated fields"
-           and row["status"] == "unhandled" for row in d["detected_features"])
+refused = [row for row in d["detected_features"]
+           if row["name"].startswith("Converter-refused calculated field — ")]
+assert len(refused) == a["counts"]["not_converted"] + a["counts"]["unmapped"], refused
+assert all(row["status"] == "unhandled" and row["count"] == 1 for row in refused)
 PY
 
 cat >"$TMP/parity-final.json" <<'JSON'

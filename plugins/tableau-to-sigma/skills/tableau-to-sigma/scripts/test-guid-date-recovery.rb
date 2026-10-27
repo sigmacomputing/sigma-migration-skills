@@ -178,6 +178,54 @@ check(r3[:recovered].zero? && r3[:messages].any? { |message| message.include?('i
       "incompatible physical type refuses clearly (got #{r3.inspect})", fails)
 
 puts
+puts 'Part E — converter placeholder with the same caption is replaced, not trusted'
+# The converter emits a same-caption placeholder ("inode-…/<GUID>",
+# formula [ORDER_FACT/Order Date]) with no warehouse column behind it, and the
+# derived view passes it through. It must not count as an existing date.
+placeholder_id = "inode-a1b2c3/#{GUID.upcase}"
+placeholder = model
+fact(placeholder)['columns'] << { 'id' => placeholder_id, 'formula' => '[ORDER_FACT/Order Date]' }
+fact(placeholder)['order'] << placeholder_id
+view = MechanicalSpecs.all_elements(placeholder).find { |element| element['id'] == 'el-derived' }
+view['columns'] << { 'id' => 'inode-d4e5f6/view-order-date', 'formula' => '[ORDER_FACT/Order Date]' }
+view['order'] << 'inode-d4e5f6/view-order-date'
+r4 = MechanicalSpecs.recover_guid_backed_date_fields!(
+  placeholder, twb, { 'ORDER_FACT' => %w[ORDER_ID ORDER_DATE_KEY] }, catalogs
+)
+check(r4[:recovered] == 1, "placeholder-shadowed field recovered (got #{r4.inspect})", fails)
+fixup4 = MechanicalSpecs.fixup_dm_spec(placeholder, { 'ORDER_FACT' => %w[ORDER_ID ORDER_DATE_KEY] })
+base_dates = fact(placeholder)['columns'].select { |column| MechanicalSpecs.col_display(column) == 'Order Date' }
+check(base_dates.size == 1 && base_dates.first['formula'].include?('Date(Left(Text([Order Date Key])'),
+      "base Order Date is the synthesized calc after fixup (got #{base_dates.inspect}, fixup #{fixup4.inspect})", fails)
+check(base_dates.first && base_dates.first['id'] == placeholder_id,
+      'synthesized calc keeps the placeholder id so GUID refs keep resolving', fails)
+view_dates = view['columns'].select { |column| MechanicalSpecs.col_display(column) == 'Order Date' }
+check(view_dates.size == 1 && view_dates.first['formula'] == '[Order Fact/Order Date]',
+      "derived view Order Date survives and resolves through the base (got #{view['columns'].inspect})", fails)
+again = MechanicalSpecs.recover_guid_backed_date_fields!(
+  placeholder, twb, { 'ORDER_FACT' => %w[ORDER_ID ORDER_DATE_KEY] }, catalogs
+)
+check(again[:recovered].zero?, "re-run over the repaired model is a no-op (got #{again.inspect})", fails)
+
+puts
+puts 'Part F — a same-caption column backed by a spaced live column is real, not a placeholder'
+# A quoted mixed-case Snowflake column "Order Date" folds to ORDER_DATE the same
+# way fixup_dm_spec's phantom check does; it must not be overwritten.
+spaced = model
+fact(spaced)['columns'] << { 'id' => 'c-order-date', 'formula' => '[ORDER_FACT/Order Date]' }
+fact(spaced)['order'] << 'c-order-date'
+spaced_live = { 'ORDER_FACT' => ['ORDER_ID', 'ORDER_DATE_KEY', 'Order Date'] }
+r5 = MechanicalSpecs.recover_guid_backed_date_fields!(
+  spaced, twb, spaced_live, catalogs.merge('ORDER_FACT' => catalogs['ORDER_FACT'] + [{ 'name' => 'Order Date', 'type' => 'DATE' }])
+)
+real_date = fact(spaced)['columns'].find { |column| column['id'] == 'c-order-date' }
+check(real_date['formula'] == '[ORDER_FACT/Order Date]',
+      "spaced live Order Date keeps its base ref (got #{real_date.inspect}, #{r5.inspect})", fails)
+MechanicalSpecs.fixup_dm_spec(spaced, spaced_live)
+check(fact(spaced)['columns'].any? { |column| column['id'] == 'c-order-date' },
+      'spaced live Order Date survives the phantom filter', fails)
+
+puts
 if fails.empty?
   puts 'ALL PASS — GUID-backed date recovery is evidence-gated, mapped, and idempotent'
   exit 0
