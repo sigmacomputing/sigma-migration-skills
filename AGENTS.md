@@ -69,6 +69,8 @@ Maturity labels (`gold` / `live` / `foundation` / `scaffold`) are defined in
 | Scope/assess a Metabase instance | `metabase-assessment` | live | `plugins/metabase-to-sigma/skills/metabase-assessment/` |
 | Convert a Spotfire analysis + data model → Sigma | `spotfire-to-sigma` | foundation | `plugins/spotfire-to-sigma/skills/spotfire-to-sigma/` |
 | Scope/assess a Spotfire instance | `spotfire-assessment` | foundation | `plugins/spotfire-to-sigma/skills/spotfire-assessment/` |
+| Convert an Omni model + dashboards → Sigma | `omni-to-sigma` | foundation | `plugins/omni-to-sigma/skills/omni-to-sigma/` |
+| Scope/assess an Omni instance | `omni-assessment` | foundation | `plugins/omni-to-sigma/skills/omni-assessment/` |
 
 Assessments are read-only (never write to the source or post to Sigma); run one
 to pick what to convert, then hand off to the matching converter.
