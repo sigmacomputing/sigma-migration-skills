@@ -10,11 +10,18 @@ and logical tables (physical table + namespace + datasource).
 """
 import json
 import sys
+from datetime import datetime, timezone
 import mstr
 
 
 def extract(s, dossier_id):
-    bundle = {'dossier': s.get(f'/v2/dossiers/{dossier_id}/definition')}
+    bundle = {
+        '_extraction': {
+            'dossierId': dossier_id,
+            'retrievedAtUtc': datetime.now(timezone.utc).isoformat(),
+        },
+        'dossier': s.get(f'/v2/dossiers/{dossier_id}/definition'),
+    }
 
     # datasets -> report definitions (template + data source)
     reports = {}
