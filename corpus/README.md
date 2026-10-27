@@ -48,6 +48,7 @@ corpus/
 | streamlit/retail-fulfillment-control-tower | synthetic four-page Streamlit-in-Workspaces project | deferred filters/actions, navigation, KPI/chart/table semantics, and byte-stable DM/workbook |
 | metabase/orders-overview | synthetic Metabase model + dashboard REST JSON | MBQL model + wrapped workbook with controls, native funnel, and authoritative layout |
 | spotfire/retail-smoke | synthetic authoritative Application API manifest + warehouse source map | DM + wrapped workbook + complete layout + structured gap report |
+| omni/orders-overview | synthetic Omni views + topic + dashboard export | DM (orders/users join, 3 metrics) + workbook (line, KPI, date control) |
 
 ## Runner
 
