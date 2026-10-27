@@ -11,6 +11,15 @@
       ]
     },
     {
+      "id": "layout-pivot-finish",
+      "kind": "layout",
+      "twb": "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/fixtures/pivot-finish.twb",
+      "artifacts": [
+        "dashboard-layout.json",
+        "dashboard-layout-meta.json"
+      ]
+    },
+    {
       "id": "layout-structural-workarounds",
       "kind": "layout",
       "twb": "corpus/tableau/structural-workarounds/workbook-content.twb",
@@ -33,6 +42,14 @@
       "id": "gaps-union-wildcard-seed",
       "kind": "gaps",
       "twb": "corpus/tableau/union-wildcard-seed/workbook-content.twb",
+      "artifacts": [
+        "gaps.json"
+      ]
+    },
+    {
+      "id": "gaps-refusal-reach",
+      "kind": "gaps",
+      "twb": "plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/fixtures/refusal-reach.twb",
       "artifacts": [
         "gaps.json"
       ]

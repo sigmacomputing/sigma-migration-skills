@@ -99,8 +99,12 @@ module FormatMap
   # literals; ANY unmappable letter run → nil (never emit literal-printing
   # pseudo-tokens). 'm'/'mm' is month before an hour token, minute after (the
   # Tableau/Excel rule); 'M' is always month.
+  #
+  # Tableau prefixes a LOCALE-DEFAULT date format with '*' ('*m/d/yy' = the
+  # workbook locale's short date, rendered unpadded). The marker is not part of
+  # the pattern — strip one LEADING '*' so it never prints as a literal.
   def datetime_format(s)
-    str = s.to_s
+    str = s.to_s.sub(/\A\*/, '')
     return nil unless str =~ /[A-Za-z]/
     sc = StringScanner.new(str)
     out = +''

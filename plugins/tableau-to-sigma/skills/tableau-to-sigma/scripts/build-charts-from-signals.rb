@@ -1993,9 +1993,11 @@ end
 # ---- "Measure Names on rows" → ordered values[] members -------------------
 # First-class the DDMX crosstab pattern (N bespoke calc measures stacked as the
 # rows of a crosstab). z['measures'] is the parser's document-order walk of the
-# worksheet's quantitative column-instances — i.e. the ORDERED Measure-Names
-# members as Tableau renders them. Return them as add_col-shaped field hashes,
-# IN ORDER, so build_pivot_element emits one ordered values[] entry per member:
+# worksheet's quantitative column-instances — the Measure-Names MEMBER SET (its
+# order is not Tableau's render order; see order_measure_names_members, driven
+# by z['measure_names_sort']). Return them as add_col-shaped field hashes,
+# IN Tableau's order, so build_pivot_element emits one ordered values[] entry
+# per member:
 #
 #   - DROP dim-shaped entries (None / date-trunc derivations land in
 #     z['measures'] too; a Sum() over a date silently corrupts the grid).
@@ -2012,7 +2014,8 @@ end
 def measure_names_members(z, meta)
   cbg = meta['columns_by_guid'] || {}
   calc_names = (z['calculations'] || []).map { |c| c['name'].to_s.gsub(/^\[|\]$/, '').strip.downcase }.reject(&:empty?)
-  (z['measures'] || []).each_with_object([]) do |m, out|
+  captions = {}
+  members = (z['measures'] || []).each_with_object([]) do |m, out|
     deriv = (m['derivation'] || 'Sum').to_s
     next if deriv == 'None' || DATE_TRUNC.key?(deriv)
     col_ref = m['column'].to_s
@@ -2022,7 +2025,7 @@ def measure_names_members(z, meta)
     cap = (guid && cbg.dig(guid, 'caption')) ||
           col_ref.sub(/^\[[^\]]+\]\./, '').gsub(/^\[|\]$/, '').sub(/^[a-z]+:/i, '').sub(/:[a-z]+$/i, '')
     is_calc = calc_names.include?(cap.to_s.strip.downcase)
-    out << {
+    member = {
       'role'       => 'measure',
       # 'usr' routes calc members to the User-derivation resolver (window/ratio
       # translation); plain measures keep their own warehouse aggregation.
@@ -2033,6 +2036,42 @@ def measure_names_members(z, meta)
       'raw'        => col_ref,
       'guid'       => guid
     }
+    # Name-keyed workbooks (federated / non-GUID) index columns_by_guid by bare
+    # column name, so `cap` above can still be the raw token — resolve the
+    # Tableau caption for the alphabetic ordering separately.
+    bare = col_ref.gsub(/^\[|\]$/, '')
+    captions[member.object_id] = (cbg.dig(bare, 'caption') || cap).to_s
+    out << member
+  end
+  order_measure_names_members(members, captions, z['measure_names_sort'])
+end
+
+# Tableau lays Measure Names members out by an explicit manual sort on
+# [:Measure Names] (parser: measure_names_sort kind=manual, members = the
+# dictionary's refs like "[ds].[sum:X:qk]") or, absent that, the data-source
+# order — alphabetical by caption under measure-ordering='alphabetic'. The
+# .twb column-instance document order is neither, so re-order here. Unknown
+# members keep their relative order (after the manual ones); sort is stable.
+def order_measure_names_members(members, captions, sort)
+  return members unless sort.is_a?(Hash)
+  indexed = members.each_with_index.to_a
+  case sort['kind']
+  when 'manual'
+    refs = Array(sort['members']).map do |r|
+      inner = r.to_s[/\[(?:([a-z]+):)?([^:\]]+)(?::[a-z0-9]+)*\]\z/i, 2]
+      prefix = r.to_s[/\[([a-z]+):[^:\]]+(?::[a-z0-9]+)*\]\z/i, 1]
+      [inner.to_s.downcase, prefix.to_s.downcase]
+    end
+    pos = lambda do |m|
+      inner = m['raw'].to_s.gsub(/^\[|\]$/, '').downcase
+      refs.index { |i, pf| i == inner && pf == m['source_derivation'].to_s.downcase } ||
+        refs.index { |i, _| i == inner } || refs.size
+    end
+    indexed.sort_by { |m, i| [pos.call(m), i] }.map(&:first)
+  when 'alphabetic'
+    indexed.sort_by { |m, i| [captions[m.object_id].to_s.downcase, i] }.map(&:first)
+  else
+    members
   end
 end
 
@@ -2208,8 +2247,19 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       col_obj['format'] = tab_fmt if tab_fmt
       col_obj['format'] ||= m['format'] if m['format'].is_a?(Hash)
       col_obj['format'] ||= { 'kind' => 'number', 'formatString' => ',.0f' }
-    elsif SHELF_TRUNC_FOR_PREFIX[deriv]
-      col_obj['format'] = { 'kind' => 'datetime', 'formatString' => '%b %Y' }
+    elsif field['role'] == 'dim'
+      # A dimension (date header) honors the SOURCE date format when one
+      # translates to a datetime format — e.g. the label rule '*m/d/yy' →
+      # '%-m/%-d/%y' renders unpadded 9/6/26 in the pivot headers. Never a
+      # number format on a dim; the trunc-derivation '%b %Y' default only
+      # applies when no source datetime format exists.
+      src_fmt = pick_tableau_format(z['formats'], m['name']) ||
+                pick_column_default_format(m['name'])
+      if src_fmt.is_a?(Hash) && src_fmt['kind'] == 'datetime'
+        col_obj['format'] = src_fmt
+      elsif SHELF_TRUNC_FOR_PREFIX[deriv]
+        col_obj['format'] = { 'kind' => 'datetime', 'formatString' => '%b %Y' }
+      end
     end
     cols_array << col_obj
     # Carry the field's raw ref (its Calculation_<id> internal id) so a converter
@@ -2686,10 +2736,46 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
   # column and fails source composition despite exact numeric parity. The
   # persisted Sigma code-representation equivalent of the UI's "Display as
   # separate columns" toggle is display.rowLayout.
-  if rows_by.size >= 2
+  #
+  # Measure Names on the ROWS shelf (Tableau's measures-as-rows layout): Sigma's
+  # equivalent is display.stacked='stacked' (values render as stacked rows) with
+  # display.measureShelfPosition = the index among the row dimensions where the
+  # measures sit (0 = before the first row dim; omitted = after the last, the
+  # default). Live-verified: when `stacked` is set Sigma DROPS display.rowLayout
+  # on readback (still rendering separate columns), so the two are never emitted
+  # together — emitting rowLayout would read back as a dropped field. Measure
+  # Names on COLUMNS keeps the side-by-side default (position unverified).
+  rows_fields = rows_shelf['fields'] || []
+  mn_idx = rows_fields.index { |f| f['role'] == 'measure-names' }
+  if mn_idx
+    mn_pos = rows_fields[0...mn_idx].count { |f| f['role'] == 'dim' && !pivot_hidden_sort_pill?(f) }
+    el['display'] = { 'stacked' => 'stacked' }
+    if mn_pos < rows_by.size
+      el['display']['measureShelfPosition'] = mn_pos
+      warnings << "'#{cap}' Measure Names on Rows at position #{mn_pos} — emitted display.stacked=stacked " \
+                  "+ measureShelfPosition=#{mn_pos} (measures render as the #{mn_pos.zero? ? 'outermost' : "level-#{mn_pos + 1}"} row level)"
+    else
+      warnings << "'#{cap}' Measure Names on Rows at position #{mn_pos} (last) — emitted display.stacked=stacked " \
+                  '(measures render after the last row dimension; no measureShelfPosition)'
+    end
+  elsif rows_by.size >= 2
     el['display'] = { 'rowLayout' => 'separate-columns' }
     warnings << "'#{cap}' carries #{rows_by.size} Tableau row-header fields — emitted " \
                 'display.rowLayout=separate-columns to preserve the source crosstab columns'
+  end
+  # Hidden field labels (Format ▸ Show Field Labels off): Tableau then draws no
+  # label band for that shelf. Sigma's equivalents are tableComponents.
+  # columnHeaders / rowHeaders = 'hidden' (the only two accepted keys;
+  # live-verified: columnHeaders removes the column dim's name band while date
+  # values and row-dim header labels stay). Only on an EXPLICIT value='false'.
+  hidden_labels = Array(z['field_labels_hidden'])
+  tcomps = {}
+  tcomps['columnHeaders'] = 'hidden' if hidden_labels.include?('cols')
+  tcomps['rowHeaders']    = 'hidden' if hidden_labels.include?('rows')
+  unless tcomps.empty?
+    el['tableComponents'] = tcomps
+    warnings << "'#{cap}' hides its Tableau field labels (#{hidden_labels.join(', ')}) — emitted " \
+                "tableComponents #{tcomps.map { |k, v| "#{k}=#{v}" }.join(', ')}"
   end
   el['filters'] = pivot_filters unless pivot_filters.empty?
   # v5.1 defect-4 fix: heat scale from the SOURCE ramp (parser heat_scheme),
@@ -4031,6 +4117,27 @@ def build_kpi_element(z, meta, mmap, opts, warnings, data_elements = [])
   element
 end
 
+# A Tableau "info button": a Shape-mark worksheet with nothing on its Rows/Cols
+# shelves whose only content is a customized tooltip (an information popup) --
+# the sheet exists solely to host an icon whose hover text explains the
+# dashboard. Sigma has no shape mark, but an icon-only button carries the same
+# text as its hover tooltip. Requires parse-twb-layout's `tooltip_text`.
+def info_icon_zone?(z)
+  return false unless z.is_a?(Hash) && z['kind'] == 'chart'
+  return false unless z['mark_class'].to_s.casecmp('shape').zero?
+  return false unless z['tooltip_text'].to_s.strip != ''
+  %w[rows_shelf cols_shelf].all? { |k| Array((z[k] || {})['fields']).empty? }
+end
+
+# Emitted icon button (live-verified shape): for an icon-only button `text` is
+# the hover tooltip. The icon is NOT given `tooltip:"shown"` -- that is the
+# default and readback drops it, so omitting it keeps the readback census clean.
+def info_icon_button(z)
+  { 'id' => "btn-#{z['id']}", 'kind' => 'button', 'text' => z['tooltip_text'].to_s,
+    'appearance' => 'text',
+    'icon' => { 'type' => 'emoji', 'emoji' => "\u{1F4A1}", 'label' => 'hidden' } }
+end
+
 # A workbook may have multiple dashboards; iterate all and concatenate elements.
 # Drop the chart_kind=automatic warnings to stderr so the caller can act on them.
 # Converter param measure-pickers (kind:param-switch) — indexed by caption +
@@ -4069,6 +4176,9 @@ layout.each do |dash|
     next if ZoneCensus.hidden_chart_host?(z)
     cap = z['caption']
     next if cap.nil? || cap.empty?
+    # Info-popup icon sheet -> emitted as a Sigma icon button further down (never
+    # a chart, so it must not reach the chart path's ZONE DROPPED warning).
+    next if opts[:pages_mode] != :worksheet && info_icon_zone?(z)
 
     # PR-10 kind propagation: the Phase 1d read VERIFIED this tile's kind
     # against the source image — it beats every shelf inference below, for ALL
@@ -6917,6 +7027,29 @@ unless opts[:pages_mode] == :worksheet
   # for the identical reason).
 end
 
+# ---- info-popup icon sheets -> Sigma icon-only buttons ----------------------
+# See info_icon_zone?. The button is routed to the same per-dashboard bucket as
+# the styled-text / nav-button elements (so --page-per-dashboard lands it on the
+# right page) and the layout stage places `btn-<zoneid>` at the zone's geometry.
+# The rich text formatting (bold runs, colors) is not carried -- recorded in
+# coverage as approximated by spec_api_limit_entries.
+unless opts[:pages_mode] == :worksheet
+  layout.each do |dash|
+    (dash['zones'] || []).each do |z|
+      next unless info_icon_zone?(z) && !ZoneCensus.hidden_chart_host?(z)
+      el = info_icon_button(z)
+      el['_dashboard'] = dash['dashboard']
+      styled_text_by_dash[dash['dashboard']] << el
+      warnings << "'#{z['caption']}' is a Tableau info-popup icon sheet -- emitted as Sigma icon button " \
+                  "'#{el['id']}' whose hover tooltip carries the popup text (rich text formatting not carried)"
+      if z['tooltip_dynamic_dropped']
+        warnings << "'#{z['caption']}' info popup contained dynamic <[field]> tokens -- dropped from the " \
+                    'static Sigma tooltip text'
+      end
+    end
+  end
+end
+
 # ---- nav-action MARK CLICKS (bfxd step 1) ----------------------------------
 # A Tableau <nav-action> fires from a mark click on a WORKSHEET, not from a
 # dashboard-object button. on-select -> navigate is runtime-proven, so these
@@ -7176,11 +7309,18 @@ end
 
 # Closure for one source filter: [targets, intended, unreachable, zone_dashes,
 # action_ws]. `mcol` is the master-map entry (nil → master can't be a target).
-control_targets = lambda do |cap, mcol|
-  zd = filter_zone_dashboards.call(cap)
+# `scope_ws` (a quick filter applied to SELECTED worksheets: the worksheets that
+# carry its filter-group) narrows the zone-dashboard scope to those worksheets;
+# nil keeps the "every chart on the dashboards showing the zone" default.
+# `zone_dashes` overrides the caption lookup with the dashboards whose zone
+# belongs to this filter group.
+control_targets = lambda do |cap, mcol, scope_ws = nil, zone_dashes = nil|
+  zd = zone_dashes || filter_zone_dashboards.call(cap)
   aw = action_worksheets.call(cap)
   in_scope = elements.select do |e|
-    e['source'] && ((zd.empty? || zd.include?(e['_dashboard'])) || aw.include?(e['_worksheet']))
+    e['source'] &&
+      (((zd.empty? || zd.include?(e['_dashboard'])) && (scope_ws.nil? || scope_ws.include?(e['_worksheet']))) ||
+       aw.include?(e['_worksheet']))
   end
   roots = {}
   in_scope.each { |e| (roots[root_of.call(e)] ||= []) << e }
@@ -7198,6 +7338,66 @@ control_targets = lambda do |cap, mcol|
       'dashboard' => e['_dashboard'], 'worksheet' => e['_worksheet'] }
   end
   [targets, intended, unreachable, zd, aw]
+end
+
+# Chart kinds that may carry an extra axis-less helper column. A table/pivot
+# RENDERS every column, so those only ever get an element-level target when they
+# ALREADY hold a plain column for the filter (same rule as the null-dim helper).
+ELEMENT_TARGET_ADD_KINDS = %w[bar-chart line-chart area-chart combo-chart waterfall-chart
+                              pie-chart donut-chart scatter-chart].freeze
+
+# Element-level targets for a quick filter "applied to selected worksheets"
+# (live-verified: a control filter may name a chart ELEMENT + one of its columns
+# instead of the master, which gives Tableau's exact selected-worksheet scope — a
+# root-level target also filters every other chart fed by that root). For every
+# intended element whose sourcing root has a root target (`root_targets`):
+#   * an existing column named like the caption whose formula is a plain
+#     reference to the source column is targeted as-is; else
+#   * a chart sourcing the master directly gets an extra axis-less column
+#     `f-<slug>-<element id>` = [Master/<master column>] (the element id stays a
+#     suffix so the page-per-dashboard stem rename carries the column id along);
+#   * anything else (helper-sourced chart, table/pivot with no plain column, a
+#     same-named non-plain column) keeps its ROOT target — never silently dropped.
+# Returns { targets:, pending:, kept_roots: } — the new target list (element
+# targets in intended order, then kept root targets), the [element, column] pairs
+# to append once the control is definitely emitted, and the roots kept.
+element_level_targets = lambda do |cap, mcol, slug, intended, root_targets|
+  want = norm_cap.call(cap)
+  root_ids = root_targets.map { |t| t.dig('source', 'elementId') }
+  mname = mcol && mcol['name'].to_s
+  elem_targets, pending, kept = [], [], []
+  intended.each do |i|
+    next unless root_ids.include?(i['root']) # unreachable root: stays a recorded gap
+    el = elements.find do |e|
+      e['id'] == i['element_id'] && e['_dashboard'] == i['dashboard'] && e['_worksheet'] == i['worksheet']
+    end
+    cols = el ? (el['columns'] || []) : []
+    plain = cols.find do |c|
+      next false unless norm_cap.call(c['name']) == want
+      ref = c['formula'].to_s.strip.match(%r{\A\[[^\]/]+/([^\]]+)\]\z})
+      ref && [want, mname && norm_cap.call(mname)].compact.include?(norm_cap.call(ref[1]))
+    end
+    col_id = plain && plain['id']
+    if col_id.nil? && el && mname && !mname.empty? &&
+       el.dig('source', 'elementId') == opts[:master_id] &&
+       ELEMENT_TARGET_ADD_KINDS.include?(el['kind']) &&
+       cols.none? { |c| [want, norm_cap.call(mname)].include?(norm_cap.call(c['name'])) }
+      base = "f-#{slug[0..24]}-#{el['id']}"
+      col_id = base
+      n = 1
+      col_id = "#{base}-#{n += 1}" while cols.any? { |c| c['id'] == col_id } ||
+                                         pending.any? { |pe, pc| pe.equal?(el) && pc['id'] == col_id }
+      pending << [el, { 'id' => col_id, 'name' => mname, 'formula' => "[Master/#{mname}]" }]
+    end
+    if col_id
+      t = { 'source' => { 'kind' => 'table', 'elementId' => el['id'] }, 'columnId' => col_id }
+      elem_targets << t unless elem_targets.include?(t)
+    else
+      kept << i['root'] unless kept.include?(i['root'])
+    end
+  end
+  kept_targets = root_targets.select { |t| kept.include?(t.dig('source', 'elementId')) }
+  { targets: elem_targets + kept_targets, pending: pending, kept_roots: kept }
 end
 
 # ---- Auto-generated parameter controls (--auto-controls) ------------------
@@ -7458,34 +7658,68 @@ $param_switches.each do |sw|
 end
 
 # ---- Auto-generated controls from shared-view filters (--auto-controls) ----
-# PR-18: a workbook whose quick filters live as dashboard filter ZONES (not a
-# <shared-view>) never reaches this emitter — `shared_filters` is empty and the
-# INTEGER-coded dimension control is SILENTLY DROPPED (Twin C hand-authored it +
-# its Text() helper). Promote ONLY integer-dim zone filters (resolved from their
-# worksheet filter) into the emitter list so they auto-emit AND auto-decode.
-# Gated strictly on integer_dim → every non-integer-dim workbook is untouched
-# (byte-identical); string/date zone filters keep their current behavior.
-promoted_int_dim_filters = []
+# A quick filter that lives as a dashboard filter ZONE rather than a
+# <shared-view> never reaches this emitter on its own: `shared_filters` is empty
+# and the control is SILENTLY DROPPED (PR-18 first hit it on an INTEGER-coded
+# dimension; the dominant real-world shape is a quick filter set to "Apply to
+# selected worksheets", stored as a per-worksheet `<filter filter-group='N'>` on
+# each targeted sheet plus one zone). Promote EVERY filter zone whose caption is
+# not already covered by a shared-view filter, resolved from the matching
+# worksheet filter, into the emitter list so it auto-emits through the same
+# per-kind handling (list / relative-date / number-range / wildcard / integer-dim
+# decode). The worksheet filter is chosen from the worksheet the zone names, then
+# any worksheet on that dashboard, then any worksheet. Promoted filters carry
+# `_promoted` plus, for a filter-group, the worksheets that share the group and
+# the dashboards whose zone resolves to THAT group (`_zone_dashboards`) — another
+# group's zone on the same caption must not pull the control onto its page.
+promoted_zone_filters = []
 unless opts[:no_auto_controls]
   seen_caps = (meta['shared_filters'] || []).map { |f| norm_cap.call(f['column_caption']) }
-  ws_filters = (meta['worksheets'] || {}).values.flat_map { |w| w['filters'] || [] }
+  promoted_keys = {}
   (layout || []).each do |d|
+    dash_caps = (d['zones'] || []).select { |z| z['kind'] == 'chart' }.map { |z| z['caption'] }
     (d['zones'] || []).each do |z|
       next unless z['kind'] == 'filter'
       zc = z['filter_column_caption']
       next if zc.nil? || seen_caps.include?(norm_cap.call(zc))
-      wf = ws_filters.find { |f| norm_cap.call(f['column_caption']) == norm_cap.call(zc) && f['integer_dim'] }
-      next unless wf
-      seen_caps << norm_cap.call(zc)
-      promoted_int_dim_filters << wf
-      warnings << "integer-coded dimension quick filter '#{zc}' is a dashboard filter ZONE (no <shared-view>) — " \
-                  'promoting it to an auto-control so it is not silently dropped, and auto-decoding it (PR-18)'
+      cands = []
+      (meta['worksheets'] || {}).each do |wname, w|
+        (w['filters'] || []).each do |wf2|
+          next if wf2['is_action'] || wf2['kind'].nil?
+          cands << [wname, wf2] if norm_cap.call(wf2['column_caption']) == norm_cap.call(zc)
+        end
+      end
+      pick = cands.find { |wn, _| wn == z['caption'] && dash_caps.include?(wn) } ||
+             cands.find { |wn, _| dash_caps.include?(wn) } || cands.first
+      next unless pick
+      wf = pick[1]
+      key = [norm_cap.call(zc), wf['filter_group'].to_s]
+      if (prev_pf = promoted_keys[key])
+        zds = prev_pf['_zone_dashboards']
+        zds << d['dashboard'] if zds && !zds.include?(d['dashboard'])
+        next
+      end
+      pf = wf.merge('_promoted' => true)
+      promoted_keys[key] = pf
+      if (g = wf['filter_group'])
+        pf['_zone_dashboards'] = [d['dashboard']]
+        # Worksheets carrying the same filter-group filter on this column = the
+        # quick filter's "selected worksheets".
+        pf['_scope_worksheets'] = cands.select { |_, f2| f2['filter_group'].to_s == g.to_s }.map(&:first).uniq
+        # A second group on the same caption must not collide on controlId.
+        pf['_slug_suffix'] = "-g#{g}" if promoted_keys.keys.count { |k, _| k == key[0] } > 1
+      end
+      promoted_zone_filters << pf
+      if wf['integer_dim']
+        warnings << "integer-coded dimension quick filter '#{zc}' is a dashboard filter ZONE (no <shared-view>) — " \
+                    'promoting it to an auto-control so it is not silently dropped, and auto-decoding it (PR-18)'
+      end
     end
   end
 end
 auto_controls = []
 unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filter
-  ((meta['shared_filters'] || []) + promoted_int_dim_filters).each_with_index do |f, i|
+  ((meta['shared_filters'] || []) + promoted_zone_filters).each_with_index do |f, i|
     next if f['is_action']
     cap = f['column_caption']
     if cap.nil?
@@ -7565,14 +7799,64 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       end
       next
     end
-    slug = cap.downcase.gsub(/\W+/, '-').sub(/-$/, '')
+    slug = cap.downcase.gsub(/\W+/, '-').sub(/-$/, '') + f['_slug_suffix'].to_s
     # Intended-scope closure (see the control-targeting section above): targets
     # = the sourcing ROOTS of every chart this filter is meant to reach, not a
     # hardcoded master. A filter with NO reachable target never ships dead.
-    targets, intended, unreachable, zone_dashes, action_ws = control_targets.call(cap, m)
+    # A filter-group quick filter ("apply to selected worksheets") is intended
+    # for exactly the worksheets that carry the group, not the whole dashboard.
+    targets, intended, unreachable, zone_dashes, action_ws = control_targets.call(cap, m, f['_scope_worksheets'], f['_zone_dashboards'])
     unreachable.each do |u|
       warnings << "control '#{cap}' cannot reach #{u['elements'].join(', ')} — their sourcing root " \
                   "'#{u['root']}' has no '#{cap}' column; wire manually or add the column to the helper"
+    end
+    # Sigma propagates a control along source chains, so a control targeting a
+    # sourcing root also filters every OTHER chart fed by that root. When the
+    # intended scope is a subset of the dashboard, name the over-filtered charts
+    # rather than silently claiming an exact scope.
+    over_filtered = []
+    target_mode = nil
+    pending_target_columns = []
+    root_fallbacks = []
+    if f['_scope_worksheets'] && targets.any?
+      intended_ids = intended.map { |i| i['element_id'] }
+      over_filter_scan = lambda do |tgts|
+        tgt_ids = tgts.map { |t| t.dig('source', 'elementId') }
+        elements.select do |e|
+          e['source'] && !intended_ids.include?(e['id']) &&
+            (zone_dashes.empty? || zone_dashes.include?(e['_dashboard'])) &&
+            (tgt_ids.include?(root_of.call(e)) || tgt_ids.include?(e.dig('source', 'elementId')))
+        end.map { |e| e['name'] || e['id'] }
+      end
+      over_filtered = over_filter_scan.call(targets)
+      target_mode = 'roots'
+      # Root-level targets over-filter a chart outside the filter group: aim the
+      # control at the intended CHART ELEMENTS instead (exact selected-worksheet
+      # scope). An integer-coded dimension keeps its root targets — the Text()
+      # decode helpers are authored per root and must not meet element targets.
+      if over_filtered.any? && !f['integer_dim']
+        plan = element_level_targets.call(cap, m, slug, intended, targets)
+        elem_n = plan[:targets].count { |t| !plan[:kept_roots].include?(t.dig('source', 'elementId')) }
+        after = over_filter_scan.call(plan[:targets])
+        # Only switch when it actually narrows the scope: a kept root that still
+        # over-filters the same charts would make the element targets (and their
+        # helper columns) pure noise.
+        if elem_n.positive? && after.size < over_filtered.size
+          targets = plan[:targets]
+          pending_target_columns = plan[:pending]
+          root_fallbacks = plan[:kept_roots]
+          target_mode = 'elements'
+          over_filtered = after
+          warnings << "'#{cap}' quick-filter control targets #{elem_n} chart(s) directly (filter group " \
+                      "#{f['filter_group']}) — exact Tableau selected-worksheet scope"
+        end
+      end
+      if over_filtered.any?
+        warnings << "'#{cap}' quick-filter control (filter group #{f['filter_group']}, applied to selected worksheets: " \
+                    "#{f['_scope_worksheets'].join(', ')}) will ALSO filter #{over_filtered.join(', ')} — Sigma " \
+                    'propagates a control along the source chain of its target, so the Tableau selected-worksheet ' \
+                    'scope cannot be reproduced exactly; point the unrelated chart(s) at a separate source or accept the wider scope'
+      end
     end
     if targets.empty?
       warnings << "DROPPED auto-control '#{cap}' — no chart root carries a matching column " \
@@ -7594,7 +7878,7 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
     # dashboard pages whose zone tree shows it (page-per-dashboard mode);
     # empty = no zone info → shared-view default (every page).
     spec['_scope_dashboards'] = zone_dashes
-    control_scope_records << {
+    scope_record = {
       'controlId' => spec['controlId'], 'name' => cap.strip, 'mechanism' => 'filters',
       'source_signal' => "tableau shared-view quick filter '#{cap}'" +
                          (zone_dashes.any? ? " (zones on: #{zone_dashes.join(', ')})" : ' (no zone parsed — shared-view default: all dashboards)') +
@@ -7603,6 +7887,16 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       'zone_dashboards' => zone_dashes, 'action_worksheets' => action_ws,
       'unreachable' => unreachable, 'status' => 'emitted'
     }
+    if f['_scope_worksheets']
+      scope_record['source_signal'] = "tableau dashboard quick filter '#{cap}' applied to selected worksheets " \
+                                      "(filter group #{f['filter_group']}; zones on: #{zone_dashes.join(', ')})"
+      scope_record['filter_group'] = f['filter_group']
+      scope_record['scope_worksheets'] = f['_scope_worksheets']
+      scope_record['over_filtered'] = over_filtered if over_filtered.any?
+      scope_record['target_mode'] = target_mode if target_mode
+      scope_record['root_fallback'] = root_fallbacks if root_fallbacks.any?
+    end
+    control_scope_records << scope_record
     case f['kind']
     when 'list', 'list+condition'
       # radiolist zones → segmented (single-select); everything else a
@@ -7805,6 +8099,14 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       warnings << "shared filter '#{cap}' kind=#{f['kind'].inspect} has no controlType mapping — " \
                   'NOT emitted (needs-wiring in controls-coverage); wire via --controls'
       next
+    end
+    # Element-level targets: append the axis-less helper columns only now that the
+    # control is definitely emitted, and tag the control so the page-per-dashboard
+    # pass can follow each chart's id namespacing (private key, stripped at emit).
+    pending_target_columns.each { |el, col| (el['columns'] ||= []) << col }
+    if target_mode == 'elements'
+      spec['_target_elements'] = targets.map { |t| t.dig('source', 'elementId') } -
+                                 root_fallbacks - [opts[:master_id]]
     end
     auto_controls << spec
   end
@@ -8800,6 +9102,7 @@ if opts[:pages_mode] == :worksheet
     (param_controls + auto_controls).each do |c|
       dup = JSON.parse(c.to_json)
       dup.delete('_scope_dashboards') # page-per-worksheet has no dashboard scope
+      dup.delete('_target_elements') # element ids are not renamed in this mode
       original_cid = dup['controlId']
       dup['id']        = "#{dup['id']}-#{ws_slug}"
       dup['controlId'] = "#{dup['controlId']}-#{ws_slug}"
@@ -8926,12 +9229,38 @@ elsif opts[:pages_mode] == :dashboard
       end
       dup = JSON.parse(c.to_json)
       dup.delete('_scope_dashboards')
+      # Element-level targets (selected-worksheet quick filters) name CHART
+      # elements, which this pass may suffix on a later page (a worksheet reused
+      # across dashboards): point this page's copy at THIS page's chart copies
+      # only, with the same stem rename the els.map! pass below applies (the
+      # column ids embed the stem, so they follow). Root targets are untouched.
+      elem_targets = Array(dup.delete('_target_elements'))
+      if elem_targets.any? && dup['filters'].is_a?(Array)
+        page_ids = els.map { |e| e['id'] }.compact
+        mapped = dup['filters'].map do |t|
+          tid = t.dig('source', 'elementId')
+          next t unless elem_targets.include?(tid)
+          next unless page_ids.include?(tid)
+          nid = seen_el_ids[tid] ? "#{tid}-#{d_slug[0..20]}" : tid
+          { 'source' => t['source'].merge('elementId' => nid), 'columnId' => t['columnId'].to_s.gsub(tid, nid) }
+        end.compact
+        # None of this control's charts are on this page: a copy here would
+        # target another page's elements (or dangling ids).
+        next if mapped.empty?
+        dup['filters'] = mapped
+      end
       original_cid = dup['controlId']
       dup['id']        = "#{dup['id']}-#{d_slug[0..20]}"
       dup['controlId'] = "#{dup['controlId']}-#{d_slug[0..20]}"
       ctl_rewrites[original_cid] = dup['controlId']
       base = control_scope_records.find { |r| r['controlId'] == original_cid }
-      (base['page_instances'] ||= []) << { 'page' => dash_name, 'controlId' => dup['controlId'] } if base
+      if base
+        pi = { 'page' => dash_name, 'controlId' => dup['controlId'] }
+        renames = els.map { |e| e['id'] }.compact.select { |id| seen_el_ids[id] }
+                     .to_h { |id| [id, "#{id}-#{d_slug[0..20]}"] }
+        pi['element_renames'] = renames if renames.any?
+        (base['page_instances'] ||= []) << pi
+      end
       page_extras << dup
     end
     els.each do |el|
@@ -9093,7 +9422,7 @@ elsif opts[:pages_mode] == :dashboard
   warn "wrote #{opts[:out]} (page-per-dashboard: #{pages.size} page(s), #{data_elements.size} hidden data element(s), #{(param_controls + auto_controls).size} controls per page)"
 else
   elements.each { |e| e.delete('_worksheet'); e.delete('_dashboard') }
-  all_extras.each { |e| e.delete('_scope_dashboards') }
+  all_extras.each { |e| e.delete('_scope_dashboards'); e.delete('_target_elements') }
   styled_text_all.each { |e| e.delete('_dashboard') }
   all_elements = all_extras + styled_text_all + elements
   File.write(opts[:out], JSON.pretty_generate(all_elements))
@@ -9195,14 +9524,14 @@ unless control_scope_records.empty?
     page ? ctl_chart_index.select { |c| c['dash'] == page || c['ws'] == page }.map { |c| c['id'] }
          : ctl_chart_index.map { |c| c['id'] }
   end
-  to_contract = lambda do |r, cid, page|
+  to_contract = lambda do |r, cid, page, renames = nil|
     ints = Array(r['intended'])
     # page is a dashboard name (page-per-dashboard) or a worksheet name
     # (page-per-worksheet); parameter records carry neither key — keep those.
     ints = ints.select { |i| (i['dashboard'] || i['worksheet']).nil? || i['dashboard'] == page || i['worksheet'] == page } if page
     bad = unreach_names.call(r)
     reached = ints.reject { |i| bad.include?(i['name']) }
-    reached_ids = reached.map { |i| i['element_id'] }.uniq & final_scope_ids
+    reached_ids = reached.map { |i| (renames || {})[i['element_id']] || i['element_id'] }.uniq & final_scope_ids
     final_page = final_scope_pages.find { |candidate| page.nil? || candidate['name'] == page }
     formula_ids = Array(final_page && final_page['elements']).select do |element|
       element.to_json.include?("[#{cid}]")
@@ -9232,7 +9561,7 @@ unless control_scope_records.empty?
   end
   contract_controls = emitted_rs.flat_map do |r|
     if (insts = Array(r['page_instances'])).any?
-      insts.map { |pi| to_contract.call(r, pi['controlId'], pi['page']) }
+      insts.map { |pi| to_contract.call(r, pi['controlId'], pi['page'], pi['element_renames']) }
     else
       [to_contract.call(r, r['controlId'], nil)]
     end
@@ -9275,10 +9604,13 @@ end
 # feeds coverage.json below, so WARN count == coverage gap count from warnings.
 #   :dropped  — a source component was lost (no element / value)
 #   :degraded — built best-effort but a piece stays manual / wasn't auto-emitted
+#   :approximated — built, but its scope only approximates the source (e.g. a
+#                   selected-worksheet quick filter that over-filters a sibling)
 #   :note     — success or a verify nudge (NOT a gap)
 def warning_severity(w)
   s = w.to_s
   return :dropped  if s =~ /ZONE DROPPED|NOT auto-built|dropped from the grid|—\s*skipping|could not be carried|cannot reconstruct/i
+  return :approximated if s =~ /quick-filter control \(filter group .* will ALSO filter/
   return :degraded if s =~ /STAYS[ -]MANUAL|could not be auto-decomposed|not composable as agg-of-agg|not auto-emitted|falling (through|back)|learned-rule matched .* NOT placed/i
   :note
 end
@@ -9426,7 +9758,7 @@ end
 # things" failure). Scan the SOURCE dashboard zones and name each unsupported
 # primitive/feature explicitly. Detectors are CONSERVATIVE (fire only on a clear
 # structural signal) to avoid false positives; one entry per zone.
-def spec_api_limit_entries(layout, cmp_wired = {})
+def spec_api_limit_entries(layout, cmp_wired = {}, info_icons = true)
   entries = []
   add = lambda do |cap, severity, detail, action|
     entries << { 'visual' => cap.to_s, 'source_type' => 'worksheet',
@@ -9453,6 +9785,12 @@ def spec_api_limit_entries(layout, cmp_wired = {})
       # Shape / image mark used as an icon or decorative graphic — Sigma has no
       # shape mark; these are silently dropped today.
       if mk == 'Shape'
+        if info_icons && info_icon_zone?(z)
+          add.call(cap, 'approximated',
+                   'info popup → Sigma icon button tooltip (rich text formatting not carried)',
+                   'Verify the icon button hover text; restyle in the editor if the source popup formatting matters.')
+          next
+        end
         add.call(cap, 'dropped',
                  'shape / image-mark worksheet (icon or decorative graphic) — Sigma has no shape mark',
                  'Recreate with a hosted image element (kind:image + URL) or omit; not auto-migrated.')
@@ -9600,7 +9938,7 @@ end
 # (5) spec-API limits — unsupported source primitives/features (bead ubr5.20).
 # Skip any zone already surfaced by a warning above (avoid double-listing).
 _already = coverage_unresolved.map { |u| u['visual'].to_s.downcase }
-spec_api_limit_entries(layout, $kpi_comparison_wired).each do |e|
+spec_api_limit_entries(layout, $kpi_comparison_wired, opts[:pages_mode] != :worksheet).each do |e|
   next if _already.include?(e['visual'].to_s.downcase)
   coverage_unresolved << e
 end

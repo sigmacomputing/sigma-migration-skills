@@ -12,6 +12,8 @@ require_relative 'lib/ruby_compat'
 
 SRC = File.read(File.join(__dir__, 'build-charts-from-signals.rb'))
 fn  = SRC[/^def spec_api_limit_entries.*?^end/m] or abort('could not extract spec_api_limit_entries')
+icon_fn = SRC[/^def info_icon_zone\?.*?^end/m] or abort('could not extract info_icon_zone?')
+eval(icon_fn)
 eval(fn)
 
 fails = []
@@ -74,6 +76,26 @@ check(!by_vis['Plain KPI'],       'plain KPI (no delta fields) NOT flagged', fai
 check(!by_vis['Revenue KPI (wired)'],
       'KPI ▲/▼ delta demoted when cmp_wired marks the tile (Task 5)', fails)
 check(e.size == 5, "exactly 5 entries (got #{e.size})", fails)
+
+# Info-popup icon sheet (Shape mark, empty shelves, tooltip text) is emitted as an
+# icon button -> approximated, never dropped; when icon buttons are not emitted
+# (page-per-worksheet) or there is no tooltip text it keeps the dropped entry.
+empty_shelf = { 'fields' => [], 'dim_count' => 0, 'measure_count' => 0 }
+info = { 'kind' => 'chart', 'caption' => 'Info Icon', 'chart_kind' => 'scatter', 'mark_class' => 'Shape',
+         'measures' => [], 'calculations' => [], 'rows_shelf' => empty_shelf, 'cols_shelf' => empty_shelf,
+         'tooltip_text' => 'Explains the dashboard' }
+info_sev = lambda do |zone, icons = true|
+  spec_api_limit_entries([{ 'dashboard' => 'D', 'zones' => [zone] }], {}, icons).first
+end
+check(info_sev.call(info)['severity'] == 'approximated' &&
+      info_sev.call(info)['detail'] =~ /info popup.*icon button tooltip/,
+      'info-popup icon sheet -> approximated (icon button emitted)', fails)
+check(info_sev.call(info, false)['severity'] == 'dropped',
+      'info-popup icon sheet stays dropped when icon buttons are not emitted', fails)
+check(info_sev.call(info.merge('tooltip_text' => nil))['severity'] == 'dropped',
+      'Shape sheet without tooltip text stays dropped', fails)
+check(info_sev.call(info.merge('rows_shelf' => { 'fields' => [{ 'raw' => '[x].[none:A:nk]' }] }))['severity'] == 'dropped',
+      'Shape sheet with a field on a shelf stays dropped', fails)
 
 puts
 if fails.empty?

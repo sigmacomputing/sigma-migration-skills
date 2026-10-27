@@ -171,6 +171,105 @@ jobs:
           python
           plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/tableau-runtime-parity.py
 
+  tableau-nokogiri:
+    name: Tableau .twb parsing under Nokogiri (TwbXml::El shim)
+    # scripts/lib/twb_xml.rb parses .twb files through a Nokogiri-backed
+    # REXML shim (TwbXml::El) when the nokogiri gem is installed and through
+    # real REXML otherwise. Every other job here runs without Nokogiri, so CI
+    # only ever exercised the REXML fallback while customers with Nokogiri run
+    # the shim. That gap let a REXML-only call (each_attribute / texts /
+    # argless elements.each) crash the formula audit under Nokogiri while
+    # every CI leg stayed green. This job installs a pinned Nokogiri, PROVES
+    # the shim is the active path, then runs the .twb-parsing suites, the
+    # Ruby/Python parity harness and the corpus goldens through it. The REXML
+    # legs above stay as they are.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Same pin, same reason as the corpus and ruby-full-suite jobs (F5
+      # crash class on UTF-8-heavy .twb fixtures).
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        # Same 3.3 pin as the corpus job: its bundled json gem keeps the
+        # empty-container pretty-print form the corpus goldens were made with.
+        with:
+          ruby-version: '3.3'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pinned Nokogiri (+ webrick, image-analysis deps)
+        # Exact pins, each released well before this job was added. webrick
+        # is a distro-bundled gem setup-ruby's Ruby lacks (several tableau
+        # tests stand up a local WEBrick stub). pillow/numpy are the corpus
+        # job's offline image-analysis deps.
+        run: |
+          gem install --no-document nokogiri -v 1.19.4
+          gem install --no-document webrick -v 1.9.2
+          python -m pip install --quiet pillow==13.0.0 numpy==2.5.4
+      - name: Assert TwbXml.parse returns the Nokogiri shim, not REXML
+        # Without this, a broken gem install would silently fall back to
+        # REXML and every step below would re-test the REXML path green.
+        run: |
+          ruby -e '
+            require File.expand_path("plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/lib/twb_xml", Dir.pwd)
+            doc = TwbXml.parse("<workbook/>")
+            abort "::error::TWB_XML_NOKOGIRI is false: nokogiri did not load" unless TWB_XML_NOKOGIRI
+            abort "::error::TwbXml.parse returned #{doc.class}, expected TwbXml::El" unless doc.is_a?(TwbXml::El)
+            puts "TwbXml shim active (nokogiri #{Nokogiri::VERSION}, libxml2 #{Nokogiri::VERSION_INFO.dig("libxml", "loaded")})"
+          '
+      - name: scan-workbook-gaps suites under Nokogiri
+        # The suites that drive scan-workbook-gaps.rb's formula audit and
+        # multi-datasource detection, where that crash surfaced. Named here
+        # so a failure points straight at them; the glob below re-runs them.
+        run: |
+          set -uo pipefail
+          fail=0
+          for t in test-formula-audit.rb test-multi-datasource-gap.rb test-multi-ds-detection.rb; do
+            t="plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/$t"
+            echo "::group::$t"
+            if timeout 120 ruby "$t"; then echo "OK $t"; else echo "::error file=$t::test failed under Nokogiri"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+      - name: Every tableau-to-sigma test-*.rb under Nokogiri (glob)
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          tests=(plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-*.rb)
+          [ "${#tests[@]}" -gt 0 ] || { echo "::error::glob matched no tableau-to-sigma test files"; exit 1; }
+          fail=0; ran=0
+          for t in "${tests[@]}"; do
+            case "$(basename "$t")" in
+              # Same sole exclusion as ruby-full-suite: needs a Tableau token.
+              test-calc-discovery.rb) echo "SKIP $t (needs a Tableau token)"; continue ;;
+            esac
+            echo "::group::$t"
+            if timeout 120 ruby "$t"; then
+              echo "OK $t"
+            else
+              rc=$?
+              msg="test failed under Nokogiri (exit $rc)"
+              [ "$rc" -eq 124 ] && msg="test TIMED OUT under Nokogiri (per-file 120 s cap)"
+              echo "::error file=$t::$msg"; fail=1
+            fi
+            echo "::endgroup::"
+            ran=$((ran+1))
+          done
+          echo "ran $ran ruby test file(s) under Nokogiri"
+          exit $fail
+      - name: Ruby/Python normalized fixture parity under Nokogiri
+        run: >-
+          python
+          plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/tableau-runtime-parity.py
+      - name: Corpus goldens under Nokogiri
+        run: ./corpus/run-corpus.sh --check
+
   qlik-ruby-free-runtime:
     name: Qlik Python runtime (Ruby absent)
     runs-on: ubuntu-24.04

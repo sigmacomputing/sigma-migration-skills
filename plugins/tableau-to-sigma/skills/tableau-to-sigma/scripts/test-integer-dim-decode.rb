@@ -187,8 +187,9 @@ check(build_log =~ /INTEGER column used as a discrete dimension|auto-decoded via
 # ---- 7. Dashboard filter-ZONE promotion (no <shared-view>) --------------------
 # The live "a live executive dashboard" shape: the integer quick filter is a
 # dashboard filter ZONE, not a <shared-view>. Without promotion the control is
-# SILENTLY DROPPED (Twin C hand-authored it). PR-18 promotes ONLY the integer-dim
-# zone filter (a STRING zone filter stays unemitted — byte-identical).
+# SILENTLY DROPPED (Twin C hand-authored it). PR-18 promoted the integer-dim zone
+# filter; the filter-group fix generalized that to every filter zone (a string
+# zone filter is promoted as a plain control — only integer dims get a decode).
 ZONE_TWB = <<~XML
   <?xml version='1.0' encoding='utf-8' ?>
   <workbook xmlns:user='http://www.tableausoftware.com/xml/user'>
@@ -254,8 +255,12 @@ if zsk && zdec
   check(Array(zsk['filters']).first&.dig('columnId') == zdec['id'] && zsk.dig('source', 'columnId') == zdec['id'],
         'zone case: promoted control binds filter target + value-source to the Text() decode', fails)
 end
-check(zels.none? { |e| e['kind'] == 'control' && e['name'] == 'Region' },
-      'zone case: a STRING zone filter is NOT promoted (byte-identical for non-integer dims)', fails)
+# Since the filter-group fix EVERY filter zone is promoted (not only integer dims);
+# a STRING zone filter becomes a plain control on the raw master column — no
+# Text() decode helper (that stays integer-dim only).
+zrg = zels.find { |e| e['kind'] == 'control' && e['name'] == 'Region' }
+check(!zrg.nil? && Array(zrg['filters']).first&.dig('columnId') == 'm-region' && zmdc.none? { |c| c['name'] == 'Region (Text)' },
+      'zone case: a STRING zone filter is promoted too, on the raw master column with no decode helper', fails)
 
 puts
 if fails.empty?

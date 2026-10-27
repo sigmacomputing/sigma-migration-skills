@@ -10,6 +10,8 @@
 
 require 'json'
 require 'tmpdir'
+require 'open3'
+require 'rbconfig'
 require_relative 'lib/dashboard_read'
 
 fails = []
@@ -158,6 +160,41 @@ Dir.mktmpdir do |d|
   check(reg && reg['highlight_tiles'].sort == %w[BarA BarB], "highlight = tiles referencing the param (got #{reg && reg['highlight_tiles'].inspect})", fails)
   check(reg && reg['target_tiles'] == ['TrendA'], 'target = the non-referencing tile (TrendA, boilerplate redeclaration only)', fails)
   check(doc['point_in_time'].is_a?(Hash), 'point_in_time seeded once a highlight parameter is present', fails)
+end
+
+# --- filter-group quick filters, shared-view labels, info icons ---------------
+# fixtures/pivot-finish.twb: two quick filters applied to SELECTED worksheets
+# (filter-group, no shared-view) and a Shape-mark info icon. Parsed for real.
+Dir.mktmpdir do |d|
+  fx = File.join(__dir__, 'fixtures', 'pivot-finish.twb')
+  _o, e, st = Open3.capture3(RbConfig.ruby, File.join(__dir__, 'parse-twb-layout.rb'), fx, "#{d}/dashboard-layout.json")
+  check(st.success?, "parse-twb-layout ran on pivot-finish.twb (#{e.lines.last})", fails)
+  doc = JSON.parse(File.read(DashboardRead.seed_from_layout(d)))
+  shelf = doc['filter_shelf'].map { |f| [f['label'], f['target_tiles'].sort] }.to_h
+  check(shelf['Order Channel'] == ['KPI Crosstab', 'Revenue by Region'],
+        "Order Channel seeded with its filter-group reach (got #{shelf['Order Channel'].inspect})", fails)
+  check(shelf['Region'] == ['Revenue by Channel'],
+        "Region seeded with its filter-group reach (got #{shelf['Region'].inspect})", fails)
+  info = doc['tiles'].find { |t| t['title'] == 'INFO Button - KPI' }
+  check(info && info['kind'] == 'button', "info icon sheet seeded as a button (got #{info.inspect})", fails)
+  check(doc['tiles'].none? { |t| t['kind'] == 'button' && t['title'] != 'INFO Button - KPI' }, 'no chart seeded as a button', fails)
+end
+
+# A shared-view filter record names its field `column_caption` only; it must
+# seed under that label and reach only the dashboards showing its zone.
+Dir.mktmpdir do |d|
+  layout = [
+    { 'dashboard' => 'A', 'zones' => [{ 'kind' => 'chart', 'caption' => 'A1' },
+                                      { 'kind' => 'filter', 'filter_column_caption' => 'Brand' }] },
+    { 'dashboard' => 'B', 'zones' => [{ 'kind' => 'chart', 'caption' => 'B1' }] }
+  ]
+  meta = { 'shared_filters' => [{ 'column_caption' => 'Brand', 'kind' => 'list' }], 'worksheets' => {} }
+  File.write("#{d}/dashboard-layout.json", JSON.dump(layout))
+  File.write("#{d}/dashboard-layout-meta.json", JSON.dump(meta))
+  doc = JSON.parse(File.read(DashboardRead.seed_from_layout(d)))
+  brand = doc['filter_shelf'].find { |f| f['label'] == 'Brand' }
+  check(brand, 'shared-view filter seeded under its column_caption label', fails)
+  check(brand && brand['target_tiles'] == ['A1'], "shared-view filter reaches only its own dashboard's tiles (got #{brand && brand['target_tiles'].inspect})", fails)
 end
 
 puts

@@ -557,11 +557,25 @@ if File.exist?(dash_layout_path)
       dash_layout.each do |d|
         next if scoped_dash_names &&
                 !scoped_dash_names.any? { |dn| d['dashboard'].to_s.downcase.include?(dn) }
+        # A worksheet filter whose field is ALSO a quick filter on this
+        # dashboard is not hidden — it is the visible control's own filter.
+        # Left at "All" (a plain member list with no members) it restricts
+        # nothing, so it cannot skew the CSV row count. A restrictive one still
+        # gates, and so do wildcard, condition and top-N filters, which also
+        # carry an empty member list.
+        qf_caps = (d['zones'] || []).select { |qz| qz['kind'] == 'filter' }
+                                    .map { |qz| qz['filter_column_caption'].to_s.downcase.gsub(/[^a-z0-9]/, '') }
         (d['zones'] || []).each do |z|
           next unless z['kind'] == 'chart'
           hf_list = z['hidden_filters']
           next if hf_list.nil? || hf_list.empty?
           hf_list.each do |hf|
+            if hf['filter_type'].to_s == 'categorical' && hf['kind'].to_s == 'list' && !hf['topn'] &&
+               Array(hf['members']).empty? && hf['min'].nil? && hf['max'].nil? &&
+               qf_caps.include?(hf['caption'].to_s.downcase.gsub(/[^a-z0-9]/, ''))
+              warn "hidden_filters gate: [#{z['caption']}] #{hf['caption']} is the dashboard's own quick filter left at All — not a hidden restriction"
+              next
+            end
             entry = {
               'tile'        => z['caption'],
               'calc_ref'    => hf['calc_ref'],

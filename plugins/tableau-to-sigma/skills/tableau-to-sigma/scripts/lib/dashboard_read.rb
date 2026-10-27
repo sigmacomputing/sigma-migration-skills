@@ -126,6 +126,9 @@ module DashboardRead
     zones.each do |z|
       if z['is_kpi'] || z['kind'] == 'chart'
         kind = DRAFT_KIND[z['chart_kind'].to_s] || (z['is_kpi'] ? 'kpi-chart' : 'bar-chart')
+        # An info-popup icon sheet (Shape mark, empty shelves, a customized
+        # tooltip) builds as a Sigma icon button, not a chart.
+        kind = 'button' if info_icon_zone?(z)
         tile = { 'title' => z['caption'].to_s, 'kind' => kind }
         # Seed bar/combo orientation from the shelf roles the parse already tags:
         # a DIMENSION on Rows + a MEASURE on Cols is Tableau's HORIZONTAL bar.
@@ -147,25 +150,78 @@ module DashboardRead
       end
     end
 
-    chart_titles = tiles.map { |t| t['title'] }.reject(&:empty?)
+    chart_titles = tiles.reject { |t| t['kind'] == 'button' }.map { |t| t['title'] }.reject(&:empty?)
+    norm = ->(s) { s.to_s.downcase.gsub(/[^0-9a-z]/, '') }
+    # Chart tiles on the dashboards that show a quick-filter zone for `lbl` — a
+    # control's reach never extends past the dashboards it appears on.
+    zone_dash_charts = lambda do |lbl|
+      dashes.select do |d|
+        d.is_a?(Hash) && (d['zones'] || []).any? { |z| z['kind'] == 'filter' && norm.call(z['filter_column_caption']) == norm.call(lbl) }
+      end.flat_map do |d|
+        (d['zones'] || []).select { |z| z['kind'] == 'chart' && !info_icon_zone?(z) }.map { |z| z['caption'].to_s }
+      end.reject(&:empty?).uniq
+    end
     filter_shelf = []
     (meta['shared_filters'] || []).each do |f|
-      lbl = (f['caption'] || f['column'] || f['name']).to_s
+      # parse-twb-layout names a filter's field `column_caption`; without it every
+      # shared-view quick filter seeded with an empty label and was skipped.
+      lbl = (f['caption'] || f['column_caption'] || f['column'] || f['name']).to_s.strip
       next if lbl.empty?
+      next if filter_shelf.any? { |e| e['label'].casecmp?(lbl) }
+      scoped = zone_dash_charts.call(lbl)
+      chart_titles_for = scoped.empty? ? chart_titles : scoped
       # Seed the control's reach conservatively at TODAY's implicit behavior —
       # every chart tile in target_tiles (page scope) minus any tile a parameter
       # only re-colors. The operator prunes target_tiles to the real filtered set
       # (leaving a page-wide filter listing every tile explicitly is fine). This
       # is the decision that, when skipped, silently collapses every tile to one
       # selection.
-      hl = highlight_tiles_for(f, chart_titles, ws_meta)
+      hl = highlight_tiles_for(f, chart_titles_for, ws_meta)
       filter_shelf << {
         'label'           => lbl,
-        'target_tiles'    => (chart_titles - hl),
+        'target_tiles'    => (chart_titles_for - hl),
         'highlight_tiles' => hl,
         'note'            => 'CONFIRM: which tiles does this control FILTER (target_tiles) vs only ' \
                              'RE-COLOR (highlight_tiles)? A page-scope filter silently hits every tile.'
       }
+    end
+    shared_labels = filter_shelf.map { |e| e['label'].downcase }
+    # Dashboard quick filters that are NOT shared-view filters — the "Apply to
+    # selected worksheets" shape, stored as a per-worksheet <filter
+    # filter-group='N'> plus one zone. Seed target_tiles = the worksheets on that
+    # dashboard carrying the same filter group (the source's real reach), or the
+    # dashboard's chart tiles when the filter has no group.
+    dashes.each do |d|
+      next unless d.is_a?(Hash)
+      dash_charts = (d['zones'] || []).select { |z| z['kind'] == 'chart' && !info_icon_zone?(z) }
+                                      .map { |z| z['caption'].to_s }.reject(&:empty?).uniq
+      (d['zones'] || []).each do |z|
+        next unless z['kind'] == 'filter'
+        lbl = z['filter_column_caption'].to_s.strip
+        next if lbl.empty? || shared_labels.include?(lbl.downcase)
+        matches = ->(f) { !f['is_action'] && norm.call(f['column_caption']) == norm.call(lbl) }
+        on_dash = ws_meta.select { |ws, w| dash_charts.include?(ws) && Array(w['filters']).any?(&matches) }
+        group = on_dash.values.flat_map { |w| Array(w['filters']).select(&matches) }
+                       .map { |f| f['filter_group'] }.compact.first
+        targets = if group
+                    on_dash.select { |_ws, w| Array(w['filters']).any? { |f| matches.call(f) && f['filter_group'].to_s == group.to_s } }.keys
+                  else
+                    dash_charts
+                  end
+        # The same caption can head a filter rail on several dashboards — one
+        # control label, the union of every dashboard's reach.
+        if (prior = filter_shelf.find { |e| e['label'].casecmp?(lbl) })
+          prior['target_tiles'] = (prior['target_tiles'] + targets).uniq
+          next
+        end
+        filter_shelf << {
+          'label'           => lbl,
+          'target_tiles'    => targets,
+          'highlight_tiles' => [],
+          'note'            => (group ? "Seeded from Tableau filter group #{group} (applied to selected worksheets) — CONFIRM." :
+                                        'CONFIRM: which tiles does this control FILTER? Seeded page-wide.')
+        }
+      end
     end
     # PARAMETER-driven controls (not just shared_filters): a Tableau parameter used
     # as a selector — e.g. a Region highlight parameter — is NOT a shared_filter, so
@@ -236,6 +292,14 @@ module DashboardRead
   # Best-effort seed: chart tiles whose color encoding references the filter's
   # column/caption — i.e. the parameter DRIVES COLOR (a highlight), so it must
   # not filter that tile. Purely a hint; the operator confirms against the PNG.
+  # Same predicate as build-charts-from-signals.rb info_icon_zone?: a Shape-mark
+  # sheet with empty Rows/Cols whose only content is a customized tooltip.
+  def self.info_icon_zone?(z)
+    z['kind'] == 'chart' && z['mark_class'].to_s.casecmp('shape').zero? &&
+      z['tooltip_text'].to_s.strip != '' &&
+      %w[rows_shelf cols_shelf].all? { |k| Array((z[k] || {})['fields']).empty? }
+  end
+
   def self.highlight_tiles_for(filter, chart_titles, ws_meta)
     toks = [filter['caption'], filter['column'], filter['column_caption'], filter['name']]
            .compact.map { |s| s.to_s.downcase.gsub(/[^0-9a-z]/, '') }.reject(&:empty?)

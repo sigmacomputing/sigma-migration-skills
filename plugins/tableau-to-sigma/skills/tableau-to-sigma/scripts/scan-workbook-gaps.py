@@ -15,6 +15,7 @@ translation is delegated to the existing vendored Node helper.
 from __future__ import annotations
 
 import csv
+import html
 import json
 import os
 import re
@@ -529,9 +530,74 @@ def detect_unions(root: ET.Element) -> list[Feature]:
     return features
 
 
+WORKSHEET_SECTION_RE = re.compile(
+    r"""<worksheet\s[^>]*?name=(?:'([^']*)'|"([^"]*)")[^>]*>(.*?)</worksheet>""", re.S
+)
+
+
+def worksheet_bodies(content: str) -> dict[str, str]:
+    return {
+        html.unescape(single or double): html.unescape(body)
+        for single, double, body in WORKSHEET_SECTION_RE.findall(content)
+    }
+
+
+def calc_name_referenced(text: str, internal_name: str) -> bool:
+    """Bare, bounded match, mirroring scan-workbook-gaps.rb.
+
+    A worksheet may carry only the column-instance form
+    ([none:Calculation_1:nk]), never the bracketed [Calculation_1].
+    """
+    bare = re.sub(r"\]\Z", "", re.sub(r"\A\[", "", internal_name))
+    return bool(bare) and re.search(rf"(?<![\w]){re.escape(bare)}(?![\w])", text) is not None
+
+
+def calc_worksheet_refs(
+    calculations: list[dict[str, Any]], bodies: dict[str, str]
+) -> dict[str, list[str]]:
+    refs: dict[str, list[str]] = {}
+    for row in calculations:
+        hits = sorted(
+            name
+            for name, body in bodies.items()
+            if calc_name_referenced(body, row["internal_name"])
+        )
+        if hits:
+            refs[row["internal_name"]] = hits
+    return refs
+
+
+def datasource_object_usage_text(datasource: ET.Element) -> str:
+    values: list[str] = []
+
+    def visit(element: ET.Element, inside_usage: bool = False) -> None:
+        name = local_name(element.tag)
+        usage = (
+            inside_usage
+            or name in {"filter", "extract-filter", "group", "groupfilter", "set"}
+            or (
+                name == "calculation"
+                and re.search(r"(?:set|group)", element.get("class", ""), re.I)
+                is not None
+            )
+        )
+        if usage:
+            values.extend(element.attrib.values())
+            if element.text:
+                values.append(element.text)
+        for child in element:
+            visit(child, usage)
+
+    visit(datasource)
+    return "\n".join(values)
+
+
 def calculation_inventory(root: ET.Element, content: str) -> dict[str, Any]:
     after_datasources = content.split("</datasources>", 1)
-    reference_region = after_datasources[1] if len(after_datasources) == 2 else content
+    reference_region = html.unescape(
+        after_datasources[1] if len(after_datasources) == 2 else content
+    )
+    bodies = worksheet_bodies(content)
     inputs: list[dict[str, Any]] = []
     datasource_rows: list[dict[str, Any]] = []
 
@@ -605,10 +671,12 @@ def calculation_inventory(root: ET.Element, content: str) -> dict[str, Any]:
             )
 
         cycles = dependency_cycles(graph, calculations)
+        datasource_usage = datasource_object_usage_text(datasource)
+        usage_text = f"{reference_region}\n{datasource_usage}"
         used = {
             row["internal_name"]
             for row in calculations
-            if row["internal_name"] in reference_region
+            if calc_name_referenced(usage_text, row["internal_name"])
         }
         changed = True
         while changed:
@@ -639,6 +707,14 @@ def calculation_inventory(root: ET.Element, content: str) -> dict[str, Any]:
                 "unused_calculations": sorted(
                     unused, key=lambda row: (row["calculation"], row["internal_name"])
                 ),
+                "dependency_graph": graph,
+                "calc_worksheets": calc_worksheet_refs(calculations, bodies),
+                # Calcs a datasource filter / set / group uses shape every sheet.
+                "datasource_level_calcs": [
+                    row["internal_name"]
+                    for row in calculations
+                    if calc_name_referenced(datasource_usage, row["internal_name"])
+                ],
             }
         )
 
@@ -803,6 +879,7 @@ def run_formula_audit(inventory: dict[str, Any]) -> dict[str, Any]:
                 "port, customize, or loud skip decision"
             )
         rows_by_source[int(row["datasource_index"])].append(row)
+    annotate_refusal_reach(batch, inventory)
     sources = []
     for source in inventory["datasources"]:
         rows = rows_by_source[source["datasource_index"]]
@@ -841,7 +918,67 @@ def run_formula_audit(inventory: dict[str, Any]) -> dict[str, Any]:
     return batch
 
 
+REFUSED_STATUSES = {"not_converted", "unmapped"}
+
+
+def annotate_refusal_reach(batch: dict[str, Any], inventory: dict[str, Any]) -> None:
+    """Where each still-refused formula reaches (mirrors scan-workbook-gaps.rb).
+
+    An unused refusal is marked and never gates; a used one records its
+    dependents and the worksheets that use it directly or through them, and
+    each translated dependent gets ``blocked_by``.
+    """
+    sources = {source["datasource_index"]: source for source in inventory["datasources"]}
+    unused = {
+        (row["datasource"], row["internal_name"])
+        for row in inventory["unused_calculations"]
+    }
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in batch.get("formulas", []):
+        grouped[int(row["datasource_index"])].append(row)
+    for index, rows in grouped.items():
+        source = sources.get(index, {})
+        graph = source.get("dependency_graph", {})
+        calc_ws = source.get("calc_worksheets", {})
+        ds_level = set(source.get("datasource_level_calcs", []))
+        by_internal = {row["internal_name"]: row for row in rows}
+        reverse: dict[str, list[str]] = defaultdict(list)
+        for calc, dependencies in graph.items():
+            for dependency in dependencies:
+                reverse[dependency].append(calc)
+        for row in rows:
+            if row.get("status") not in REFUSED_STATUSES:
+                continue
+            if (row["datasource"], row["internal_name"]) in unused:
+                row["unused"] = True
+                continue
+            seen: set[str] = set()
+            queue = [row["internal_name"]]
+            while queue:
+                for dependent in reverse[queue.pop(0)]:
+                    if dependent not in seen:
+                        seen.add(dependent)
+                        queue.append(dependent)
+            seen.discard(row["internal_name"])
+            dependents = [by_internal[name] for name in seen if name in by_internal]
+            if dependents:
+                row["dependents"] = sorted({dep["caption"] for dep in dependents})
+            reach = [row["internal_name"], *seen]
+            if any(name in ds_level for name in reach):
+                # A datasource-level use applies to every sheet: leave the row
+                # unattributed so a scoped run fails open instead of dropping it.
+                row["datasource_level"] = True
+            else:
+                worksheets = sorted({ws for name in reach for ws in calc_ws.get(name, [])})
+                if worksheets:
+                    row["worksheets"] = worksheets
+            for dep in dependents:
+                if dep.get("status") in TRANSLATED_STATUSES:
+                    dep["blocked_by"] = sorted({*dep.get("blocked_by", []), row["caption"]})
+
+
 CONVERTER_REFUSED_GAP_PREFIX = "Converter-refused calculated field — "
+TABLE_SCOPED_FIXED_RE = re.compile(r"\A\s*\{\s*FIXED\s*:", re.I)
 
 
 def converter_refused_gap_rows(formulas: list[dict[str, Any]]) -> list[Feature]:
@@ -858,7 +995,9 @@ def converter_refused_gap_rows(formulas: list[dict[str, Any]]) -> list[Feature]:
     here stays refused (fail closed).
     """
     refused = [
-        row for row in formulas if row.get("status") in {"not_converted", "unmapped"}
+        row
+        for row in formulas
+        if row.get("status") in REFUSED_STATUSES and not row.get("unused")
     ]
     labels = [
         f"{row.get('datasource_caption') or row.get('datasource')}: "
@@ -872,22 +1011,60 @@ def converter_refused_gap_rows(formulas: list[dict[str, Any]]) -> list[Feature]:
             label = f"{label} ({row.get('internal_name')})"
         verb = "could not map" if row.get("status") == "unmapped" else "refused"
         snippet = " ".join(str(row.get("formula") or "").split())[:160]
+        blurb = f"The vendored converter {verb} this formula: {snippet}."
+        if row.get("dependents"):
+            blurb += (
+                " Calcs built on it inherit the break and are what the dashboards plot: "
+                + ", ".join(row["dependents"][:6])
+                + (", …" if len(row["dependents"]) > 6 else "")
+                + "."
+            )
+        if TABLE_SCOPED_FIXED_RE.search(str(row.get("formula") or "")):
+            blurb += (
+                " Table-scoped FIXED (no dimensions) is one grand-total value over the whole "
+                "source; the build does not emit it, so build that single value by hand."
+            )
+        blurb += " Scout a validated rewrite or explicitly account for it."
         features.append(
             Feature(
                 f"{CONVERTER_REFUSED_GAP_PREFIX}{label}",
                 "unhandled",
                 1,
-                f"The vendored converter {verb} this formula: {snippet}. "
-                "Scout a validated rewrite or explicitly account for it.",
+                blurb,
+                row.get("worksheets"),
             )
         )
     return features
+
+
+def unused_refused_gap_row(formulas: list[dict[str, Any]]) -> Feature | None:
+    unused = [
+        row
+        for row in formulas
+        if row.get("status") in REFUSED_STATUSES and row.get("unused")
+    ]
+    if not unused:
+        return None
+    listed = ", ".join(
+        f"{row.get('datasource_caption') or row.get('datasource')}: {row.get('caption')}"
+        for row in unused[:12]
+    )
+    return Feature(
+        "Converter-refused calculated fields not used on any worksheet",
+        "hint",
+        len(unused),
+        f"{len(unused)} refused formula(s) that no worksheet uses, directly or through "
+        f"another calc: {listed}. Nothing is built from them, so they do not stop the conversion.",
+    )
 
 
 def formula_gap_results(audit: dict[str, Any]) -> list[Feature]:
     counts = audit.get("counts") or {}
     review = int(counts.get("verify", 0)) + int(counts.get("chart_only", 0))
     features: list[Feature] = converter_refused_gap_rows(audit.get("formulas", []))
+    unused_row = unused_refused_gap_row(audit.get("formulas", []))
+    if unused_row is not None:
+        features.append(unused_row)
     if review:
         features.append(
             Feature(

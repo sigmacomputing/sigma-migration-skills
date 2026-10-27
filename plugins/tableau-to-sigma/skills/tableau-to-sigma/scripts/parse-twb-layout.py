@@ -322,6 +322,11 @@ class TableauLayoutParser:
             "datatype": (info or {}).get("datatype"),
             "is_action": is_action,
         }
+        # Per-worksheet quick-filter group id ("apply to selected worksheets");
+        # stamped only when present so other outputs stay byte-identical.
+        filter_group = attr(node, "filter-group") or ""
+        if filter_group:
+            result["filter_group"] = filter_group
         if is_action:
             result["kind"] = "action"
             return result
@@ -442,7 +447,7 @@ class TableauLayoutParser:
 
     def parse_shelf(self, shelf: str | None) -> dict[str, Any]:
         result = {
-            "raw": shelf, "fields": [], "dim_count": 0, "measure_count": 0,
+            "raw": shelf or None, "fields": [], "dim_count": 0, "measure_count": 0,
             "cont_measure_count": 0, "has_measure_names": False, "has_measure_values": False,
         }
         if not shelf or not shelf.strip():
@@ -488,6 +493,34 @@ class TableauLayoutParser:
                 result["fields"].append({"raw": raw, "role": "measure-names"})
         return result
 
+    def parse_measure_names_sort(
+        self, worksheet: ET.Element, rows_shelf: dict[str, Any], cols_shelf: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Measure Names member order: manual sort on [:Measure Names] (bucket
+        order), else the datasource <layout measure-ordering='alphabetic'>, else
+        None. Mirrors parse_measure_names_sort in parse-twb-layout.rb."""
+        mn_field = next((f for f in rows_shelf["fields"] + cols_shelf["fields"]
+                         if f.get("role") == "measure-names"), None)
+        if mn_field is None:
+            return None
+        manual = next((n for n in descendants(worksheet, "manual-sort")
+                       if (attr(n, "column") or "").endswith("[:Measure Names]")), None)
+        if manual is not None:
+            members = [re.sub(r'"$', "", re.sub(r'^"', "", text_of(b).strip()))
+                       for b in descendants(manual, "bucket")]
+            members = [m for m in members if m]
+            if members:
+                return {"kind": "manual", "members": members}
+        found = re.match(r"\[([^\]]+)\]\.", mn_field.get("raw") or "")
+        ds_name = found.group(1) if found else None
+        datasources = first_child(self.root, "datasources")
+        ds = next((d for d in children(datasources, "datasource") if attr(d, "name") == ds_name), None) \
+            if datasources is not None else None
+        layout = first_child(ds, "layout")
+        if layout is not None and attr(layout, "measure-ordering") == "alphabetic":
+            return {"kind": "alphabetic"}
+        return None
+
     def worksheet_display_title(self, worksheet: ET.Element) -> str | None:
         title = first_child(first_child(worksheet, "layout-options"), "title") or first_child(worksheet, "title")
         formatted = first_child(title, "formatted-text")
@@ -497,6 +530,21 @@ class TableauLayoutParser:
         if not value or re.fullmatch(r"<[^<>]+>", value):
             return None
         return value
+
+    def parse_customized_tooltip(self, worksheet: ET.Element) -> tuple[str, bool] | None:
+        # Plain text of an info-icon sheet's <customized-tooltip>: `Æ`+newline is a
+        # line break, stray `Æ` is dropped, dynamic `<[field]>` tokens are stripped
+        # and reported (the Sigma tooltip is static text).
+        tooltip = first_desc(worksheet, "customized-tooltip")
+        if tooltip is None:
+            return None
+        raw = "".join(text_of(run) for run in descendants(tooltip, "run"))
+        text = raw.replace("Æ\n", "\n").replace("Æ", "")
+        dropped = re.search(r"<\[[^<>]*\]>", text) is not None
+        text = re.sub(r"<\[[^<>]*\]>", "", text).strip()
+        if not text:
+            return None
+        return text, dropped
 
     def parse_customized_label(self, worksheet: ET.Element) -> dict[str, Any] | None:
         label = first_desc(worksheet, "customized-label")
@@ -729,7 +777,9 @@ class TableauLayoutParser:
 
             rows_node = next((item for item in descendants(worksheet, "rows")), None)
             cols_node = next((item for item in descendants(worksheet, "cols")), None)
-            rows_shelf, cols_shelf = self.parse_shelf(text_of(rows_node) if rows_node is not None else None), self.parse_shelf(text_of(cols_node) if cols_node is not None else None)
+            # An empty `<rows />` is None (Ruby's twb_xml text normalizes the
+            # genuinely-empty case to nil), so 'raw' is dropped identically.
+            rows_shelf, cols_shelf = self.parse_shelf(text_of(rows_node) or None if rows_node is not None else None), self.parse_shelf(text_of(cols_node) or None if cols_node is not None else None)
             text_mark = str(mark_class or "").lower() in {"text", "square"}
             automatic = str(mark_class or "").lower() == "automatic" or not str(mark_class or "").strip()
             both_dims = rows_shelf["dim_count"] >= 1 and cols_shelf["dim_count"] >= 1
@@ -769,6 +819,8 @@ class TableauLayoutParser:
                     for key in ("members", "min", "max"):
                         if item.get(key) is not None and (key != "members" or item.get("kind") == "list"):
                             hidden[key] = item[key]
+                    if item.get("topn"):
+                        hidden["topn"] = True
                     hidden_filters.append(hidden)
 
             shelf_sorts = []
@@ -827,6 +879,19 @@ class TableauLayoutParser:
                 if attr(rule, "element") == "mark"
                 for fmt in children(rule, "format")
             )
+            # Hidden field-label bands: <style-rule element='worksheet'>
+            # <format attr='display-field-labels' scope='cols' value='false'/>.
+            # Only an explicit 'false' counts; last rule per scope wins. Ordered
+            # subset of ['rows', 'cols'] (mirrors parse-twb-layout.rb).
+            field_label_state: dict[str, str] = {}
+            for rule in descendants(worksheet, "style-rule"):
+                if attr(rule, "element") != "worksheet":
+                    continue
+                for fmt in children(rule, "format"):
+                    scope = attr(fmt, "scope") or ""
+                    if attr(fmt, "attr") == "display-field-labels" and scope in ("rows", "cols"):
+                        field_label_state[scope] = attr(fmt, "value") or ""
+            field_labels_hidden = [sc for sc in ("rows", "cols") if field_label_state.get(sc) == "false"]
             self.worksheets[name] = {
                 "mark_class": mark_class, "geo_role": geo_role, "has_lat": has_lat,
                 "has_long": has_long, "has_geometry": first_desc(worksheet, "geometry") is not None,
@@ -837,6 +902,7 @@ class TableauLayoutParser:
                 "channels": channels, "formats": formats, "calculations": calculations,
                 "dual_axis": axis_synced, "measures": measures, "ref_marks": ref_marks,
                 "axis_formats": axis_formats, "mark_labels_show": mark_labels_show,
+                "field_labels_hidden": field_labels_hidden,
                 "rows_shelf": rows_shelf, "cols_shelf": cols_shelf,
                 "is_crosstab": is_crosstab, "is_kpi": is_kpi,
                 "display_title": self.worksheet_display_title(worksheet),
@@ -844,6 +910,14 @@ class TableauLayoutParser:
                 "kpi_value_font_size": (kpi_ban or {}).get("value_font_size"),
                 "kpi_annotation_runs": (kpi_ban or {}).get("annotation_runs"),
             }
+            mn_sort = self.parse_measure_names_sort(worksheet, rows_shelf, cols_shelf)
+            if mn_sort is not None:
+                self.worksheets[name]["measure_names_sort"] = mn_sort
+            tooltip = self.parse_customized_tooltip(worksheet)
+            if tooltip is not None:
+                self.worksheets[name]["tooltip_text"] = tooltip[0]
+                if tooltip[1]:
+                    self.worksheets[name]["tooltip_dynamic_dropped"] = True
 
     @staticmethod
     def infer_automatic_kind(meta: dict[str, Any]) -> str:
@@ -1153,7 +1227,7 @@ class TableauLayoutParser:
         if kind == "image" and (pct(attr(zone, "w")) or 0) >= 95 and (pct(attr(zone, "h")) or 0) >= 95:
             image["is_background"] = True
         chart = worksheet or {}
-        return {
+        flat = {
             "id": attr(zone, "id"), "kind": kind, "caption": caption, "view_ref": view_ref,
             "x_pct": pct(attr(zone, "x")), "y_pct": pct(attr(zone, "y")),
             "w_pct": pct(attr(zone, "w")), "h_pct": pct(attr(zone, "h")),
@@ -1178,6 +1252,7 @@ class TableauLayoutParser:
             "ref_marks": chart.get("ref_marks") if kind == "chart" else None,
             "axis_formats": chart.get("axis_formats") if kind == "chart" else None,
             "mark_labels_show": chart.get("mark_labels_show") if kind == "chart" else None,
+            "field_labels_hidden": chart.get("field_labels_hidden") if kind == "chart" else None,
             "rows_shelf": chart.get("rows_shelf") if kind == "chart" else None,
             "cols_shelf": chart.get("cols_shelf") if kind == "chart" else None,
             "is_crosstab": chart.get("is_crosstab") if kind == "chart" else None,
@@ -1205,6 +1280,15 @@ class TableauLayoutParser:
             "button_image_path": button.get("button_image_path"), "button_type": button.get("button_type"),
             "button_font_color": button.get("button_font_color"), "button_font_size": button.get("button_font_size"),
         }
+        # Measure Names member order (only stamped when the sheet carries the pill).
+        if kind == "chart" and chart.get("measure_names_sort"):
+            flat["measure_names_sort"] = chart["measure_names_sort"]
+        # Info-popup text for Shape-mark icon sheets (only stamped when present).
+        if kind == "chart" and chart.get("tooltip_text"):
+            flat["tooltip_text"] = chart["tooltip_text"]
+            if chart.get("tooltip_dynamic_dropped"):
+                flat["tooltip_dynamic_dropped"] = True
+        return flat
 
     def parse_dashboards(self) -> list[dict[str, Any]]:
         dashboards = []
@@ -1274,6 +1358,7 @@ class TableauLayoutParser:
                     "dual_axis": meta.get("dual_axis"), "measures": meta.get("measures"),
                     "ref_marks": meta.get("ref_marks"), "axis_formats": meta.get("axis_formats"),
                     "mark_labels_show": meta.get("mark_labels_show"),
+                    "field_labels_hidden": meta.get("field_labels_hidden"),
                     "rows_shelf": meta.get("rows_shelf"), "cols_shelf": meta.get("cols_shelf"),
                     "is_crosstab": meta.get("is_crosstab"), "is_kpi": meta.get("is_kpi"),
                     "kpi_label": meta.get("kpi_label"),
@@ -1282,6 +1367,8 @@ class TableauLayoutParser:
                     "filter_column_caption": None, "filter_column_datatype": None,
                 }],
             })
+            if meta.get("measure_names_sort"):
+                result[-1]["zones"][0]["measure_names_sort"] = meta["measure_names_sort"]
         return result
 
     def parse_parameters(self) -> list[dict[str, Any]]:

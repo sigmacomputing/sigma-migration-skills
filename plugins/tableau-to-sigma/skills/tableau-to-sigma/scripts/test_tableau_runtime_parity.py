@@ -20,17 +20,20 @@ SPEC.loader.exec_module(parity)
 class TableauRuntimeParityTest(unittest.TestCase):
     def test_manifest_covers_layout_gaps_and_column_independent_conversion(self):
         cases = parity.load_cases(parity.DEFAULT_CASES)
-        self.assertEqual(6, len(cases))
+        self.assertEqual(8, len(cases))
         self.assertEqual(
             {"layout", "gaps", "conversion"},
             {case.kind for case in cases},
         )
         self.assertTrue(all(case.twb.is_file() for case in cases))
+        # Fixtures live under corpus/tableau or the skill's synthetic
+        # scripts/fixtures/ (refusal-reach, pivot-finish).
+        roots = (
+            parity.REPO_ROOT / "corpus" / "tableau",
+            parity.SKILL_DIR / "scripts" / "fixtures",
+        )
         self.assertTrue(
-            all(
-                case.twb.is_relative_to(parity.REPO_ROOT / "corpus" / "tableau")
-                for case in cases
-            )
+            all(any(case.twb.is_relative_to(root) for root in roots) for case in cases)
         )
 
     def test_conversion_ids_normalize_without_losing_reference_topology(self):

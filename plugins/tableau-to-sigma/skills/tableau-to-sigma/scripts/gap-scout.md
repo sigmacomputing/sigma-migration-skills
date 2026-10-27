@@ -35,6 +35,15 @@ off-dashboard, `manual`-mode window calcs, and translations that would leave a
 ref to a refused calc or parameter stay refused. The Python runtime has no port
 of the chart translators and keeps refusing these (fail closed).
 
+Both runtimes also trace where each remaining refusal reaches. A refusal no
+worksheet uses, directly or through another calc, gets no gap row — it is
+marked `unused` and listed on one non-blocking hint row ("Converter-refused
+calculated fields not used on any worksheet"). A used refusal's row carries
+`worksheets` (its own sheets plus every sheet of a calc built on it, so a
+dashboard-scoped run skips rows for other dashboards) and names those
+dependents in its blurb; each translated dependent gets `blocked_by` on its
+`formula_audit` row. Scout the refused root — fixing it fixes the dependents.
+
 ## How to spawn (from the main agent)
 
 Use the Agent tool with `subagent_type: 'general-purpose'`. Self-contained
