@@ -434,6 +434,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate sigma-workbooks formula and control contracts
         run: bash plugins/sigma-authoring/skills/sigma-workbooks/scripts/test-validate-spec-contract.sh
+      - name: Verify-workbook compile-marker gate (stubbed curl)
+        run: bash plugins/sigma-authoring/skills/sigma-workbooks/scripts/test-verify-workbook.sh
       - name: Run offline test-*.rb suites
         # EXPLICIT allow-list — only tests that need NO Tableau/Sigma creds or
         # network. Do NOT add test-calc-discovery.rb (needs a Tableau token);

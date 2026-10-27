@@ -101,6 +101,13 @@ Then run:
 ./scripts/verify-workbook.sh <workbook-id>
 ```
 
+It fetches each element's compiled SQL and fails on the unresolved-reference
+string literals Sigma embeds there: `Unknown column "[X]"`,
+`Circular column reference to [Y]`, and `Column "[Element/col]" does not exist`
+(a workbook column whose data-model source column was dropped or renamed — the
+spec write still succeeds). A workbook sourced from a data model should be
+re-verified after any data-model column change.
+
 Finally render every affected page. Compile verification cannot prove that a
 join groups as intended, a control has options, a progress ring uses the right
 scale, or a layout is visually usable.
@@ -113,6 +120,7 @@ scale, or a layout is visually usable.
 | `element '<id>' is not placed in layout` | Add a layout placement for that flat element. |
 | `Invalid kind: document.elements[N]` | The selected element/control subtype has the wrong inner shape. |
 | `Dependency not found` | A source, column, control, or dynamic reference did not resolve. |
+| `Column "[Element/col]" does not exist` (in compiled SQL, from `verify-workbook.sh`) | A column references a data-model/source column that was dropped or renamed. Same root cause as `Dependency not found` from `spec/verify`. |
 | `Column reference not found` on a join | The join key does not match the required exact source column form. |
 | field disappears on GET | The server ignored/stripped it; use the canonical readback or inspect the live schema. |
 
