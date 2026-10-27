@@ -69,5 +69,15 @@ ok('the unknown-prefix error names "Bogus"', out2.include?('"Bogus" unknown'))
 code3, = run_validate(spec_with('[master-x/Region]'))
 ok('[master-x/Region] (element-id ref) still passes', code3.zero?)
 
+# 4) donut holeValue.id must not repeat the value.columnId binding.
+donut_spec = spec_with('[Metrics/Net Revenue]')
+donut = donut_spec.dig('document', 'elements', 1)
+donut['kind'] = 'donut-chart'
+donut['color'] = { 'columnId' => 'k1' }
+donut['holeValue'] = { 'id' => 'k1' }
+code4, out4 = run_validate(donut_spec)
+ok('donut holeValue matching value.columnId is rejected', !code4.zero?)
+ok('the donut silent-drop error names the current value binding', out4.include?('holeValue.id equals value.columnId'))
+
 puts($fail.zero? ? "\nall validate-spec metrics tests passed" : "\n#{$fail} FAILED")
 exit($fail.zero? ? 0 : 1)

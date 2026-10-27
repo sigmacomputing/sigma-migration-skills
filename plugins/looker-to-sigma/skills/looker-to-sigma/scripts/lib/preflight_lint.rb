@@ -75,7 +75,7 @@ LISTY = %w[list segmented hierarchy].freeze
 # orchestrator round-trip to discover) are caught pre-POST. Canary-verified
 # server-side 2026-07-11 (see refs/composition-recipe.md).
 CONTROL_TYPES = %w[checkbox switch text text-area number number-range date date-range
-                   list segmented hierarchy slider range-slider legend drill].freeze
+                   list segmented hierarchy slider range-slider legend drill synced].freeze
 # controlTypes that REQUIRE a `mode` operator — absent/empty → Sigma 400s the spec.
 MODE_REQUIRED = %w[switch checkbox text number date slider].freeze
 MODE_HINT = {
@@ -159,6 +159,15 @@ DROPPED_BY_API = {
                     "can't bind, route to POSTPUBLISH_GUIDE.md — never ship a control that filters nothing"
   }
 }.freeze
+
+# UI-only list-control options that are not represented by the Workbook Spec
+# schema. /spec/verify currently accepts unknown fields, so catch the common
+# spellings locally instead of allowing a false valid:true response.
+UNSUPPORTED_CONTROL_FIELDS = {
+  'showValueCounts' => 'The Workbook Spec API has no option to hide/show list-control value counts; configure it in the Sigma UI.',
+  'showValueCount' => 'The Workbook Spec API has no option to hide/show list-control value counts; configure it in the Sigma UI.',
+  'hideValueCounts' => 'The Workbook Spec API has no option to hide/show list-control value counts; configure it in the Sigma UI.'
+}.freeze
 # A2: the ONLY startDate/endDate string form observed to round-trip on a
 # date-range control is a full ISO-8601 timestamp WITH timezone (UTC `Z` is
 # what Sigma echoes back). Bare dates ("2026-01-01") are accepted then
@@ -178,6 +187,10 @@ def lint(spec)
   errs = []
   cols_by_id = {}
   elements = Sigma::CodeRep.workbook_elements(spec)
+  elements_by_id = elements.each_with_object({}) do |el, out|
+    id = el['id'] || el['elementId']
+    out[id] = el if id
+  end
   elements.each do |el|
     (el['columns'] || []).each { |c| cols_by_id[c['id']] = c }
   end
@@ -241,6 +254,27 @@ def lint(spec)
       # it can never reach POST again. Keys OMITTED = valid unbounded; only
       # null-VALUED bounds are flagged.
       (el['filters'] || []).each_with_index do |flt, i|
+        if flt.is_a?(Hash) && flt['columnId']
+          target_id = flt.dig('source', 'elementId') || el['id'] || el['elementId']
+          target = elements_by_id[target_id]
+          unless flt.dig('source', 'elementId')
+            seen = {}
+            while target && Array(target['columns']).empty?
+              seen[target_id] = true
+              source = target['source']
+              source = source['source'] if source.is_a?(Hash) && source['kind'] == 'source'
+              source_id = source['elementId'] if source.is_a?(Hash)
+              break if source_id.nil? || seen[source_id]
+              target_id = source_id
+              target = elements_by_id[target_id]
+            end
+          end
+          if target.nil?
+            errs << "R1 #{kind} '#{name}': filter[#{i}] targets unknown element #{target_id.inspect}."
+          elsif Array(target['columns']).none? { |c| c['id'] == flt['columnId'] }
+            errs << "R1 #{kind} '#{name}': filter[#{i}] references column #{flt['columnId'].inspect} which is not declared on element #{target_id.inspect}."
+          end
+        end
         next unless flt.is_a?(Hash) && flt['kind'] == 'number-range'
         next unless flt['min'].nil? && flt['max'].nil? && (flt.key?('min') || flt.key?('max'))
         errs << "C7 element '#{name}': number-range filter[#{i}] has min:null and max:null — an unbounded range Sigma 400s at POST (#422). An UNRESTRICTED quantitative filter is 'all values': drop the filter (it hides nothing) instead of shipping null bounds."
@@ -316,6 +350,14 @@ def lint(spec)
           if el.key?('includeNulls') && !INCLUDE_NULLS_OK.include?(ct)
             errs << "C8 control '#{name}': `includeNulls` is off-schema for controlType \"#{ct}\" (valid only on: #{INCLUDE_NULLS_OK.join(', ')})."
           end
+          if ct == 'synced'
+            primary = elements.find do |candidate|
+              candidate != el && candidate['kind'] == 'control' &&
+                candidate['controlType'] != 'synced' &&
+                candidate['controlId'] == el['controlId']
+            end
+            errs << "C9 synced control '#{name}': controlId #{el['controlId'].inspect} does not name a primary non-synced control in this workbook." unless primary
+          end
         end
       end
   end
@@ -388,6 +430,10 @@ def lint_warnings(spec, scope: nil)
                  'but SILENTLY DROPPED on readback — it will never take effect (silently ignored, NOT a 400 ' \
                  'like the C-class violations; Sigma product gap, issue #417). ' \
                  "Workaround: #{info['workaround']}."
+      end
+      UNSUPPORTED_CONTROL_FIELDS.each do |field, guidance|
+        next unless el.key?(field)
+        warns << "A4 control '#{name}': `#{field}` is not a Workbook Spec field even if /spec/verify returns valid:true. #{guidance}"
       end
 
       # A2: date-range default in a non-persisting string form (#415).

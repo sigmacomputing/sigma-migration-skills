@@ -17,7 +17,8 @@
 #   * NON-INTERACTIVE / no-TTY-safe — never prompts and never opens a browser.
 #     A current token or existing browser-keychain session is reused. The
 #     one-time browser-login command is explained when auth is missing; client
-#     flags/env remain the unattended fallback (setup.rb --from-env).
+#     flags remain the unattended fallback. Exported client credentials are
+#     session-only unless the caller explicitly passes --from-env.
 #   * NEVER requires admin — activates runtimes already installed via version
 #     managers (rbenv/nvm/fnm/asdf/pyenv, Homebrew keg-only) by prepending
 #     their bin dirs, installs via user-scoped Homebrew where present (apt-get
@@ -852,16 +853,8 @@ elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}"
   okay "Sigma client credentials present ($NEUTRAL_ENV)"
 elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
      && [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; then
-  plan "Sigma credentials not yet persisted (env vars ARE exported)" \
-       "$SETUP_LABEL --from-env (persists them; values never echoed)"
-  if [ "$MODE" = full ]; then
-    if [ "${#SETUP_RUN[@]}" -gt 0 ] && "${SETUP_RUN[@]}" --from-env >/dev/null 2>&1; then
-      act "creds: $SETUP_LABEL --from-env"
-      okay "Sigma credentials persisted from the environment ($SETUP_LABEL --from-env)"
-    else
-      INSTALL_FAILED=1; note "credential setup --from-env FAILED — check SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET exports"
-    fi
-  fi
+  okay "Sigma client credentials available in this process (session-only; bootstrap does not persist exported secrets)"
+  note "To persist them explicitly, re-run bootstrap with --from-env."
 else
   [ -z "$_SIGMA_CLI_WHY" ] || note "Sigma CLI found but not usable: $_SIGMA_CLI_WHY"
   plan "Sigma authentication MISSING (need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" \

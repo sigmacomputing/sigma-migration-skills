@@ -373,10 +373,22 @@ A workbook that POSTs 200 and passes numeric parity can still be visually broken
     ruby scripts/phase6-parity-pbi.rb --local-sql --expected parity-expected.json --workbook-id <wb> --out plan.json
     # collect Sigma actuals (one MCP query per chart) → parity-actuals.json, then --finalize (below)
     ```
+    When the Sigma Export API supplies UTC timestamps for a report whose calendar
+    is local, pass `--source-timezone <IANA>` (for example,
+    `America/New_York`) to `phase6-parity-pbi.rb --finalize`; parity converts
+    timezone-bearing export values to the report's local day before comparing.
     `build-oracle-sql.rb` covers SUM/AVG/MIN/MAX/COUNT/DISTINCTCOUNT/COUNTROWS + DIVIDE with an optional GROUP BY; anything else (RANKX/CALCULATE/time-intel) is flagged `supported:false` → use the online path or waive it. **Pass an explicit `column_map`** when columns are renamed/auto-named (`Table.PromoteHeaders` → C1/C2, see `pbi-dm-signature.py`); without one it falls back to a NAME→UPPER_SNAKE heuristic and warns.
   - **Online DAX (high-fidelity / import-only models):** PBI `POST /v1.0/myorg/groups/{ws}/datasets/{id}/executeQueries` (DAX) via `--emit-dax`, vs the same Sigma aggregation. DAX-only; breaks under service-principal if RLS; needs the workspace/dataset (auto-wired from `freshness.json`).
     - **XMLA fallback (when `executeQueries` REST is blocked but the model is on capacity):** run the same measure through the Power BI Modeling MCP — `dax_query_operations Execute` on an `Initial Catalog`-bound connection — and diff against the Sigma actuals identically. Recipe in `refs/pbi-modeling-mcp.md`. This also catches **silently mis-modeled source measures** (e.g. time-intel over an inactive date relationship returns a flat total in Power BI) that a SQL oracle wouldn't flag.
 - **Finalize (both paths):** `ruby scripts/phase6-parity-pbi.rb --finalize --plan plan.json --actuals parity-actuals.json --out-dir <dir>` → writes `parity-final.json` (`source` records which oracle was used).
+- **Existing repaired/hand-authored workbook:** when a builder gap required a
+  manual workbook-spec edit, do not fabricate `phase6-success.json`. Keep
+  `workbook-spec.json` (or `wb-spec.json`) plus `parity-final.json` in the
+  workdir and run
+  `ruby scripts/adopt-workbook.rb --workdir <WORK> --workbook-id <wb>`.
+  It runs the same `assert-phase6-ran.rb` gates as the orchestrator and only
+  then invokes `verify-complete.rb`; append gate escape arguments after `--`
+  when a documented waiver is genuinely required.
 - Hard gate: `ruby scripts/assert-phase6-ran.rb --workdir <dir> --workbook-id <wb>` — incl. layout lint (6), **control lint (7**: dead controls / ghost targets / partial same-page reach / `control-scope.json` coverage; `--skip-control-lint` escape; see `refs/control-parity.md`**)**, and the MEASURED bars wired in Phase 5e: **gate 13 (source-anchor values** — arms when a source PNG is on disk; needs `source-anchors.json` ≥5 + a passing `anchors-verdict.json`; `--skip-anchors-gate "<reason>"`**)** and **gate 14 (visual-similarity floor** — `visual-similarity.json`; `--skip-visual-similarity "<reason>"`**)**. No source PNG on disk → both self-SKIP (stated), never a silent pass.
 - Optional flip test when the report has slicers→controls: `ruby scripts/probe-controls.rb --workbook-id <wb> --check-out-of-closure` — runtime proof a control actually filters (in-closure export changes under a non-default `parameters` value, out-of-closure doesn't). MCP query can NOT flip controls (defaults only) — export API `parameters` is the only mechanism.
 

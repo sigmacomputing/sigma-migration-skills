@@ -230,6 +230,7 @@ end
 $control_scope = []
 $control_unbound = []
 $used_control_ids = Hash.new(0)
+$sync_control_groups = {}
 
 # coverage.json accumulator (). Every visual/field the build
 # could NOT carry over faithfully is recorded here so migrate-powerbi.rb can show
@@ -1205,7 +1206,10 @@ def prune_columns!(el, bad_ids)
     el[ax]['columnIds'] = el[ax]['columnIds'].reject(&has_bad)
     el.delete(ax) if el[ax]['columnIds'].empty?
   end
-  if el['color'].is_a?(Hash) && (bad_ids.include?(el['color']['column']) || bad_ids.include?(el['color']['id']))
+  if el['color'].is_a?(Hash) &&
+     (bad_ids.include?(el['color']['column']) ||
+      bad_ids.include?(el['color']['columnId']) ||
+      bad_ids.include?(el['color']['id']))
     el.delete('color')
   end
   Array(el['groupings']).each do |g|
@@ -1744,6 +1748,27 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     qr = control_slice_qr(b)
     leaf = qr_leaf(qr, 'Filter')
     ent  = qr.to_s.split('.').first
+    sync_group = rec['sync_group'].to_s.strip
+    synced_primary = sync_group.empty? ? nil : $sync_control_groups[sync_group]
+    if synced_primary && synced_primary['queryRef'] == qr
+      # Sigma synced controls are deliberately minimal: controlId points to
+      # the primary's handle and the copy carries no source, filters, name, or
+      # value fields. This preserves one filter state across PBIR pages.
+      return {
+        'id' => eid,
+        'kind' => 'control',
+        'controlId' => synced_primary['controlId'],
+        'controlType' => 'synced'
+      }
+    elsif synced_primary
+      warn "[build-workbook] WARN slicer '#{name}': sync group #{sync_group.inspect} binds #{qr.inspect}, " \
+           "but its primary binds #{synced_primary['queryRef'].inspect}; building an independent control " \
+           'because Power BI only permits synced members on the same field.'
+      record_unresolved(visual: name, pbi_type: 'slicer', sigma_kind: 'control',
+                        severity: 'degraded', recoverable: true, role_class: 'control', visual_id: vid,
+                        detail: "sync group #{sync_group.inspect} contains mismatched fields",
+                        action: 'Align every Power BI sync-group member to the same field, then re-run.')
+    end
     fs = qr && field_spec(qr, fields)
     pmaster = fs && fs['master']
     pm = pmaster && masters[pmaster]
@@ -1817,6 +1842,8 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     ctl_id = (title_leaf(qr) || leaf).gsub(/[^A-Za-z0-9]/, '') + 'Filter'
     n = ($used_control_ids[ctl_id] += 1)
     ctl_id = "#{ctl_id}#{n}" if n > 1     # two slicers on one column: unique ids
+    $sync_control_groups[sync_group] = { 'controlId' => ctl_id, 'queryRef' => qr } \
+      if !sync_group.empty? && synced_primary.nil?
     el['kind'] = 'control'
     el['controlId'] = ctl_id
     # Friendly naming: a slicer's label is routinely the RAW warehouse column
@@ -2307,7 +2334,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     # Seed that order here. An explicit source visual sort, when present, is
     # applied later by apply_sort and overrides this default.
     el['color'] = {
-      'id' => dcid,
+      'columnId' => dcid,
       'sort' => { 'by' => dcid, 'direction' => 'ascending' }
     }
     el['value'] = { 'columnId' => vcid }
@@ -2455,7 +2482,15 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
   # columns collection of their own.
   owns_columns = !%w[control progress navigation page-break].include?(el['kind'])
   el['columns'] = cols if owns_columns
-  el['style'] = rec['style'] if rec['style'].is_a?(Hash) && !rec['style'].empty?
+  if rec['style'].is_a?(Hash) && !rec['style'].empty?
+    style = rec['style'].dup
+    # Element-level backgrounds render correctly in the interactive UI but
+    # blank KPI/bar tiles in Sigma's PNG export. The shared preflight rejects
+    # this shape, so preserve other style fields and leave the background to
+    # the page/container theme.
+    style.delete('backgroundColor') if %w[kpi-chart bar-chart].include?(el['kind'])
+    el['style'] = style unless style.empty?
+  end
   # Power BI "Small multiples" field well -> Sigma native `trellis` (detection-
   # gated: no SmallMultiples role -> no-op, byte-identical build). Runs after the
   # columns are attached so the facet joins a real columns[] and before

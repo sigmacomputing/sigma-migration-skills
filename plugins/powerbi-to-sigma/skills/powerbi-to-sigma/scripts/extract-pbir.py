@@ -710,6 +710,12 @@ def _report_theme(defn):
         return None
 
 
+def _sync_group(visual):
+    """PBIR visual.syncGroup.groupName for cross-page slicer mirroring."""
+    group = (visual.get("syncGroup") or {}).get("groupName")
+    return str(group).strip() if group is not None and str(group).strip() else None
+
+
 def extract(pbir_dir):
     defn = os.path.join(pbir_dir, "definition")
     if not os.path.isdir(defn):
@@ -760,6 +766,11 @@ def extract(pbir_dir):
                 "z": pos.get("z", 0),
                 "parent_group": v.get("parentGroupName"),
                 "bindings": _role_bindings(qs, vtype),
+                # PBIR synced slicers carry visual.syncGroup. Members with the
+                # same groupName mirror one filter across pages; the builder
+                # emits the first as the primary and later members as Sigma
+                # controlType:synced copies.
+                "sync_group": _sync_group(visual),
                 # Full ordered hierarchy for native Sigma controlType:drill.
                 # bindings above intentionally keeps only the active level.
                 "drill": _drill_signal(qs),

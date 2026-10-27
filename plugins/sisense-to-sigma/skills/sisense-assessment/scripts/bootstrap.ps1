@@ -33,9 +33,9 @@
 #     set for THIS SESSION only, never USER scope (a stale USER-scope value
 #     an older bootstrap persisted is removed). Nothing machine-scope,
 #     nothing in shell profiles.
-#   * Creds flow runs when the cred flags above are given, or when
-#     SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET (and Tableau PAT vars, where the
-#     tableau scripts ship) are already set (setup.rb --from-env).
+#   * Credential persistence runs only when the cred flags above or -FromEnv
+#     are explicitly given. Already-exported client credentials remain
+#     session-only.
 #   * Finishes by running scripts\doctor.ps1 (writes doctor.json -- the report
 #     the orchestrator gates on) and writing the bootstrap SENTINEL
 #     (~/.sigma-migration/bootstrap.json, + <WorkDir>\bootstrap.json).
@@ -713,11 +713,8 @@ elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sig
   Okay "Sigma client credentials present ($envFile)"
 }
 elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and $env:SIGMA_CLIENT_ID -and $env:SIGMA_CLIENT_SECRET) {
-  Plan "Sigma credentials not yet persisted (env vars ARE set)" "$setupLabel --from-env"
-  if (-not $Check) {
-    if (Invoke-SigmaSetup @('--from-env')) { $script:Actions += "creds: $setupLabel --from-env"; Okay 'Sigma credentials persisted from the environment' }
-    else { $script:InstallFailed = $true; Note 'credential setup --from-env FAILED -- check SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET' }
-  }
+  Okay 'Sigma client credentials available in this process (session-only; bootstrap does not persist exported secrets)'
+  Note 'To persist them explicitly, re-run bootstrap.ps1 with -FromEnv.'
 } else {
   if ($sigmaCli.Why) { Note "Sigma CLI found but not usable: $($sigmaCli.Why)" }
   Plan "Sigma authentication MISSING (need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" 'from an interactive Git Bash terminal, set SIGMA_BASE_URL and run: eval "$(bash scripts/browser-login.sh)" (one-time browser sign-in; bootstrap never opens it). Or sign in with the Sigma CLI: sigma auth login (then optionally set SIGMA_CLI_PROFILE=<profile>). Unattended fallback: re-run bootstrap.ps1 with -ClientId ID -ClientSecret SECRET [-BaseUrl URL], or set the client values and use -FromEnv'

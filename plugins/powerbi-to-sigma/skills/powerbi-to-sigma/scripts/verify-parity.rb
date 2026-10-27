@@ -32,14 +32,22 @@
 require 'json'
 require 'set'
 require 'optparse'
+require 'time'
 
 opts = { mode: :strict, tol: 0.30 }
 OptionParser.new do |p|
   p.on('--plan P')              { |v| opts[:plan] = v }
   p.on('--extract-mode')        {     opts[:mode] = :extract }
   p.on('--extract-tol TOL', Float) { |v| opts[:tol] = v }
+  p.on('--source-timezone IANA',
+       'interpret timezone-bearing Export API dates in the source report timezone') do |v|
+    opts[:source_timezone] = v
+  end
 end.parse!
 abort('--plan required') unless opts[:plan]
+if opts[:source_timezone] && opts[:source_timezone] !~ %r{\A[A-Za-z_+-]+(?:/[A-Za-z0-9_+.-]+)*\z}
+  abort("--source-timezone must be an IANA name (got #{opts[:source_timezone].inspect})")
+end
 
 MONTH_NUM = {
   'january' => 1, 'february' => 2, 'march' => 3, 'april' => 4, 'may' => 5, 'june' => 6,
@@ -57,9 +65,22 @@ MONTH_NUM = {
 # collapse-day-1-to-month rule turned the "January 1" WEEK bucket into a month
 # bucket and every weekly chart diverged. Month-label vs first-of-month is
 # reconciled by strict_compare's month-grain fallback, not here.
-def canonicalize_dim(v)
+def canonicalize_dim(v, source_timezone: nil)
   return v unless v.is_a?(String)
   s = v.strip
+  # Sigma's Export API serializes date/datetime buckets in UTC. Convert a
+  # timezone-bearing value back to the Power BI report's local calendar before
+  # taking its day key; otherwise zones west/east of UTC can compare one day
+  # out even when both charts represent the same local date.
+  if source_timezone && s.match?(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\z/)
+    old_tz = ENV['TZ']
+    begin
+      ENV['TZ'] = source_timezone
+      return Time.iso8601(s).getlocal.strftime('%Y-%m-%d')
+    ensure
+      ENV['TZ'] = old_tz
+    end
+  end
   # ISO datetime at midnight → day bucket (T or space separator)
   if (m = s.match(/\A(\d{4})-(\d{2})-(\d{2})[T ]00:00:00(?:\.0+)?(?:Z|[+-]\d{2}:?\d{2})?\z/))
     return "#{m[1]}-#{m[2]}-#{m[3]}"
@@ -91,7 +112,7 @@ def month_grain(v)
   v.is_a?(String) && v.match?(/\A\d{4}-\d{2}-\d{2}\z/) ? v[0, 7] : v
 end
 
-def round_row(row)
+def round_row(row, source_timezone: nil)
   # Convert all numerics to Float-rounded so Integer 11 and Float 11.0 compare equal in the set,
   # canonicalize date-like dim strings so equivalent monthly buckets match, and
   # coerce purely-numeric STRINGS to floats (a scatter x-axis value reads back as a
@@ -102,7 +123,7 @@ def round_row(row)
     elsif v.is_a?(String) && v.strip.match?(/\A-?\d+(\.\d+)?\z/)
       v.strip.to_f.round(2)   # numeric-string (e.g. a scatter x-axis value) -> float, so it compares equal to the numeric side
     else
-      canonicalize_dim(v)
+      canonicalize_dim(v, source_timezone: source_timezone)
     end
   end
 end
@@ -204,8 +225,8 @@ end
 mode_forced = opts[:mode] == :extract
 
 results = plan.map do |p|
-  exp = (p['expected'] || []).map { |r| round_row(r) }
-  act = (p.dig('actual', 'rows') || []).map { |r| round_row(r) }
+  exp = (p['expected'] || []).map { |r| round_row(r, source_timezone: opts[:source_timezone]) }
+  act = (p.dig('actual', 'rows') || []).map { |r| round_row(r, source_timezone: opts[:source_timezone]) }
 
   this_extract = if p.key?('extract')
                    p['extract']

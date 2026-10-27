@@ -42,6 +42,13 @@ ok('explicit YTD name routes to cumulative column',
    R.measure_shape('Net Revenue YTD', 'CALCULATE(SUM(F[Revenue]), ALL(D[Month]))') == :ytd)
 ok('unnamed native time-intel expression retains generic routing',
    R.measure_shape('Revenue Comparison', 'CALCULATE([Revenue], SAMEPERIODLASTYEAR(D[Date]))') == :generic)
+# Public PBIP regression source:
+# github.com/TeslimAdeyanju/Portfolio-22-Financial-Performance-Analytics-Model
+# Financial Performance Analytics Model.SemanticModel/definition/tables/DAX.tmdl
+public_previous_year =
+  'CALCULATE ( [Total Sales], SAMEPERIODLASTYEAR ( Date_dimension[Date] ) )'
+ok('public Financial Performance PBIP Previous Year Sales routes as time intelligence',
+   R.measure_shape('Previous Year Sales', public_previous_year) == :prior)
 ok('renamed reused element falls back to its source fact for sibling routing',
    R.routing_table(nil, 'ORDER_FACT') == 'ORDER_FACT')
 ok('original measure table wins when the converter element name still matches',

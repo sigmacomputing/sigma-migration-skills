@@ -183,6 +183,26 @@ Dir.mktmpdir do |t|
      st == 0 && out.include?('browser refresh session present'))
   ok('bootstrap does not invoke browser-login', !out.include?('Opening your browser'))
 
+  # Exported client credentials are usable for this process but MUST remain
+  # session-only unless the caller explicitly opts into persistence with
+  # --from-env. This is the customer-reported secret-retention regression.
+  session_home = File.join(t, 'session-credentials-home')
+  session_work = File.join(t, 'session-credentials-work')
+  FileUtils.mkdir_p(session_home)
+  FileUtils.mkdir_p(session_work)
+  session_env = {
+    'SIGMA_BASE_URL' => 'https://api.sigmacomputing.com',
+    'SIGMA_CLIENT_ID' => 'session-client',
+    'SIGMA_CLIENT_SECRET' => 'session-secret'
+  }
+  st, out = run_bootstrap(session_home, [stub] + SYS, '--workdir', session_work, env: session_env)
+  ok('full bootstrap accepts exported session-only client credentials',
+     st == 0 && out.include?('session-only'))
+  neutral = File.join(session_home, '.sigma-migration', 'env')
+  settings = File.join(session_home, '.claude', 'settings.json')
+  ok('bootstrap does not persist exported client credentials without --from-env',
+     !File.exist?(neutral) && !File.exist?(settings))
+
   # ── 5b. a working Sigma CLI profile is accepted, noninteractively ─────────
   cli_bin = File.join(t, 'cli-bin')
   FileUtils.mkdir_p(cli_bin)
