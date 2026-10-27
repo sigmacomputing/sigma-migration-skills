@@ -138,6 +138,10 @@ module ControlLint
     info[:kind].include?('control')
   end
 
+  def control_wiring(el)
+    (el['filters'] || []) + (el['controlType'].to_s == 'drill' ? (el['targets'] || []) : [])
+  end
+
   # Transitive closure of elements sourcing (directly or via chains) from any
   # element in `roots`. Returns roots + downstream ids.
   def closure(elems, roots)
@@ -176,7 +180,7 @@ module ControlLint
       next unless control?(info)
       el = info[:el]
       cid = el['controlId']
-      tgt_ids = (el['filters'] || []).map { |t| t.is_a?(Hash) ? t.dig('source', 'elementId') : nil }.compact
+      tgt_ids = control_wiring(el).map { |t| t.is_a?(Hash) ? t.dig('source', 'elementId') : nil }.compact
       live    = tgt_ids.select { |t| elems.key?(t) }
       frefs   = formula_refs(elems, cid)
       roots   = (live + frefs).uniq
@@ -263,7 +267,11 @@ module ControlLint
   # rationale. Conservative by construction: an entry is only recorded when the
   # control has a non-empty default AND a filter target that resolves to a real
   # in-spec element; a pair only violates when it spans two pages against the
-  # same (element, column-alias) with DISJOINT defaults.
+  # same (element, column-alias) with DISJOINT defaults. Filter wiring only: a
+  # drill control's `targets` swap a chart's grouping column and never filter
+  # rows (its `value` is the selected level's column id), so it cannot compose
+  # into a zero-row filter — unlike controls_report, which counts drill
+  # targets (control_wiring) as wiring for the dead-control check.
   def conflicting_default_violations(spec, elems)
     alias_groups = column_alias_groups(spec)
     entries = []

@@ -33,6 +33,14 @@ def ctl(id, cid, values, target: 'm', col: 'c-type')
     'filters' => [{ 'source' => { 'elementId' => target }, 'columnId' => col }] }
 end
 
+# The real drill-control shape: `value` is the selected level's column id and
+# `targets` swap a chart's grouping column (live-verified 2026-10-27).
+def drill_ctl(id, cid, value, target: 'm', cols: ['c-type'])
+  { 'id' => id, 'kind' => 'control', 'controlId' => cid, 'controlType' => 'drill',
+    'value' => value,
+    'targets' => [{ 'source' => { 'elementId' => target }, 'columnIds' => cols }] }
+end
+
 # A master TABLE element carrying two columnIds that share ONE formula — so the
 # alias grouping collapses the id-dup workaround (c-type / c-type-ovw) to one key.
 def master(id = 'm')
@@ -102,6 +110,15 @@ v7 = ControlLint.lint(spec_of(
   [ctl('b', 'ctl-b', [])]
 ))
 check(!fires.call(v7), 'default-all (values: []) both pages do NOT fire (false-positive guard)', fails)
+
+# 8. Drill controls never filter rows, so two pages' drill controls with
+# different selected levels on one element cannot compose into a zero-row
+# filter: check (d) must stay silent.
+v8 = ControlLint.lint(spec_of(
+  [master, drill_ctl('a', 'ctl-a', 'c-type')],
+  [drill_ctl('b', 'ctl-b', 'c-other')]
+))
+check(!fires.call(v8), 'drill controls (different selected levels) do not fire check (d)', fails)
 
 puts
 if fails.empty?
