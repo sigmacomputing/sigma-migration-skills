@@ -93,6 +93,14 @@ POST + readback gate (hard-fails on any error-typed column) →
 `verify_parity.py` (hard gate: every row compared to numbers re-executed
 from MicroStrategy itself — expected values are never invented).
 
+For a multi-fact dossier, the agent runs `plan_multifact.py` before touching
+Sigma. It distinguishes independently convertible reports from reports that
+need MicroStrategy's multipass semantics. For the latter, it resolves the live
+report SQL into one safe conformed query (or a customer-managed warehouse view)
+and passes it to `convert.py --multi-fact-sql`; the converter then emits the
+governed Sigma SQL source and continues through the same parity gates. It never
+silently picks one fact table or directly joins facts at incompatible grains.
+
 negative
 : If a report groups by an attribute with a **non-unique key**, MicroStrategy's
 Analytical Engine silently collapses groups to arbitrary representative rows.

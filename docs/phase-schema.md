@@ -241,3 +241,21 @@ Spotfire uses local phase numbering aligned with the canonical arc:
 | C8 Parity hard gate | Phase 6 — live warehouse execution for every visible element; source parity is explicitly not claimed |
 | C9 Security/RLS | Security section — detect signals always; manual decision required because a loaded document cannot prove external policies |
 | C10 Enhance | — shared Phase E is not wired in this foundation release |
+
+### omni-to-sigma
+
+Omni uses "Phase" numbering (scaffolded by `tools/new-skill.rb`, then filled).
+Local mapping:
+
+| Canonical | omni-to-sigma |
+|---|---|
+| C1 Assess | Phase 0 — Assess (`omni-assessment` inventory) |
+| C2 Discover | Phase 1 — model directory + dashboard export (`refs/omni-source-contract.md` / `omni-discover.rb`) |
+| C3 Reuse-check | Phase 1.5 — `omni-signature.json` + `find-or-pick-dm.rb` |
+| C4 Convert | Phase 2 — `convert-dm.rb` (topic YAML → Sigma DM; query views skipped) |
+| C5 Post-DM gate | Phase 3 — `post-omni-dm.rb` (POST `/v2/dataModels/spec` + read back server ids) |
+| C6 Build workbook | Phase 4 — `build-omni-workbook.rb` (export → charts/KPI/control) |
+| C7 Layout | Phase 5 — layout XML attached as the LAST write inside `build-omni-workbook.rb` |
+| C8 Parity hard gate | Phase 6 — `verify-omni-parity.rb` + `omni-query-oracle.rb` (`POST /api/v1/query/run`) + `assert-phase6-ran.rb` |
+| C9 Security/RLS | Security section — `detect-rls.rb` always; `apply-sigma-rls.rb` opt-in |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |
