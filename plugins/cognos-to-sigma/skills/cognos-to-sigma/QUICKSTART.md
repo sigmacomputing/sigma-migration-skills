@@ -48,7 +48,9 @@ Duration: 2
   instance); **(2) `/bi/v1` session replay (fallback)** — a **session cookie** + **`X-XSRF-Token`**
   from a live browser session (DevTools → Network → any `…/bi/v1/…` request → **Copy as cURL**) fed to
   `scripts/get-cognos-session.sh`, for Akamai-walled IBMid-SSO trials where `/api/v1` content 441/403s.
-- **Sigma API credentials** (`SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`).
+- **Sigma API access** — set `SIGMA_BASE_URL`; use the one-time browser login
+  (`scripts/browser-login.sh`, preferred) or
+  `SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET` for unattended fallback.
 - A **Sigma connection to the same warehouse** the Cognos content reports on (for true parity).
 - The **Cognos → Sigma converter** — ships **inside the skill** as a prebuilt local bundle
   (`converter/cli.mjs`, Node + `fast-xml-parser`) and runs via plain `node` (no clone, no
@@ -74,6 +76,11 @@ same `migrate-first / easy-win / needs-review` tagging.
 ## Installation & setup
 Duration: 5
 
+Updating the separate `sigma-skills` authoring repository does not update the
+Cognos converter. Confirm this plugin is loaded from `sigma-migration-skills`.
+For XML/PDF-only inputs, use `refs/report-only-model.md` to build a new data model
+from verified warehouse mappings; an existing Sigma model is not required.
+
 1. **Add the marketplace and install the plugin** (Claude Code):
    ```text
    /plugin marketplace add sigmacomputing/sigma-migration-skills
@@ -82,8 +89,13 @@ Duration: 5
    Installs both skills, namespaced — e.g. `/cognos-to-sigma:cognos-assessment`.
    **Other agents (Cursor, Cortex Code, …):** clone the repo and point your agent at
    `plugins/cognos-to-sigma/skills/…`; `AGENTS.md` indexes every skill.
-2. **Sigma credentials** — export `SIGMA_CLIENT_ID` / `SIGMA_CLIENT_SECRET`; the skill's
-   `scripts/get-token.sh` exchanges them for a `SIGMA_API_TOKEN`.
+2. **Sigma authentication** — set `SIGMA_BASE_URL`, then run
+   `eval "$(scripts/browser-login.sh)"` once to save a refresh session in the OS
+   keychain. For unattended runs, export `SIGMA_CLIENT_ID` /
+   `SIGMA_CLIENT_SECRET` instead. The Cognos Node commands invoke the co-located
+   browser-first provider directly: they preserve a caller token, refresh
+   known-age tokens after 50 minutes, fall back to client credentials when no
+   browser session is available, and refresh/retry exactly once on HTTP 401.
 3. **Capture a live Cognos session** — required before any discovery/extraction. See the
    dedicated **"Capture a Cognos session (Copy as cURL)"** step below — do it first.
 4. **Verify the converter offline** (no Cognos access needed):

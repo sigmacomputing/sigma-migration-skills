@@ -48,6 +48,8 @@
 //     [--resume]                   # jump to parity against the posted ids in
 //                                  # <out>/migrate-state.json
 //     [--dry-run]                  # convert only; no Sigma POSTs
+//   Report-only inputs: replace --module with --dm-spec <model.json> produced
+//   by build-dm-from-report.mjs after explicit warehouse/source-model verification.
 //
 // Exit codes: 0 = PARITY GREEN; 10 = stopped for human input (open questions
 // or expected-values needed — state saved, resume supported); 3 = built but
@@ -59,6 +61,8 @@ import { dirname, join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as scoutGate from './lib/scout_gate.mjs';
 import { pythonArgv } from './lib/py_resolve.mjs';
+import { parityActuals } from './lib/parity-export.mjs';
+import { makeClient } from './lib/sigma-rest.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONV = join(HERE, '..', 'converter');
@@ -77,13 +81,14 @@ for (let i = 0; i < argv.length; i++) {
 const die = (m, code = 1) => { console.error(`FATAL: ${m}`); process.exit(code); };
 
 if (!opt.resume) {
-  if (!opt.module) die('missing --module <module.json>');
+  if (!opt.module && !opt['dm-spec']) die('need --module <module.json> or --dm-spec <verified-report-model.json>; for report-only XML use scripts/build-dm-from-report.mjs first');
+  if (opt.module && opt['dm-spec']) die('choose --module or --dm-spec, not both');
   if (!opt.report) die('missing --report <report.xml>');
   if (!opt.connection) die('missing --connection');
   // --folder is optional (bead eqom): when unset, the caller's My Documents is
   // resolved via whoami right before the first POST (see resolveFolder).
 }
-const slug = basename((opt.module || opt.out || 'cognos')).replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]/g, '-');
+const slug = basename((opt.module || opt['dm-spec'] || opt.out || 'cognos')).replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]/g, '-');
 const WORK = resolve(opt.out || join(homedir(), 'cognos-migration', slug));
 mkdirSync(WORK, { recursive: true });
 const statePath = join(WORK, 'migrate-state.json');
@@ -94,24 +99,22 @@ const hdr = (n, t) => console.log(`\n── Phase ${n}/${TOTAL} · ${t} ──`)
 const line = (m) => console.log(`   ${m}`);
 
 // ---------------------------------------------------------------------------
-// Sigma env bootstrap — shell-neutral (no bash, no `eval`): shells out to the
-// co-located get_token.py via a real Python interpreter (pythonArgv() — robust
-// to the Windows Store "App Execution Alias" python stub), which mints a
-// bearer (falling back to ~/.sigma-migration/env for creds) and writes
-// WORK/auth.json; read the token back from there. All children inherit via
-// process.env. Works identically on macOS/Linux/Windows.
+// Sigma auth bootstrap — shell-neutral (no bash, no `eval`). The Cognos REST
+// client preserves a valid caller token and otherwise delegates to the
+// co-located browser-first provider (client credentials are its fallback).
+// Known-stale tokens refresh before use and a rejected token refreshes/retries
+// once. All child phases inherit the resulting token + mint metadata.
 // ---------------------------------------------------------------------------
+let sigmaClient;
 function sigmaLogin() {
-  if (process.env.SIGMA_API_TOKEN && process.env.SIGMA_BASE_URL) return;
-  const py = pythonArgv();
-  const r = spawnSync(py[0], [...py.slice(1), join(HERE, 'get_token.py'), '--workdir', WORK], { encoding: 'utf8' });
-  if (r.status !== 0) die(`Sigma token bootstrap failed:\n${r.stderr || r.stdout}`);
-  const authPath = join(WORK, 'auth.json');
-  if (!existsSync(authPath)) die('get_token.py did not write auth.json');
-  const auth = JSON.parse(readFileSync(authPath, 'utf8'));
-  if (auth.SIGMA_API_TOKEN) process.env.SIGMA_API_TOKEN = auth.SIGMA_API_TOKEN;
-  if (auth.SIGMA_BASE_URL && !process.env.SIGMA_BASE_URL) process.env.SIGMA_BASE_URL = auth.SIGMA_BASE_URL;
-  if (!process.env.SIGMA_API_TOKEN) die('get_token.py did not yield SIGMA_API_TOKEN');
+  if (sigmaClient) return sigmaClient;
+  process.env.SIGMA_WORKDIR = WORK;
+  try {
+    sigmaClient = makeClient(WORK);
+  } catch (error) {
+    die(`Sigma token bootstrap failed:\n${error.message}`);
+  }
+  return sigmaClient;
 }
 
 // Run a child, stream output indented; hard-fail unless allowFail.
@@ -123,18 +126,10 @@ function run(cmd, args, { allowFail = false, capture = false, cwd = undefined } 
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
-// Minimal Sigma REST (for the parity auto-export only — builders go through the
-// per-phase scripts).
+// Sigma REST for destination resolution + parity auto-export. Builders use the
+// same helper in their per-phase processes.
 async function api(method, path, body) {
-  const base = process.env.SIGMA_BASE_URL.replace(/\/$/, '');
-  const res = await fetch(base + path, {
-    method,
-    headers: { Authorization: `Bearer ${process.env.SIGMA_API_TOKEN}`, 'Content-Type': 'application/json' },
-    body: body == null ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  let json = null; try { json = JSON.parse(text); } catch { /* csv/yaml */ }
-  return { status: res.status, ok: res.ok, text, json };
+  return sigmaLogin().api(method, path, body);
 }
 
 // --folder default (bead eqom; prior art: migrate-tableau.rb's folderId
@@ -162,30 +157,6 @@ async function resolveFolder() {
   return entry.id;
 }
 
-// Tiny CSV parser (quoted fields, no embedded newlines-in-quotes edge beyond basic).
-function parseCsv(text) {
-  const rows = [];
-  let row = [], field = '', inQ = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQ) {
-      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
-      else field += c;
-    } else if (c === '"') inQ = true;
-    else if (c === ',') { row.push(field); field = ''; }
-    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-    else if (c !== '\r') field += c;
-  }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0] !== ''));
-}
-
-const numish = (s) => {
-  if (s == null) return null;
-  const t = String(s).replace(/[$,%\s]/g, '');
-  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
-};
-
 // ---------------------------------------------------------------------------
 // Parity (Phase 7) — shared by the straight-through path and --resume.
 // ---------------------------------------------------------------------------
@@ -205,9 +176,10 @@ async function runParity(state) {
   line('If the source tables changed since capture, deltas are STALENESS, not conversion errors —');
   line('re-run the Cognos report (or re-query the source DB) before calling a divergence a bug.');
 
-  // Auto-actuals: export every data-bearing workbook element to CSV via REST
-  // and aggregate to "<Element>/<Column>"=sum + "<Element>/rows"=count.
-  const els = (state.wbElements || []).filter((e) => !['control', 'text'].includes(String(e.kind)));
+  // Totals-bearing pivot CSV exports can 500; JSON returns the long-form rows.
+  // Skip non-data elements so a page break cannot silently block parity.
+  const dataKind = (k) => ['table', 'pivot-table'].includes(k) || /-(?:chart|map)$/.test(k);
+  const els = (state.wbElements || []).filter((e) => dataKind(String(e.kind)));
   // Duplicate display names (a Cognos report can render the same query twice —
   // e.g. two "Sheet 1 — qMain" tables) would collide on a name-only parity key
   // and only ONE would verify. Disambiguate dupes with an elementId suffix
@@ -222,10 +194,11 @@ async function runParity(state) {
   if (dupes.length) line(`duplicate element name(s) ${dupes.map(([n]) => `'${n}'`).join(', ')} — parity keys get an elementId suffix: "<Name> [<elementId>]"`);
   const actuals = {};
   for (const e of els) {
+    const format = e.kind === 'pivot-table' ? 'json' : 'csv';
     const post = await api('POST', `/v2/workbooks/${state.workbookId}/export`,
-      { elementId: e.id, format: { type: 'csv' } });
+      { elementId: e.id, format: { type: format } });
     const qid = post.json?.queryId;
-    if (!qid) { line(`WARN: export request failed for '${e.name}' (HTTP ${post.status})`); continue; }
+    if (!qid) die(`parity export request failed for '${e.name}' (HTTP ${post.status})`);
     let body = null;
     const deadline = Date.now() + 240e3;
     while (Date.now() < deadline) {
@@ -233,19 +206,13 @@ async function runParity(state) {
       if (dl.ok && dl.text && dl.text.trim()) { body = dl.text; break; }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    if (!body) { line(`WARN: export never became ready for '${e.name}'`); continue; }
-    const rows = parseCsv(body);
-    const headers = rows[0] || [];
-    const data = rows.slice(1);
+    if (!body) die(`parity ${format} export never became ready for '${e.name}'`);
     const key = keyOf(e);
-    actuals[`${key}/rows`] = data.length;
-    headers.forEach((h, ci) => {
-      const vals = data.map((r) => numish(r[ci])).filter((v) => v != null);
-      if (vals.length === data.length && data.length > 0) {
-        actuals[`${key}/${h}`] = Number(vals.reduce((a, b) => a + b, 0).toFixed(6));
-      }
-    });
-    line(`'${key}': ${data.length} row(s), ${headers.length} col(s)`);
+    let parsed;
+    try { parsed = parityActuals(body, format, key); }
+    catch (error) { die(`parity ${format} export for '${e.name}' is unusable: ${error.message}`); }
+    Object.assign(actuals, parsed.actuals);
+    line(`'${key}': ${parsed.rows} row(s), ${parsed.columns} col(s) [${format}]`);
   }
   const actualsPath = join(WORK, 'sigma-actuals.json');
   writeFileSync(actualsPath, JSON.stringify(actuals, null, 2));
@@ -325,17 +292,22 @@ if (existsSync(cliBundle)) {
   }
   cliCmd = join(CONV, 'cli.ts'); cliPre = ['--import', 'tsx/esm'];
 }
-const modulePath = resolve(opt.module);
+const modulePath = resolve(opt.module || opt['dm-spec']);
 const reportPath = resolve(opt.report);
 const db = opt.database || 'DEMO_DB';
 const schema = opt.schema || 'TJ';
 const securityPath = join(WORK, 'security.json');
-const conv = spawnSync('node', [...cliPre, cliCmd, modulePath,
+const conv = opt['dm-spec']
+  ? { status: 0, stdout: readFileSync(modulePath, 'utf8'), stderr: '' }
+  : spawnSync('node', [...cliPre, cliCmd, modulePath,
   '--connection', opt.connection, '--database', db, '--schema', schema,
   '--security-out', securityPath],
   { encoding: 'utf8', cwd: CONV, maxBuffer: 64 * 1024 * 1024 });
 if (conv.status !== 0) die(`module converter failed:\n${conv.stderr}`);
 const dmSpec = JSON.parse(conv.stdout);
+if (opt['dm-spec'] && (!Array.isArray(dmSpec.pages) || !dmSpec.pages.some((page) => page.elements?.length))) {
+  die('--dm-spec must contain a nonempty Sigma data model, not a source inventory or workbook');
+}
 const dmPath = join(WORK, 'dm.json');
 writeFileSync(dmPath, JSON.stringify(dmSpec, null, 2));
 // DM metrics keyed by element display name (= the report converter's [Subject/…]
@@ -351,7 +323,7 @@ const metricsPath = join(WORK, 'report-metrics.json');
 writeFileSync(metricsPath, JSON.stringify(metricsMap, null, 2));
 const convWarnings = conv.stderr.split('\n').filter((l) => l.trim().startsWith('!')).map((l) => l.replace(/^\s*!\s*/, ''));
 const statsLine = (conv.stderr.match(/stats: (\{.*\})/) || [])[1];
-const securityDetected = existsSync(securityPath) ? JSON.parse(readFileSync(securityPath, 'utf8')) : [];
+const securityDetected = !opt['dm-spec'] && existsSync(securityPath) ? JSON.parse(readFileSync(securityPath, 'utf8')) : [];
 line(`module '${dmSpec.name || basename(modulePath)}' → DM spec (${statsLine || 'no stats'}); ${convWarnings.length} warning(s)`);
 if (securityDetected.length) line(`SECURITY: ${securityDetected.length} rule(s) detected → ${securityPath} (ported AFTER post via apply_sigma_rls.py — never silently)`);
 
@@ -528,7 +500,8 @@ if (reuseDmId) {
   line(`reusing data model ${dmId} — no POST (remap matches the report to ITS elements by name)`);
 } else {
   run('node', [join(HERE, 'post-and-readback.mjs'), '--type', 'datamodel', '--spec', dmPath,
-    '--folder', opt.folder, '--name', dmName, '--out', dmMapPath]);
+    '--folder', opt.folder, '--name', dmName, '--out', dmMapPath,
+    ...(opt['dm-spec'] ? ['--preserve-subject-names'] : [])]);
   dmId = JSON.parse(readFileSync(dmMapPath, 'utf8')).dataModelId;
 }
 state.dataModelId = dmId;
