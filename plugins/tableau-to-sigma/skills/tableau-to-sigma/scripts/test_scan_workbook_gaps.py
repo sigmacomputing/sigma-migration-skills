@@ -170,10 +170,16 @@ class ScanWorkbookGapsTest(unittest.TestCase):
         unsupported_blend = by_name["Data blending (flag-unreachable)"]
         self.assertEqual("unhandled", unsupported_blend["status"])
         self.assertEqual(["Unsafe Sheet"], unsupported_blend["worksheets"])
-        self.assertEqual(
-            "unhandled",
-            by_name["Converter-refused or unmapped calculated fields"]["status"],
+        refused = [
+            row
+            for name, row in by_name.items()
+            if name.startswith("Converter-refused calculated field — ")
+        ]
+        self.assertTrue(refused)
+        self.assertTrue(
+            all(row["status"] == "unhandled" and row["count"] == 1 for row in refused)
         )
+        self.assertNotIn("Converter-refused or unmapped calculated fields", by_name)
         self.assertEqual(
             "unhandled",
             by_name["Tableau row-level security / user calculations"]["status"],
@@ -260,6 +266,30 @@ class ScanWorkbookGapsTest(unittest.TestCase):
         )
         self.assertEqual("unhandled", blocker["status"])
         self.assertEqual(1, blocker["count"])
+
+    def test_chart_translatable_refusal_stays_refused_in_python_runtime(self):
+        # The Ruby runtime reclassifies this plotted LOOKUP/ZN refusal as
+        # chart_only because its build path (build-charts-from-signals.rb)
+        # translates it. This runtime has no port of those chart translators,
+        # so it must keep refusing (fail closed) rather than claim a build it
+        # cannot perform.
+        fixture = HERE / "fixtures" / "weekly-behavior-monitor.twb"
+        temporary, directory, _report, completed = run_scanner(
+            fixture.read_text(encoding="utf-8")
+        )
+        self.addCleanup(temporary.cleanup)
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        gaps = json.loads((directory / "gaps.json").read_text(encoding="utf-8"))
+        audit = json.loads(
+            (directory / "formula-audit.json").read_text(encoding="utf-8")
+        )
+        row = next(r for r in audit["formulas"] if r["caption"] == "WoW Change %")
+        self.assertEqual("not_converted", row["status"])
+        self.assertNotIn("chart_translator", row)
+        self.assertIn(
+            "Converter-refused calculated field — Master: WoW Change %",
+            [feature["name"] for feature in gaps["detected_features"]],
+        )
 
     def test_malformed_xml_still_emits_gate_consumable_fail_closed_artifacts(self):
         temporary, directory, _report, completed = run_scanner(

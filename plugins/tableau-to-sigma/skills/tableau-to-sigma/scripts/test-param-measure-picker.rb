@@ -14,7 +14,8 @@ require 'json'
 require 'set'
 
 DIR = __dir__
-SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb'))
+SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 
 # Pull the pure helper methods out of the script (which otherwise runs main) and
 # define them here. Order doesn't matter — they're resolved at call time.

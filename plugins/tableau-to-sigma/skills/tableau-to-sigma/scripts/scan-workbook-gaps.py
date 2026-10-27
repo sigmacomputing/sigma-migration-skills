@@ -841,30 +841,53 @@ def run_formula_audit(inventory: dict[str, Any]) -> dict[str, Any]:
     return batch
 
 
-def formula_gap_results(audit: dict[str, Any]) -> list[Feature]:
-    counts = audit.get("counts") or {}
-    unsupported = int(counts.get("not_converted", 0)) + int(
-        counts.get("unmapped", 0)
-    )
-    review = int(counts.get("verify", 0)) + int(counts.get("chart_only", 0))
+CONVERTER_REFUSED_GAP_PREFIX = "Converter-refused calculated field — "
+
+
+def converter_refused_gap_rows(formulas: list[dict[str, Any]]) -> list[Feature]:
+    """One gap row per refused formula, mirroring scan-workbook-gaps.rb.
+
+    The gap-scout gate tracks one scout per gap id, so a bucket row would let
+    one validated scout clear every refused formula (or one escalation block
+    them all).  Same-named calcs in two datasources stay distinct via the
+    internal name.  Unlike the Ruby runtime, learned rules are not consulted:
+    this runtime has no loader or placement for them, so it keeps refusing.
+    Nor are build-charts' chart translators (the Ruby runtime reclassifies a
+    PLOTTED refusal that its window / FIXED-LOD chart path translates as
+    chart_only): this runtime has no port of that build path, so a refusal
+    here stays refused (fail closed).
+    """
+    refused = [
+        row for row in formulas if row.get("status") in {"not_converted", "unmapped"}
+    ]
+    labels = [
+        f"{row.get('datasource_caption') or row.get('datasource')}: "
+        f"{row.get('caption') or row.get('internal_name')}"
+        for row in refused
+    ]
+    dupes = {label for label, n in Counter(labels).items() if n > 1}
     features: list[Feature] = []
-    if unsupported:
-        names = [
-            f"{row.get('datasource_caption') or row.get('datasource')}: "
-            f"{row.get('caption') or row.get('internal_name')}"
-            for row in audit.get("formulas", [])
-            if row.get("status") in {"not_converted", "unmapped"}
-        ]
+    for row, label in zip(refused, labels):
+        if label in dupes:
+            label = f"{label} ({row.get('internal_name')})"
+        verb = "could not map" if row.get("status") == "unmapped" else "refused"
+        snippet = " ".join(str(row.get("formula") or "").split())[:160]
         features.append(
             Feature(
-                "Converter-refused or unmapped calculated fields",
+                f"{CONVERTER_REFUSED_GAP_PREFIX}{label}",
                 "unhandled",
-                unsupported,
-                f"{unsupported} formula(s) failed the vendored converter path: "
-                + ", ".join(names[:12])
-                + ". Rewrite or explicitly account for each formula.",
+                1,
+                f"The vendored converter {verb} this formula: {snippet}. "
+                "Scout a validated rewrite or explicitly account for it.",
             )
         )
+    return features
+
+
+def formula_gap_results(audit: dict[str, Any]) -> list[Feature]:
+    counts = audit.get("counts") or {}
+    review = int(counts.get("verify", 0)) + int(counts.get("chart_only", 0))
+    features: list[Feature] = converter_refused_gap_rows(audit.get("formulas", []))
     if review:
         features.append(
             Feature(

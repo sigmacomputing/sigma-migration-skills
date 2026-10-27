@@ -1461,7 +1461,8 @@ module MechanicalSpecs
       fact = by_table.fetch(owner).first
 
       catalog = Array(warehouse_catalogs && (warehouse_catalogs[owner] || warehouse_catalogs[owner.upcase]))
-      live_names = Array(real_cols && (real_cols[owner] || real_cols[owner.upcase])).map { |name| name.to_s.upcase }
+      live_names = Array(real_cols && (real_cols[owner] || real_cols[owner.upcase]))
+                   .flat_map { |name| [name.to_s.upcase, name.to_s.gsub(/\s+/, '_').upcase] }
       mapped = normalized_mapping[caption.upcase] || normalized_mapping[guid.upcase]
       inferred = caption.gsub(/[^0-9A-Za-z]+/, '_').gsub(/\A_+|_+\z/, '').upcase
       wanted = mapped.to_s.empty? ? [inferred, "#{inferred}_KEY"] : [mapped]
@@ -1518,7 +1519,18 @@ module MechanicalSpecs
       end
 
       existing_date = columns.find { |column| col_display(column).to_s.casecmp?(caption) }
-      unless existing_date
+      # The converter's own same-caption placeholder ([ORDER_FACT/Order Date]
+      # with no live warehouse column) is not a date: fixup_dm_spec would drop
+      # it as phantom. Replace it IN PLACE so its inode id (GUID index) and the
+      # derived views' [<owner>/<caption>] passthroughs keep resolving.
+      table_name = Array(fact.dig('source', 'path')).last.to_s
+      placeholder_tail = existing_date &&
+                         existing_date['formula'].to_s[/\A\[#{Regexp.escape(table_name)}\/([^\]]+)\]\z/i, 1]
+      if placeholder_tail && !live_names.include?(placeholder_tail.split('/').last.gsub(/\s+/, '_').upcase)
+        existing_date['name'] = caption
+        existing_date['formula'] = date_formula
+        changed = true
+      elsif !existing_date
         existing_ids = columns.map { |column| column['id'] }.compact.to_set
         date_id = "c-#{slug(caption)}"
         suffix = 2

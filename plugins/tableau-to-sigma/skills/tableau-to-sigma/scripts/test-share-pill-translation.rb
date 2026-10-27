@@ -39,7 +39,8 @@ def check(cond, msg, fails)
 end
 
 # ---- 1. unit: two-hop share classification --------------------------------
-src = File.read(BUILD)
+src = File.read(BUILD) +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 w = Object.new
 %w[SIGMA_AGG USER_AGG_FN WINDOW_SIGMA_FNS WINDOW_MANUAL_RE WINDOW_TC_RE].each do |c|
   m = src.match(/^#{c}\s*=\s*%w\[.*?\]\.freeze/m) ||

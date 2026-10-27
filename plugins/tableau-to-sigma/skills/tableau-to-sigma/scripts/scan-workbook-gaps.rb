@@ -37,6 +37,11 @@ require 'open3'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'twb_xml'
 require 'calc_coverage' # masked function extraction + official catalog (v5.0)
+require_relative 'learned-rules' # validated customer rewrites rescue converter refusals
+require 'chart_calc_translate' # build-charts' own chart/pivot calc translators (shared lib)
+# Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
+# method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
+require_relative 'lib/ruby_compat'
 
 # --- Feature inventory: what the skill handles today ----------------------
 # Each entry: { pattern: regex_or_lambda, name: "feature", status: :auto |
@@ -751,6 +756,7 @@ def calculation_inventory(doc, content)
 
     definitions = {}
     calcs = []
+    columns_by_guid = {}
     ds.elements.each('column') do |col|
       internal = col.attributes['name'].to_s
       next if internal.empty? || internal.include?('__tableau_internal_object_id__')
@@ -763,6 +769,11 @@ def calculation_inventory(doc, content)
       definitions[internal.downcase] = row
       definitions["[#{row['caption']}]".downcase] = row
       calcs << row if formula
+      # Same shape as parse-twb-layout's meta['columns_by_guid'], which the
+      # chart translators deref calc refs / resolve GUID refs through.
+      cbg = { 'caption' => row['caption'].sub(/\A\[(.*)\]\z/, '\1').strip }
+      cbg['formula'] = formula if formula
+      columns_by_guid[internal.sub(/\A\[/, '').sub(/\]\z/, '')] = cbg
     end
 
     by_caption = Hash.new { |h, k| h[k] = [] }
@@ -868,12 +879,14 @@ def calculation_inventory(doc, content)
       'caption' => (ds.attributes['caption'] || ds_name).to_s,
       'calculation_cycles' => cycles,
       'orphan_internal_calculation_references' => orphan_refs.sort_by { |r| [r['calculation'], r['reference']] },
-      'unused_calculations' => unused.sort_by { |r| [r['calculation'], r['internal_name']] }
+      'unused_calculations' => unused.sort_by { |r| [r['calculation'], r['internal_name']] },
+      'columns_by_guid' => columns_by_guid
     }
   end
 
   {
     'inputs' => inputs,
+    'plotted' => plotted_calc_contexts(doc),
     'datasources' => datasource_rows,
     'calculation_cycles' => datasource_rows.flat_map do |ds|
       ds['calculation_cycles'].map { |cycle| { 'datasource' => ds['name'], 'calculations' => cycle } }
@@ -881,6 +894,269 @@ def calculation_inventory(doc, content)
     'orphan_internal_calculation_references' => datasource_rows.flat_map { |ds| ds['orphan_internal_calculation_references'] },
     'unused_calculations' => datasource_rows.flat_map { |ds| ds['unused_calculations'] }
   }
+end
+
+# Where each calc is PLOTTED, keyed "<datasource name>\0<internal name>". Only
+# these placements reach build-charts' calc translators: a chart axis (rows /
+# cols → the chart yAxis path), a crosstab text value (encodings/text on a
+# Text/Square pivot → the pivot-value path), or a Measure Values
+# member (the :Measure Names filter → the multi-measure path). Tooltip, color,
+# detail and KPI-only text never run them. Only worksheets placed on a
+# dashboard are built (every worksheet when the workbook has no dashboards —
+# parse-twb-layout synthesizes one per sheet).
+SHELF_MEASURE_PREFIXES = %w[
+  sum avg min max count countd cntd cnt ctd median med mdn stdev stdevp var varp attr usr pcto rtot
+].freeze
+
+def plotted_calc_contexts(doc)
+  out = {}
+  zone_names = doc.elements.to_a('/workbook/dashboards/dashboard//zone')
+                  .map { |z| z.attributes['name'].to_s }.reject(&:empty?).to_set
+  any_dashboard = !doc.elements.to_a('/workbook/dashboards/dashboard').empty?
+  instance_re = /\[((?:[^\]]|\]\])+)\]\.\[((?:[^\]]|\]\])+)\]/
+  field_name = lambda do |ref|
+    token = ref.to_s.scan(/\[([^\]]+)\]/).flatten.last.to_s
+    token.sub(/\A(?:[a-z]+:)+/i, '').sub(/:[a-z]{2}(?::\d+)?\z/i, '')
+  end
+  calc_formulas = {}
+  doc.elements.each('/workbook/datasources/datasource') do |ds|
+    ds_name = ds.attributes['name'].to_s
+    ds.elements.each('.//column[@name]') do |column|
+      calc = column.elements['calculation']
+      next unless calc
+      calc_formulas[[ds_name, field_name.call(column.attributes['name'])]] = calc.attributes['formula'].to_s
+    end
+  end
+  note = lambda do |text, context, ws_name, pivot_scopes = {}, two_stage_text = false|
+    text.to_s.scan(instance_re) do |ds, inst|
+      body = inst.sub(/\A(?:[a-z]+:)+/i, '').sub(/:[a-z]{2}(?::\d+)?\z/i, '')
+      next if body.start_with?(':') || body == 'Multiple Values'
+      key = "#{ds}\0[#{body}]"
+      entry = (out[key] ||= { 'contexts' => Set.new, 'worksheets' => Set.new })
+      entry['contexts'] << context
+      entry['worksheets'] << ws_name
+      (entry['pivot_scopes'] ||= Set.new) << pivot_scopes[body] if pivot_scopes[body]
+      entry['two_stage_text'] = true if two_stage_text
+    end
+  end
+  doc.elements.to_a('/workbook/worksheets/worksheet').each do |ws|
+    ws_name = ws.attributes['name'].to_s
+    next if any_dashboard && !zone_names.include?(ws_name)
+    rows_text = ws.elements['table/rows']&.text.to_s
+    cols_text = ws.elements['table/cols']&.text.to_s
+    shelves = [rows_text, cols_text]
+    shelf_refs = shelves.map do |text|
+      text.scan(instance_re).map do |ds, inst|
+        role =
+          if inst.match?(/\A:(?:Measure Names|Multiple Values|Measure Values)\z/i)
+            :placeholder
+          elsif SHELF_MEASURE_PREFIXES.include?(inst.split(':', 2).first.to_s.downcase)
+            :measure
+          else
+            :dim
+          end
+        { 'datasource' => ds, 'instance' => inst, 'role' => role }
+      end
+    end
+    shelf_fields = shelves.map do |text|
+      text.scan(instance_re).map { |_ds, inst| field_name.call("[#{inst}]").downcase }.to_set
+    end
+    pivot_scopes = {}
+    ws.elements.each('.//column-instance') do |ci|
+      calc = field_name.call(ci.attributes['column'])
+      next if calc.empty?
+      tc = ci.elements.to_a('table-calc').find { |node| node.attributes['field'].nil? } ||
+           ci.elements['table-calc']
+      addr = tc && field_name.call(tc.attributes['ordering-field']).downcase
+      pivot_scopes[calc] =
+        if addr && shelf_fields[1].include?(addr)
+          'row'
+        elsif addr && shelf_fields[0].include?(addr)
+          'column'
+        else
+          shelf_fields[1].include?(calc.downcase) ? 'column' : 'row'
+        end
+    end
+    mark_class = ws.elements['.//pane/mark']&.attributes&.[]('class').to_s.downcase
+    text_mark = %w[text square].include?(mark_class)
+    automatic_mark = mark_class.empty? || mark_class == 'automatic'
+    dim_counts = shelf_refs.map { |refs| refs.count { |ref| ref['role'] == :dim } }
+    measure_names = shelves.any? { |text| text.match?(/\[:Measure Names\]/i) }
+    measure_values = shelves.any? { |text| text.match?(/\[(?::)?(?:Multiple|Measure) Values\]/i) }
+    worksheet_measure_refs = shelf_refs.flatten.select { |ref| ref['role'] == :measure }
+    ws.elements.each('.//*[@column]') do |node|
+      node.attributes['column'].to_s.scan(instance_re) do |ds, inst|
+        if SHELF_MEASURE_PREFIXES.include?(inst.split(':', 2).first.to_s.downcase)
+          worksheet_measure_refs << { 'datasource' => ds, 'instance' => inst, 'role' => :measure }
+        end
+      end
+    end
+    ws.elements.each('.//*[@member]') do |node|
+      node.attributes['member'].to_s.scan(instance_re) do |ds, inst|
+        if SHELF_MEASURE_PREFIXES.include?(inst.split(':', 2).first.to_s.downcase)
+          worksheet_measure_refs << { 'datasource' => ds, 'instance' => inst, 'role' => :measure }
+        end
+      end
+    end
+    measure_names_crosstab = measure_names && dim_counts.sum >= 1 &&
+                             worksheet_measure_refs.map { |ref| [ref['datasource'], ref['instance']] }.uniq.length >= 2
+    is_crosstab = (text_mark && (dim_counts.all?(&:positive?) || measure_names_crosstab)) ||
+                  (automatic_mark && measure_names_crosstab && !measure_values)
+    is_kpi = (text_mark || automatic_mark) && !is_crosstab &&
+             dim_counts.sum.zero? && worksheet_measure_refs.any?
+    if is_crosstab
+      text_encodings = ws.elements.to_a('.//encodings/text')
+      shelf_values = shelf_refs.flatten.filter_map do |ref|
+        [ref['datasource'], ref['instance']] if ref['role'] == :measure
+      end
+      value_refs = shelf_values
+      if value_refs.empty?
+        worksheet_datasources = ws.elements.to_a('.//datasource-dependencies')
+                                  .map { |dep| dep.attributes['datasource'].to_s }
+        worksheet_datasources += ws.elements.to_a('table/view/datasources/datasource')
+                                   .map { |ds| ds.attributes['name'].to_s }
+        value_refs = ws.elements.to_a('.//column-instance').each_with_object([]) do |ci, refs|
+          derivation = ci.attributes['derivation'].to_s
+          next unless ci.attributes['type'] == 'quantitative'
+          next if derivation == 'None' || derivation.match?(/\A(?:Year|Quarter|Month|Week|Day|Hour)-Trunc\z/)
+          column = field_name.call(ci.attributes['column'])
+          next if refs.any? { |_ds, ref| ref == column }
+          ds = worksheet_datasources.find { |name| calc_formulas.key?([name, column]) }
+          refs << [ds.to_s, column]
+        end
+      end
+      plans = value_refs.map do |ds, inst|
+        formula = calc_formulas[[ds, field_name.call("[#{inst}]")]]
+        formula && translate_window_calc(formula, {}, {})
+      end
+      two_stage_text = plans.any? &&
+                       plans.all? { |plan| plan && plan['mode'] == 'two-stage' } &&
+                       plans.map { |plan| plan['value_formula'] }.uniq.length == 1
+      text_encodings.each do |enc|
+        note.call(enc.attributes['column'], 'text', ws_name, pivot_scopes, two_stage_text)
+      end
+      shelf_values.each do |ds, inst|
+        note.call("[#{ds}].[#{inst}]", 'text', ws_name, pivot_scopes, two_stage_text)
+      end
+    elsif !is_kpi && !text_mark
+      shelf_refs.flatten.each do |ref|
+        next unless ref['role'] == :measure
+        note.call("[#{ref['datasource']}].[#{ref['instance']}]", 'axis', ws_name)
+      end
+    end
+    ws.elements.each('.//filter') do |filter|
+      next unless filter.attributes['column'].to_s.end_with?('[:Measure Names]')
+      filter.elements.each('.//groupfilter') do |member|
+        note.call(member.attributes['member'], 'measure_values', ws_name)
+      end
+    end
+  end
+  out.transform_values do |v|
+    result = { 'contexts' => v['contexts'].to_a.sort, 'worksheets' => v['worksheets'].to_a.sort }
+    result['pivot_scopes'] = v['pivot_scopes'].to_a.sort if v['pivot_scopes']&.any?
+    result['two_stage_text'] = true if v['two_stage_text']
+    result
+  end
+end
+
+# Window plans each build path emits (anything else — 'manual', top-N filters —
+# stays refused). The multi-measure chart path only emits 'inline'.
+CHART_WINDOW_MODES = {
+  'axis' => %w[inline inline-share two-stage],
+  'text' => %w[inline inline-share],
+  'measure_values' => %w[inline]
+}.freeze
+
+# The build emits whatever [Master/<name>] refs a translator leaves behind; that
+# only resolves when <name> is a physical column or a calc the data model
+# materializes under that caption. A ref to a refused / chart-only calc, a
+# Tableau internal calc name, or a parameter would ship a broken column.
+def chart_translation_refs_resolve?(names, calcs)
+  names.all? do |name|
+    next false if name.to_s.strip.empty? || name =~ /\AParameters?\b/i
+    calc = calcs[name.downcase]
+    calc.nil? || (calc['status'] == 'spec' && calc['caption'].casecmp?(name))
+  end
+end
+
+# The build-path translation for one refused row, or nil. Mirrors the dispatch
+# in build-charts-from-signals.rb: translate_window_calc first (every plotted
+# context), then a single-level FIXED LOD on a chart axis (the two-stage helper;
+# the pivot and KPI paths do not build it).
+def chart_translation_for(row, placement, cbg, calcs)
+  formula = row['formula'].to_s
+  contexts = placement['contexts']
+  plan = translate_window_calc(formula, {}, cbg)
+  if plan
+    modes = contexts.flat_map { |context| CHART_WINDOW_MODES.fetch(context, []) }.uniq
+    modes << 'two-stage' if placement['two_stage_text']
+    return nil unless modes.include?(plan['mode'])
+    emitted = case plan['mode']
+              when 'inline' then plan['formula']
+              when 'inline-share'
+                scope = placement.fetch('pivot_scopes', []).first || 'grand_total'
+                plan['share_kind'] == 'percent_of_total' ? %(PercentOfTotal(#{plan['inner']}, "#{scope}")) : plan['inner']
+              end
+    refs = [emitted, plan['value_formula']].compact.join(' ').scan(%r{\[Master/([^\]]+)\]}).flatten
+    return nil unless chart_translation_refs_resolve?(refs, calcs)
+    return { 'translator' => 'translate_window_calc', 'mode' => plan['mode'], 'sigma_formula' => emitted,
+             'note' => plan['note'] }
+  end
+  return nil unless contexts.include?('axis')
+  lod = parse_fixed_lod(formula, cbg)
+  inner = lod && lod_inner_ref(lod, {}, cbg)
+  return nil unless inner
+  refs = lod['dims'] + inner.scan(%r{\[Master/([^\]]+)\]}).flatten
+  return nil unless chart_translation_refs_resolve?(refs, calcs)
+  { 'translator' => 'parse_fixed_lod', 'mode' => 'two-stage-helper', 'sigma_formula' => nil,
+    'note' => "FIXED [#{lod['dims'].join('], [')}] → hidden grouped helper element at chart grain" }
+end
+
+# A converter refusal (not_converted/unmapped) that build-charts-from-signals.rb
+# translates natively where the calc is plotted is NOT a gap: reclassify it
+# chart_only (the converter's "translated, needs chart context" status),
+# keeping the converter's status and the chart translator as evidence. Runs
+# AFTER learned rules. The Python runtime has no port of these translators, so
+# it keeps refusing these (fail closed), like learned rules.
+def apply_chart_translators_to_audit!(batch, inventory)
+  plotted = inventory['plotted'] || {}
+  sources = (inventory['datasources'] || []).each_with_object({}) { |ds, h| h[ds['datasource_index']] = ds }
+  formulas = batch.fetch('formulas')
+  calcs_by_ds = Hash.new { |h, k| h[k] = {} }
+  formulas.each do |row|
+    by_name = calcs_by_ds[row['datasource_index']]
+    [row['internal_name'], row['caption']].each do |name|
+      key = name.to_s.sub(/\A\[/, '').sub(/\]\z/, '').downcase
+      by_name[key] ||= { 'status' => row['status'], 'caption' => row['caption'].to_s.sub(/\A\[(.*)\]\z/, '\1') }
+    end
+  end
+  changed = false
+  formulas.each do |row|
+    next unless %w[not_converted unmapped].include?(row['status'])
+    placement = plotted["#{row['datasource']}\0#{row['internal_name']}"]
+    next unless placement
+    cbg = sources.dig(row['datasource_index'], 'columns_by_guid') || {}
+    hit = chart_translation_for(row, placement, cbg, calcs_by_ds[row['datasource_index']])
+    next unless hit
+    row['converter_status'] = row['status']
+    row['status'] = 'chart_only'
+    row['sigma_formula'] = hit['sigma_formula'] if hit['sigma_formula']
+    row['chart_translator'] = hit.reject { |k, _| k == 'sigma_formula' }.merge(placement)
+    changed = true
+  end
+  recount_formula_audit!(batch) if changed
+  batch
+end
+
+def recount_formula_audit!(batch)
+  formulas = batch.fetch('formulas')
+  counts = FORMULA_AUDIT_STATUSES.each_with_object({}) { |name, h| h[name] = 0 }
+  formulas.each { |row| counts[row.fetch('status')] += 1 }
+  converted = formulas.count { |row| FORMULA_AUDIT_TRANSLATED.include?(row['status']) }
+  batch['counts'] = counts
+  batch['converted'] = converted
+  batch['coverage_pct'] = formulas.empty? ? 100.0 : (1000.0 * converted / formulas.length).round / 10.0
+  batch
 end
 
 def run_formula_audit(inventory)
@@ -894,6 +1170,8 @@ def run_formula_audit(inventory)
     raise "formula audit helper failed (exit #{status.exitstatus})#{detail.empty? ? '' : ": #{detail}"}"
   end
   batch = JSON.parse(stdout)
+  apply_learned_rules_to_audit!(batch)
+  apply_chart_translators_to_audit!(batch, inventory)
   results_by_ds = batch.fetch('formulas').group_by { |row| row['datasource_index'] }
 
   datasources = inventory['datasources'].map do |source|
@@ -923,22 +1201,59 @@ def run_formula_audit(inventory)
   )
 end
 
-def formula_audit_gap_results(audit)
-  counts = audit.is_a?(Hash) ? audit['counts'] : {}
-  unsupported = counts.to_h['not_converted'].to_i + counts.to_h['unmapped'].to_i
-  review = counts.to_h['verify'].to_i + counts.to_h['chart_only'].to_i
-  rows = []
-  if unsupported.positive?
-    names = Array(audit['formulas']).select { |row| %w[not_converted unmapped].include?(row['status']) }
-                                    .map { |row| "#{row['datasource_caption'] || row['datasource']}: #{row['caption'] || row['internal_name']}" }
-    rows << {
-      name: 'Converter-refused or unmapped calculated fields',
+# A converter refusal (not_converted/unmapped) that a validated learned rule
+# rewrites is NOT a gap: build-charts-from-signals.rb places that same rule's
+# formula on the chart column carrying the calc (and WARNs if it cannot). So
+# reclassify it as chart_only — the converter's own "translated, needs chart
+# context" status — keeping the original status and the rule as evidence, and
+# recompute the batch totals. Spec-guidance rules (no pattern/template) never
+# match. The Python runtime has no learned-rule loader or placement, so it
+# keeps refusing these (fail closed).
+def apply_learned_rules_to_audit!(batch)
+  rules = LearnedRules.load
+  return batch if rules.empty?
+  formulas = batch.fetch('formulas')
+  formulas.each do |row|
+    next unless %w[not_converted unmapped].include?(row['status'])
+    translated, hint = LearnedRules.apply(rules, row['formula'].to_s)
+    next unless translated
+    row['converter_status'] = row['status']
+    row['status'] = 'chart_only'
+    row['sigma_formula'] = translated
+    row['learned_rule'] = hint
+  end
+  recount_formula_audit!(batch)
+end
+
+# One gap row PER refused formula, so the gap-scout gate (one scout per gap id,
+# one pattern per scout) tracks each formula on its own: a scout validating
+# one formula's rewrite must not clear the others, and one escalation must not
+# block them all. Same-named calcs in two datasources stay distinct via the
+# internal name.
+CONVERTER_REFUSED_GAP_PREFIX = 'Converter-refused calculated field — '
+
+def converter_refused_gap_rows(formulas)
+  refused = Array(formulas).select { |row| %w[not_converted unmapped].include?(row['status']) }
+  labels = refused.map { |row| "#{row['datasource_caption'] || row['datasource']}: #{row['caption'] || row['internal_name']}" }
+  dupes = labels.group_by(&:itself).select { |_, v| v.length > 1 }.keys
+  refused.each_with_index.map do |row, i|
+    label = labels[i]
+    label = "#{label} (#{row['internal_name']})" if dupes.include?(label)
+    {
+      name: "#{CONVERTER_REFUSED_GAP_PREFIX}#{label}",
       status: :unhandled,
-      count: unsupported,
-      blurb: "#{unsupported} actual workbook formula(s) failed the vendored converter path: #{names.first(12).join(', ')}. " \
-             'Rewrite or explicitly account for each before conversion; token-only catalog coverage is not accepted.'
+      count: 1,
+      blurb: "The vendored converter #{row['status'] == 'unmapped' ? 'could not map' : 'refused'} this formula: " \
+             "#{row['formula'].to_s.gsub(/\s+/, ' ')[0, 160]}. Scout a validated rewrite (learned rule) or " \
+             'explicitly account for it before conversion; token-only catalog coverage is not accepted.'
     }
   end
+end
+
+def formula_audit_gap_results(audit)
+  counts = audit.is_a?(Hash) ? audit['counts'] : {}
+  review = counts.to_h['verify'].to_i + counts.to_h['chart_only'].to_i
+  rows = converter_refused_gap_rows(audit.is_a?(Hash) ? audit['formulas'] : [])
   if review.positive?
     rows << {
       name: 'Converter-translated formulas requiring contextual verification',

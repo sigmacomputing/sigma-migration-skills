@@ -404,7 +404,8 @@ puts
 puts 'Part B — Ruby translators (build-charts-from-signals.rb)'
 # encoding: system Ruby 2.6 defaults to US-ASCII under some locales and the
 # extracted defs contain UTF-8 arrows — read explicitly as UTF-8.
-src = File.read(CHARTS, encoding: 'utf-8')
+src = File.read(CHARTS, encoding: 'utf-8') +
+  File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 o = Object.new
 %w[USER_AGG_FN SIGMA_AGG WINDOW_SIGMA_FNS WINDOW_MANUAL_RE WINDOW_TC_RE].each do |c|
   m = src.match(/^#{c}\s*=\s*%w\[.*?\]\.freeze/m) ||

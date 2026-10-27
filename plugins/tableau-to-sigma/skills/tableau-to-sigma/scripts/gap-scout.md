@@ -16,6 +16,25 @@ After Phase 0a's gap report is produced. For each `:unhandled` row, OR for
 any `:hint` row whose count is high enough to be worth automating, spawn ONE
 scout per gap. Run them in parallel where possible — they're independent.
 
+Converter-refused formulas are one row EACH
+(`Converter-refused calculated field — <datasource>: <calc>`), so each scout
+handles exactly one formula and passes that row name as `--gap-id`. Once its
+rule is validated, the next scan (Ruby runtime) reclassifies the formula
+`chart_only` (`learned_rule` evidence on the `formula_audit` row) and drops the
+gap row; `build-charts-from-signals.rb` then places the rule's formula on the
+chart column carrying the calc, or WARNs `learned-rule matched … NOT placed`.
+
+A refusal that `build-charts-from-signals.rb` already translates natively
+where the calc is PLOTTED (window/table calcs via `translate_window_calc` —
+`LOOKUP`/`ZN`/`TOTAL`/share-of-total/`RANK*`/`RUNNING_*`/`WINDOW_*` — on a
+dashboard worksheet's rows/cols, crosstab text, or Measure Values; a
+single-level `{FIXED}` LOD on a chart axis) never gets a gap row: the Ruby scan
+reclassifies it `chart_only` with `converter_status` + `chart_translator`
+evidence (translator, mode, contexts, worksheets). Unplotted, tooltip-only,
+off-dashboard, `manual`-mode window calcs, and translations that would leave a
+ref to a refused calc or parameter stay refused. The Python runtime has no port
+of the chart translators and keeps refusing these (fail closed).
+
 ## How to spawn (from the main agent)
 
 Use the Agent tool with `subagent_type: 'general-purpose'`. Self-contained
