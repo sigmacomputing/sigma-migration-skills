@@ -33,6 +33,7 @@ require_relative 'lib/coverage_catalog'
 require_relative 'lib/trellis_emit' # shared native-trellis emitter (supported-kind gate + fallbacks)
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 require_relative 'lib/layout'
+require_relative 'lib/dm_column_index' # per-element column labels/types stamped into dm-readback.json
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -89,16 +90,62 @@ def disp(raw); raw.to_s.gsub(/[_.]/, ' ').split.map { |w| w[0..0].upcase + w[1..
 # real boolean column. qs_expr_to_sigma uses this set to rewrite the predicate to the
 # bare boolean (RCA #3, bead 3goo.3). Empty (no --discover-dir) => no rewrite, no change.
 BOOLEAN_COLS = Set.new
+BOOLEAN_RAW = Set.new   # the same columns by RAW dataset name (a resolved label may differ from disp())
+# Dataset columns from the discovery datasets' OutputColumns (the LOGICAL columns, after any
+# casts): DATASET_COL_TYPES = { DataSetId => { column => 'DATETIME' } } feeds the control-kind
+# decision (decision order: data-model type > dataset type > name heuristic), and
+# DATASET_COLS is the candidate set for BARE identifiers in calc-field expressions.
+DATASET_COL_TYPES = {}
+DATASET_COLS = Set.new
 if opts[:discover]
   Dir[File.join(opts[:discover], 'datasets', '*.json')].sort.each do |f|
     j = JSON.parse(File.read(f)) rescue next
     ds = j['DataSet'] || j
     (ds['PhysicalTableMap'] || {}).each_value do |pt|
       rt = pt['RelationalTable'] || pt['CustomSql'] || {}
-      (rt['InputColumns'] || []).each { |c| BOOLEAN_COLS << disp(c['Name']) if c['Type'].to_s.upcase == 'BOOLEAN' }
+      (rt['InputColumns'] || []).each do |c|
+        next unless c['Type'].to_s.upcase == 'BOOLEAN'
+        BOOLEAN_COLS << disp(c['Name'])
+        BOOLEAN_RAW << c['Name']
+      end
+    end
+    types = (DATASET_COL_TYPES[ds['DataSetId'].to_s] ||= {})
+    (ds['OutputColumns'] || []).each do |c|
+      next unless c.is_a?(Hash) && c['Name']
+      types[c['Name']] = c['Type'].to_s.upcase
+      DATASET_COLS << c['Name']
     end
   end
   STDERR.puts "boolean-cols: #{BOOLEAN_COLS.size} BOOLEAN column(s) detected from discovery datasets" unless BOOLEAN_COLS.empty?
+end
+
+# String literals / {refs} / ${params} / [refs] are tokens; only the code BETWEEN them is rewritten.
+QS_EXPR_TOKEN = /(\$\{[^}]*\}|\{[^}]*\}|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|\[[^\]]*\])/.freeze
+
+def qs_ci_name(candidates, name)
+  candidates.find { |candidate| candidate.to_s.casecmp(name.to_s).zero? }
+end
+
+# Exact calc names win, but a case-insensitive physical-column match must not become a calc.
+def qs_calc_name(calcs, name)
+  exact = calcs.keys.find { |candidate| candidate.to_s == name.to_s }
+  return exact if exact
+  return nil if qs_ci_name(DATASET_COLS, name)
+  qs_ci_name(calcs.keys, name)
+end
+
+# Extract the dataset/calc reads from a calculated field using the same bare-identifier
+# rules as the formula translator. Routing needs these before translation chooses a master.
+def qs_calc_refs(expr, calcs)
+  refs = expr.to_s.scan(/\{([^}]+)\}/).flatten.map(&:strip)
+  expr.to_s.split(QS_EXPR_TOKEN, -1).each_with_index do |piece, i|
+    next unless i.even?
+    piece.scan(/(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])(?!\s*\()/).flatten.each do |word|
+      ref = qs_calc_name(calcs, word) || qs_ci_name(DATASET_COLS, word)
+      refs << ref if ref
+    end
+  end
+  refs.map { |ref| qs_calc_name(calcs, ref) || qs_ci_name(DATASET_COLS, ref) || ref }.uniq
 end
 
 # ---- derive the columns the dashboard actually references (raw col names) ----
@@ -131,8 +178,8 @@ end
 needed_raw.uniq!
 # calc fields resolve to raw columns inside their expressions; expand
 needed_resolved = needed_raw.flat_map do |n|
-  if calc_names.key?(n)
-    calc_names[n].to_s.scan(/\{([^}]+)\}/).flatten.map(&:strip)
+  if (calc_name = qs_calc_name(calc_names, n))
+    qs_calc_refs(calc_names[calc_name], calc_names)
   else
     [n]
   end
@@ -142,6 +189,13 @@ end.uniq
 # Use the dm-spec (has column display names) to score coverage; fall back to the
 # dm-readback element list when no dm-spec is provided. ([bead] point 4)
 dm_spec = opts[:dmspec] && File.exist?(opts[:dmspec]) ? JSON.parse(File.read(opts[:dmspec])) : nil
+# A REUSED data model (migrate-quicksight.rb --reuse-dm stamps `reusedDataModel`) was not
+# produced from any dm-spec.json in this workdir: the index pairing below would pick the
+# wrong element, so ignore a --dm-spec that is paired with such a readback.
+if dm_spec && rb['reusedDataModel']
+  STDERR.puts "WARN ignoring --dm-spec #{opts[:dmspec]}: dm-readback is a REUSED data model, so element choice follows readback column coverage"
+  dm_spec = nil
+end
 needed_disp = needed_resolved.map { |c| disp(c) }.to_set
 
 best = nil
@@ -160,6 +214,10 @@ if dm_spec
 end
 
 rb_els = (rb['pages'] || []).flat_map { |pg| pg['elements'] || [] }
+# Display labels a readback element exposes: columnLabels (the data model's real /columns
+# index, stamped by post-and-readback.rb / migrate --reuse-dm) plus any NAMED spec columns.
+# A reused model's spec columns are often nameless, so the labels are the reliable source.
+rb_label_set = ->(el) { DmColumnIndex.labels_of(el).to_set }
 dm_el_obj =
   if best
     # DM element names can COLLIDE (e.g. two "D20 Kitchen Sink" elements: a source +
@@ -168,15 +226,15 @@ dm_el_obj =
     # dm-readback element lists are in the same order, so prefer the readback element at
     # the winning spec index; fall back to name match, then first.
     (best_idx && rb_els[best_idx]) || rb_els.find { |e| e['name'] == best } || rb_els.first
-  elsif rb_els.any? { |e| (e['columns'] || []).any? }
-    # No dm-spec, but the readback carries column names: score coverage directly off the
-    # readback so we pick the element that actually COVERS the charted columns (handles
+  elsif rb_els.any? { |e| !rb_label_set.call(e).empty? }
+    # No dm-spec, but the readback carries column labels/names: score coverage directly off
+    # the readback so we pick the element that actually COVERS the charted columns (handles
     # name-collision + arbitrary element ordering — beads D20). Tie-break on more columns
     # (the denormalized join wins).
     scored_rb = rb_els.map do |el|
-      names = (el['columns'] || []).map { |c| c['name'] }.compact.to_set
-      cover = needed_disp.count { |d| names.include?(d) }
-      [cover, (el['columns'] || []).size, el]
+      rs = DmColumnIndex::Resolver.new(el)
+      cover = needed_resolved.count { |raw| rs.resolve(raw, prefer: disp(raw))[1] == :resolved }
+      [cover, rs.labels.size, el]
     end
     top = scored_rb.max_by { |cover, ncols, _| [cover, ncols] }
     (top && top[2]) || rb_els.first
@@ -277,19 +335,95 @@ def qs_datefmt_to_strftime(fmt)
   s
 end
 
-def qs_expr_to_sigma(expr, dmel, params = {})
-  s = expr.to_s.dup
-  # ${Param} -> inlined default constant (what-if parameters have no DM-formula equivalent).
-  s = s.gsub(/\$\{([^}]+)\}/) do
-    nm = Regexp.last_match(1).strip
-    v = params[nm]
-    v.nil? ? '0' : (v.is_a?(String) ? "\"#{v}\"" : v.to_s)
+# ---- manual items ---------------------------------------------------------------------
+# Things the builder could NOT migrate or resolve and a human must finish. Kept apart from
+# build_warnings (which describe what WAS built with caveats): written to the `manual` list
+# of <out>.warnings.json and printed at the end of the build. Deduped on (type, subject).
+MANUAL_ITEMS = []
+MANUAL_SEEN = {}
+def manual_item!(type, subject, reason, extra = {})
+  key = [type, subject]
+  return if MANUAL_SEEN[key]
+  MANUAL_SEEN[key] = true
+  MANUAL_ITEMS << { 'type' => type, 'subject' => subject, 'reason' => reason }.merge(extra)
+end
+
+# Per-master column resolution state, keyed by the master's column hash (identity): the data
+# model element it sources, and a DmColumnIndex::Resolver over that element's column index.
+RESOLVERS = {}.compare_by_identity
+MASTER_ELEMENTS = {}.compare_by_identity
+def register_master!(master_cols, element)
+  MASTER_ELEMENTS[master_cols] = element
+  RESOLVERS[master_cols] = DmColumnIndex::Resolver.new(element)
+end
+
+# The label the data-model element gives dataset column `raw`. Falls back to the display-name
+# guess (disp) when the element has no column index at all; when an index exists and the
+# column is not in it, records a manual item and keeps the guess so the workbook stays
+# structurally intact (validate-spec --dm-context then refuses to post it).
+def resolve_dm_label(raw, master_cols)
+  rs = RESOLVERS[master_cols]
+  return disp(raw) unless rs
+  label, status = rs.resolve(raw, prefer: disp(raw))
+  return label if status == :resolved
+  return disp(raw) if status == :unverified
+  el = MASTER_ELEMENTS[master_cols] || {}
+  why = status == :ambiguous ? 'matches more than one column' : 'is not a column'
+  manual_item!('UnresolvedColumn', raw,
+               "dataset column '#{raw}' #{why} of data-model element '#{el['name']}' (matched by source reference / column id, " \
+               "then display label, ignoring case and punctuation - never fuzzy), so the master formula [#{el['name']}/#{disp(raw)}] " \
+               'will not resolve. Map the column in the data model, or rewrite the master column by hand.',
+               'element' => el['name'])
+  disp(raw)
+end
+
+# Does master `mm` expose dataset column `raw`? Resolver-based; a master whose element has no
+# column index at all falls back to the display-name set (the pre-index behaviour).
+def master_covers?(mm, raw)
+  r = mm[:resolver].resolve(raw, prefer: disp(raw))
+  r[1] == :unverified ? mm[:labels].include?(disp(raw)) : r[1] == :resolved
+end
+
+# QuickSight scalar functions whose Sigma counterpart takes the SAME arguments, so only the
+# head is renamed (every target is on the scripts/lib/sigma_functions.rb whitelist; anything
+# else stays visible to validate-spec's function whitelist instead of being guessed).
+# Sources: QuickSight functions https://docs.aws.amazon.com/quicksight/latest/user/functions-by-category.html ;
+# Sigma functions https://help.sigmacomputing.com/docs/function-index
+QS_SCALAR_FUNCS = {
+  'isnull' => 'IsNull', 'coalesce' => 'Coalesce', 'concat' => 'Concat', 'replace' => 'Replace',
+  'toupper' => 'Upper', 'tolower' => 'Lower', 'trim' => 'Trim', 'ltrim' => 'LTrim', 'rtrim' => 'RTrim',
+  'left' => 'Left', 'right' => 'Right', 'strlen' => 'Len', 'abs' => 'Abs', 'floor' => 'Floor',
+  'ceil' => 'Ceiling', 'round' => 'Round', 'sqrt' => 'Sqrt', 'exp' => 'Exp', 'ln' => 'Ln', 'mod' => 'Mod'
+}.freeze
+# Words that can appear bare in a QuickSight expression without being a column.
+QS_EXPR_KEYWORDS = %w[and or not in like true false is pre_filter pre_agg post_agg_filter].freeze
+
+# Translation context for qs_expr_to_sigma. `master_cols` set => MASTER context: dataset refs
+# resolve against that master's data-model element and a {calc} ref is a SIBLING column.
+# Without it (chart-measure context, `dmel` is the master's own name) refs use the master's
+# display-name columns. `refs` collects every dataset/calc name the expression reads.
+def qs_expr_ctx(calc, subject, master_cols: nil, land: nil)
+  { calcs: calc, subject: subject, master_cols: master_cols, land: land, refs: [] }
+end
+
+def qs_expr_ref(nm, dmel, ctx)
+  calc_name = qs_calc_name(ctx[:calcs] || {}, nm)
+  ref_name = calc_name || nm
+  ctx[:refs] << ref_name
+  if calc_name
+    ctx[:land] && ctx[:land].call(calc_name)
+    return ctx[:master_cols] ? "[#{calc_name}]" : "[#{dmel}/#{calc_name}]"
   end
-  s = s.gsub(/\{([^}]+)\}/) { "[#{dmel}/#{disp(Regexp.last_match(1).strip)}]" }
-  s = s.gsub('<>', '!=')
+  label = ctx[:master_cols] ? resolve_dm_label(ref_name, ctx[:master_cols]) : disp(ref_name)
+  BOOLEAN_COLS << label if ctx[:master_cols] && qs_ci_name(BOOLEAN_RAW, ref_name)
+  "[#{dmel}/#{label}]"
+end
+
+def qs_expr_code(text, dmel, ctx)
+  s = text.gsub('<>', '!=')
   s = s.gsub(/\bifelse\s*\(/i, 'If(')
-  # QS aggregate/scalar function names -> Sigma. Substituted column refs ([dmel/Col]) are
-  # already in place, so this only rewrites function-call heads. Longest-first so
+  # QS aggregate/scalar function names -> Sigma. Only code between tokens is rewritten, so
+  # substituted refs and string literals are never touched. Longest-first so
   # distinct_countIf matches before distinct_count and *If before the base. The negative
   # lookbehind + required '(' avoids touching identifiers/column names (RCA #9/#10).
   # COMPOSITIONAL, cited: this in-expression function-head substitution (incl. the
@@ -306,6 +440,48 @@ def qs_expr_to_sigma(expr, dmel, params = {})
    %w[min Min], %w[max Max]].each do |qs, sig|
     s = s.gsub(/(?<![A-Za-z0-9_.\/])#{Regexp.escape(qs)}\s*\(/i, "#{sig}(")
   end
+  QS_SCALAR_FUNCS.each do |qs, sig|
+    s = s.gsub(/(?<![A-Za-z0-9_.\/])#{Regexp.escape(qs)}\s*\(/i, "#{sig}(")
+  end
+  # BARE identifiers (QuickSight accepts `channel = 'x'` without braces): bracket the ones
+  # that name a dataset column or a calc field; NULL -> Null; leave keywords and function
+  # heads alone; report anything else instead of passing it through silently.
+  s.gsub(/(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])(?!\s*\()/) do
+    word = Regexp.last_match(1)
+    low = word.downcase
+    if low == 'null'
+      'Null'
+    elsif QS_EXPR_KEYWORDS.include?(low)
+      word
+    elsif (ref_name = qs_calc_name(ctx[:calcs] || {}, word) || qs_ci_name(DATASET_COLS, word))
+      qs_expr_ref(ref_name, dmel, ctx)
+    else
+      manual_item!('UnresolvedIdentifier', "#{ctx[:subject]}: #{word}",
+                   "calc field '#{ctx[:subject]}' uses bare identifier '#{word}', which is neither a dataset column nor a calc field " \
+                   '(and not a QuickSight keyword) - it is left unchanged and will not resolve in Sigma; rewrite it by hand.')
+      word
+    end
+  end
+end
+
+def qs_expr_to_sigma(expr, dmel, params = {}, ctx = nil)
+  ctx ||= qs_expr_ctx({}, '(expression)')
+  out = expr.to_s.split(QS_EXPR_TOKEN, -1).each_with_index.map do |piece, i|
+    next qs_expr_code(piece, dmel, ctx) if i.even?
+    case piece
+    when /\A\$\{/
+      # ${Param} -> inlined default constant (what-if parameters have no DM-formula equivalent).
+      v = params[piece[2..-2].strip]
+      v.nil? ? '0' : (v.is_a?(String) ? "\"#{v}\"" : v.to_s)
+    when /\A\{/
+      qs_expr_ref(piece[1..-2].strip, dmel, ctx)
+    when /\A'/
+      "\"#{piece[1..-2].gsub("\\'", "'").gsub('"', '\\"')}\""
+    else
+      piece # "..." literal or an existing [ref]
+    end
+  end
+  s = out.join
   # Boolean-flag predicates: a warehouse BOOLEAN column compared `= 1`/`= 0` (QS's idiom
   # for a flag it coerced to INTEGER) throws at query time in Sigma. Rewrite to the bare
   # boolean / Not() for columns known boolean (RCA #3, bead 3goo.3).
@@ -321,7 +497,6 @@ def qs_expr_to_sigma(expr, dmel, params = {})
       end
     end
   end
-  s = s.gsub(/'([^']*)'/) { "\"#{Regexp.last_match(1)}\"" }
   s
 end
 
@@ -333,7 +508,7 @@ calc = {}
 # styling spans). The builder previously read PlainText only, so every rich-text title
 # fell back to the raw VisualId GUID as the element name (RCA #8, bead 3goo.8). Parse
 # both, strip tags, unescape entities.
-def qs_visual_title(inner, vtype)
+def qs_visual_title(inner, vtype, fallback = :visual_id)
   ft = (inner['Title'] || {})['FormatText'] || {}
   raw = ft['PlainText'] || ft['RichText']
   if raw && !raw.to_s.strip.empty?
@@ -343,6 +518,7 @@ def qs_visual_title(inner, vtype)
     s = s.strip
     return s unless s.empty?
   end
+  return nil if fallback.nil? # caller names untitled visuals itself
   (inner.is_a?(Hash) ? inner['VisualId'] : nil) || vtype
 end
 
@@ -391,6 +567,11 @@ def field_role(f)
     # nested SimpleNumericalAggregation shape. Honor it — hardcoding COUNT silently turned
     # every QS DISTINCT_COUNT(TASK_ID) KPI into a non-distinct Count (RCA #2, bead 3goo.2).
     [:meas, mf['Column']['ColumnName'], (mf['AggregationFunction'] || 'COUNT').to_s.upcase]
+  elsif (mf = f['DateMeasureField'])
+    # MIN / MAX / COUNT / DISTINCT_COUNT of a date column. AggregationFunction is a PLAIN STRING
+    # (DateAggregationFunction), like CategoricalMeasureField — all four are in the aggregation
+    # catalog. Unread before: a "Latest order date" KPI vanished with no warning.
+    [:meas, mf['Column']['ColumnName'], (mf['AggregationFunction'] || 'COUNT').to_s.upcase]
   elsif (df = f['CategoricalDimensionField'])
     [:dim, df['Column']['ColumnName'], nil]
   elsif (df = f['DateDimensionField'])
@@ -424,8 +605,9 @@ end
 # ConditionalFormatting rule (keyed by FieldId) back to the Sigma column we built.
 def field_id(f)
   return nil unless f.is_a?(Hash)
-  (f['NumericalMeasureField'] || f['CategoricalMeasureField'] ||
-   f['CategoricalDimensionField'] || f['DateDimensionField'] || {})['FieldId']
+  (f['NumericalMeasureField'] || f['CategoricalMeasureField'] || f['DateMeasureField'] ||
+   f['CategoricalDimensionField'] || f['DateDimensionField'] ||
+   f)['FieldId']   # an UNAGGREGATED table field is the bare {FieldId, Column} hash itself
 end
 
 # ---- QS SortConfiguration -> Sigma sort ([bead]) -------------------
@@ -458,7 +640,7 @@ def fid_to_colname(field_wells)
 end
 
 # Apply a visual's SortConfiguration to the built Sigma element (mutates el).
-def apply_qs_sorts(el, inner, kind, title, warnings)
+def apply_qs_sorts(el, inner, kind, title, warnings, field_cols = nil)
   cc = inner['ChartConfiguration'] || {}
   sc = cc['SortConfiguration']
   entries = (sc.is_a?(Hash) && !sc.empty?) ? sc.values.find { |v| v.is_a?(Array) && !v.empty? } : nil
@@ -486,8 +668,12 @@ def apply_qs_sorts(el, inner, kind, title, warnings)
     raw = fs ? fidmap[fs['FieldId']] : cs&.dig('SortBy', 'Column', 'ColumnName')
     dir = ((fs || cs || {})['Direction'].to_s.upcase == 'DESC') ? 'descending' : 'ascending'
     next unless raw
-    # column names on the element: calc fields keep the raw name, physical cols are disp()'d
-    col = (el['columns'] || []).find { |c| c['name'] == disp(raw) || c['name'] == raw }
+    # FieldId -> column id first (a table's CustomLabel renames the column, so a NAME lookup
+    # would miss it); then column names on the element: calc fields keep the raw name,
+    # physical cols are disp()'d
+    cid = field_cols && (fs ? field_cols[fs['FieldId']] : (fid = fidmap.key(raw)) && field_cols[fid])
+    col = cid && (el['columns'] || []).find { |c| c['id'] == cid }
+    col ||= (el['columns'] || []).find { |c| c['name'] == disp(raw) || c['name'] == raw }
     unless col
       warnings << { 'visual' => title, 'type' => 'SortConfiguration',
                     'reason' => "sort field '#{raw}' is not among the visual's Sigma columns — sort skipped" }
@@ -501,6 +687,59 @@ def apply_qs_sorts(el, inner, kind, title, warnings)
     when 'table'
       (el['sort'] ||= []) << { 'columnId' => col['id'], 'direction' => dir }
     end
+  end
+end
+
+# ---- TableVisual FieldOptions / table options -> Sigma table column props ----------------
+# TableFieldOptions: SelectedFieldOptions[{FieldId, CustomLabel, Visibility, Width, URLStyling}],
+# Order[FieldId...], PinnedFieldOptions. Mapped: CustomLabel -> the column NAME, Visibility
+# HIDDEN -> `hidden: true`, Order -> the table's `order` (and the columns[] declaration order).
+# Everything else is REPORTED, never dropped silently. `field_cols` = FieldId -> column id.
+QS_TABLE_UNMAPPED_OPTIONS = %w[TableOptions TotalOptions PaginatedReportOptions TableInlineVisualizations].freeze
+def apply_qs_table_field_options!(el, inner, field_cols, title, warnings)
+  cc = inner['ChartConfiguration'] || {}
+  present = QS_TABLE_UNMAPPED_OPTIONS.select { |k| cc.key?(k) && !(cc[k].respond_to?(:empty?) && cc[k].empty?) }
+  unless present.empty?
+    warnings << { 'visual' => title, 'type' => 'TableOptions',
+                  'reason' => "QuickSight #{present.join(' / ')} (header/cell styling, totals, pagination, inline visuals) have no grounded Sigma mapping - not migrated" }
+  end
+  fo = cc['FieldOptions'].is_a?(Hash) ? cc['FieldOptions'] : {}
+  sel = Array(fo['SelectedFieldOptions']).select { |o| o.is_a?(Hash) && o['FieldId'] }
+  order = Array(fo['Order'])
+  unmapped = []
+  unmapped << 'PinnedFieldOptions' if fo['PinnedFieldOptions'].is_a?(Hash) && !fo['PinnedFieldOptions'].empty?
+  sel.each { |o| %w[Width URLStyling].each { |k| unmapped << k unless o[k].nil? } }
+  unless unmapped.empty?
+    warnings << { 'visual' => title, 'type' => 'TableFieldOptions',
+                  'reason' => "QuickSight table field option(s) #{unmapped.uniq.join(', ')} have no grounded Sigma mapping - not migrated (labels, hidden columns and order were)" }
+  end
+  return if sel.empty? && order.empty?
+  cols = el['columns'] || []
+  by_id = cols.each_with_object({}) { |c, h| h[c['id']] = c }
+  # 1. resolve EVERY final name first, 2. only then de-duplicate: a swap (A->B, B->A) has
+  # distinct final names and must not pick up a spurious "(2)".
+  finals = cols.each_with_object({}) { |c, h| h[c['id']] = c['name'] }
+  labelled = false
+  sel.each do |o|
+    cid = field_cols[o['FieldId']]
+    next unless cid && by_id[cid]
+    lbl = o['CustomLabel'].to_s.strip
+    (finals[cid] = lbl; labelled = true) unless lbl.empty?
+    by_id[cid]['hidden'] = true if o['Visibility'].to_s.upcase == 'HIDDEN'
+  end
+  if labelled
+    seen = Hash.new(0)
+    cols.each do |c|
+      n = finals[c['id']]
+      seen[n] += 1
+      c['name'] = seen[n] == 1 ? n : "#{n} (#{seen[n]})"
+    end
+  end
+  ids = order.map { |fid| field_cols[fid] }.compact.uniq.select { |cid| by_id[cid] }
+  unless ids.empty?
+    rest = cols.map { |c| c['id'] } - ids
+    el['columns'] = (ids + rest).map { |cid| by_id[cid] }
+    el['order'] = ids + rest
   end
 end
 
@@ -712,29 +951,39 @@ master_cols = {}   # colname(raw or calc) -> {id, formula, name}  (PRIMARY maste
 # We register one Sigma master per DM element and route each visual to the master whose DM
 # element COVERS its columns. A SINGLE-dataset analysis (the common case) routes every
 # visual to the primary master, so its output is byte-identical to the prior behavior.
-rb_label_set = ->(el) { ((el['columnLabels'] || []) + (el['columns'] || []).map { |c| c['name'] }).compact.to_set }
-MASTERS = {}   # dm_el_id -> { sid, name, dmel, dm_el_id, cols(hash), labels(Set) }
+MASTERS = {}   # dm_el_id -> { sid, name, dmel, dm_el_id, cols(hash), labels(Set), resolver }
 MASTERS[dm_el] = { sid: 'master', name: M, dmel: DMEL, dm_el_id: dm_el,
-                   cols: master_cols, labels: rb_label_set.call(dm_el_obj) }
+                   cols: master_cols, labels: rb_label_set.call(dm_el_obj),
+                   resolver: register_master!(master_cols, dm_el_obj) }
 PRIMARY_MASTER = MASTERS[dm_el]
-visual_needed_disp = lambda do |inner|
+# RAW dataset column names a visual reads (calc fields expanded to the columns inside them).
+visual_needed_raw = lambda do |inner|
   raw = visual_cols(inner)
-  resolved = raw.flat_map { |n| calc.key?(n) ? calc[n].to_s.scan(/\{([^}]+)\}/).flatten.map(&:strip) : [n] }
-  resolved.map { |c| disp(c) }.to_set
+  raw.flat_map do |n|
+    calc_name = qs_calc_name(calc, n)
+    calc_name ? qs_calc_refs(calc[calc_name], calc) : [n]
+  end.uniq
 end
 route_master = lambda do |inner|
-  needed = visual_needed_disp.call(inner)
-  prim_cover = (needed & PRIMARY_MASTER[:labels]).size
+  needed = visual_needed_raw.call(inner)
+  prim_cover = needed.count { |r| master_covers?(PRIMARY_MASTER, r) }
   return PRIMARY_MASTER if needed.empty? || prim_cover == needed.size
   # not fully covered by the primary -> pick the DM element that covers it best (tie-break
   # on FEWER columns so the focused element wins over a denormalized superset)
-  cand = rb_els.map { |e| [(needed & rb_label_set.call(e)).size, -((e['columnLabels'] || []).size), e] }
-               .max_by { |cover, negn, _e| [cover, negn] }
+  cand = rb_els.map do |e|
+    rs = DmColumnIndex::Resolver.new(e)
+    pseudo = { resolver: rs, labels: rb_label_set.call(e) }
+    [needed.count { |r| master_covers?(pseudo, r) }, -rs.labels.size, e]
+  end.max_by { |cover, negn, _e| [cover, negn] }
   return PRIMARY_MASTER if cand.nil? || cand[0] <= prim_cover   # nothing covers it better -> stay primary
   e = cand[2]
-  MASTERS[e['id']] ||= { sid: did('ms', e['id']), name: e['name'] || 'Data',
+  unless MASTERS[e['id']]
+    sec_cols = {}
+    MASTERS[e['id']] = { sid: did('ms', e['id']), name: e['name'] || 'Data',
                          dmel: e['name'] || 'Custom SQL', dm_el_id: e['id'],
-                         cols: {}, labels: rb_label_set.call(e) }
+                         cols: sec_cols, labels: rb_label_set.call(e),
+                         resolver: register_master!(sec_cols, e) }
+  end
   MASTERS[e['id']]
 end
 
@@ -764,7 +1013,7 @@ qs_insight_text = lambda do |inner|
   walk.call(comp)
   return nil unless colname
   dname = disp(colname)
-  target = MASTERS.values.find { |mm| mm[:labels].include?(dname) }
+  target = MASTERS.values.find { |mm| master_covers?(mm, colname) }
   return nil unless target   # dataset not migrated (e.g. a REPORT_RUN_DATES aux table) -> skip
   master_ref(colname, {}, target[:cols], target[:dmel])  # land the column on that master
   fmt = qs_datefmt_to_strftime(datefmt)
@@ -856,9 +1105,26 @@ def master_ref(colname, calc, master_cols, dmel)
                                '_window' => true }
       return master_cols[colname]
     end
-    formula = qs_expr_to_sigma(calc[colname], dmel, defined?(PARAM_DEFAULTS) ? PARAM_DEFAULTS : {}); nm = colname
+    nm = colname
+    # A calc that (transitively) reads itself cannot be built: stop the recursion and say so.
+    $QS_CALC_STACK ||= []
+    if $QS_CALC_STACK.include?(colname)
+      manual_item!('CalcCycle', colname, "calc field '#{colname}' references itself (directly or through other calc fields) - emitted as Null; rewrite it by hand")
+      formula = 'Null'
+    else
+      $QS_CALC_STACK.push(colname)
+      begin
+        # MASTER context: dataset refs resolve against this master's data-model element; a
+        # {calc} / bare-calc ref is a sibling column, landed on this master first.
+        ctx = qs_expr_ctx(calc, colname, master_cols: master_cols,
+                          land: ->(name) { master_ref(name, calc, master_cols, dmel) })
+        formula = qs_expr_to_sigma(calc[colname], dmel, defined?(PARAM_DEFAULTS) ? PARAM_DEFAULTS : {}, ctx)
+      ensure
+        $QS_CALC_STACK.pop
+      end
+    end
   else
-    formula = "[#{dmel}/#{disp(colname)}]"; nm = disp(colname)
+    formula = "[#{dmel}/#{resolve_dm_label(colname, master_cols)}]"; nm = disp(colname)
   end
   master_cols[colname] = { 'id' => did('m', 'master', dmel, colname), 'formula' => formula, 'name' => nm }
 end
@@ -868,7 +1134,7 @@ end
 # visual's routed master. DateTimeHierarchy carries no columns in the analysis
 # definition and therefore remains a loud gap instead of guessed year/month/day
 # levels.
-def build_qs_drill_control(element, inner, calc, master_cols, dmel, master_name, master_labels, warnings)
+def build_qs_drill_control(element, inner, calc, master_cols, dmel, master_name, master, warnings)
   hierarchies = inner['ColumnHierarchies']
   return nil unless hierarchies.is_a?(Array) && !hierarchies.empty?
   unless element && element.dig('xAxis', 'columnId') && element.dig('source', 'elementId')
@@ -904,7 +1170,7 @@ def build_qs_drill_control(element, inner, calc, master_cols, dmel, master_name,
   target_ids = []
   missing = []
   names.each_with_index do |raw_name, index|
-    unless master_labels.include?(disp(raw_name))
+    unless master_covers?(master, raw_name)
       missing << raw_name
       next
     end
@@ -1005,11 +1271,13 @@ AGG_EXPR = /\A\s*(CountDistinctIf|CountDistinct|CountIf|Count|SumIf|Sum|AvgIf|Av
 def meas_col(role, calc, mc, dmel, m)
   _, col, agg = role
   if calc.key?(col) && !qs_window_func?(calc[col])
-    expr = qs_expr_to_sigma(calc[col], m, defined?(PARAM_DEFAULTS) ? PARAM_DEFAULTS : {})
+    # CHART-MEASURE context (no master_cols): refs point at the master's own columns (`m` prefix).
+    ctx = qs_expr_ctx(calc, col)
+    expr = qs_expr_to_sigma(calc[col], m, defined?(PARAM_DEFAULTS) ? PARAM_DEFAULTS : {}, ctx)
     if expr =~ AGG_EXPR
       # land each base column the aggregate references on the master, then emit the
       # aggregate itself as the measure (refs resolve to the master via the `m` prefix).
-      calc[col].scan(/\{([^}]+)\}/).flatten.each { |bc| master_ref(bc.strip, calc, mc, dmel) }
+      ctx[:refs].uniq.each { |bc| master_ref(bc, calc, mc, dmel) }
       id = did('m', 'chart', m, col, 'agg')
       # governed [Metrics/<name>] ref when this aggregate calc matches a DM metric
       col_h = { 'id' => id, 'formula' => MetricBinding.metric_ref_or_inline(expr, m, $QS_METRICS || []), 'name' => col }
@@ -1079,6 +1347,7 @@ QS_CONTROL_WRAPS = %w[Dropdown List Slider TextField TextArea DateTimePicker Rel
 
 # Every FilterId -> filtered raw ColumnName, indexed across the analysis FilterGroups.
 QS_FILTER_COL = {}
+QS_FILTER_DS = {}   # FilterId -> the analysis' DataSetIdentifier of the filtered column
 (defn['FilterGroups'] || []).each do |fg|
   (fg['Filters'] || []).each do |flt|
     body = flt.is_a?(Hash) ? flt.values.first : nil
@@ -1086,7 +1355,41 @@ QS_FILTER_COL = {}
     fid = body['FilterId']
     col = body.dig('Column', 'ColumnName') || body.dig('ColumnName')
     QS_FILTER_COL[fid] = col if fid && col
+    QS_FILTER_DS[fid] = body.dig('Column', 'DataSetIdentifier') if fid && col
   end
+end
+
+# DataSetIdentifier (the name used inside the analysis) -> DataSetId of the discovered dataset.
+QS_DATASET_ID = {}
+(defn['DataSetIdentifierDeclarations'] || []).each do |d|
+  QS_DATASET_ID[d['Identifier']] = d['DataSetArn'].to_s.split('dataset/').last if d['Identifier']
+end
+
+# Sigma value type of a control's target column, and where it came from. Authority order:
+#   1. the DATA MODEL's own column type (dm-readback columnTypes, from /columns) — the master
+#      column the control binds is the data-model column, and the spec API strips a `list`
+#      control on a datetime one;
+#   2. the dataset OutputColumns type (--discover-dir);
+#   3. nothing -> the caller falls back to the name heuristic and WARNS.
+# Calc fields have no stored type anywhere -> [nil, nil].
+def qs_control_column_type(raw, ds_ident, master_cols, calc)
+  return [nil, nil] if calc.key?(raw)
+  el = MASTER_ELEMENTS[master_cols]
+  rs = RESOLVERS[master_cols]
+  if el && rs
+    label, status = rs.resolve(raw, prefer: disp(raw))
+    label = disp(raw) if status == :unverified
+    t = label && DmColumnIndex.type_of(el, label)
+    return [t, :data_model] if t
+  end
+  ds_id = QS_DATASET_ID[ds_ident]
+  t = ds_id && (DATASET_COL_TYPES[ds_id] || {})[raw]
+  unless t
+    all = DATASET_COL_TYPES.values.map { |h| h[raw] }.compact.uniq
+    t = all.first if all.size == 1
+  end
+  return [nil, nil] unless t
+  [t == 'DATETIME' ? 'datetime' : t.downcase, :dataset]
 end
 
 # RCA #1 / bead 3goo.1 — PER-VISUAL FilterGroups. A QS FilterGroup whose
@@ -1096,26 +1399,178 @@ end
 # DISTINCT_COUNT(TASK_ID) distinguished ONLY by a TASK_STATUS CategoryFilter. We index
 # VisualId -> [{col, values, mode}] and apply them as Sigma element `filters[]` so each
 # element sees the same rows QuickSight scoped it to.
+#
+# SCOPE OF WHAT IS MIGRATED: a group becomes element filters only when it holds exactly ONE
+# static CategoryFilter on selected visuals. QuickSight ORs the filters inside one group
+# (https://docs.aws.amazon.com/quicksight/latest/user/add-a-compound-filter.html) while
+# Sigma's element filters AND-compose and cannot OR across columns, so a multi-filter group
+# cannot be expressed. Every OTHER enabled group - 2+ filters, parameter-bounded or static
+# range/relative/top-bottom filters, a sheet-wide static category filter - is reported as a
+# FilterGroupNotMigrated manual item (scope, conditions, parameters + defaults) instead of
+# vanishing, and the parameter controls feeding it are marked manual too. A group whose
+# single filter is driven by a FilterControl is covered by that control (build_qs_control).
 VISUAL_FILTERS = Hash.new { |h, k| h[k] = [] }
+
+# Every FilterControl's SourceFilterId (the filters a control already drives).
+CONTROL_FILTER_IDS = Set.new
+(defn['Sheets'] || []).each do |sh|
+  (sh['FilterControls'] || []).each do |w|
+    b = w.is_a?(Hash) ? w.values.first : nil
+    CONTROL_FILTER_IDS << b['SourceFilterId'] if b.is_a?(Hash) && b['SourceFilterId']
+  end
+end
+SHEET_NAMES = {}
+SHEET_VISUALS = {}   # SheetId -> [VisualId]
+VISUAL_TITLES = {}   # VisualId -> element name
+# A visual with no title text is named after its SHEET (never its VisualId, which also became its
+# Phase 6 check name); a repeat gets a numeric suffix so the name stays unique in the plan.
+UNTITLED_SEEN = Hash.new(0)
+(defn['Sheets'] || []).each_with_index do |sh, sheet_idx|
+  SHEET_NAMES[sh['SheetId']] = sh['Name'] if sh['SheetId']
+  (sh['Visuals'] || []).each do |v|
+    vt, inner = v.first
+    next unless inner.is_a?(Hash) && inner['VisualId']
+    (SHEET_VISUALS[sh['SheetId']] ||= []) << inner['VisualId']
+    t = qs_visual_title(inner, vt, nil)
+    unless t
+      base = sh['Name'].to_s.strip.empty? ? "Sheet #{sheet_idx + 1}" : sh['Name'].to_s.strip
+      UNTITLED_SEEN[base] += 1
+      t = UNTITLED_SEEN[base] == 1 ? base : "#{base} (#{UNTITLED_SEEN[base]})"
+    end
+    VISUAL_TITLES[inner['VisualId']] = t
+  end
+end
+ALL_VISUAL_IDS = VISUAL_TITLES.keys.to_set
+
+# The visuals a FilterGroup applies to: :all (AllSheets, ALL_VISUALS on every sheet, or no scope
+# information) or a Set of VisualIds. A FilterControl only filters what ITS group is scoped to.
+def qs_filter_scope_visuals(fg)
+  sc = fg && fg['ScopeConfiguration']
+  return :all unless sc.is_a?(Hash) && !sc.empty?
+  return :all if sc.key?('AllSheets')
+  set = Set.new
+  Array(sc.dig('SelectedSheets', 'SheetVisualScopingConfigurations')).each do |c|
+    if c['Scope'].to_s.upcase == 'SELECTED_VISUALS'
+      set.merge(Array(c['VisualIds']))
+    else
+      set.merge(SHEET_VISUALS[c['SheetId']] || [])
+    end
+  end
+  set.empty? || set.superset?(ALL_VISUAL_IDS) ? :all : set
+end
+FILTER_GROUP_OF = {}   # FilterId -> its (enabled) FilterGroup
+# parameter -> calc fields that read it (${Name}); parameter -> NOT-migrated FilterGroups it feeds
+PARAM_CALCS = {}
+(defn['CalculatedFields'] || []).each do |c|
+  c['Expression'].to_s.scan(/\$\{([^}]+)\}/).flatten.each { |n| (PARAM_CALCS[n.strip] ||= []) << c['Name'] }
+end
+PARAM_FILTER_GROUPS = {}
+
+# Static category values of a CategoryFilter body -> [column, values, mode] or nil.
+def qs_static_category(body)
+  return nil unless body.is_a?(Hash)
+  col = body.dig('Column', 'ColumnName')
+  cfg = body['Configuration'] || {}
+  inner = cfg['FilterListConfiguration'] || cfg['CustomFilterListConfiguration'] ||
+          cfg['CustomFilterConfiguration'] || {}
+  vals = inner['CategoryValues'] || (inner['CategoryValue'] ? [inner['CategoryValue']] : [])
+  return nil if col.nil? || vals.empty?
+  mop  = (inner['MatchOperator'] || 'CONTAINS').to_s.upcase
+  [col, vals, mop.start_with?('DOES_NOT') ? 'exclude' : 'include']
+end
+
+# Parameters a filter body reads (RangeMinimumValue.Parameter, CustomFilterConfiguration.ParameterName, ...).
+def qs_filter_params(o, out = [])
+  if o.is_a?(Hash)
+    o.each do |k, v|
+      out << v if %w[Parameter ParameterName].include?(k) && v.is_a?(String)
+      qs_filter_params(v, out)
+    end
+  elsif o.is_a?(Array)
+    o.each { |v| qs_filter_params(v, out) }
+  end
+  out
+end
+
+# One-line human description of a filter's condition.
+def qs_filter_condition(flt)
+  type, body = flt.is_a?(Hash) ? flt.first : [nil, nil]
+  return type.to_s unless body.is_a?(Hash)
+  c = body.dig('Column', 'ColumnName') || '?'
+  bound = lambda do |v|
+    next 'unbounded' unless v.is_a?(Hash)
+    next "${#{v['Parameter']}}" if v['Parameter']
+    next v['StaticValue'].to_s unless v['StaticValue'].nil?
+    next "rolling(#{v.dig('RollingDate', 'Expression')})" if v['RollingDate']
+    v.to_s
+  end
+  case type
+  when 'TimeRangeFilter', 'NumericRangeFilter'
+    "#{type} #{c} between #{bound.call(body['RangeMinimumValue'])} and #{bound.call(body['RangeMaximumValue'])}"
+  when 'CategoryFilter'
+    cfg = body['Configuration'] || {}
+    inner = cfg['FilterListConfiguration'] || cfg['CustomFilterListConfiguration'] || cfg['CustomFilterConfiguration'] || {}
+    vals = inner['CategoryValues'] || (inner['CategoryValue'] ? [inner['CategoryValue']] : [])
+    "CategoryFilter #{c} #{inner['MatchOperator'] || 'CONTAINS'} #{vals.inspect}#{inner['ParameterName'] ? " (parameter ${#{inner['ParameterName']}})" : ''}"
+  else
+    "#{type} #{c} #{JSON.generate(body.reject { |k, _| %w[FilterId Column].include?(k) })[0, 160]}"
+  end
+end
+
+def qs_filter_scope_text(fg)
+  sc = fg['ScopeConfiguration'] || {}
+  return 'all sheets' if sc.key?('AllSheets')
+  parts = Array(sc.dig('SelectedSheets', 'SheetVisualScopingConfigurations')).map do |s|
+    sheet = SHEET_NAMES[s['SheetId']] || s['SheetId']
+    if s['Scope'].to_s.upcase == 'SELECTED_VISUALS'
+      "sheet '#{sheet}': visual(s) #{Array(s['VisualIds']).map { |v| "'#{VISUAL_TITLES[v] || v}'" }.join(', ')}"
+    else
+      "sheet '#{sheet}': all visuals"
+    end
+  end
+  parts.empty? ? 'unscoped' : parts.join('; ')
+end
+
 (defn['FilterGroups'] || []).each do |fg|
   next unless (fg['Status'] || 'ENABLED').to_s.upcase == 'ENABLED'
+  gid = fg['FilterGroupId'] || '(unnamed)'
+  flts = Array(fg['Filters'])
+  flts.each { |f| b = f.is_a?(Hash) ? f.values.first : nil; FILTER_GROUP_OF[b['FilterId']] = fg if b.is_a?(Hash) && b['FilterId'] }
   scopes = fg.dig('ScopeConfiguration', 'SelectedSheets', 'SheetVisualScopingConfigurations') || []
-  vids = scopes.select { |s| (s['Scope'] || '').to_s.upcase == 'SELECTED_VISUALS' }
-              .flat_map { |s| s['VisualIds'] || [] }.uniq
-  next if vids.empty?
-  (fg['Filters'] || []).each do |flt|
-    cf = flt.is_a?(Hash) ? (flt['CategoryFilter'] || flt.values.first) : nil
-    next unless cf.is_a?(Hash)
-    col = cf.dig('Column', 'ColumnName')
-    cfg = cf['Configuration'] || {}
-    inner = cfg['FilterListConfiguration'] || cfg['CustomFilterListConfiguration'] ||
-            cfg['CustomFilterConfiguration'] || {}
-    vals = inner['CategoryValues'] || (inner['CategoryValue'] ? [inner['CategoryValue']] : [])
-    next if col.nil? || vals.empty?
-    mop  = (inner['MatchOperator'] || 'CONTAINS').to_s.upcase
-    mode = mop.start_with?('DOES_NOT') ? 'exclude' : 'include'
-    vids.each { |vid| VISUAL_FILTERS[vid] << { 'col' => col, 'values' => vals, 'mode' => mode } }
+  vids = scopes.select { |sc| (sc['Scope'] || '').to_s.upcase == 'SELECTED_VISUALS' }
+               .flat_map { |sc| sc['VisualIds'] || [] }.uniq
+  reason = nil
+  if flts.size > 1
+    reason = "holds #{flts.size} filters. QuickSight combines the filters inside ONE group with OR, but Sigma element filters AND-compose and cannot OR across columns, " \
+             'so applying them would change which rows show'
+  elsif flts.size == 1
+    type, body = flts.first.first
+    fid = body.is_a?(Hash) ? body['FilterId'] : nil
+    static = type == 'CategoryFilter' ? qs_static_category(body) : nil
+    if fid && CONTROL_FILTER_IDS.include?(fid)
+      nil # driven by a FilterControl: covered by that control
+    elsif static && !vids.empty?
+      col, vals, mode = static
+      vids.each { |vid| VISUAL_FILTERS[vid] << { 'col' => col, 'values' => vals, 'mode' => mode } }
+    elsif type == 'CategoryFilter' && static.nil? &&
+          (((body['Configuration'] || {}).values.first || {})['SelectAllOptions'].to_s.upcase == 'FILTER_ALL_VALUES')
+      nil # explicit "select all": a no-op
+    elsif static
+      reason = 'is a static category filter scoped to ALL visuals of the sheet(s) with no control; Sigma has no sheet-wide static filter this builder emits ' \
+               '(it would have to be an element filter on every visual)'
+    elsif type == 'CategoryFilter'
+      reason = 'is a category filter with no values and no control'
+    else
+      reason = "is a #{type} (parameter-bounded, range, relative-date or top/bottom filter), which this builder does not express as a Sigma element filter"
+    end
   end
+  next unless reason
+  params = flts.flat_map { |f| qs_filter_params(f) }.uniq
+  params.each { |pn| (PARAM_FILTER_GROUPS[pn] ||= []) << gid }
+  pdesc = params.map { |pn| "#{pn} (default #{PARAM_DEFAULTS.key?(pn) ? PARAM_DEFAULTS[pn].inspect : 'none'})" }
+  manual_item!('FilterGroupNotMigrated', "FilterGroup #{gid}",
+               "QuickSight FilterGroup '#{gid}' (scope: #{qs_filter_scope_text(fg)}) #{reason}. Conditions: #{flts.map { |f| qs_filter_condition(f) }.join(' OR ')}." \
+               "#{pdesc.empty? ? '' : " Parameters: #{pdesc.join(', ')}."} It was NOT migrated - re-create it in Sigma by hand.")
 end
 
 # Attach a visual's scoped FilterGroups (above) to its built Sigma element as element
@@ -1273,6 +1728,14 @@ def qs_control_target_col(wrap, kind, filter_col_map)
   [col, body, :parameter]
 end
 
+# Elements a control's filters can reach through the source closure (same list the control-scope
+# contract uses for mustReach).
+CTL_QUERYABLE = %w[table pivot-table bar-chart waterfall-chart line-chart pie-chart donut-chart
+                   area-chart scatter-chart combo-chart kpi-chart region-map point-map].to_set
+CONTROL_LAYOUT = {}        # pageId -> [{ id:, row:, col:, span: }] in control order (only when QuickSight gave a control grid)
+CONTROL_SCOPE_INFO = {}    # controlId -> { el:, ctl_id:, scope:, raw_col:, sig:, group: } for the scope post-pass
+QS_CONTROL_ELEMENT = {}    # QuickSight FilterControlId / ParameterControlId -> Sigma control element id
+
 # Build ONE Sigma control element for a QS FilterControl/ParameterControl wrap, or nil.
 # Pushes a control-scope CONTRACT row (scope/sourceName/status) or an `unbound` row so the
 # signal is NEVER silently dropped. Dedupes by target column (the same column filtered by
@@ -1291,32 +1754,71 @@ def build_qs_control(wrap, master_cols, calc, dmel, scope, unbound, seen_cols, w
   label = body.dig('Title') || body['Title'] || raw_col || cid_src
   sig = "#{src_kind} control #{cid_src.inspect}#{raw_col ? " on #{raw_col}" : ''}"
   if raw_col.nil? || raw_col.to_s.empty?
-    # what-if scalar parameter control — already inlined as a constant; no list control.
-    warnings << { 'visual' => '(control)', 'type' => 'ParameterControl',
-                  'reason' => "#{sig}: not bound to a dataset column (what-if scalar) — its default is inlined; add a Sigma what-if control by hand if interactivity is needed" }
-    unbound << { 'sourceName' => sig, 'status' => 'manual',
-                 'reason' => 'what-if scalar parameter control has no Sigma list-control equivalent (value inlined as a constant)' }
+    # A parameter control with no dataset column. What it MEANS depends on what reads the
+    # parameter: a FilterGroup that was not migrated, a calc field (default inlined), or nothing.
+    pname = body['SourceParameterName']
+    groups = (PARAM_FILTER_GROUPS[pname] || []).uniq
+    calcs_using = (PARAM_CALCS[pname] || []).uniq
+    pdesc = "parameter '#{pname}' (default #{PARAM_DEFAULTS.key?(pname) ? PARAM_DEFAULTS[pname].inspect : 'none'})"
+    if pname && !groups.empty?
+      why = "#{pdesc} bounds QuickSight FilterGroup(s) #{groups.map { |g| "'#{g}'" }.join(', ')} that were NOT migrated (see FilterGroupNotMigrated), " \
+            'so this control has nothing to drive - re-create the filter and its control in Sigma by hand'
+      warnings << { 'visual' => '(control)', 'type' => 'ParameterControl', 'reason' => "#{sig}: #{why}" }
+      manual_item!('ParameterControl', sig, "#{sig}: #{why}")
+      unbound << { 'sourceName' => sig, 'status' => 'manual', 'reason' => "feeds FilterGroup(s) #{groups.join(', ')} that were not migrated" }
+    elsif !calcs_using.empty?
+      warnings << { 'visual' => '(control)', 'type' => 'ParameterControl',
+                    'reason' => "#{sig}: not bound to a dataset column (what-if scalar) - #{pdesc} is inlined as a constant in calc field(s) #{calcs_using.join(', ')}; add a Sigma what-if control by hand if interactivity is needed" }
+      unbound << { 'sourceName' => sig, 'status' => 'manual',
+                   'reason' => 'what-if scalar parameter control has no Sigma list-control equivalent (value inlined as a constant)' }
+    else
+      warnings << { 'visual' => '(control)', 'type' => 'ParameterControl',
+                    'reason' => "#{sig}: not bound to a dataset column and #{pdesc} is not read by any calc field or migrated filter in this analysis - nothing to wire" }
+      unbound << { 'sourceName' => sig, 'status' => 'manual',
+                   'reason' => 'parameter control with no dataset column and no reader in the analysis (nothing to wire)' }
+    end
     return nil
   end
-  if seen_cols.key?(raw_col)
+  # The QuickSight scope this control inherits from its FilterGroup (:all or a Set of VisualIds).
+  # Two controls on the same column are ONE Sigma control only when their scopes are the same.
+  fid = src_kind == :filter ? body['SourceFilterId'] : nil
+  qs_group = fid && FILTER_GROUP_OF[fid]
+  qs_scope = qs_group ? qs_filter_scope_visuals(qs_group) : :all
+  scope_tag = qs_scope == :all ? nil : Digest::SHA1.hexdigest(qs_scope.to_a.sort.join('|'))[0, 6]
+  dedupe_key = [raw_col, scope_tag]
+  if seen_cols.key?(dedupe_key)
     unbound << { 'sourceName' => sig, 'status' => 'duplicate',
-                 'reason' => "same column as control '#{seen_cols[raw_col]}' — one Sigma control already covers it" }
+                 'reason' => "same column and scope as control '#{seen_cols[dedupe_key]}' — one Sigma control already covers it" }
     return nil
   end
   # surface the target column on the master (master_ref adds it if absent) and target it.
   ref = master_ref(raw_col, calc, master_cols, dmel)
   col_id = ref['id']
-  ctl_id = 'qs-' + raw_col.to_s.gsub(/[^A-Za-z0-9]/, '') + '-filter'
-  seen_cols[raw_col] = ctl_id
+  ctl_id = 'qs-' + raw_col.to_s.gsub(/[^A-Za-z0-9]/, '') + (scope_tag ? "-#{scope_tag}" : '') + '-filter'
+  seen_cols[dedupe_key] = ctl_id
   el = { 'id' => did('ctlel', ctl_id), 'kind' => 'control', 'controlId' => ctl_id,
          'name' => label.to_s }
-  # control kind is CATALOG-resolved (refs/catalogs/control.json): DateTimePicker /
-  # RelativeDateTime -> date-range, every other wrap type -> list (the documented
-  # default). The date-NAME heuristic stays as cited compositional code: a `list` control
-  # bound to a datetime column is silently stripped by the spec API, so a date-typed
-  # TARGET COLUMN must also become a date-range control regardless of the QS control type.
-  is_date = CTRL_CAT.target(ctype) == 'date-range' ||
-            raw_col.to_s =~ /(^|_)(date|dt|timestamp)(_|$)/i
+  # control kind: the bound column's TYPE decides (see qs_control_column_type) — a `list`
+  # control on a datetime column is silently stripped by the spec API, and a date-range
+  # control on a text column is no more valid. Only when NO type is known does the kind fall
+  # back to the QuickSight control type (refs/catalogs/control.json: DateTimePicker /
+  # RelativeDateTime -> date-range, everything else -> the documented `list` default) or
+  # the date-NAME heuristic — and that guess is reported (ControlKind).
+  ds_ident = src_kind == :filter ? QS_FILTER_DS[body['SourceFilterId']] : body.dig('SelectableValues', 'LinkToDataSetColumn', 'DataSetIdentifier')
+  col_type, type_src = qs_control_column_type(raw_col, ds_ident, master_cols, calc)
+  catalog_date = CTRL_CAT.target(ctype) == 'date-range'
+  if col_type
+    is_date = col_type == 'datetime'
+    if catalog_date && !is_date
+      warnings << { 'visual' => '(control)', 'type' => 'ControlKind',
+                    'reason' => "#{sig}: QuickSight #{ctype} control is bound to a #{col_type} column '#{raw_col}' (#{type_src == :data_model ? 'data-model' : 'dataset'} type) - emitted as a list control, not a date-range" }
+    end
+  else
+    name_date = raw_col.to_s =~ /(^|_)(date|dt|timestamp)(_|$)/i
+    is_date = catalog_date || name_date ? true : false
+    warnings << { 'visual' => '(control)', 'type' => 'ControlKind',
+                  'reason' => "#{sig}: no data-model or dataset column type is available for '#{raw_col}', so the control kind (#{is_date ? 'date-range' : 'list'}) was chosen from the QuickSight control type / column NAME - verify it: a list control on a datetime column is stripped by the spec API" }
+  end
   if is_date
     # date target: a `list` control on a datetime column is silently stripped by the
     # spec API, so a date-range control is the faithful shape (needs a flat `mode`).
@@ -1337,7 +1839,7 @@ def build_qs_control(wrap, master_cols, calc, dmel, scope, unbound, seen_cols, w
   # secondary master that has the column.
   wired = [{ 'elementId' => 'master', 'columnId' => col_id }]
   (masters || {}).each_value do |mm|
-    next if mm[:sid] == 'master' || !mm[:labels].include?(disp(raw_col))
+    next if mm[:sid] == 'master' || !master_covers?(mm, raw_col)
     scol = master_ref(raw_col, calc, mm[:cols], mm[:dmel])
     el['filters'] << { 'source' => { 'kind' => 'table', 'elementId' => mm[:sid] }, 'columnId' => scol['id'] }
     wired << { 'elementId' => mm[:sid], 'columnId' => scol['id'] }
@@ -1345,6 +1847,9 @@ def build_qs_control(wrap, master_cols, calc, dmel, scope, unbound, seen_cols, w
   scope << { 'controlId' => ctl_id, 'sourceName' => sig, 'status' => 'wired',
              'controlType' => el['controlType'], 'scope' => 'page', 'mustReach' => [],
              'wired' => wired }
+  CONTROL_SCOPE_INFO[ctl_id] = { el: el, ctl_id: ctl_id, scope: qs_scope, raw_col: raw_col, sig: sig,
+                                 group: qs_group && qs_group['FilterGroupId'] }
+  QS_CONTROL_ELEMENT[cid_src] = el['id']
   el
 end
 
@@ -1366,8 +1871,10 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
   elements = []
   page_repeaters = []
   (sh['Visuals'] || []).each do |v|
+    built = false      # an element was emitted for this visual
+    reported = false   # a warning already says why it was skipped / approximated
     vtype, inner = v.first
-    title = qs_visual_title(inner, vtype)
+    title = VISUAL_TITLES[inner['VisualId']] || qs_visual_title(inner, vtype)
     kind = KIND[vtype]
     is_fallback = false
     unless kind
@@ -1378,12 +1885,14 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
       fk = QS_FALLBACK[vtype]
       reason = QS_UNSUPPORTED[vtype] || "unrecognized QuickSight visual type '#{vtype}'"
       build_warnings << { 'visual' => title, 'type' => vtype, 'reason' => reason }
+      reported = fk.nil?
       unless fk
         # RCA #11: a simple single-computation Insight narrative -> Sigma text element.
         if vtype == 'InsightVisual' && (ibody = qs_insight_text.call(inner))
           tid = did('txt', inner['VisualId'])
           elements << { 'id' => tid, 'kind' => 'text', 'name' => 'Insight', 'body' => ibody }
           vis_map[inner['VisualId']] = tid
+          built = true
           build_warnings.pop   # supersede the generic "dropped" warning we just queued
           build_warnings << { 'visual' => title, 'type' => vtype, 'reason' => 'migrated as a dynamic text element (single-computation narrative)' }
           STDERR.puts "  ~ InsightVisual (#{title}): migrated as dynamic text"
@@ -1396,7 +1905,7 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
       STDERR.puts "  ~ #{vtype} (#{title}): no native Sigma kind -> migrated as #{fk} (#{reason})"
     end
     eid = did('el', inner['VisualId'])
-    vis_map[inner['VisualId']] = eid
+    # (visualToElement is filled only once an element exists - see `built` below)
     # PieChartVisual → pie-chart by default. Map to donut-chart ONLY when QuickSight
     # is rendering a REAL donut: DonutOptions.ArcOptions.ArcThickness is present AND
     # not 'WHOLE'. QuickSight's ArcThickness enum is WHOLE|SMALL|MEDIUM|LARGE — WHOLE
@@ -1418,6 +1927,7 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
     # value labels on bar/pie/donut (Sigma defaults them OFF); lines stay clean
     base['dataLabel'] = { 'labels' => 'shown' } if %w[bar-chart pie-chart donut-chart].include?(kind)
     el = nil
+    field_col_ids = nil   # FieldId -> column id (tables), for FieldId-based sorts
 
     case kind
     when 'progress'
@@ -1617,32 +2127,54 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
       rms = qs_reference_lines(inner, calc, mc_, dmel_, m_, title, build_warnings)
       el['refMarks'] = rms unless rms.empty?
     when 'table'
-      cf_fieldmap = {}   # QS FieldId -> Sigma column id (for D19 conditional formatting)
-      if is_fallback
-        # D18 sankey/box-plot/word-cloud/radar/heat-map -> table. Flatten every well
-        # (Source/Destination/Weight, GroupBy/Size, Category/Color/Values, ...) into a
-        # grouped table: all dims become group-bys, all measures become aggregates.
-        dims, vals = all_field_roles(w)
-        raw_dims = []; raw_vals = []  # fallback has no CF
+      cf_fieldmap = {}   # QS FieldId -> Sigma column id (for D19 conditional formatting + sorts + FieldOptions)
+      if !is_fallback && fw.key?('TableUnaggregatedFieldWells')
+        # UNAGGREGATED table = a DETAIL table: one passthrough column per field in well order,
+        # NO groupings (a Sigma table with no groupings shows raw rows). The entries are bare
+        # {FieldId, Column} hashes, so field_role (aggregated wrappers only) cannot read them.
+        dcols = []
+        Array(w['Values']).each do |f|
+          raw = f.dig('Column', 'ColumnName')
+          next unless raw
+          if window_meas?([:meas, raw, nil], calc)
+            build_warnings << { 'visual' => title, 'type' => 'WindowCalcColumn', 'reason' => "column '#{raw}' is a QuickSight window/table-calc - dropped from the table (kept in the data model); re-author in Sigma" }
+            next
+          end
+          ref = master_ref(raw, calc, mc_, dmel_)
+          cid = did('dt', eid, f['FieldId'] || raw)
+          dcols << { 'id' => cid, 'formula' => "[#{m_}/#{ref['name']}]", 'name' => ref['name'] }
+          cf_fieldmap[f['FieldId']] = cid if f['FieldId']
+        end
+        (next if dcols.empty?)
+        el = base.merge('columns' => dcols)
       else
-        dims = rol.('GroupBy'); vals = rol.('Values')
-        raw_dims = (w['GroupBy'] || []); raw_vals = (w['Values'] || [])
+        if is_fallback
+          # D18 sankey/box-plot/word-cloud/radar/heat-map -> table. Flatten every well
+          # (Source/Destination/Weight, GroupBy/Size, Category/Color/Values, ...) into a
+          # grouped table: all dims become group-bys, all measures become aggregates.
+          dims, vals = all_field_roles(w)
+          raw_dims = []; raw_vals = []  # fallback has no CF
+        else
+          dims = rol.('GroupBy'); vals = rol.('Values')
+          raw_dims = (w['GroupBy'] || []); raw_vals = (w['Values'] || [])
+        end
+        # D12: drop null window/table-calc measures from the TABLE (blank columns look broken);
+        # they remain in the DM master with their original expr in the description.
+        unless is_fallback
+          keep_idx = vals.each_index.reject { |i| window_meas?(vals[i], calc) }
+          dropped_idx = vals.each_index.to_a - keep_idx
+          dropped_idx.each { |i| build_warnings << { 'visual' => title, 'type' => 'WindowCalcColumn', 'reason' => "column '#{vals[i][1]}' is a QuickSight window/table-calc - dropped from the table (kept in the data model); re-author in Sigma" } }
+          vals = keep_idx.map { |i| vals[i] }
+          raw_vals = keep_idx.map { |i| raw_vals[i] }
+        end
+        cols = []; gids = []; cids = []
+        dims.each_with_index { |d, i| c, id = dim_col(d, calc, mc_, dmel_, m_); cols << c; gids << id; (fi = field_id(raw_dims[i])) && (cf_fieldmap[fi] = id) }
+        vals.each_with_index { |mv, i| c, id = meas_col(mv, calc, mc_, dmel_, m_); cols << c; cids << id; (fi = field_id(raw_vals[i])) && (cf_fieldmap[fi] = id) }
+        (next if cols.empty?)
+        el = base.merge('columns' => cols)
+        el['groupings'] = [{ 'id' => did('g', el['id']), 'groupBy' => gids, 'calculations' => cids }] unless gids.empty?
       end
-      # D12: drop null window/table-calc measures from the TABLE (blank columns look broken);
-      # they remain in the DM master with their original expr in the description.
-      unless is_fallback
-        keep_idx = vals.each_index.reject { |i| window_meas?(vals[i], calc) }
-        dropped_idx = vals.each_index.to_a - keep_idx
-        dropped_idx.each { |i| build_warnings << { 'visual' => title, 'type' => 'WindowCalcColumn', 'reason' => "column '#{vals[i][1]}' is a QuickSight window/table-calc - dropped from the table (kept in the data model); re-author in Sigma" } }
-        vals = keep_idx.map { |i| vals[i] }
-        raw_vals = keep_idx.map { |i| raw_vals[i] }
-      end
-      cols = []; gids = []; cids = []
-      dims.each_with_index { |d, i| c, id = dim_col(d, calc, mc_, dmel_, m_); cols << c; gids << id; (fi = field_id(raw_dims[i])) && (cf_fieldmap[fi] = id) }
-      vals.each_with_index { |mv, i| c, id = meas_col(mv, calc, mc_, dmel_, m_); cols << c; cids << id; (fi = field_id(raw_vals[i])) && (cf_fieldmap[fi] = id) }
-      (next if cols.empty?)
-      el = base.merge('columns' => cols)
-      el['groupings'] = [{ 'id' => did('g', el['id']), 'groupBy' => gids, 'calculations' => cids }] unless gids.empty?
+      field_col_ids = cf_fieldmap
       # D19: migrate QS TableVisual ConditionalFormatting (gradient cell color / data bars)
       # into Sigma `conditionalFormats` on the table element.
       if (cfb = inner['ConditionalFormatting'])
@@ -1652,6 +2184,8 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
           STDERR.puts "  + #{cfmts.size} conditional format rule(s) migrated on table \"#{title}\""
         end
       end
+      # TableFieldOptions: CustomLabel / hidden / order (+ report what has no Sigma mapping)
+      apply_qs_table_field_options!(el, inner, cf_fieldmap, title, build_warnings) unless is_fallback
     when 'pivot-table'
       rows = rol.('Rows'); pcols = rol.('Columns'); vals = rol.('Values'); cols = []; rids = []; coids = []; vids = []
       rows.each  { |d| c, id = dim_col(d, calc, mc_, dmel_, m_); cols << c; rids << id }
@@ -1697,26 +2231,70 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
     # real columns[]; a no-op on any visual without a small-multiples facet.
     apply_small_multiples!(el, inner, w, calc, mc_, dmel_, m_, eid, title, build_warnings) if el
     # carry the visual's QS SortConfiguration (CategorySort/RowSort) when present
-    apply_qs_sorts(el, inner, kind, title, build_warnings) if el
+    apply_qs_sorts(el, inner, kind, title, build_warnings, field_col_ids) if el
     # RCA #1 / bead 3goo.1: apply this visual's scoped QS FilterGroups as element filters
     apply_visual_filters(el, inner['VisualId'], calc, mc_, dmel_, m_) if el
     if el
       elements << el
-      drill = build_qs_drill_control(el, inner, calc, mc_, dmel_, m_, mr[:labels], build_warnings)
+      vis_map[inner['VisualId']] = eid
+      built = true
+      drill = build_qs_drill_control(el, inner, calc, mc_, dmel_, m_, mr, build_warnings)
       elements << drill if drill
+    end
+  ensure
+    # Every branch above can `next` (or fall through) with no element when its field wells are
+    # empty or hold a field type the builder does not read. That used to vanish silently (and
+    # leave a phantom visualToElement entry). `ensure` runs on `next` too, so ONE check covers
+    # every branch: a visual with no element and no existing warning becomes a manual item.
+    unless built || reported || inner.nil?
+      seen_fields = []
+      walk_fields = lambda do |o|
+        if o.is_a?(Hash)
+          o.each { |k, val| seen_fields << k if k.to_s =~ /Field\z/ && val.is_a?(Hash); walk_fields.call(val) }
+        elsif o.is_a?(Array)
+          o.each { |val| walk_fields.call(val) }
+        end
+      end
+      walk_fields.call((inner['ChartConfiguration'] || {})['FieldWells'] || {})
+      manual_item!('VisualNotBuilt', "#{title} (#{vtype}, #{inner['VisualId']})",
+                   "QuickSight #{vtype} '#{title}' produced NO Sigma element: its field wells are empty or hold only field types the builder does not read " \
+                   "(field types found: #{seen_fields.empty? ? 'none' : seen_fields.uniq.join(', ')}). Re-create it in Sigma by hand.")
     end
   end
   # C-gap: QuickSight sheet-level FilterControls + ParameterControls -> Sigma list
   # controls. QS selections are GLOBAL on the sheet (and FilterGroups can scope AllSheets),
   # so a control wired to the master propagates to every chart that sources it.
+  page_controls = []
   ((sh['FilterControls'] || []) + (sh['ParameterControls'] || [])).each do |wrap|
     next unless wrap.is_a?(Hash)
     n_control_signals += 1
     ctl = build_qs_control(wrap, master_cols, calc, DMEL,
                            control_scope, control_unbound, control_seen_cols, build_warnings, MASTERS)
     if ctl
-      elements.unshift(ctl)   # controls render at the top of the page band
+      page_controls << ctl
       vis_map[ctl['controlId']] = ctl['id']   # layout step can place it if QS gives coords
+    end
+  end
+  # Control ORDER = QuickSight's own SheetControlLayouts grid (row, then column); controls it does
+  # not list keep the FilterControls-then-ParameterControls order. (They used to be unshift-ed one
+  # at a time and so ended up in REVERSE order.) The grid cells ride along in the map so the
+  # layout step can wrap rows by ColumnSpan.
+  ctl_pos = {}
+  (sh['SheetControlLayouts'] || []).each do |lay|
+    Array(lay.dig('Configuration', 'GridLayout', 'Elements')).each do |e|
+      eid_ = QS_CONTROL_ELEMENT[e['ElementId']]
+      ctl_pos[eid_] = [e['RowIndex'].to_i, e['ColumnIndex'].to_i, e['ColumnSpan']] if eid_
+    end
+  end
+  ordered_controls = page_controls.each_with_index.sort_by do |c, i|
+    pos = ctl_pos[c['id']]
+    pos ? [0, pos[0], pos[1], i] : [1, 0, 0, i]
+  end.map(&:first)
+  elements.unshift(*ordered_controls)   # controls render at the top of the page band
+  unless ctl_pos.empty?
+    CONTROL_LAYOUT[sheet_idx.zero? ? 'page-dash' : "page-sheet-#{sheet_idx}"] = ordered_controls.map do |c|
+      pos = ctl_pos[c['id']]
+      { 'id' => c['id'], 'row' => pos && pos[0], 'col' => pos && pos[1], 'span' => pos && pos[2] }
     end
   end
   # RCA #18 / bead 3goo.15: QS sheet-level TextBoxes -> Sigma text elements. Skip the one
@@ -1759,7 +2337,7 @@ defn['Sheets'].each_with_index do |sh, sheet_idx|
         non_repeating = Array(repeat_cfg['NonRepeatingVisuals']).filter_map { |source_id| vis_map[source_id] }
         repeating_children = section_element_ids - non_repeating
         target_master = dimensions.length == 1 &&
-                        MASTERS.values.find { |candidate| candidate[:labels].include?(disp(dimensions.first)) }
+                        MASTERS.values.find { |candidate| master_covers?(candidate, dimensions.first) }
         if target_master && repeating_children.any?
           raw_name = dimensions.first
           ref = master_ref(raw_name, calc, target_master[:cols], target_master[:dmel])
@@ -1834,6 +2412,85 @@ PARAM_DEFAULTS.each do |nm, dv|
   next unless used
   build_warnings << { 'visual' => '(parameter)', 'type' => 'WhatIfParameter',
                       'reason' => "QuickSight what-if parameter '#{nm}' inlined as its default (#{dv}); add a Sigma control to make it interactive" }
+end
+
+
+# ---- control SCOPE post-pass --------------------------------------------------------------------
+# A FilterControl only filters what its FilterGroup is scoped to. build_qs_control wired every
+# control to the shared master (so it also filtered other pages); now, once every sheet is built
+# and visualToElement is complete:
+#   * every in-scope element is a TABLE that can carry the control's column -> re-wire the control
+#     to exactly those tables (a hidden helper column is added where a table lacks the column; the
+#     value list still comes from the master) and assert the QuickSight scope in control-scope.json;
+#   * a chart/KPI/pivot/map (or a grouped table without the column) is in scope -> Sigma cannot
+#     target those, so the master wiring stays and a ControlScope manual item says what the control
+#     still reaches that QuickSight would not filter;
+#   * scope = everything -> unchanged.
+# NOTE: shared/scripts/enhance-apply.rb reads a control's column from filters.first; a re-wired
+# control's first target is always a table that carries the column, so no change is needed there.
+def qs_control_table_target(table, raw_col, calc)
+  mm = MASTERS.values.find { |m| m[:sid] == table.dig('source', 'elementId') }
+  return [nil, "'#{table['name']}' does not source a known master"] unless mm
+  unless calc.key?(raw_col) || master_covers?(mm, raw_col)
+    return [nil, "column '#{raw_col}' is not on the master of '#{table['name']}'"]
+  end
+  ref = master_ref(raw_col, calc, mm[:cols], mm[:dmel])
+  formula = "[#{mm[:name]}/#{ref['name']}]"
+  existing = (table['columns'] || []).find { |c| c['formula'] == formula }
+  return [{ table: table, column_id: existing['id'], new_column: nil }, nil] if existing
+  unless Array(table['groupings']).empty?
+    return [nil, "'#{table['name']}' is a grouped table that does not carry column '#{raw_col}'"]
+  end
+  taken = (table['columns'] || []).map { |c| c['name'] }
+  nm = taken.include?(ref['name']) ? "#{ref['name']} (filter)" : ref['name']
+  cid = did('ctlcol', table['id'], raw_col)   # did() registers every id it returns - call it ONCE
+  [{ table: table, column_id: cid, new_column: { 'id' => cid, 'name' => nm, 'formula' => formula, 'hidden' => true } }, nil]
+end
+
+page_els_by_id = sheet_pages.flat_map { |sp| sp['elements'] }.each_with_object({}) { |e, h| h[e['id']] = e if e['id'] }
+SCOPED_CONTROL_IDS = Set.new
+ctl_after = {}   # re-wired control element id -> target element ids (the control must follow them)
+CONTROL_SCOPE_INFO.each_value do |info|
+  next if info[:scope] == :all
+  ctl = info[:el]
+  row = control_scope.find { |r| r['controlId'] == info[:ctl_id] }
+  in_scope = info[:scope].map { |vid| vis_map[vid] }.compact.uniq.map { |id| page_els_by_id[id] }.compact
+  scope_titles = info[:scope].map { |vid| "'#{VISUAL_TITLES[vid] || vid}'" }
+  if in_scope.empty?
+    manual_item!('ControlScope', info[:sig],
+                 "#{info[:sig]} is scoped by QuickSight FilterGroup '#{info[:group]}' to #{scope_titles.join(', ')}, but none of those visuals produced a Sigma element, " \
+                 'so the control keeps its shared-master wiring (it filters every element sourcing the master) - re-scope it by hand.')
+    next
+  end
+  ids = in_scope.map { |e| e['id'] }
+  SCOPED_CONTROL_IDS << info[:ctl_id]
+  plan = in_scope.map { |e| e['kind'] == 'table' ? qs_control_table_target(e, info[:raw_col], calc) : [nil, "#{e['kind']} '#{e['name']}' cannot be a control filter target"] }
+  if plan.all? { |pl, _| pl }
+    plan.each do |pl, _|
+      next unless pl[:new_column]
+      pl[:table]['columns'] << pl[:new_column]
+      pl[:table]['order'] << pl[:new_column]['id'] if pl[:table]['order'].is_a?(Array)
+    end
+    ctl['filters'] = plan.map { |pl, _| { 'source' => { 'kind' => 'table', 'elementId' => pl[:table]['id'] }, 'columnId' => pl[:column_id] } }
+    if row
+      row['wired'] = ctl['filters'].map { |f| { 'elementId' => f['source']['elementId'], 'columnId' => f['columnId'] } }
+      row['scope'] = ids
+      row['mustReach'] = ids
+    end
+    ctl_after[ctl['id']] = ids
+  else
+    why = plan.map { |pl, reason| reason unless pl }.compact.uniq
+    outside = page_els_by_id.values.select { |e| CTL_QUERYABLE.include?(e['kind']) && !ids.include?(e['id']) }
+    manual_item!('ControlScope', info[:sig],
+                 "QuickSight scopes #{info[:sig]} (FilterGroup '#{info[:group]}') to #{scope_titles.join(', ')}. Sigma cannot narrow it: #{why.join('; ')}. " \
+                 "The control stays wired to the shared master and ALSO filters #{outside.size} element(s) QuickSight would not: " \
+                 "#{outside.first(8).map { |e| "'#{e['name']}'" }.join(', ')}#{outside.size > 8 ? ', ...' : ''}. Re-scope it by hand " \
+                 '(e.g. source the in-scope charts from their own hidden table).')
+    if row
+      row['mustReach'] = ids
+      row['qsScope'] = ids
+    end
+  end
 end
 
 # strip the private _window marker before emit
@@ -1965,6 +2622,16 @@ document = {
   'panels' => [],
   'overlays' => []
 }
+# A control re-wired to table targets must come AFTER them in document element order (Sigma
+# resolves filter targets in array order); layout, not array order, owns placement.
+ctl_after.each do |cid, tids|
+  els = document['elements']
+  idx = els.index { |e| e['id'] == cid }
+  next unless idx
+  ctl_el = els.delete_at(idx)
+  last = tids.map { |t| els.index { |e| e['id'] == t } }.compact.max
+  els.insert(last ? last + 1 : idx, ctl_el)
+end
 if defn['Sheets'].length > 1
   document['settings'] = {
     'navigation' => { 'pageTabsInViewMode' => 'shown' }
@@ -2056,6 +2723,14 @@ File.write(map_out, JSON.pretty_generate(
     out[sheet_page['pageId']] = sheet_page['repeaters'] unless Array(sheet_page['repeaters']).empty?
   end,
   'controlElementIds' => control_eids_by_page,
+  # QuickSight's control grid (row/col/ColumnSpan) per page, in control order — only when the
+  # analysis has SheetControlLayouts; the layout step wraps rows by span.
+  'controlLayout' => CONTROL_LAYOUT,
+  # navigation elements go in the FIRST band of their page
+  'navigationElementIds' => dash_pages.each_with_object({}) do |pg, out|
+    ids = (pg['elements'] || []).select { |e| e['kind'] == 'navigation' }.map { |e| e['id'] }
+    out[pg['id']] = ids unless ids.empty?
+  end,
   'visualToElement' => vis_map))
 
 # Persist a machine-readable per-visual warning manifest for any QuickSight visual
@@ -2067,7 +2742,9 @@ File.write(map_out, JSON.pretty_generate(
 # These live in a top-level array because `def`s can't see the build_warnings local.
 build_warnings.concat(CLASSIFIER_WARNINGS)
 warn_out = opts[:out].sub(/\.json$/, '') + '.warnings.json'
-File.write(warn_out, JSON.pretty_generate('warnings' => build_warnings))
+# `manual` = what the builder could not migrate/resolve and a human must finish (see
+# manual_item!); `warnings` = what WAS built, with caveats.
+File.write(warn_out, JSON.pretty_generate('warnings' => build_warnings, 'manual' => MANUAL_ITEMS))
 
 # control-scope.json — the intended-scope contract sidecar (schema: the CONTRACT block
 # in scripts/lib/control_lint.rb). QuickSight sheet/AllSheets filters are GLOBAL, so every
@@ -2076,12 +2753,10 @@ File.write(warn_out, JSON.pretty_generate('warnings' => build_warnings))
 # <workdir>/control-scope.json automatically; we write it next to the spec (= the workdir).
 # sourceFilterSignals > 0 with zero spec controls FAILS gate 7 — the silently-dropped class
 # this change exists to kill.
-CTL_QUERYABLE = %w[table pivot-table bar-chart waterfall-chart line-chart pie-chart donut-chart
-                   area-chart scatter-chart combo-chart kpi-chart region-map point-map].to_set
 must_reach = dash_pages.flat_map { |pg| pg['elements'] }
                        .select { |e| CTL_QUERYABLE.include?(e['kind']) }
                        .map { |e| e['id'] }
-control_scope.each { |sc| sc['mustReach'] = must_reach if sc['status'] == 'wired' }
+control_scope.each { |sc| sc['mustReach'] = must_reach if sc['status'] == 'wired' && !SCOPED_CONTROL_IDS.include?(sc['controlId']) }
 scope_out = File.join(File.dirname(File.expand_path(opts[:out])), 'control-scope.json')
 File.write(scope_out, JSON.pretty_generate(
   'version' => 1, 'source' => 'quicksight', 'sourceFilterSignals' => n_control_signals,
@@ -2095,10 +2770,21 @@ sheet_pages.each do |sp|
   STDERR.puts "  page \"#{sp['name']}\" (#{sp['pageId']}): #{sp['elements'].size} element(s)"
   sp['elements'].each { |e| STDERR.puts "    - #{e['kind']}: #{e['name']}" }
 end
+unless MANUAL_ITEMS.empty?
+  STDERR.puts "MANUAL ITEMS (#{MANUAL_ITEMS.size}) - not migrated automatically, finish these by hand (also in #{warn_out}):"
+  MANUAL_ITEMS.each { |m| STDERR.puts "  ! [#{m['type']}] #{m['subject']}: #{m['reason']}" }
+end
 unless build_warnings.empty?
-  fb, dropped = build_warnings.partition { |w| QS_FALLBACK.key?(w['type']) }
-  STDERR.puts "#{build_warnings.size} visual(s) with no native Sigma kind → #{warn_out}" \
-              " (#{fb.size} data-migrated as table/bar fallback, #{dropped.size} genuinely dropped)"
+  # build_warnings holds more than unsupported visual types (control kinds, number formats,
+  # table options, ...): count each class under its own name instead of calling every
+  # entry a visual "genuinely dropped".
+  visual_kind = build_warnings.select { |w| QS_UNSUPPORTED.key?(w['type']) }
+  fb      = visual_kind.select { |w| QS_FALLBACK.key?(w['type']) }
+  dropped = visual_kind - fb
+  other   = build_warnings - visual_kind
+  STDERR.puts "#{build_warnings.size} warning(s) → #{warn_out}: #{visual_kind.size} visual(s) with no native Sigma kind " \
+              "(#{fb.size} data-migrated as table/bar fallback, #{dropped.size} dropped), #{other.size} other note(s)"
   fb.each      { |w| STDERR.puts "  ~ #{w['type']}: #{w['reason']}" }
   dropped.each { |w| STDERR.puts "  ! #{w['type']}: #{w['reason']}" }
+  other.each   { |w| STDERR.puts "  - #{w['type']}: #{w['reason']}" }
 end
