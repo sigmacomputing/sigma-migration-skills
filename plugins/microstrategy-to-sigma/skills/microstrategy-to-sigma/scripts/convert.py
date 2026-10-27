@@ -54,6 +54,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import coverage_catalog as _cc  # noqa: E402
 import code_rep as _cr          # noqa: E402  workbook-only document envelope/flat elements
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
+import multifact as _mf         # noqa: E402  report/fact topology + conformed SQL contract
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 AGG_CAT = _cc.load(_CAT_DIR, "aggregation")     # MSTR group function -> Sigma/SQL aggregate
 FMT_CAT = _cc.load(_CAT_DIR, "number-format")   # MSTR format category -> Sigma number format
@@ -110,7 +111,7 @@ def slug(s: str) -> str:
 
 # ---------------------------------------------------------------- bundle model
 class Bundle:
-    def __init__(self, raw):
+    def __init__(self, raw, allow_multi_fact=False):
         self.raw = raw
         # LOUD-fallback sink: catalog resolvers append standardized warnings here
         # (aggregation / number-format) from deep in the emit recursion; main()
@@ -139,9 +140,42 @@ class Bundle:
             for de in f["expressions"]:
                 for tb in de.get("tables", []):
                     fact_tids.add(tb["objectId"])
-        if len(fact_tids) != 1:
-            raise SystemExit(f"expected exactly 1 fact table, found {fact_tids}")
-        self.fact_tid = next(iter(fact_tids))
+        self.fact_tids = fact_tids
+        self.fact_plan = _mf.analyze_bundle(raw)
+        elected_tid = self.fact_plan.get("automaticTableId")
+        self.multi_fact = self.fact_plan["requiresConformedSource"]
+        if self.multi_fact and not allow_multi_fact:
+            names = [row["name"] for row in self.fact_plan["factTables"]]
+            blockers = [
+                f"{row['name']}={row['classification']}"
+                for row in self.fact_plan["reports"]
+                if row.get("factIds") and not row.get("selectedTableId")
+            ]
+            raise SystemExit(
+                "bundle requires a conformed fact source: extracted "
+                f"facts map to {len(fact_tids)} candidate tables "
+                f"({', '.join(names)}); unresolved reports: "
+                f"{', '.join(blockers) or '(different elected roots)'}. "
+                "Run scripts/plan_multifact.py for the report-level topology, "
+                "then re-run with --multi-fact-sql <single-select.sql>. "
+                "Do not choose one table or join facts directly: that can "
+                "fan out financial measures."
+            )
+        self.fact_tid = (
+            None if self.multi_fact
+            else (next(iter(fact_tids)) if len(fact_tids) == 1 else elected_tid)
+        )
+        if elected_tid and len(fact_tids) > 1:
+            info = self.table_info[elected_tid]
+            self.warnings.append(
+                "fact-table election: MicroStrategy facts have alternate "
+                f"table mappings; selected {info['tableName']} because it is "
+                "the sole lowest-logical-size table eligible for every "
+                "report's facts across matching attribute-key signatures. "
+                "Verify the executed "
+                "sqlView because report filters and metric dimensionality can "
+                "further constrain MicroStrategy table selection."
+            )
 
         # per logical table: attribute id -> list of forms
         #   form := {category, expr(column), isKeyForm}
@@ -161,9 +195,15 @@ class Bundle:
                 am[aid] = forms
             self.table_attr_forms[tid] = am
 
-        # fact id -> physical column on the fact table
+        # fact id -> physical column on the fact table. In the conformed
+        # multi-fact path this becomes the exact alias the supplied SQL must
+        # project, so formulas cannot accidentally bind same-named columns
+        # from different fact tables.
         self.fact_col = {}
         for fid, f in self.facts.items():
+            if self.multi_fact:
+                self.fact_col[fid] = _mf.fact_alias(fid, f)
+                continue
             for de in f["expressions"]:
                 for tb in de.get("tables", []):
                     if tb["objectId"] == self.fact_tid:
@@ -176,6 +216,8 @@ class Bundle:
 
     # ---- joins: attribute key form mapped to BOTH fact table and lookup table
     def derive_joins(self):
+        if self.multi_fact:
+            return []
         joins = []
         fact_forms = self.table_attr_forms[self.fact_tid]
         for aid, forms in fact_forms.items():
@@ -219,6 +261,11 @@ class Bundle:
                     cols.append(j["fact_col"])
         return cols
 
+    def conformed_column_names(self):
+        """Exact output aliases required from --multi-fact-sql."""
+        return (_mf.analyze_bundle(self.raw)["conformedSqlContract"]
+                ["requiredColumns"])
+
     # ---- metric expression -> Sigma formula
     def metric_formula(self, mid, ref, expand_metrics=False):
         """ref(column_friendly) -> bracketed reference string.
@@ -258,7 +305,8 @@ class Bundle:
                 sub = tgt.get("subType")
                 oid = tgt.get("objectId")
                 if sub == "fact":
-                    out.append(ref(friendly(self.fact_col[oid])))
+                    col = self.fact_col[oid]
+                    out.append(ref(col if self.multi_fact else friendly(col)))
                 elif sub == "metric":
                     if expand_metrics:
                         out.append("(" + self.metric_formula(
@@ -598,6 +646,8 @@ def ae_element_name(report_name):
 def join_column_names(b: "Bundle"):
     """Display names available on the consumable join element (mirrors
     build_dm_spec's add_join_col walk)."""
+    if b.multi_fact:
+        return set(b.conformed_column_names())
     names = {friendly(c) for c in b.table_columns(b.fact_tid)}
     join_key_lookup = {(j["lookup_tid"], j["lookup_col"]) for j in b.derive_joins()}
     for j in b.derive_joins():
@@ -1130,6 +1180,54 @@ def build_dm_spec(b: Bundle, args, inode_map, ae_winners=None):
     elements = []
     el_id = {}    # tid -> element id
     el_name = {}  # tid -> element name (= logical table name)
+
+    if b.multi_fact:
+        if ae_winners:
+            raise SystemExit(
+                "--ae-winners cannot be combined with --multi-fact-sql. "
+                "The conformed query must already reproduce any Analytical "
+                "Engine row-collapse behavior."
+            )
+        columns = [{
+            "id": f"mf-{slug(name)}",
+            "name": name,
+            "formula": f"[Custom SQL/{name}]",
+        } for name in b.conformed_column_names()]
+
+        def conformed_ref(name):
+            return f"[{name}]"
+
+        metrics = []
+        for mid, metric in b.metrics.items():
+            definition = {
+                "id": f"m-{slug(metric['information']['name'])}",
+                "name": metric["information"]["name"],
+                "formula": b.metric_formula(
+                    mid, conformed_ref, expand_metrics=False),
+            }
+            fmt = b.metric_display_format(mid)
+            if fmt:
+                definition["format"] = fmt
+            metrics.append(definition)
+        elements.append({
+            "id": "el-orders",
+            "kind": "table",
+            "name": args.join_element_name,
+            "source": {
+                "kind": "sql",
+                "connectionId": conn,
+                "statement": args.multi_fact_statement,
+            },
+            "columns": columns,
+            "metrics": metrics,
+        })
+        return {
+            "name": args.dm_name,
+            "folderId": args.folder_id,
+            "schemaVersion": 1,
+            "pages": [{"id": "page-1", "name": "Model",
+                       "elements": elements}],
+        }
 
     def col_id(tid, col):
         tail = inode_map.get(b.table_info[tid]["tableName"])
@@ -1841,6 +1939,40 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
     return workbook, report_keys, layout_xml, control_scope, warnings
 
 
+def _load_conformed_sql(path):
+    if not path:
+        return None
+    statement = open(path, encoding="utf-8").read().strip()
+    if statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    if not statement:
+        raise SystemExit("--multi-fact-sql is empty")
+    if ";" in statement:
+        raise SystemExit(
+            "--multi-fact-sql must contain one SELECT/CTE statement; "
+            "multi-step or volatile-table plans are not accepted"
+        )
+    if not re.match(r"(?is)^(select|with)\b", statement):
+        raise SystemExit("--multi-fact-sql must start with SELECT or WITH")
+    forbidden = re.search(
+        r"(?is)\b(create\s+(?:or\s+replace\s+)?(?:volatile|temp(?:orary)?)"
+        r"|drop\s+table|insert\s+into|update\s+|delete\s+from|merge\s+into)\b",
+        statement)
+    if forbidden:
+        raise SystemExit(
+            "--multi-fact-sql must be a read-only single query; found "
+            f"{forbidden.group(1)!r}"
+        )
+    unresolved = re.search(r"\{\{|\}\}|\$\{|\%\([^)]+\)s", statement)
+    if unresolved:
+        raise SystemExit(
+            "--multi-fact-sql still contains an unresolved placeholder. "
+            "Resolve prompts/security substitutions from a live report "
+            "instance before conversion."
+        )
+    return statement
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bundle", default="bundle.json")
@@ -1850,6 +1982,11 @@ def main():
     ap.add_argument("--folder-id", required=True)
     ap.add_argument("--inode-map", default=None,
                     help="JSON file: physical table name -> inode tail")
+    ap.add_argument(
+        "--multi-fact-sql", default=None,
+        help="read-only single SELECT/CTE that conforms a multi-fact MSTR "
+             "plan to one safe row source; exact aliases come from "
+             "scripts/plan_multifact.py")
     ap.add_argument("--dm-name", default=None,
                     help="default: '<dossier name> (MSTR Model)'")
     ap.add_argument("--wb-name", default=None,
@@ -1876,7 +2013,9 @@ def main():
                     help="released feature emission ledger + loud manual gaps")
     args = ap.parse_args()
 
-    b = Bundle(json.load(open(args.bundle)))
+    args.multi_fact_statement = _load_conformed_sql(args.multi_fact_sql)
+    b = Bundle(json.load(open(args.bundle)),
+               allow_multi_fact=bool(args.multi_fact_statement))
     dossier_name = b.dossier.get("name", "MicroStrategy")
     args.dm_name = args.dm_name or f"{dossier_name} (MSTR Model)"
     args.wb_name = args.wb_name or f"{dossier_name} (MSTR)"
@@ -1925,10 +2064,17 @@ def main():
     except OSError:
         pass  # state bookkeeping never fails the conversion
 
-    print(f"fact table: {b.table_info[b.fact_tid]['name']}")
-    for j in b.derive_joins():
-        print(f"join: {b.table_info[b.fact_tid]['tableName']}.{j['fact_col']} = "
-              f"{b.table_info[j['lookup_tid']]['tableName']}.{j['lookup_col']}")
+    if b.multi_fact:
+        names = [row["name"] for row in
+                 _mf.analyze_bundle(b.raw)["factTables"]]
+        print("fact tables: " + ", ".join(names))
+        print("recovery: using validated conformed SQL source "
+              f"({len(b.conformed_column_names())} required columns)")
+    else:
+        print(f"fact table: {b.table_info[b.fact_tid]['name']}")
+        for j in b.derive_joins():
+            print(f"join: {b.table_info[b.fact_tid]['tableName']}.{j['fact_col']} = "
+                  f"{b.table_info[j['lookup_tid']]['tableName']}.{j['lookup_col']}")
     for el in dm["pages"][0]["elements"]:
         for m in el.get("metrics", []):
             print(f"metric: {m['name']} = {m['formula']}")

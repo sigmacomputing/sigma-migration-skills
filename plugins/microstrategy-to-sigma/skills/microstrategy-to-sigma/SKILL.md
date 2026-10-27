@@ -46,10 +46,13 @@ bundle, no `convert_microstrategy_to_sigma` MCP tool, and no `--converter` /
 `*_MCP_DIR` override** — those concepts do not apply here. Nothing about the model
 conversion leaves your machine.
 
-## Phase 0a — Choose where to build (ask first; `--folder-id` is required downstream)
+## Phase 0a — Choose where to build (`--folder-id` is required downstream)
 
-Don't pick the destination folder for the user. `convert.py` requires `--folder-id`,
-so resolve it WITH the user before building:
+Don't pick the destination folder for the user. For a normal single-fact run,
+resolve it before building. If source extraction is already available, run the
+Phase-1 multi-fact preflight first so an unsupported source shape does not
+trigger a tenant-wide Sigma catalog scan. `convert.py` requires `--folder-id`,
+so resolve it WITH the user before conversion:
 
 1. `python3 scripts/pick_destination.py list` → `{ workspaces, folders (editable, with parentName), myDocuments }`
 2. Let the user pick ONE: a **workspace** (its `id` lands content in the workspace root),
@@ -160,7 +163,62 @@ python3 scripts/extract.py <dossierId> bundle.json
 Walks dossier definition → dataset reports (`showExpressionAs=tokens`) →
 referenced attributes / metrics (compound bases included via a second pass) /
 facts / logical tables / hierarchy relationships. The bundle is the converter
-contract — `fixtures/bundle.json` is a real, validated example.
+contract — `fixtures/bundle.json` is a real, validated example. New extracts
+carry `_extraction.retrievedAtUtc`; do not silently reuse a stale stored bundle
+for a current migration.
+
+### Phase 1 multi-fact preflight and recovery (do not stop at the old one-fact boundary)
+
+Run this immediately after extraction, **before destination selection or any
+Sigma catalog scan**:
+
+```bash
+python3 scripts/plan_multifact.py bundle.json --out multi_fact_plan.json
+```
+
+Read `refs/multifact-semantics.md` for the MSTR→Sigma semantic crosswalk. A
+fact expression's `tables[]` are candidate mappings, **not tables that must all
+be joined**. The planner intersects each report's metric/fact candidates,
+requires matching candidate attribute-key signatures, and mirrors
+MicroStrategy's documented unique-lowest-`logicalSize` election:
+
+- `single-fact-table` reports can be migrated independently if the dossier's
+  reports do not mix their measures.
+- `alternate-table-mappings` with one elected table continues automatically
+  through the normal star path. Verify the executed `sqlView`: source filters
+  and metric dimensionality can further constrain MSTR's choice.
+- `ambiguous-alternate-mappings` means eligible tables tie or lack logical-size
+  evidence. Do not pick the first table.
+- `multi-pass` means no one table resolves all report facts. Never join those
+  raw fact tables directly or delete mappings from `bundle.json`: both can fan
+  out financial measures.
+- A fact expression that is a formula/`ApplySimple`, rather than one physical
+  column, also routes to the conformed-SQL path; treating its expression text as
+  a warehouse column name is invalid.
+
+For either unresolved multi-table case, recover the executed report's resolved `sqlView`
+after prompts, security substitutions, and filters have been applied. Turn its
+multipass/volatile-table plan into **one read-only `SELECT` or `WITH` query**,
+either with CTEs or by selecting from a customer-approved conformed warehouse
+view. Preserve each pass's grain and outer-join semantics. The query must emit
+every exact alias under `conformedSqlContract.requiredColumns` in
+`multi_fact_plan.json`, including the generated `MSTR Fact - …` aliases.
+Then continue through the normal converter—do not hand-author specs:
+
+```bash
+python3 scripts/convert.py --bundle bundle.json \
+  --connection-id <SIGMA_CONNECTION_ID> --database <DB> --folder-id <FOLDER_ID> \
+  --multi-fact-sql conformed.sql
+```
+
+The converter rejects unresolved placeholders, writes a Sigma `sql` data-model
+source, and builds the workbook normally. The standard DM readback, workbook
+readback, parity, and visual gates still apply. If the captured plan cannot be
+expressed as one query, ask the customer to materialize the conformed view;
+Sigma warehouse connections are read-only for this migration and the skill
+must not create warehouse objects silently. A certificate warning from one
+HTTP client, an unselected connection's health failure, or disabled warehouse
+writeback is not this blocker—classify those as separate warnings.
 
 ### Phase 1.1 — Capture the SOURCE visual + the values it actually shows (mandatory)
 
@@ -243,7 +301,8 @@ claiming spec parity.
 ```bash
 python3 scripts/convert.py --bundle bundle.json \
   --connection-id <SIGMA_CONNECTION_ID> --database <DB> --folder-id <FOLDER_ID> \
-  [--inode-map inodes.json]        # physical table name -> inode tail, optional
+  [--inode-map inodes.json] \
+  [--multi-fact-sql conformed.sql] # required only by Phase-1 multi-fact recovery
 ```
 
 Emits `sigma_dm_spec.json` (one table element per logical table, derived
