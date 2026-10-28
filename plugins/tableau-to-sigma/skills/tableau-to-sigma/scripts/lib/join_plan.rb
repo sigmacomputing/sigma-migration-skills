@@ -52,7 +52,7 @@
 #                                               #   statement (right_table null;
 #                                               #   probed as a subquery)
 #     "probe_keys"       => [...],              # physical columns to GROUP BY
-#     "derived_via"      => "serialized" | "name-inference",  # object-graph
+#     "derived_via"      => "serialized" | "computed-key" | "name-inference",  # object-graph
 #                                               #   entries only (see below):
 #                                               #   Ruby snake_case of the
 #                                               #   converter's derivedVia —
@@ -95,8 +95,72 @@ module JoinPlan
   def derive(dm_spec, twb_xml = nil, db: nil, schema: nil)
     entries = []
     entries.concat(federated_joins(twb_xml, db, schema, dm_spec)) if twb_xml && !twb_xml.to_s.strip.empty?
+    entries = mark_emitted_joins(entries, dm_spec) if dm_spec.is_a?(Hash)
     entries.concat(lookup_syntheses(dm_spec)) if dm_spec.is_a?(Hash)
     entries
+  end
+
+  # A .twb join the converter emitted as a REAL Sigma join element
+  # (source.kind "join" — today the self-join of a table with its own alias,
+  # e.g. Order Lines x Customer Day Detail over one ORDER_FACT) is not a
+  # Lookup: it fans out exactly like Tableau's join, so there is no "right
+  # unique on keys" assumption to probe (an alias of the fact is, by design,
+  # NOT unique on the join keys). Its federated-join entry becomes the
+  # terminal "emitted-join" shape gate 16 already honors (status "emitted",
+  # evidence-bound to the dm-spec's "kind": "join" count). Matching is by the
+  # join's right element NAME, which the converter sets to the Tableau
+  # relation name of the alias. Only a right source over the same warehouse
+  # path as the primary source is the self-join alias; inner-joined dimensions
+  # in the same join element remain Lookup targets that require a probe.
+  def mark_emitted_joins(entries, dm_spec)
+    els = (dm_spec['pages'] || []).flat_map { |p| p['elements'] || [] }
+    by_id = els.each_with_object({}) { |e, h| h[e['id']] = e }
+    emitted = {}
+    els.each do |el|
+      next unless el.dig('source', 'kind') == 'join'
+      primary = by_id[el.dig('source', 'primarySource', 'elementId')]
+      primary_path = Array(primary&.dig('source', 'path'))
+      next if primary_path.empty?
+      Array(el.dig('source', 'joins')).each do |j|
+        right = by_id[j.dig('right', 'elementId')]
+        next unless right && right['name']
+        next unless Array(right.dig('source', 'path')) == primary_path
+        emitted[right['name'].to_s] = { element: el['name'], join_type: j['joinType'] }
+      end
+    end
+    return entries if emitted.empty?
+    # ONE ledger row per join element: gate 16 binds emitted-join rows to the
+    # spec's "kind": "join" occurrence count, and several aliases of one
+    # primary are one join element. The first alias's row carries the others
+    # (aliases / alias_key_pairs); their own rows are folded into it.
+    by_element = {}
+    entries.each_with_object([]) do |e, out|
+      hit = e['kind'] == 'federated-join' && emitted[e['right'].to_s]
+      unless hit
+        out << e
+        next
+      end
+      row = by_element[hit[:element]]
+      if row
+        row['aliases'] << e['right']
+        row['alias_key_pairs'][e['right']] = e['key_pairs']
+        next
+      end
+      row = by_element[hit[:element]] = {
+        'kind'             => 'emitted-join',
+        'join_type'        => hit[:join_type],
+        'left'             => e['left'],
+        'right'            => e['right'],
+        'keys'             => e['keys'],
+        'key_pairs'        => e['key_pairs'],
+        'element'          => hit[:element],
+        'aliases'          => [e['right']],
+        'alias_key_pairs'  => { e['right'] => e['key_pairs'] },
+        'grain_assumption' => 'none (real join element: rows fan out as in Tableau)',
+        'status'           => 'emitted'
+      }
+      out << row
+    end
   end
 
   # The run's .twb straight from the workdir — for callers whose own .twb
@@ -267,7 +331,7 @@ module JoinPlan
           'grain_assumption' => GRAIN_ASSUMPTION,
           'status'           => 'unprobed',
           'right_table'      => right_table,
-          'probe_keys'       => dm_rel[:keys],
+          'probe_keys'       => dm_rel[:probe_keys],
           'derived_via'      => dm_rel[:derived_via]
         }
         next
@@ -285,15 +349,22 @@ module JoinPlan
         'right_table'      => right_table,
         'probe_keys'       => pairs.map { |p| relationship_probe_key(p[:r], captions) }
       }
-      # A physical pair was found, so this is necessarily the converter's
-      # "serialized" branch (name-inference only fires when NO physical pair
-      # survives — the pairs.empty? branch above). Prefer dm_rel's own count
-      # of dropped computed conditions when available (the converter's own
-      # isPhysical bookkeeping); fall back to this method's local count
-      # (total '=' expressions found minus the physical pairs kept) so the
-      # field is still populated when dm_spec is unavailable.
+      # A physical pair was found, so this is the converter's "serialized" or
+      # "computed-key" branch (name-inference only fires when NO physical pair
+      # survives — the pairs.empty? branch above). A computed-key relationship
+      # also carried its computed conditions as calculated key columns, so its
+      # probe keys are every target-side key the converter wired, not just
+      # the .twb's physical pairs.
       entry['derived_via'] = (dm_rel && dm_rel[:derived_via]) || 'serialized'
-      dropped = (dm_rel && dm_rel[:dropped_conditions]) || (eq_nodes.size - pairs.size)
+      if dm_rel && dm_rel[:derived_via] == 'computed-key'
+        entry['keys'] = dm_rel[:keys]
+        entry['probe_keys'] = dm_rel[:probe_keys]
+      end
+      # When dm_rel is available its dropped-condition count is the
+      # converter's own bookkeeping and wins (a computed condition it carried
+      # is not dropped). Without dm_spec, fall back to this method's local
+      # count (total '=' expressions found minus the physical pairs kept).
+      dropped = dm_rel ? dm_rel[:dropped_conditions].to_i : (eq_nodes.size - pairs.size)
       if (dm_rel && dm_rel[:partial]) || dropped.to_i.positive?
         entry['partial']            = true
         entry['dropped_conditions'] = dropped
@@ -328,13 +399,15 @@ module JoinPlan
         tgt        = by_id[rel['targetElementId']]
         right_name = (rel['name'] || (tgt && element_name(tgt))).to_s
         next if right_name.empty?
-        keys = (rel['keys'] || []).map { |k| dm_column_physical_name(tgt, k['targetColumnId']) }.compact
+        target_ids = (rel['keys'] || []).map { |k| k['targetColumnId'] }
+        keys = target_ids.map { |id| dm_column_physical_name(tgt, id) }.compact
         next if keys.empty?
         record = {
           derived_via:        rel['derivedVia'],
           partial:            rel['partial'] == true,
           dropped_conditions: rel['droppedConditions'],
-          keys:               keys
+          keys:               keys,
+          probe_keys:         target_ids.flat_map { |id| dm_column_probe_keys(tgt, id) }.compact.uniq
         }
         left_name = element_name(el)
         idx[[left_name, right_name]] = record
@@ -370,6 +443,39 @@ module JoinPlan
     return nil unless col
     disp = col['name'] || (col['formula'].is_a?(String) && col['formula'][/\/([^\]]+)\]\z/, 1])
     disp && physical_name(disp)
+  end
+
+  # Calculated relationship keys do not exist in the warehouse under their
+  # display name. Resolve their bracket refs back to physical passthrough
+  # columns so gate 16 can probe the target table instead of emitting the
+  # synthetic "<name> (join key)" identifier — but ONLY through a calc that
+  # keeps the column's grain (Coalesce / Text / Date casts). DateTrunc and
+  # Int collapse distinct values onto one key (a unique timestamp is not
+  # unique per day), so a probe of the raw column would PASS a target that
+  # fans out on the real key. Those keep the synthetic name: the probe errors
+  # and gate 16 blocks, loud, until the join is proven or resolved.
+  GRAIN_COLLAPSING_KEY_FN = /\b(?:DateTrunc|Int)\s*\(/i.freeze
+
+  def dm_column_probe_keys(el, col_id, seen = {})
+    return [] unless el && col_id && !seen[col_id]
+    col = (el['columns'] || []).find { |c| c['id'] == col_id }
+    return [] unless col
+    formula = col['formula'].to_s
+    passthrough = formula.match(/\A\[[^\/\]]+\/([^\]]+)\]\z/)
+    return [physical_name(strip_role_paren(passthrough[1]))] if passthrough
+    return [dm_column_physical_name(el, col_id)].compact if formula.match?(GRAIN_COLLAPSING_KEY_FN)
+
+    seen = seen.merge(col_id => true)
+    refs = formula.scan(/\[([^\]\/]+)\]/).flatten.uniq
+    resolved = refs.flat_map do |ref|
+      ref_col = (el['columns'] || []).find do |candidate|
+        disp = candidate['name'] ||
+               candidate['formula'].to_s[%r{\A\[[^/\]]+/([^\]]+)\]\z}, 1]
+        disp.to_s.casecmp(ref).zero?
+      end
+      ref_col ? dm_column_probe_keys(el, ref_col['id'], seen) : [physical_name(strip_role_paren(ref))]
+    end
+    resolved.empty? ? [dm_column_physical_name(el, col_id)].compact : resolved
   end
 
   # A relationship key is a bare column ref: a GUID resolves via caption (as

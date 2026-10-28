@@ -163,6 +163,10 @@ module MechanicalSpecs
       dn ? "[Master/#{dn}]" : Regexp.last_match(0)
     end
     return nil if formula_has_guid_ref?(f)
+    # A bare ref to a Tableau-INTERNAL calc name (Calculation_<id>, "<Field> (copy)_<id>") is not a
+    # master column and has no caption to fall back to: refuse the metric (the caller records it
+    # as untranslated) rather than mint a dangling [Master/Calculation_<id>].
+    return nil if f =~ /\[(?:Calculation_\d+|[^\/\]]*\(copy\)(?:\s*\d+)?_\d+)\]/
     f.gsub(/\[([^\/\]]+)\]/) { "[Master/#{Regexp.last_match(1)}]" }
   end
 
@@ -1104,7 +1108,8 @@ module MechanicalSpecs
       // the "Not Migrated (and why)" report — pass them through (was dropped).
       // relationshipCoverage (PR2a) is the object-graph relationship-derivation
       // AUDIT LEDGER — every relationship the converter considered, wired or
-      // not, with how it was derived (serialized/name-inference/unwired). It is
+      // not, with how it was derived (serialized/computed-key/name-inference/
+      // unwired). It is
       // the ONLY artifact that makes an inferred join key auditable after the
       // fact. emit-relationship-coverage.rb reads it via --converter-out, which
       // means THIS file is its sole real-run input — omitting the key here (as
@@ -2092,27 +2097,54 @@ module MechanicalSpecs
       end
       # Cascade: a derived element column that is a bare single ref to a dropped
       # base column ("[Src/<droppedName>]") can no longer resolve — drop it too.
-      els.each do |el|
-        src_eid = el.dig('source', 'elementId')
-        next unless src_eid && dropped_disp_by_el.key?(src_eid)
-        src_el = by_id[src_eid]
-        src_name = src_el && (src_el['name'] || display_name((src_el.dig('source', 'path') || []).last.to_s))
-        next unless src_name
-        dropped_names = dropped_disp_by_el[src_eid]
-        keep = []
-        drop = {}
-        (el['columns'] || []).each do |c|
-          tail = c['formula'].to_s[/\A\[#{Regexp.escape(src_name)}\/([^\]]+)\]\z/, 1]
-          if tail && dropped_names.include?(tail.split('/').last)
-            drop[c['id']] = true
-            phantom += 1
-          else
-            keep << c
-          end
+      # A join element (source.kind "join") reads every element it joins, and a
+      # derived view can sit on top of it, so the cascade follows join sources
+      # and repeats until no further column drops (base -> join -> view).
+      source_ids = lambda do |el|
+        src = el['source'] || {}
+        ids = [src['elementId']]
+        if src['kind'] == 'join'
+          ids << src.dig('primarySource', 'elementId')
+          Array(src['joins']).each { |j| ids << j.dig('left', 'elementId') << j.dig('right', 'elementId') }
         end
-        if drop.any?
-          el['columns'] = keep
-          el['order'] = (el['order'] || []).reject { |id| drop[id] } if el['order']
+        ids.compact.uniq
+      end
+      loop do
+        cascaded = 0
+        els.each do |el|
+          src_eids = source_ids.call(el).select { |sid| dropped_disp_by_el.key?(sid) }
+          next if src_eids.empty?
+          drop = {}
+          src_eids.each do |src_eid|
+            src_el = by_id[src_eid]
+            src_name = src_el && (src_el['name'] || display_name((src_el.dig('source', 'path') || []).last.to_s))
+            next unless src_name
+            dropped_names = dropped_disp_by_el[src_eid]
+            (el['columns'] || []).each do |c|
+              tail = c['formula'].to_s[/\A\[#{Regexp.escape(src_name)}\/([^\]]+)\]\z/, 1]
+              drop[c['id']] = c if tail && dropped_names.include?(tail.split('/').last)
+            end
+          end
+          next if drop.empty?
+          el['columns'] = (el['columns'] || []).reject { |c| drop.key?(c['id']) }
+          el['order'] = (el['order'] || []).reject { |id| drop.key?(id) } if el['order']
+          drop.each_value do |c|
+            dn = col_display(c)
+            dropped_disp_by_el[el['id']] << dn if dn
+            dropped_col_ids << c['id']
+          end
+          phantom += drop.size
+          cascaded += drop.size
+        end
+        break if cascaded.zero?
+      end
+      # Relationships keyed on a column the cascade removed are dangling too.
+      els.each do |el|
+        next unless el['relationships']
+        el['relationships'] = el['relationships'].reject do |r|
+          (r['keys'] || []).any? do |k|
+            dropped_col_ids.include?(k['sourceColumnId']) || dropped_col_ids.include?(k['targetColumnId'])
+          end
         end
       end
     end
@@ -2230,6 +2262,21 @@ module MechanicalSpecs
     out
   end
 
+  # "Region (STORE_DIM (SALESDB.STORE_DIM))" -> { 'base' => 'Region', 'table' => 'STORE_DIM',
+  # 'caption' => <the input> }. nil for any other shape. The trailing digit some
+  # captions carry ("(DATE_DIM (SALESDB.DATE_DIM)1)") is tolerated.
+  def parse_disambiguated_caption(caption)
+    m = caption.to_s.strip.match(/\A(.+?)\s+\(\s*([A-Za-z0-9_]+)\s*\([^()]*\)\d*\s*\)\z/)
+    m ? { 'base' => m[1].strip, 'table' => m[2], 'caption' => caption.to_s.strip } : nil
+  end
+
+  # The disambiguated captions the .twb declares on its <column caption='...'> overrides
+  # (Tableau renames the second same-named field of a different table this way).
+  def disambiguated_captions_from_twb(twb_text)
+    twb_text.to_s.scan(/<column\b[^>]*?\bcaption=(['"])(.*?)\1/m).map { |(_q, cap)| cap.gsub('&apos;', "'").gsub('&amp;', '&') }
+            .select { |cap| parse_disambiguated_caption(cap) }.uniq
+  end
+
   # Derive { 'master_columns' => [...], 'mmap' => {...}, 'untranslated_metrics' => [...] }.
   # fact_name is the AUTHORITATIVE Sigma element name (from the DM readback) used
   # in master-column formulas [fact_name/Col]. base_el (optional) is the element a
@@ -2256,7 +2303,17 @@ module MechanicalSpecs
   # every mmap regex) stays the BARE caption — so build-charts' [Master/<bare>]
   # refs and the bare Tableau chart captions still resolve. Without real_labels
   # we fall back to the bare-name formula (correct only for non-virtual conns).
-  def derive_master(fact_el, fact_name, base_el = nil, real_labels = nil, model = nil)
+  #
+  # disambiguated (optional): the Tableau captions of same-named columns from
+  # DIFFERENT tables ("Region (STORE_DIM (SALESDB.STORE_DIM))" — see
+  # disambiguated_captions_from_twb). Two relationship paths can expose the same
+  # bare name (CUSTOMER_DIM.Region and STORE_DIM.Region); the DM carries both as
+  # "Region (CUSTOMER_DIM)" / "Region (STORE_DIM)". Tableau keeps the PLAIN caption
+  # on the table that was not disambiguated, so that column keeps the bare master
+  # name and every other path gets its own distinct master column
+  # "Region (STORE_DIM)" — registered in the master-map under the Tableau caption —
+  # instead of silently collapsing onto one column.
+  def derive_master(fact_el, fact_name, base_el = nil, real_labels = nil, model = nil, disambiguated: [])
     # A Custom SQL fact element is NAMELESS in the DM spec (rule 3), but Sigma
     # assigns it the name "Custom SQL" server-side. An empty fact_name makes every
     # master column formula an INVALID `[/Col]` (empty element segment) → the
@@ -2274,6 +2331,7 @@ module MechanicalSpecs
     # Native-grain index: converter column formula -> dim element name + FK key
     # (see the doc comment above). Keyed by the column's bare display name.
     grain_for = {}
+    grain_for_id = {} # per converter column id — two paths can share one bare display name
     if model && base_el
       els_by_id = all_elements(model).each_with_object({}) { |e, h| h[e['id']] = e }
       key_cols = (base_el['columns'] || []).each_with_object({}) { |c, h| h[c['id']] = c }
@@ -2290,6 +2348,7 @@ module MechanicalSpecs
         next unless dn
         grain_for[dn.downcase] = { 'element' => tgt_name, 'relationship' => m[2],
                                    'key' => fk && col_display(fk) }.compact
+        grain_for_id[c['id']] = grain_for[dn.downcase]
       end
     end
     # dname (BARE caption, used for name+mmap) -> real readback label (used for formula).
@@ -2297,7 +2356,7 @@ module MechanicalSpecs
       lbl = (real_label && !real_label.to_s.empty?) ? real_label : dname
       "[#{fact_name}/#{lbl}]"
     end
-    add = lambda do |dname, format, real_label = nil|
+    add = lambda do |dname, format, real_label = nil, grain = nil|
       return if dname.nil? || dname.to_s.empty?
       return if dname =~ GUID_RE
       # Dedup on the EXACT display name (#455): genuine same-name duplicates still
@@ -2312,7 +2371,7 @@ module MechanicalSpecs
       master_columns << { 'id' => id, 'name' => dname, 'formula' => real_for.call(dname, real_label) }
       entry = { 'id' => id, 'name' => dname }
       entry['format'] = format if format
-      entry['grain'] = grain_for[dkey] if grain_for[dkey]
+      entry['grain'] = grain || grain_for[dkey] if grain || grain_for[dkey]
       rx = header_regex(dname)
       unless used_regex[rx]
         mmap[rx] = entry
@@ -2326,15 +2385,52 @@ module MechanicalSpecs
           used_regex[brx] = true
         end
       end
+      entry
     end
     raw_cols = (fact_el['columns'] || [])
     # Real readback label per converter column (suffixed form). Empty hash when
     # no readback labels supplied -> formulas fall back to the bare name.
     label_for = real_labels ? resolve_real_labels(raw_cols, real_labels) : {}
     # Bare-named columns claim their regex before suffixed cross-element dupes.
-    cols = raw_cols.map { |c| [col_display(c), c['format'], label_for[c['id']]] }
-    cols.sort_by! { |(dn, _, _)| (dn.to_s.include?('(') ? 1 : 0) }
-    cols.each { |(dn, fmt, real_label)| add.call(dn, fmt, real_label) }
+    cols = raw_cols.each_with_index.map do |c, i|
+      tail = c['formula'].to_s[/\[([^\]]+)\]\s*\z/, 1]
+      parts = tail ? tail.split('/') : []
+      { 'dn' => col_display(c), 'fmt' => c['format'], 'label' => label_for[c['id']], 'id' => c['id'], 'i' => i,
+        'rel' => (c['name'].to_s.empty? && parts.size >= 3 ? parts[-2] : nil) }
+    end
+    # Same bare name from DIFFERENT relationship paths: keep BOTH (see `disambiguated`).
+    # The bare name goes to the path Tableau left un-suffixed; the rest are renamed
+    # "<name> (<relationship>)" — the same label the DM itself gives them.
+    parsed_dis = Array(disambiguated).map { |cap| parse_disambiguated_caption(cap) }.compact
+    cols.group_by { |h| h['dn'].to_s }.each do |dn, group|
+      next if dn.empty? || group.size < 2 || group.map { |h| h['rel'] }.uniq.size < 2
+      named = parsed_dis.select { |pd| pd['base'].casecmp?(dn) }
+      suffixed = group.select { |h| h['rel'] && named.any? { |pd| pd['table'].casecmp?(h['rel']) } }
+      owner = (group - suffixed).first || group.first
+      group.each do |h|
+        next if h.equal?(owner) || h['rel'].nil?
+        h['dn'] = "#{dn} (#{h['rel']})"
+        h['alias_of'] = dn
+      end
+    end
+    # (stable: bare-named columns claim their regex before suffixed cross-element dupes)
+    cols = cols.sort_by { |h| [h['dn'].to_s.include?('(') ? 1 : 0, h['i']] }
+    cols.each do |h|
+      entry = add.call(h['dn'], h['fmt'], h['label'], grain_for_id[h['id']])
+      next unless entry && h['alias_of']
+      # Tableau's own caption for this path ("Region (STORE_DIM (SALESDB.STORE_DIM))") — the
+      # exact caption when the .twb supplied it, plus the generic shape so a header the
+      # twb scan missed still lands on this column rather than the bare one.
+      named_caps = parsed_dis.select { |pd| pd['base'].casecmp?(h['alias_of']) && pd['table'].casecmp?(h['rel']) }
+                             .map { |pd| pd['caption'] }
+      patterns = named_caps.map { |cap| header_regex(cap) }
+      patterns << "(?i)^#{Regexp.escape(h['alias_of'])}\\s*\\(\\s*#{Regexp.escape(h['rel'])}\\s*\\(.*\\)\\d*\\s*\\)$"
+      patterns.each do |rx|
+        next if used_regex[rx]
+        mmap[rx] = entry
+        used_regex[rx] = true
+      end
+    end
     # Reuse-path completeness (bead: master-map omits reused-DM columns / finding #5).
     # The columns above come from the .twb-derived CONVERTER fact element. When a
     # DM is REUSED, its live fact element (real_labels = readback columnLabels) can
@@ -2563,6 +2659,35 @@ module MechanicalSpecs
   # theme: ThemeDerive.derive output (build-charts 'theme' key) — the
   # orchestrated path previously dropped it, so every mechanical run shipped
   # themeless even when the source declared fonts/canvas/palette (v5.0 fix).
+  # build-charts-from-signals.rb gives a native navigate button a PROVISIONAL
+  # target page, "page-<slug of the target dashboard name>", because page ids
+  # are assigned here ("page-dash-N"). Sigma rejects a write whose navigate
+  # effect names an unknown page ("references unknown page"), so put-layout.rb's
+  # post-publish repair never gets a chance: resolve the target to the real page
+  # id now, matching the builder's slug rule on each page NAME (= its dashboard).
+  def nav_page_slug(name)
+    'page-' + name.to_s.downcase.gsub(/[^a-z0-9]+/, '-').sub(/\A-/, '').sub(/-\z/, '')[0..40].to_s
+  end
+
+  def resolve_nav_targets!(pages)
+    ids = pages.map { |pg| pg['id'] }
+    by_slug = pages.each_with_object({}) { |pg, h| h[nav_page_slug(pg['name'])] ||= pg['id'] }
+    walk = lambda do |node|
+      case node
+      when Array then node.each { |v| walk.call(v) }
+      when Hash
+        target = node['target']
+        if node['effect'] == 'navigate' && target.is_a?(Hash) && target['type'] == 'page' &&
+           !ids.include?(target['page']) && by_slug.key?(target['page'])
+          target['page'] = by_slug[target['page']]
+        end
+        node.each_value { |v| walk.call(v) }
+      end
+    end
+    pages.each { |pg| walk.call(pg['elements']) }
+    pages
+  end
+
   def build_wb_spec(name:, dm_id:, fact_eid:, master_columns:, chart_elements:, folder_id: nil,
                     data_elements: [], theme: nil, canonical: true)
     master = {
@@ -2602,6 +2727,7 @@ module MechanicalSpecs
       else
         [{ 'id' => 'page-dash', 'name' => name, 'elements' => chart_elements }]
       end
+    resolve_nav_targets!(chart_pages)
     spec = {
       'name' => name,
       'description' => 'Generated mechanically from Tableau via tableau-to-sigma (convert_tableau_to_sigma + build-charts-from-signals).',

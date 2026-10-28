@@ -26,10 +26,8 @@
     {
       "left": "LMOG_FACT_WIDE",
       "right": "LMOG_DIM_STORE",
-      "derivedVia": "name-inference",
-      "keyCount": 1,
-      "partial": true,
-      "droppedConditions": 1
+      "derivedVia": "computed-key",
+      "keyCount": 1
     },
     {
       "left": "LMOG_FACT_WIDE",

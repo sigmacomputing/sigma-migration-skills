@@ -5,7 +5,9 @@
 # relationshipCoverage report into <workdir>/relationship-coverage.json.
 #
 # WHY: converter/tableau.mjs now infers a join key by column name when Tableau
-# serialized none for a 2020.2+ logical (object-graph) relationship, and it
+# serialized none for a 2020.2+ logical (object-graph) relationship, carries a
+# whitelisted computed endpoint (DATE([Order Date]) = [Date Key]) as a
+# calculated key column (derivedVia "computed-key"), and it
 # records EVERY relationship it considered — wired or not — in a top-level
 # `relationshipCoverage: { serialized, wired, entries: [...] }` object
 # (camelCase: derivedVia, keyCount, droppedConditions — the converter's native

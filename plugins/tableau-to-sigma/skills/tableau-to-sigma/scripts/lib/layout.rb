@@ -110,8 +110,16 @@ module SigmaLayout
 
   # Header band XML: dark full-width container at the top of the page wrapping
   # the title text (child coordinates are container-relative).
-  def header_band_xml(container_id, text_id, rows: HEADER_ROWS)
-    gc(container_id, 1, 25, 1, 1 + rows, le(text_id, 1, 25, 1, 1 + rows))
+  # `buttons` ([{id:, c0:, c1:}], container-relative columns) are the source's
+  # header-row nav buttons: the title narrows to end where the first button
+  # starts and each button sits at its own columns, so the band reads
+  # "title ........ [button]" like the Tableau header row.
+  def header_band_xml(container_id, text_id, rows: HEADER_ROWS, buttons: [])
+    return gc(container_id, 1, 25, 1, 1 + rows, le(text_id, 1, 25, 1, 1 + rows)) if buttons.empty?
+    title_end = buttons.map { |b| b[:c0] }.min
+    inner = [le(text_id, 1, title_end, 1, 1 + rows)] +
+            buttons.map { |b| le(b[:id], b[:c0], b[:c1], 1, 1 + rows) }
+    gc(container_id, 1, 25, 1, 1 + rows, inner.join("\n"))
   end
 
   # Cluster placed items into horizontal bands by row overlap. Items are

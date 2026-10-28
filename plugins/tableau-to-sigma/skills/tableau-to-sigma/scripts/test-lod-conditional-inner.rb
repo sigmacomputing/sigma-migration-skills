@@ -27,8 +27,8 @@ end
 
 src = File.read(BUILD) +
   File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
-defs = %w[render_agg parse_fixed_lod lod_inner_ref strip_tableau_comments translate_dim_calc
-          translate_row_level_calc].map do |fn|
+defs = %w[render_agg lod_ref_caption parse_fixed_lod parse_relative_lod lod_inner_ref strip_tableau_comments
+          translate_dim_calc translate_row_level_calc].map do |fn|
   m = src.match(/^def #{Regexp.escape(fn)}\b.*?\nend\n/m)
   abort "test bug: could not extract def #{fn} from build-charts-from-signals.rb" unless m
   m[0]
@@ -104,6 +104,23 @@ lodx = mod.parse_fixed_lod('{ FIXED [Retailer Store ID] : MAX(REGEXP_EXTRACT([Or
 check(!lodx.nil?, 'still parses the LOD shell', fails)
 check(lodx && mod.lod_inner_ref(lodx, mmap, {}).nil?,
       'inner with an unsupported function yields nil ref', fails)
+
+# ---- 6. Plain internal names resolve to captions ----------------------------
+# A federated (non-published) datasource names columns [ORDER_CHANNEL], not by
+# GUID; columns_by_guid carries those names too. The helper must reference the
+# master CAPTION, or its [Master/ORDER_CHANNEL] formula resolves to nothing.
+puts 'Part 6 — plain internal column names resolve through columns_by_guid'
+cbn = { 'ORDER_CHANNEL' => { 'caption' => 'Order Channel' }, 'NET_REVENUE' => { 'caption' => 'Net Revenue' } }
+lodn = mod.parse_fixed_lod('{FIXED [ORDER_CHANNEL] : SUM([NET_REVENUE])}', cbn)
+check(lodn && lodn['dims'] == ['Order Channel'] && lodn['measure'] == 'Net Revenue',
+      "FIXED dims + measure resolve to captions (got #{lodn.inspect})", fails)
+reln = mod.parse_relative_lod('{INCLUDE [ORDER_CHANNEL] : SUM([NET_REVENUE])}', cbn)
+check(reln && reln['dims'] == ['Order Channel'] && reln['measure'] == 'Net Revenue',
+      "INCLUDE dims + measure resolve to captions (got #{reln.inspect})", fails)
+check(mod.parse_fixed_lod('{FIXED [Region] : SUM([Sales])}', cbn)&.dig('dims') == ['Region'],
+      'an unknown plain name is kept as written', fails)
+check(mod.parse_fixed_lod('{FIXED [dddddddd-dddd-dddd-dddd-dddddddddddd] : SUM([Sales])}', cbn).nil?,
+      'an unknown GUID stays unresolvable', fails)
 
 puts
 if fails.empty?

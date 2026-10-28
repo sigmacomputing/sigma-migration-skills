@@ -20,7 +20,7 @@ SPEC.loader.exec_module(parity)
 class TableauRuntimeParityTest(unittest.TestCase):
     def test_manifest_covers_layout_gaps_and_column_independent_conversion(self):
         cases = parity.load_cases(parity.DEFAULT_CASES)
-        self.assertEqual(8, len(cases))
+        self.assertEqual(9, len(cases))
         self.assertEqual(
             {"layout", "gaps", "conversion"},
             {case.kind for case in cases},

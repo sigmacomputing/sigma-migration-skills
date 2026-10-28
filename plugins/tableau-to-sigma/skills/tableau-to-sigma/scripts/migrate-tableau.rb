@@ -4832,7 +4832,18 @@ if mechanical
   abort 'FATAL: mechanical path could not identify a fact element in the converter output' unless conv_fact
   conv_base = MechanicalSpecs.base_of(conv['model'], conv_fact)
   real_labels = fact['columnLabels'] # from post-and-readback /columns (may be nil)
-  derived = MechanicalSpecs.derive_master(conv_fact, fact['name'], conv_base, real_labels, conv['model'])
+  # Tableau's disambiguated captions for same-named columns of different tables
+  # ("Region (STORE_DIM (SALESDB.STORE_DIM))"): each maps to its OWN table's master column
+  # instead of collapsing onto the plain caption (see derive_master).
+  dis_captions = begin
+    twb_for_captions = [(defined?(conv_twb) ? conv_twb : nil), (have_twb ? twb : nil)].compact.find { |f| File.exist?(f.to_s) }
+    twb_for_captions ? MechanicalSpecs.disambiguated_captions_from_twb(File.read(twb_for_captions, encoding: 'UTF-8')) : []
+  rescue StandardError => e
+    line "WARN: could not scan the .twb for disambiguated column captions (#{e.class}: #{e.message}) — same-named columns of different tables keep the bare-name rule"
+    []
+  end
+  derived = MechanicalSpecs.derive_master(conv_fact, fact['name'], conv_base, real_labels, conv['model'],
+                                          disambiguated: dis_captions)
   master_columns = derived['master_columns']
   mmap = derived['mmap']
   # Human-supplied master-calc overrides (--master-col): appended verbatim so a
@@ -4999,14 +5010,26 @@ if mechanical
   # every dashboard tile when that physical column is NULL.
   Array(raw_charts.is_a?(Hash) ? raw_charts['master_calc_columns'] : nil).each do |cc|
     next unless cc.is_a?(Hash) && cc['id'] && cc['name'] && cc['formula']
+    # A drill-level category column is NEW, never a fidelity override: adding
+    # it must not rewrite a same-named master column's formula.
+    if cc.delete('_drill')
+      name = cc['name'].to_s
+      name = "#{name} (drill)" if master_columns.any? { |column| column['name'].to_s.casecmp?(name) }
+      cc['name'] = name
+      next if master_columns.any? { |column| column['id'] == cc['id'] }
+      master_columns << cc
+      line "derived master column '#{cc['name']}' (#{cc['formula'][0, 90]}) added for a drill-control category"
+      next
+    end
     existing = master_columns.find { |column| column['id'] == cc['id'] } ||
                master_columns.find { |column| column['name'].to_s.casecmp?(cc['name'].to_s) }
     if existing
       existing['formula'] = cc['formula']
+      line "calculated-filter fidelity: master '#{cc['name']}' uses the translated Tableau formula, not a same-named passthrough"
     else
       master_columns << cc
+      line "derived master column '#{cc['name']}' (#{cc['formula'][0, 90]}) added for a Tableau calc the converter needs on the master (drill-control category)"
     end
-    line "calculated-filter fidelity: master '#{cc['name']}' uses the translated Tableau formula, not a same-named passthrough"
   end
   # Dim-grain helper placeholder resolution: build-charts runs before it knows
   # the live DM element ids, so grain helpers carry source.elementId =
@@ -6186,7 +6209,7 @@ end
 # SINGLE-INVOCATION finalize chain (speed review #2b + reconciled amendment:
 # STRICT empty-actuals predicate, derived from the artifacts — never guessed).
 # When the agent-mediated actuals list is EMPTY — every exportable plan chart
-# was machine-collected by the pooled exporter, no pivot grids, no
+# was machine-collected by the pooled exporter (pivots via JSON export), no
 # render-verify/too-large/timeout markers, no per-tile visual sidecar — the
 # exit-12 → separate --finalize invocation is a pure round-trip tax: chain
 # finalize IN-PROCESS (same pid, same invocation: exec self with --finalize
@@ -6216,8 +6239,9 @@ def finalize_chain_predicate(work, fast: false)
   end
   charts = plan.is_a?(Hash) ? Array(plan['charts']).select { |c| c.is_a?(Hash) } : []
   return [false, 'no parity-plan.json charts on disk'] if charts.empty?
-  pivots = charts.select { |c| c['sigma_kind'].to_s.downcase.include?('pivot') }
-  return [false, "#{pivots.size} pivot grid(s) in the plan (agent-mediated MCP queries)"] if pivots.any?
+  # Pivot grids are machine-collected too (collect-parity-actuals reads their
+  # long-form JSON export over REST), so they no longer block the chain by kind;
+  # an uncollected pivot is caught by the missing-actuals check below.
   vv = begin
     JSON.parse(File.read(File.join(work, 'visual-verify-tiles.json')))
   rescue StandardError
@@ -6272,14 +6296,14 @@ def finalize_chain_predicate(work, fast: false)
   elsif rcf_staged
     return [false, 'RCF loop staged (rcf_passes > 0) but no fidelity-ledger.json — gate 8d would stop the chained finalize']
   end
-  [true, "all #{collectible.size} exportable chart(s) machine-collected; no pivot grids; no agent-mediated markers; " \
+  [true, "all #{collectible.size} exportable chart(s) machine-collected; no agent-mediated markers; " \
          "visual verdict #{fast ? 'waived (--fast)' : 'recorded'}; RCF ledger #{rcf_staged ? 'resolved' : 'unstaged'}"]
 end
 
 # W2.6: classify a failed chain predicate — :wait when the ONLY blockers are
 # agent-DISCHARGEABLE obligations at the pass-1 tail (record the visual
 # verdict; write/resolve the staged RCF ledger), :terminal for everything
-# structural (pivot grids, agent-mediated markers, missing actuals — nothing
+# structural (agent-mediated markers, missing actuals — nothing
 # an agent can discharge in minutes) AND for a recorded 'not-executable'
 # verdict, which is an ANSWER (the agent cannot do vision), not a pending one.
 WAITABLE_CHAIN_RES = [/\Ano recorded visual verdict/,

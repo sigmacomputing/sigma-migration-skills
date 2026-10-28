@@ -71,6 +71,7 @@ require 'workbook_code'
 # method. Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 require_relative 'lib/button_fallback'
+require 'action_ledger' # write_manifest — prunes the actions-emitted manifest after a nav-button downgrade
 begin
   require 'offramp' # off-ramp trail (waiver observability); optional — never load-bearing
 rescue LoadError
@@ -150,7 +151,9 @@ def http(method, path, body = nil, accept_json: false)
           end
     req['Authorization'] = "Bearer #{Sigma.auth_token}"
     req['Accept']        = 'application/json' if accept_json
-    res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 120) { |h| h.request(req) }
+    # TLS follows the base URL's scheme (always https against Sigma; plain http
+    # only for the loopback servers the offline tests stand up).
+    res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 120) { |h| h.request(req) }
     if res.code.to_i == 401 && attempts == 1 && ENV['SIGMA_CLIENT_ID']
       warn '  [auth] Sigma token expired mid-run, refreshing and retrying...'
       Sigma.refresh_token!
@@ -266,25 +269,75 @@ def verify_spec!(body, skip_reason, update: false)
 end
 def opts_type_workbook?; $opts_type == 'workbook'; end
 
-# Info-icon buttons are workspace-gated in some Sigma workspaces (verify 200,
-# write 400 "`button` elements are not enabled"). On exactly that error,
-# rewrite them to text elements carrying the same words and re-send ONCE, so one
-# gated element never fails the whole workbook. Returns [resp, body].
-def retry_without_gated_buttons(resp, body)
+# Buttons are workspace-gated in some Sigma workspaces (verify 200, write 400
+# "`button` elements are not enabled"). On exactly that error, rewrite the two
+# button kinds that have a text equivalent — info-icon buttons (→ inline text)
+# and navigation buttons (→ the nav.invalid text pill put-layout.rb turns into a
+# live page link) — and re-send ONCE, so one gated element never fails the whole
+# workbook. Once the re-send lands, retire the downgraded nav buttons' entries
+# from the actions-emitted manifest and mirror the downgrade into the on-disk
+# spec (see sync_downgraded_nav_buttons!). Returns [resp, body].
+def retry_without_gated_buttons(resp, body, workdir: nil, spec_path: nil)
   return [resp, body] if resp.is_a?(Net::HTTPSuccess) || !ButtonFallback.gated_error?(resp.body)
   doc = (JSON.parse(body) rescue nil)
-  ids = doc ? ButtonFallback.rewrite!(doc) : []
+  nav = []
+  ids = doc ? ButtonFallback.rewrite!(doc, [], nav) : []
   return [resp, body] if ids.empty?
-  warn "WARN: this workspace rejects button elements — rewrote #{ids.size} info-icon button(s) " \
-       "(#{ids.join(', ')}) as inline text and re-sending once (tooltip popup → text)"
+  nav_ids = nav.map { |n| n['id'] }
+  info_ids = ids - nav_ids
+  became = []
+  became << "#{info_ids.size} info-icon button(s) → inline text (#{info_ids.join(', ')})" if info_ids.any?
+  nav.each do |n|
+    became << "#{n['id']} → text pill linking page #{n['page'].inspect}" \
+              "#{n['resolved'] ? '' : ' (target page id unresolved; used the button text as the page name)'}"
+  end
+  warn "WARN: this workspace rejects button elements — re-sending once with #{ids.size} button(s) " \
+       "rewritten to text: #{became.join('; ')}"
+  # The pill's verticalAlign is the legacy spelling; wrap() re-canonicalizes it.
+  doc = Sigma::CodeRep.wrap(Sigma::CodeRep.document(doc), extra: Sigma::CodeRep.metadata(doc)) \
+    if nav.any? && opts_type_workbook?
   new_body = JSON.generate(doc)
-  [yield(new_body), new_body]
+  new_resp = yield(new_body)
+  sync_downgraded_nav_buttons!(nav, workdir, spec_path) if nav.any? && new_resp.is_a?(Net::HTTPSuccess)
+  [new_resp, new_body]
+end
+
+# After a nav button is downgraded to a text pill, two on-disk records still call
+# it a native action: the actions-emitted manifest (so build-postpublish-guide.rb
+# would count it as auto-wired and drop it from the manual-wiring residue) and the
+# built spec (assert-action-gates.rb compares its action count to that manifest).
+# Drop the downgraded actions from every <workdir>/*-actions-emitted.json — the
+# guide then treats these exactly like text-mode nav buttons, which never had
+# manifest entries — and rewrite the spec file the same way the posted body was.
+def sync_downgraded_nav_buttons!(nav, workdir, spec_path)
+  action_ids = nav.map { |n| n['action_id'] }
+  if workdir
+    Dir.glob(File.join(workdir, '*-actions-emitted.json')).sort.each do |path|
+      entries = (JSON.parse(File.read(path)) rescue nil)
+      next unless entries.is_a?(Array)
+      kept, removed = ButtonFallback.prune_manifest(entries, action_ids)
+      next if removed.empty?
+      ActionLedger.write_manifest(path, kept)
+      warn "NOTE: removed #{removed.size} downgraded nav button action(s) from #{path} " \
+           '(now text pills — the post-publish guide lists them for manual wiring like any text-mode nav button)'
+    end
+  end
+  return unless spec_path && File.exist?(spec_path)
+  local = (JSON.parse(File.read(spec_path)) rescue nil)
+  return unless local.is_a?(Hash)
+  return if ButtonFallback.rewrite!(local).empty?
+  tmp = "#{spec_path}.tmp"
+  File.write(tmp, JSON.pretty_generate(local))
+  File.rename(tmp, spec_path)
+  warn "NOTE: rewrote #{spec_path} to match what was posted (nav buttons → text pills)"
 end
 $opts_type = opts[:type]
 
 # W2.6 (review fix-wave, 2026-07-30, Important finding 3): derivedVia/partial/
 # droppedConditions are object-graph relationship-derivation PROVENANCE
-# (converter/tableau.mjs's PR2a ladder) — they exist purely so two EARLIER
+# (converter/tableau.mjs's PR2a ladder; derivedVia is serialized | computed-key
+# | name-inference, or equivalence-proof from repair-date-role.py) — stripped
+# by KEY, whatever the value. They exist purely so two EARLIER
 # pipeline stages can read them off the SAME dm-spec Hash the converter
 # returned: lib/join_plan.rb threads them into join-plan.json so gate 16's
 # warehouse uniqueness probe can single out and validate an INFERRED key
@@ -482,7 +535,7 @@ if update_id
     $dm_pre_ids = _pre.is_a?(Hash) ? (_pre['pages'] || []).flat_map { |p| (p['elements'] || []).map { |e| e['id'] } }.compact : nil
   end
   resp = http(:put, format(GET_PATH, update_id), put_body)
-  resp, put_body = retry_without_gated_buttons(resp, put_body) { |b| http(:put, format(GET_PATH, update_id), b) }
+  resp, put_body = retry_without_gated_buttons(resp, put_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:put, format(GET_PATH, update_id), b) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed[ID_FIELD] || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.is_a?(Net::HTTPSuccess)
@@ -534,7 +587,7 @@ else
   end
   verify_spec!(post_body, opts[:skip_spec_verify])
   resp = http(:post, POST_PATH, post_body)
-  resp, post_body = retry_without_gated_buttons(resp, post_body) { |b| http(:post, POST_PATH, b) }
+  resp, post_body = retry_without_gated_buttons(resp, post_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:post, POST_PATH, b) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed.is_a?(Hash) ? parsed[ID_FIELD] : nil
   # Rec5 quarantine (opt-in): a POST killed by ONE broken element must not lose

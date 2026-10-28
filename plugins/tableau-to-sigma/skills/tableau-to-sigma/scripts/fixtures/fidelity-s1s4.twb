@@ -1,0 +1,286 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for four fidelity bugs a live
+     Tableau-vs-Sigma comparison found in migrated dashboards:
+     - "Monthly Trend": an UNSYNCHRONIZED dual-axis combo. Rows = ([measure picker] + [Margin %]),
+       one pane per measure (Bar on the left axis, Line on the right). The view CSV lists the
+       measures in its own order (Margin % first), NOT the shelf order.
+     - "Top Products": a bar chart colored by Category with a parameter-driven Top N quick
+       filter (a chart-level Rank() partitions by the color series: top N per Category).
+     - "Top Cities": a horizontal bar by City colored by Store Type with a literal Top 3 quick
+       filter (a native top-n filter partitions by the color series too).
+     - "Spanning Window": a relative-date filter that spans the current period
+       (years -2..+1) — no last/next/current mode fits it. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Select Metric' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Net Revenue&quot;'>
+        <calculation class='tableau' formula='&quot;Net Revenue&quot;' />
+        <members>
+          <member value='&quot;Net Revenue&quot;' />
+          <member value='&quot;Gross Profit&quot;' />
+          <member value='&quot;Units&quot;' />
+        </members>
+      </column>
+      <column caption='Top N' datatype='integer' name='[Parameter 2]' param-domain-type='range' role='measure' type='quantitative' value='5'>
+        <calculation class='tableau' formula='5' />
+        <range granularity='1' max='25' min='3' />
+      </column>
+    </datasource>
+    <datasource caption='Orders' inline='true' name='federated.fid0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.fid0001'>
+            <connection class='snowflake' dbname='SALESDB' schema='DEMO' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.fid0001' name='ORDERS' table='[DEMO].[ORDERS]' type='table' />
+      </connection>
+      <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+      <column caption='Category' datatype='string' name='[7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02]' role='dimension' type='nominal' />
+      <column caption='Product Name' datatype='string' name='[PRODUCT_NAME]' role='dimension' type='nominal' />
+      <column caption='City' datatype='string' name='[CITY]' role='dimension' type='nominal' />
+      <column caption='Store Type' datatype='string' name='[5a1c0e7d-3f42-3b8e-9a10-0c2d4e6f8a01]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+      <column caption='Quantity Ordered' datatype='integer' name='[QUANTITY]' role='measure' type='quantitative' />
+      <column caption='Gross Margin %' datatype='real' default-format='p0.0%' name='[Calculation_2001]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+      </column>
+      <column caption='Metric Value' datatype='real' name='[Calculation_2002]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &apos;Net Revenue&apos; THEN [NET_REVENUE] WHEN &apos;Gross Profit&apos; THEN [GROSS_PROFIT] WHEN &apos;Units&apos; THEN [QUANTITY] END' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Monthly Trend'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Monthly Trend: Selected Metric vs Gross Margin %</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.fid0001' />
+            <datasource name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fid0001'>
+            <column caption='Gross Margin %' datatype='real' default-format='p0.0%' name='[Calculation_2001]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE])' />
+            </column>
+            <column caption='Metric Value' datatype='real' name='[Calculation_2002]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &apos;Net Revenue&apos; THEN [NET_REVENUE] WHEN &apos;Gross Profit&apos; THEN [GROSS_PROFIT] WHEN &apos;Units&apos; THEN [QUANTITY] END' />
+            </column>
+            <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column-instance column='[Calculation_2002]' derivation='Sum' name='[sum:Calculation_2002:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_2001]' derivation='User' name='[usr:Calculation_2001:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_DATE]' derivation='Month-Trunc' name='[tmn:ORDER_DATE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <datasource-dependencies datasource='Parameters'>
+            <column caption='Select Metric' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Net Revenue&quot;'>
+              <calculation class='tableau' formula='&quot;Net Revenue&quot;' />
+              <members>
+                <member value='&quot;Net Revenue&quot;' />
+                <member value='&quot;Gross Profit&quot;' />
+                <member value='&quot;Units&quot;' />
+              </members>
+            </column>
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Automatic' />
+          </pane>
+          <pane id='1' selection-relaxation-option='selection-relaxation-allow' y-axis-name='[federated.fid0001].[sum:Calculation_2002:qk]'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+          <pane id='2' selection-relaxation-option='selection-relaxation-allow' y-axis-name='[federated.fid0001].[usr:Calculation_2001:qk]'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+          </pane>
+        </panes>
+        <rows>([federated.fid0001].[sum:Calculation_2002:qk] + [federated.fid0001].[usr:Calculation_2001:qk])</rows>
+        <cols>[federated.fid0001].[tmn:ORDER_DATE:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Top Products'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Top Products by Selected Metric</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.fid0001' />
+            <datasource name='Parameters' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fid0001'>
+            <column caption='Category' datatype='string' name='[7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02]' role='dimension' type='nominal' />
+            <column caption='Product Name' datatype='string' name='[PRODUCT_NAME]' role='dimension' type='nominal' />
+            <column caption='Metric Value' datatype='real' name='[Calculation_2002]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &apos;Net Revenue&apos; THEN [NET_REVENUE] WHEN &apos;Gross Profit&apos; THEN [GROSS_PROFIT] WHEN &apos;Units&apos; THEN [QUANTITY] END' />
+            </column>
+            <column-instance column='[PRODUCT_NAME]' derivation='None' name='[none:PRODUCT_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_2002]' derivation='Sum' name='[sum:Calculation_2002:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02]' derivation='None' name='[none:7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <datasource-dependencies datasource='Parameters'>
+            <column caption='Select Metric' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Net Revenue&quot;'>
+              <calculation class='tableau' formula='&quot;Net Revenue&quot;' />
+              <members>
+                <member value='&quot;Net Revenue&quot;' />
+                <member value='&quot;Gross Profit&quot;' />
+                <member value='&quot;Units&quot;' />
+              </members>
+            </column>
+            <column caption='Top N' datatype='integer' name='[Parameter 2]' param-domain-type='range' role='measure' type='quantitative' value='5'>
+              <calculation class='tableau' formula='5' />
+              <range granularity='1' max='25' min='3' />
+            </column>
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fid0001].[none:PRODUCT_NAME:nk]'>
+            <groupfilter count='[Parameters].[Parameter 2]' end='top' function='end' units='records' user:ui-marker='end' user:ui-top-by-field='true'>
+              <groupfilter direction='DESC' expression='SUM([Calculation_2002])' function='order' user:ui-marker='order'>
+                <groupfilter function='level-members' level='[none:PRODUCT_NAME:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+              </groupfilter>
+            </groupfilter>
+          </filter>
+          <computed-sort column='[federated.fid0001].[none:PRODUCT_NAME:nk]' direction='DESC' using='[federated.fid0001].[sum:Calculation_2002:qk]' />
+          <aggregation value='true' />
+        </view>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.fid0001].[none:7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.fid0001].[none:PRODUCT_NAME:nk]</rows>
+        <cols>[federated.fid0001].[sum:Calculation_2002:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Top Cities'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Top 3 Cities by Net Revenue</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.fid0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fid0001'>
+            <column caption='City' datatype='string' name='[CITY]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Store Type' datatype='string' name='[5a1c0e7d-3f42-3b8e-9a10-0c2d4e6f8a01]' role='dimension' type='nominal' />
+            <column-instance column='[CITY]' derivation='None' name='[none:CITY:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[5a1c0e7d-3f42-3b8e-9a10-0c2d4e6f8a01]' derivation='None' name='[none:5a1c0e7d-3f42-3b8e-9a10-0c2d4e6f8a01:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fid0001].[none:CITY:nk]'>
+            <groupfilter count='3' end='top' function='end' units='records' user:ui-marker='end' user:ui-top-by-field='true'>
+              <groupfilter direction='DESC' expression='SUM([NET_REVENUE])' function='order' user:ui-marker='order'>
+                <groupfilter function='level-members' level='[none:CITY:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+              </groupfilter>
+            </groupfilter>
+          </filter>
+          <aggregation value='true' />
+        </view>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <color column='[federated.fid0001].[none:5a1c0e7d-3f42-3b8e-9a10-0c2d4e6f8a01:nk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.fid0001].[none:CITY:nk]</rows>
+        <cols>[federated.fid0001].[sum:NET_REVENUE:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Spanning Window'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Revenue by Category (this and last 2 years, plus next)</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.fid0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.fid0001'>
+            <column caption='Category' datatype='string' name='[7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column-instance column='[7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02]' derivation='None' name='[none:7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_DATE]' derivation='None' name='[none:ORDER_DATE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='relative-date' column='[federated.fid0001].[none:ORDER_DATE:qk]' first-period='-2' include-future='true' include-null='false' last-period='1' period-type-v2='year' />
+          <aggregation value='true' />
+        </view>
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.fid0001].[none:7b2d1f8e-4a53-3c9f-8b21-1d3e5f7a9b02:nk]</rows>
+        <cols>[federated.fid0001].[sum:NET_REVENUE:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Fidelity Board'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Orders' name='federated.fid0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='vert' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='50000' id='3' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+              <zone h='50000' id='21' name='Monthly Trend' w='50000' x='0' y='0' />
+              <zone h='50000' id='22' name='Top Products' w='50000' x='50000' y='0' />
+            </zone>
+            <zone h='50000' id='4' param='horz' type-v2='layout-flow' w='100000' x='0' y='50000'>
+              <zone h='50000' id='23' name='Top Cities' w='50000' x='0' y='50000' />
+              <zone h='50000' id='24' name='Spanning Window' w='50000' x='50000' y='50000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

@@ -1,0 +1,82 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture for test-self-join-alias.rb (invented names, no customer
+     data): a published / virtual-connection join datasource that joins
+     SALES_FACT to ITSELF under a second relation name ("Same Day Sales") on
+     two keys, and inner-joins a STORE_DIM whose shared captions carry
+     Tableau's "(STORE_DIM)" disambiguation suffix. A calc reads both aliases
+     ("<guid> (Same Day Sales)"). Before the fix both aliases collapsed onto
+     one SALES_FACT element with a relationship to itself, which the DM POST
+     rejects as a circular dependency. -->
+<workbook source-build='2026.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales Watch (Demo VC)' inline='true' name='federated.selfjoin01' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='Demo VC' name='publishedConnection.selfjoin01'>
+            <connection class='publishedConnection' resourceId='00000000-0000-4000-8000-0000000000c1' resourceName='Demo VC' />
+          </named-connection>
+        </named-connections>
+        <relation join='inner' type='join'>
+          <clause type='join'>
+            <expression op='='>
+              <expression op='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+              <expression op='[STORE_DIM (DEMO.STORE_DIM)].[bbbb0001-0000-4000-8000-000000000001]' />
+            </expression>
+          </clause>
+          <relation join='inner' type='join'>
+            <clause type='join'>
+              <expression op='AND'>
+                <expression op='='>
+                  <expression op='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+                  <expression op='[Same Day Sales].[aaaa0001-0000-4000-8000-000000000001]' />
+                </expression>
+                <expression op='='>
+                  <expression op='[Sale Lines].[aaaa0002-0000-4000-8000-000000000002]' />
+                  <expression op='[Same Day Sales].[aaaa0002-0000-4000-8000-000000000002]' />
+                </expression>
+              </expression>
+            </clause>
+            <relation connection='publishedConnection.selfjoin01' name='Sale Lines' table='[00000000-0000-4000-8000-0000000000f1].[SALES_FACT (DEMO.SALES_FACT)]' type='table' />
+            <relation connection='publishedConnection.selfjoin01' name='Same Day Sales' table='[00000000-0000-4000-8000-0000000000f1].[SALES_FACT (DEMO.SALES_FACT)]' type='table' />
+          </relation>
+          <relation connection='publishedConnection.selfjoin01' name='STORE_DIM (DEMO.STORE_DIM)' table='[00000000-0000-4000-8000-0000000000d1].[STORE_DIM (DEMO.STORE_DIM)]' type='table' />
+        </relation>
+        <cols>
+          <map key='[aaaa0001-0000-4000-8000-000000000001]' value='[Sale Lines].[aaaa0001-0000-4000-8000-000000000001]' />
+          <map key='[aaaa0001-0000-4000-8000-000000000001 (Same Day Sales)]' value='[Same Day Sales].[aaaa0001-0000-4000-8000-000000000001]' />
+          <map key='[aaaa0002-0000-4000-8000-000000000002]' value='[Sale Lines].[aaaa0002-0000-4000-8000-000000000002]' />
+          <map key='[aaaa0002-0000-4000-8000-000000000002 (Same Day Sales)]' value='[Same Day Sales].[aaaa0002-0000-4000-8000-000000000002]' />
+          <map key='[aaaa0003-0000-4000-8000-000000000003]' value='[Sale Lines].[aaaa0003-0000-4000-8000-000000000003]' />
+          <map key='[aaaa0003-0000-4000-8000-000000000003 (Same Day Sales)]' value='[Same Day Sales].[aaaa0003-0000-4000-8000-000000000003]' />
+          <map key='[bbbb0001-0000-4000-8000-000000000001]' value='[STORE_DIM (DEMO.STORE_DIM)].[bbbb0001-0000-4000-8000-000000000001]' />
+          <map key='[bbbb0002-0000-4000-8000-000000000002]' value='[STORE_DIM (DEMO.STORE_DIM)].[bbbb0002-0000-4000-8000-000000000002]' />
+          <map key='[bbbb0003-0000-4000-8000-000000000003]' value='[STORE_DIM (DEMO.STORE_DIM)].[bbbb0003-0000-4000-8000-000000000003]' />
+        </cols>
+      </connection>
+      <column caption='Store Key' datatype='integer' name='[aaaa0001-0000-4000-8000-000000000001]' role='dimension' type='ordinal' />
+      <column caption='Store Key (Same Day Sales)' datatype='integer' name='[aaaa0001-0000-4000-8000-000000000001 (Same Day Sales)]' role='dimension' type='ordinal' />
+      <column caption='Sale Day Key' datatype='integer' name='[aaaa0002-0000-4000-8000-000000000002]' role='dimension' type='ordinal' />
+      <column caption='Sale Day Key (Same Day Sales)' datatype='integer' name='[aaaa0002-0000-4000-8000-000000000002 (Same Day Sales)]' role='dimension' type='ordinal' />
+      <column caption='Sale Amount' datatype='real' name='[aaaa0003-0000-4000-8000-000000000003]' role='measure' type='quantitative' />
+      <column caption='Sale Amount (Same Day Sales)' datatype='real' name='[aaaa0003-0000-4000-8000-000000000003 (Same Day Sales)]' role='measure' type='quantitative' />
+      <column caption='Store Key (STORE_DIM)' datatype='integer' name='[bbbb0001-0000-4000-8000-000000000001]' role='dimension' type='ordinal' />
+      <column caption='Store Name' datatype='string' name='[bbbb0002-0000-4000-8000-000000000002]' role='dimension' type='nominal' />
+      <column caption='Store City' datatype='string' name='[bbbb0003-0000-4000-8000-000000000003]' role='dimension' type='nominal' />
+      <column caption='Paired Amount' datatype='real' name='[Calculation_1001]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='ZN([aaaa0003-0000-4000-8000-000000000003]) + ZN([aaaa0003-0000-4000-8000-000000000003 (Same Day Sales)])' />
+      </column>
+      <column caption='Store Label' datatype='string' name='[Calculation_1002]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[bbbb0002-0000-4000-8000-000000000002] + " / " + [bbbb0003-0000-4000-8000-000000000003]' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Paired By Store'>
+      <table>
+        <view><datasources><datasource name='federated.selfjoin01' /></datasources></view>
+        <rows>[federated.selfjoin01].[none:Calculation_1002:nk]</rows>
+        <cols>[federated.selfjoin01].[sum:Calculation_1001:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

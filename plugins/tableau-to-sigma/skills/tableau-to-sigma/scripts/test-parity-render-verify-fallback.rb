@@ -52,6 +52,7 @@ STUB = <<~'RUBY'
         when 'el-ok'    then return "Region,Revenue\nEast,100\nWest,200\n"
         when 'el-empty' then return "Region,Revenue\n"
         when 'el-html'  then return "<html><body>export renderer error</body></html>"
+        when 'el-pivot' then return '[{"P": 7, "P (Grand Total)": 7}]'
         end
       end
       raise Error, "stub: unexpected #{method} #{path}"
@@ -118,7 +119,7 @@ Dir.mktmpdir do |dir|
           "Pivot #{k} → render-verify marker with the known-limitation reason", fails)
   end
   check(actuals['Pivot Preseeded'] == [['x', 1]], 'pre-existing agent rows never clobbered by a marker', fails)
-  check(!actuals.key?('Wide Pivot'), 'pivot-table stays agent-mediated (skip, no marker)', fails)
+  check(actuals['Wide Pivot'] == [[7]], "a pivot-table is collected from its long-form JSON export (got #{actuals['Wide Pivot'].inspect})", fails)
   check(!actuals.key?('Ghost'), 'unknown element stays NOT COLLECTED (fail, no marker)', fails)
 
   rv_lines = out.lines.grep(/RENDER-VERIFY REQUIRED/)
@@ -129,7 +130,7 @@ Dir.mktmpdir do |dir|
         'summary line lists exactly the marked charts', fails)
   check(rv_lines.first.to_s.include?('render-read or direct SQL'),
         'summary line tells the agent HOW to verify', fails)
-  check(out.include?('AGENT-MEDIATED  Wide Pivot'), 'pivot skip line preserved', fails)
+  check(!out.include?('AGENT-MEDIATED  Wide Pivot'), 'a pivot is no longer skipped for an MCP query', fails)
   check(out.include?('NOT COLLECTED   Ghost'), 'genuine failure line preserved', fails)
 end
 

@@ -1,0 +1,279 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for drill paths,
+     custom tooltip fields, and helper-sourced quick-filter scope:
+     - The datasource defines a drill path "Channel Hierarchy": Channel Group (a
+       calc) then Breakdown (a calc switched by the "Breakdown By" parameter).
+       "Channel Pivot" is a crosstab with Channel Group on Rows (the hierarchy
+       collapsed at its first level) and Order Channel on Columns.
+     - "Revenue Trend" carries Gross Revenue on the Tooltip shelf and a
+       customized tooltip that references Net Revenue, Net Profit and Channel
+       Group (ATTR).
+     - "Group Average" plots an INCLUDE LOD, so it is built on a hidden grouped
+       helper rather than the master.
+     - "Channel Bar" plots Channel Group on Columns (a chart on the first drill
+       level, so it is the drill control's target; the pivot is not).
+     - The Order Channel quick filter applies to SELECTED worksheets
+       (filter-group 7): Revenue Trend + Group Average only. Channel Pivot and
+       Channel Mix are outside its scope. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Breakdown By' datatype='string' name='[Parameter 1]' param-domain-type='list' role='measure' type='nominal' value='&quot;Order Channel&quot;'>
+        <calculation class='tableau' formula='&quot;Order Channel&quot;' />
+        <members>
+          <member value='&quot;Order Channel&quot;' />
+          <member value='&quot;Channel Group&quot;' />
+        </members>
+      </column>
+    </datasource>
+    <datasource caption='Orders' inline='true' name='federated.dtscope0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.dtscope0001'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='SALES' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.dtscope0001' name='ORDERS' table='[SALES].[ORDERS]' type='table' />
+      </connection>
+      <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+      <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Gross Revenue' datatype='real' name='[GROSS_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Net Profit' datatype='real' name='[NET_PROFIT]' role='measure' type='quantitative' />
+      <column caption='Channel Group' datatype='string' name='[Calculation_301]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [ORDER_CHANNEL] IN (&apos;Online&apos;, &apos;App&apos;) THEN &apos;Digital&apos; ELSE &apos;Store&apos; END' />
+      </column>
+      <column caption='Group Average' datatype='real' name='[Group Average]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{INCLUDE [ORDER_CHANNEL] : SUM([NET_REVENUE])}' />
+      </column>
+      <column caption='Breakdown' datatype='string' name='[Calculation_303]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='CASE [Parameters].[Parameter 1] WHEN &apos;Order Channel&apos; THEN [ORDER_CHANNEL] WHEN &apos;Channel Group&apos; THEN [Calculation_301] END' />
+      </column>
+      <drill-paths>
+        <drill-path name='Channel Hierarchy'>
+          <field>[Calculation_301]</field>
+          <field>[Calculation_303]</field>
+        </drill-path>
+      </drill-paths>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Channel Pivot'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.dtscope0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.dtscope0001'>
+            <column caption='Channel Group' datatype='string' name='[Calculation_301]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [ORDER_CHANNEL] IN (&apos;Online&apos;, &apos;App&apos;) THEN &apos;Digital&apos; ELSE &apos;Store&apos; END' />
+            </column>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column-instance column='[Calculation_301]' derivation='None' name='[none:Calculation_301:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Text' />
+            <encodings>
+              <text column='[federated.dtscope0001].[sum:NET_REVENUE:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.dtscope0001].[none:Calculation_301:nk]</rows>
+        <cols>[federated.dtscope0001].[none:ORDER_CHANNEL:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Revenue Trend'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.dtscope0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.dtscope0001'>
+            <column caption='Channel Group' datatype='string' name='[Calculation_301]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [ORDER_CHANNEL] IN (&apos;Online&apos;, &apos;App&apos;) THEN &apos;Digital&apos; ELSE &apos;Store&apos; END' />
+            </column>
+            <column caption='Gross Revenue' datatype='real' name='[GROSS_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Net Profit' datatype='real' name='[NET_PROFIT]' role='measure' type='quantitative' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+            <column-instance column='[Calculation_301]' derivation='Attribute' name='[attr:Calculation_301:nk]' pivot='key' type='nominal' />
+            <column-instance column='[GROSS_REVENUE]' derivation='Sum' name='[sum:GROSS_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_PROFIT]' derivation='Sum' name='[sum:NET_PROFIT:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+            <column-instance column='[ORDER_DATE]' derivation='Week-Trunc' name='[twk:ORDER_DATE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.dtscope0001].[none:ORDER_CHANNEL:nk]' filter-group='7'>
+            <groupfilter function='level-members' level='[none:ORDER_CHANNEL:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.dtscope0001].[none:ORDER_CHANNEL:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Line' />
+            <encodings>
+              <tooltip column='[federated.dtscope0001].[sum:GROSS_REVENUE:qk]' />
+            </encodings>
+            <customized-tooltip>
+              <formatted-text>
+                <run>Week of </run>
+                <run>&lt;[federated.dtscope0001].[twk:ORDER_DATE:qk]&gt;</run>
+                <run>Æ&#10;Net revenue: </run>
+                <run>&lt;[federated.dtscope0001].[sum:NET_REVENUE:qk]&gt;</run>
+                <run>Æ&#10;Net profit: </run>
+                <run>&lt;[federated.dtscope0001].[sum:NET_PROFIT:qk]&gt;</run>
+                <run>Æ&#10;Channel group: </run>
+                <run>&lt;[federated.dtscope0001].[attr:Calculation_301:nk]&gt;</run>
+              </formatted-text>
+            </customized-tooltip>
+          </pane>
+        </panes>
+        <rows>[federated.dtscope0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.dtscope0001].[twk:ORDER_DATE:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Group Average'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.dtscope0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.dtscope0001'>
+            <column caption='Channel Group' datatype='string' name='[Calculation_301]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [ORDER_CHANNEL] IN (&apos;Online&apos;, &apos;App&apos;) THEN &apos;Digital&apos; ELSE &apos;Store&apos; END' />
+            </column>
+            <column caption='Group Average' datatype='real' name='[Group Average]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='{INCLUDE [ORDER_CHANNEL] : SUM([NET_REVENUE])}' />
+            </column>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column-instance column='[Calculation_301]' derivation='None' name='[none:Calculation_301:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Group Average]' derivation='Avg' name='[avg:Group Average:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.dtscope0001].[none:ORDER_CHANNEL:nk]' filter-group='7'>
+            <groupfilter function='level-members' level='[none:ORDER_CHANNEL:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.dtscope0001].[none:ORDER_CHANNEL:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.dtscope0001].[avg:Group Average:qk]</rows>
+        <cols>[federated.dtscope0001].[none:Calculation_301:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Channel Mix'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.dtscope0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.dtscope0001'>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[ORDER_CHANNEL]' derivation='None' name='[none:ORDER_CHANNEL:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.dtscope0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.dtscope0001].[none:ORDER_CHANNEL:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Channel Bar'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.dtscope0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.dtscope0001'>
+            <column caption='Channel Group' datatype='string' name='[Calculation_301]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [ORDER_CHANNEL] IN (&apos;Online&apos;, &apos;App&apos;) THEN &apos;Digital&apos; ELSE &apos;Store&apos; END' />
+            </column>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Order Channel' datatype='string' name='[ORDER_CHANNEL]' role='dimension' type='nominal' />
+            <column-instance column='[Calculation_301]' derivation='None' name='[none:Calculation_301:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.dtscope0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.dtscope0001].[none:Calculation_301:nk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Channel Review'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Parameters' name='Parameters' />
+        <datasource caption='Orders' name='federated.dtscope0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='3' param='vert' type-v2='layout-flow' w='18000' x='0' y='0'>
+              <zone h='8000' id='10' mode='checkdropdown' name='Revenue Trend' param='[federated.dtscope0001].[none:ORDER_CHANNEL:nk]' type-v2='filter' values='relevant' w='18000' x='0' y='0' />
+              <zone h='8000' id='11' mode='compact' param='[Parameters].[Parameter 1]' type-v2='paramctrl' w='18000' x='0' y='8000' />
+            </zone>
+            <zone h='100000' id='4' param='vert' type-v2='layout-flow' w='82000' x='18000' y='0'>
+              <zone h='33000' id='21' name='Channel Pivot' w='41000' x='18000' y='0' />
+              <zone h='33000' id='22' name='Revenue Trend' w='41000' x='59000' y='0' />
+              <zone h='33000' id='23' name='Group Average' w='41000' x='18000' y='33000' />
+              <zone h='33000' id='24' name='Channel Mix' w='41000' x='59000' y='33000' />
+              <zone h='34000' id='25' name='Channel Bar' w='82000' x='18000' y='66000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

@@ -5,12 +5,22 @@
 # serialize must still be wired, and every derivation must be recorded.
 #
 # WHY: Tableau AUTO-MATCHES relationships by column name at query time, and can
-# serialize a relationship whose only usable key is a computed expression Sigma
-# cannot join on physically. That is how modern star schemas are built, so the
-# converter saw a star and emitted disconnected tables — after which a parity
-# gate with no relationships to satisfy it pushes the run into joined/
+# serialize a relationship whose key is a computed expression
+# (DATE([Order Date]) = [Date Key]). That is how modern star schemas are built,
+# so the converter saw a star and emitted disconnected tables — after which a
+# parity gate with no relationships to satisfy it pushes the run into joined/
 # aggregated Custom SQL. That is the "flattened star schema" a field report
 # described.
+#
+# LIVE-VERIFIED CORRECTION (2026-10-27): Sigma CAN join on a computed
+# expression — a relationship keyed on a calculated column
+# (DateTrunc("day", [Order Date]) -> DIM_TIME.DATE_KEY) was accepted, read back
+# unchanged, and grouped exactly like the hand-written warehouse LEFT JOIN. The
+# converter's computed-key rung therefore carries a whitelisted single-column
+# endpoint expression (DATE / DATETIME / INT / STR / DATETRUNC / IFNULL) as a
+# calculated key column and records derivedVia "computed-key". Only an
+# untranslatable expression (or mismatched key types) falls through to
+# name-inference / unwired.
 #
 # LIVE-VERIFIED CORRECTION (2026-08, logical-model-objectgraph fixture): a
 # relationship with literally NO <expression> at all — this test's original
@@ -20,7 +30,9 @@
 # expression. The name-inference rung this test exercises is instead reached
 # via a relationship whose serialized expression is present but not a usable
 # PHYSICAL key (e.g. wrapped in IFNULL/DATETRUNC) — see case 4 (LMOG_DIM_STORE)
-# below, now the sole name-inference case in this fixture.
+# below. Its IFNULL([STORE_KEY],-1) now wires by the computed-key rung, so the
+# name-inference rung is exercised on a ZN([STORE_KEY]) variant (ZN is outside
+# the computed-key whitelist) — see name_inference_twb below.
 #
 # Inference is only safe because inferred keys are written into join-plan.json,
 # where gate 16's warehouse uniqueness probe validates them before GREEN. A wrong
@@ -46,6 +58,7 @@ require 'json'
 require 'open3'
 require 'tmpdir'
 require 'set'
+require 'fileutils'
 require_relative 'lib/join_plan'
 
 HERE      = File.expand_path(__dir__)
@@ -166,6 +179,18 @@ end
 
 doc = run_converter_capture(twb_path)
 
+# The name-inference rung needs a computed-only key the computed-key rung
+# cannot carry. ZN() is outside its whitelist, so this variant keeps the
+# fixture's STORE pair on the inference path.
+def name_inference_twb(raw)
+  raw.sub('IFNULL([STORE_KEY],-1)', 'ZN([STORE_KEY])')
+end
+NI_TWB_DIR = Dir.mktmpdir('relationship-derivation-ni')
+at_exit { FileUtils.rm_rf(NI_TWB_DIR) }
+ni_twb_path = File.join(NI_TWB_DIR, 'name-inference.twb')
+File.write(ni_twb_path, name_inference_twb(File.read(twb_path, encoding: 'utf-8')))
+ni_doc = run_converter_capture(ni_twb_path)
+
 puts 'test-relationship-derivation.rb — object-graph key derivation'
 
 cov = doc['relationshipCoverage'] || {}
@@ -173,13 +198,13 @@ check(cov['serialized'].to_i == 5,
       "coverage reports all 5 serialized relationships (got #{cov['serialized'].inspect})", fails)
 entries = cov['entries'] || []
 by_target = entries.each_with_object({}) { |e, h| h[e['right']] = e }
-# The plain-physical-key, mixed-key, computed-only-but-name-inferred, and
-# 5th (new, plain physical) relationships MUST wire. The computed-only/
+# The plain-physical-key, mixed-key, computed-key (IFNULL), and 5th (new,
+# plain physical) relationships MUST wire. The computed-only/
 # no-shared-name one may legitimately stay unwired under the conservative rule
 # (no key-shaped name match) — what matters is that it is RECORDED, never
 # silently absent.
 check(cov['wired'].to_i >= 4,
-      "at least the plain-physical-key, mixed-key, computed-only-but-name-inferred, and 5th relationships " \
+      "at least the plain-physical-key, mixed-key, computed-key, and 5th relationships " \
       "are WIRED (got #{cov['wired'].inspect}) — fewer means the star still becomes disconnected tables", fails)
 check(entries.length == 5,
       "all 5 relationships appear in the ledger, wired or not (got #{entries.length})", fails)
@@ -209,32 +234,50 @@ check(prod['derivedVia'] == 'serialized',
       fails)
 check(prod['partial'] == true && prod['droppedConditions'].to_i >= 1,
       'mixed-key relationship is marked partial with a dropped-condition count', fails)
+# Its computed half (DATETRUNC('month',[ORDER_TS]) = [EFFECTIVE_MONTH]) is
+# translatable, but EFFECTIVE_MONTH is a string: a date key cannot equal a
+# string key in Sigma, so the computed-key rung must refuse it, by name.
+check((doc['warnings'] || []).any? { |w| w.include?('LMOG_DIM_PRODUCT') && w.include?('key types differ (date vs string)') },
+      'mixed-key: the date-vs-string computed condition is refused with a named type reason', fails)
 
 # 3. COMPUTED-ONLY key, inference fails (no shared key-shaped name): no physical
 #    column to join on, so inference by name is the only route. Whatever the
 #    outcome, it must be RECORDED, never silently absent.
 date = by_target['LMOG_DIM_DATE'] || {}
 check(!date.empty?, 'computed-key LMOG_FACT_WIDE->LMOG_DIM_DATE appears in the coverage ledger', fails)
-check(%w[serialized name-inference unwired].include?(date['derivedVia']),
+check(%w[serialized computed-key name-inference unwired].include?(date['derivedVia']),
       "computed-key relationship records a known derivedVia (got #{date['derivedVia'].inspect})", fails)
+# DATETRUNC('day',[ORDER_TS]) is translatable but CALENDAR_KEY is an integer:
+# a date-vs-number key is refused, and with no shared key-shaped name the edge
+# stays unwired under its existing reason.
+check(date['derivedVia'] == 'unwired' && date['reason'] == 'no existing column name matches on both sides',
+      "date-vs-number computed key stays unwired with its existing reason (got #{date.inspect})", fails)
 
-# 4. COMPUTED-ONLY key, inference SUCCEEDS (review fix-wave, 2026-07-30,
-#    Important finding 2 — this is now the fixture's SOLE name-inference case,
-#    since case 1 above moved to a plain serialized key): FACT_WIDE/DIM_STORE's
-#    sole condition (IFNULL([STORE_KEY],-1) = [STORE_KEY]) is computed on its
-#    left operand, so no physical pair survives — but STORE_KEY is a shared
-#    key-shaped column name on both sides, so name-inference wires it. Before
-#    the fix this wired cleanly with no partial/droppedConditions, hiding that
-#    the IFNULL condition Tableau required was dropped (a WIDER-than-Tableau
-#    join). The ledger entry must now say so explicitly, exactly like the
-#    mixed-key case.
+# 4. COMPUTED KEY (IFNULL([STORE_KEY],-1) = [STORE_KEY]): the computed-key
+#    rung carries the IFNULL as a calculated key column on the fact, so the
+#    relationship wires with Tableau's full condition — no dropped condition,
+#    not partial.
 store = by_target['LMOG_DIM_STORE'] || {}
-check(store['derivedVia'] == 'name-inference',
+check(store['derivedVia'] == 'computed-key',
+      "IFNULL-keyed LMOG_FACT_WIDE->LMOG_DIM_STORE is derived as computed-key (got #{store['derivedVia'].inspect})",
+      fails)
+check(store['partial'] != true && store['droppedConditions'].nil? && store['keyCount'] == 1,
+      "computed-key relationship carries its whole condition: not partial, one key (got #{store.inspect})", fails)
+
+# 4b. COMPUTED-ONLY key the computed-key rung cannot carry (ZN variant),
+#    inference SUCCEEDS (review fix-wave, 2026-07-30, Important finding 2):
+#    no physical pair survives, but STORE_KEY is a shared key-shaped column
+#    name on both sides, so name-inference wires it. The ledger entry must say
+#    the computed condition was dropped (a WIDER-than-Tableau join).
+ni_store = ((ni_doc['relationshipCoverage'] || {})['entries'] || []).find { |e| e['right'] == 'LMOG_DIM_STORE' } || {}
+check(ni_store['derivedVia'] == 'name-inference',
       "computed-only-but-name-matched LMOG_FACT_WIDE->LMOG_DIM_STORE is derived by name-inference " \
-      "(got #{store['derivedVia'].inspect})", fails)
-check(store['partial'] == true && store['droppedConditions'].to_i >= 1,
+      "(got #{ni_store['derivedVia'].inspect})", fails)
+check(ni_store['partial'] == true && ni_store['droppedConditions'].to_i >= 1,
       'computed-only-but-name-inferred relationship is marked partial with a dropped-condition count ' \
       '(a wider-than-Tableau join must never look clean)', fails)
+check((ni_doc['warnings'] || []).any? { |w| w.include?('ZN([STORE_KEY])') && w.include?('not a whitelisted single-column expression') },
+      'an untranslatable endpoint names why the computed-key rung refused it', fails)
 
 # 5. NEW (live-fixture addition, orthogonal to the derivation ladder): a plain
 #    serialized physical equality key with no complexity at all. Exists to
@@ -287,8 +330,8 @@ check(src.include?('partial'),
       fails)
 
 # 7. BEHAVIORAL pin (not a source grep): JoinPlan.derive must actually RECOVER
-#    the name-inferred LMOG_FACT_WIDE->LMOG_DIM_STORE relationship — the .twb's
-#    sole serialized condition for it (IFNULL([STORE_KEY],-1) = [STORE_KEY]) is
+#    the name-inferred LMOG_FACT_WIDE->LMOG_DIM_STORE relationship (ZN
+#    variant) — the .twb's sole serialized condition for it (ZN([STORE_KEY]) = [STORE_KEY]) is
 #    computed, not a bare physical key, so this only passes if join_plan.rb
 #    reads the converter's dm-spec relationships (dm_object_graph_index), not
 #    merely if it mentions the string "derived_via" somewhere. This is the
@@ -298,7 +341,7 @@ check(src.include?('partial'),
 #    serialized physical key, so it is derived as "serialized", not
 #    "name-inference" — LMOG_DIM_STORE is this fixture's only remaining
 #    name-inference case.)
-jp_entries = JoinPlan.derive(doc['model'], File.read(twb_path, encoding: 'UTF-8'))
+jp_entries = JoinPlan.derive(ni_doc['model'], File.read(ni_twb_path, encoding: 'UTF-8'))
 store_jp = jp_entries.find { |e| e['left'] == 'LMOG_FACT_WIDE' && e['right'] == 'LMOG_DIM_STORE' }
 check(!store_jp.nil?,
       'JoinPlan.derive recovers a join-plan.json entry for the name-inferred LMOG_FACT_WIDE->LMOG_DIM_STORE ' \
@@ -307,6 +350,13 @@ check(store_jp && store_jp['derived_via'] == 'name-inference',
       "recovered entry's derived_via is name-inference (got #{(store_jp || {})['derived_via'].inspect})", fails)
 check(store_jp && store_jp['probe_keys'] == ['STORE_KEY'],
       "recovered entry's probe_keys resolve to the physical inferred key (got #{(store_jp || {})['probe_keys'].inspect})",
+      fails)
+# The computed-key edge reaches gate 16 too: its target key is physical, so it
+# is probed like any other, and it is NOT partial.
+ck_jp = JoinPlan.derive(doc['model'], File.read(twb_path, encoding: 'UTF-8'))
+          .find { |e| e['left'] == 'LMOG_FACT_WIDE' && e['right'] == 'LMOG_DIM_STORE' }
+check(ck_jp && ck_jp['derived_via'] == 'computed-key' && ck_jp['probe_keys'] == ['STORE_KEY'] && ck_jp['partial'].nil?,
+      "computed-key edge lands on join-plan.json as computed-key, probed on STORE_KEY, not partial (got #{ck_jp.inspect})",
       fails)
 
 # 8. COMPOSITION (an internal integration branch merge of #569 + W2-OM): the derivation
@@ -327,7 +377,16 @@ check(store_jp && store_jp['probe_keys'] == ['STORE_KEY'],
 fact_el = els.find { |e| ((e['source'] || {})['path'] || []).last == 'LMOG_FACT_WIDE' }
 check(!fact_el.nil?, 'composition: LMOG_FACT_WIDE element located by warehouse source path', fails)
 rels_on_fact = fact_el ? (fact_el['relationships'] || []) : []
-store_pass2_rel = rels_on_fact.find { |r| r['name'] == 'LMOG_DIM_STORE' }
+ck_rel = rels_on_fact.find { |r| r['name'] == 'LMOG_DIM_STORE' }
+ck_col = fact_el && (fact_el['columns'] || []).find { |c| c['id'] == ck_rel&.dig('keys', 0, 'sourceColumnId') }
+check(ck_rel && ck_rel['derivedVia'] == 'computed-key' && ck_rel['partial'].nil?,
+      "composition: computed-key derivedVia survives pass-2 attachment (got #{(ck_rel || {}).inspect})", fails)
+check(ck_col && ck_col['name'] == 'Store Key (join key)' && ck_col['formula'] == 'Coalesce([Store Key], -1)',
+      "composition: the computed key is a named calc column on the fact (got #{ck_col.inspect})", fails)
+ni_els = locate_elements(ni_doc['model'] || {}, fails)
+ni_fact = ni_els.find { |e| ((e['source'] || {})['path'] || []).last == 'LMOG_FACT_WIDE' }
+ni_rels_on_fact = ni_fact ? (ni_fact['relationships'] || []) : []
+store_pass2_rel = ni_rels_on_fact.find { |r| r['name'] == 'LMOG_DIM_STORE' }
 check(!store_pass2_rel.nil?,
       'composition: the name-inferred LMOG_DIM_STORE edge attaches to the ELECTED fact via pass-2 ' \
       'orientation (not first-end-point document order)', fails)
@@ -337,7 +396,7 @@ check(store_pass2_rel && store_pass2_rel['derivedVia'] == 'name-inference',
 check(store_pass2_rel && store_pass2_rel['partial'] == true && store_pass2_rel['droppedConditions'].to_i >= 1,
       'composition: partial/droppedConditions survive pass-2 attachment (wider-than-Tableau join ' \
       'stays visible on the wired relationship object)', fails)
-check(!rels_on_fact.empty? && rels_on_fact.all? { |r| %w[serialized name-inference].include?(r['derivedVia']) },
+check(!rels_on_fact.empty? && rels_on_fact.all? { |r| %w[serialized computed-key name-inference].include?(r['derivedVia']) },
       'composition: every relationship attached in pass 2 carries a known derivedVia', fails)
 check((doc['warnings'] || []).any? { |w| w.include?('fact election') && w.include?('"LMOG_FACT_WIDE"') },
       'composition: evidence-ranked fact election ran and announced LMOG_FACT_WIDE', fails)
@@ -356,7 +415,7 @@ check((doc['warnings'] || []).any? { |w| w.include?('fact election') && w.includ
 #       from candidacy, the genuine key wires alone.
 puts ''
 puts 'deny-list: unique-on-right non-keys'
-raw_twb = File.read(TWB, encoding: 'utf-8')
+raw_twb = name_inference_twb(File.read(TWB, encoding: 'utf-8'))
 
 Dir.mktmpdir('deny-a') do |dir|
   variant = raw_twb.gsub('store_key', 'external_id').gsub('Store Key', 'External Id')
@@ -407,6 +466,123 @@ Dir.mktmpdir('collision') do |dir|
   check(Array(vstore['collisions']).include?('STORE_KEY') &&
         vstore['reason'].to_s.include?('normalized column name collision'),
         "coverage names STORE_KEY collision and the refusal reason (got #{vstore.inspect})", fails)
+end
+
+puts ''
+puts 'computed-key: mixed physical + carried computed condition is NOT partial'
+Dir.mktmpdir('computed-mixed') do |dir|
+  # STR(integer) = string is type-compatible, so the product pair's computed
+  # half is carried instead of dropped: two keys, nothing dropped.
+  variant = File.read(TWB, encoding: 'utf-8').sub('DATETRUNC(&apos;month&apos;,[ORDER_TS])', 'STR([PRODUCT_KEY])')
+  vp = File.join(dir, 'variant-mixed.twb')
+  File.write(vp, variant)
+  vdoc = run_converter_capture(vp)
+  vprod = ((vdoc['relationshipCoverage'] || {})['entries'] || []).find { |e| e['right'] == 'LMOG_DIM_PRODUCT' } || {}
+  check(vprod['derivedVia'] == 'computed-key' && vprod['keyCount'] == 2 && vprod['partial'].nil?,
+        "physical + carried computed condition: computed-key, 2 keys, not partial (got #{vprod.inspect})", fails)
+  vjp = JoinPlan.derive(vdoc['model'], variant).find { |e| e['right'] == 'LMOG_DIM_PRODUCT' }
+  check(vjp && vjp['partial'].nil? && vjp['probe_keys'] == %w[PRODUCT_KEY EFFECTIVE_MONTH],
+        "join-plan.json probes both target keys and does not count the carried condition as dropped (got #{vjp.inspect})",
+        fails)
+end
+
+puts ''
+puts 'computed-key: a refusal in the serialized operand order still tries the swapped order'
+Dir.mktmpdir('computed-swap') do |dir|
+  # The serialized order puts STR() on the dimension, whose CUSTOMER_KEY is a
+  # string here: integer fact key vs STR(string) is a type mismatch. Swapped,
+  # STR() lands on the fact's integer key and equals the dimension's string
+  # key, which is the reading that types.
+  variant = File.read(TWB, encoding: 'utf-8')
+  variant = variant.sub(%r{(<remote-name>customer_key</remote-name>(?:(?!</metadata-record>).)*?<parent-name>\[LMOG_DIM_CUSTOMER\]</parent-name>(?:(?!</metadata-record>).)*?<local-type>)integer(</local-type>)}m, '\\1string\\2')
+  variant = variant.sub("<expression op='[CUSTOMER_KEY]' />\n              <expression op='[CUSTOMER_KEY]' />",
+                        "<expression op='[CUSTOMER_KEY]' />\n              <expression op='STR([CUSTOMER_KEY])' />")
+  vp = File.join(dir, 'variant-swap.twb')
+  File.write(vp, variant)
+  vdoc = run_converter_capture(vp)
+  vcust = ((vdoc['relationshipCoverage'] || {})['entries'] || []).find { |e| e['right'] == 'LMOG_DIM_CUSTOMER' } || {}
+  vfact = locate_elements(vdoc['model'] || {}, fails).find { |e| ((e['source'] || {})['path'] || []).last == 'LMOG_FACT_WIDE' }
+  vrel = vfact && (vfact['relationships'] || []).find { |r| r['name'] == 'LMOG_DIM_CUSTOMER' }
+  vkey = vrel && vfact['columns'].find { |c| c['id'] == vrel.dig('keys', 0, 'sourceColumnId') }
+  check(variant.include?("STR([CUSTOMER_KEY])") && vcust['derivedVia'] == 'computed-key' && vcust['partial'].nil?,
+        "swapped operand order wires the computed key instead of falling to name inference (got #{vcust.inspect})", fails)
+  check(vkey && vkey['formula'] == 'Text([Customer Key])',
+        "STR() is carried on the fact's integer key, the side where it types (got #{vkey.inspect})", fails)
+end
+
+# ── computed-key over a virtual-connection GUID-only date (field shape) ─────
+# The 2026-10-27 field case: a published/virtual connection serializes
+# DATE([<guid>]) = [<dim guid>], where <guid> is a date-parse-format re-typed
+# column whose metadata-record carries no caption (only the datasource-level
+# <column caption=...> does). The converter cannot see its warehouse column,
+# so it places the same-caption placeholder ([SALES_FACT/Sale Date]) on the
+# OWNING table only, keys a calc column on it, and the skill's GUID-backed
+# date recovery later replaces the placeholder with the warehouse formula.
+puts ''
+puts 'computed-key: virtual-connection GUID-only date endpoint'
+VC_TWB = File.join(HERE, 'test-fixtures', 'vc-computed-join-key.twb')
+vc_raw = File.read(VC_TWB, encoding: 'utf-8')
+vc = run_converter_capture(VC_TWB)
+vc_entry = ((vc['relationshipCoverage'] || {})['entries'] || []).first || {}
+check(vc_entry['derivedVia'] == 'computed-key' && vc_entry['keyCount'] == 1 && vc_entry['partial'].nil?,
+      "DATE([guid-only date]) = [dim date] wires as computed-key (got #{vc_entry.inspect})", fails)
+vc_els = locate_elements(vc['model'] || {}, fails)
+vc_fact = vc_els.find { |e| ((e['source'] || {})['path'] || []).last == 'SALES_FACT' }
+vc_cal = vc_els.find { |e| ((e['source'] || {})['path'] || []).last == 'CALENDAR' }
+vc_rel = vc_fact && (vc_fact['relationships'] || []).first
+vc_cols = vc_fact ? vc_fact['columns'] : []
+placeholder = vc_cols.find { |c| c['name'] == 'Sale Date' }
+key_col = vc_cols.find { |c| c['id'] == vc_rel&.dig('keys', 0, 'sourceColumnId') }
+check(placeholder && placeholder['formula'] == '[SALES_FACT/Sale Date]',
+      "the GUID-only column gets the same-caption placeholder on its owning table (got #{placeholder.inspect})", fails)
+check(key_col && key_col['name'] == 'Sale Date (join key)' && key_col['formula'] == 'DateTrunc("day", [Sale Date])',
+      "relationship keys on DateTrunc(\"day\", [Sale Date]) named 'Sale Date (join key)' (got #{key_col.inspect})", fails)
+check(vc_rel && vc_cal && vc_rel['targetElementId'] == vc_cal['id'] && vc_rel['derivedVia'] == 'computed-key',
+      'the relationship targets CALENDAR and carries derivedVia computed-key', fails)
+check(vc_cal && (vc_cal['columns'] || []).none? { |c| c['name'].to_s.include?('join key') },
+      'no key column is fabricated on the other end-point', fails)
+
+# Hand-off: the skill's GUID-backed date recovery replaces the placeholder in
+# place, so the calc key resolves against the warehouse formula.
+require_relative 'mechanical-specs'
+recovery = MechanicalSpecs.recover_guid_backed_date_fields!(
+  vc['model'], vc_raw, { 'SALES_FACT' => %w[SALE_ID NET_AMOUNT SALE_DATE_KEY] },
+  { 'SALES_FACT' => [{ 'name' => 'SALE_ID', 'type' => 'TEXT' }, { 'name' => 'NET_AMOUNT', 'type' => 'NUMBER' },
+                     { 'name' => 'SALE_DATE_KEY', 'type' => 'NUMBER' }] }
+)
+recovered = vc_fact && vc_fact['columns'].find { |c| c['id'] == placeholder&.dig('id') }
+check(recovery[:recovered] == 1 && recovered && recovered['formula'].start_with?('Date(Left(Text([Sale Date Key])'),
+      "GUID-backed date recovery rewrites the placeholder in place from SALE_DATE_KEY (got #{recovered.inspect})", fails)
+check(vc_fact && vc_fact['columns'].count { |c| c['name'] == 'Sale Date' } == 1,
+      'recovery does not add a second Sale Date column beside the placeholder', fails)
+
+Dir.mktmpdir('computed-vc') do |dir|
+  # The GUID-only record claims the OTHER table: no structural ownership on
+  # the fact, so nothing is placed there and the edge stays unwired.
+  wrong_owner = vc_raw.sub(%r{(<remote-name>11111111-1111-4111-8111-111111111111</remote-name>.*?)<parent-name>\[SALES_FACT \(DEMO\.SALES_FACT\)\]</parent-name>(.*?)<object-id>\[SALES_FACT \(DEMO\.SALES_FACT\)_AAAA1111BBBB2222CCCC3333DDDD4444\]</object-id>}m) do
+    "#{Regexp.last_match(1)}<parent-name>[CALENDAR (DEMO.CALENDAR)]</parent-name>#{Regexp.last_match(2)}" \
+      '<object-id>[CALENDAR (DEMO.CALENDAR)_EEEE5555FFFF6666AAAA7777BBBB8888]</object-id>'
+  end
+  vp = File.join(dir, 'wrong-owner.twb')
+  File.write(vp, wrong_owner)
+  wdoc = run_converter_capture(vp)
+  went = ((wdoc['relationshipCoverage'] || {})['entries'] || []).first || {}
+  wfact = locate_elements(wdoc['model'] || {}, fails).find { |e| ((e['source'] || {})['path'] || []).last == 'SALES_FACT' }
+  check(went['derivedVia'] == 'unwired' && went['reason'] == 'no existing column name matches on both sides',
+        "a GUID-only column owned by the other table is never placed on this one: unwired (got #{went.inspect})", fails)
+  check(wfact && (wfact['columns'] || []).none? { |c| c['name'].to_s.start_with?('Sale Date') },
+        'no placeholder or key column is left behind by a refused computed key', fails)
+
+  week = vc_raw.sub('DATE([11111111-1111-4111-8111-111111111111])',
+                    'DATETRUNC(&apos;week&apos;,[11111111-1111-4111-8111-111111111111])')
+  vp = File.join(dir, 'week.twb')
+  File.write(vp, week)
+  kdoc = run_converter_capture(vp)
+  kent = ((kdoc['relationshipCoverage'] || {})['entries'] || []).first || {}
+  check(kent['derivedVia'] == 'unwired',
+        "DATETRUNC('week') is refused (start-of-week is data-source dependent) (got #{kent.inspect})", fails)
+  check((kdoc['warnings'] || []).any? { |w| w.include?("DATETRUNC('week') depends on the data source's start-of-week") },
+        'the week refusal is named in the warnings', fails)
 end
 
 puts ''

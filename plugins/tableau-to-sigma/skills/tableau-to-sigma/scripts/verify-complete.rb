@@ -53,7 +53,8 @@
 #      RED/incomplete, or disagrees with source-object-census.json. Rebuild the
 #      census and migration report from the run artifacts.
 #   8  RELATIONSHIP COVERAGE INVALID — an object-graph relationship is
-#      unwired/partial, or the coverage artifact is missing/stale.
+#      unwired/partial, or the coverage artifact is missing/stale. Any wired
+#      disposition (serialized, computed-key, name-inference) is accepted.
 #   9  DASHBOARD COVERAGE INVALID — a visible in-scope Tableau dashboard has
 #      no Sigma page, or the coverage artifact is missing/stale.
 #  10  SQL PROVENANCE INVALID — a data-model SQL element is unattributed, or

@@ -247,8 +247,8 @@ pattern per run:
    this switch. A `png-read.json` older than this run's discovery fetch is
    set aside as `.stale` — never silently consumed.
 4. At the pass-1 tail, when the artifacts prove the agent-mediated actuals
-   list is EMPTY (all exportable charts machine-collected, no pivot grids, no
-   markers, no per-tile visual sidecar) AND the agent-side gate obligations
+   list is EMPTY (all exportable charts machine-collected, pivot grids included,
+   no markers, no per-tile visual sidecar) AND the agent-side gate obligations
    are already discharged (visual verdict recorded on `parity-final.json` —
    gate 8b, waived by `--fast`; staged RCF ledger resolved — gate 8d),
    `--finalize` chains **in the same invocation**; otherwise exit 12 is
@@ -271,15 +271,20 @@ pattern per run:
 ## Still manual by design (the orchestrator stops and tells you)
 
 **Still manual by design (the orchestrator stops and tells you):**
-- **Parity actuals (pivot grids only)** — pass 1 now collects actuals for every
-  exportable chart itself: `collect-parity-actuals.rb` pools the element CSV
-  exports (`POST /v2/workbooks/{wb}/export` → poll → download, 5-wide, under
-  `sigma_rest`'s auto-refresh) straight into `parity-actuals.json`. Only
-  pivot-tables stay agent-mediated (their CSV export is the WIDE grid, not the
-  long row/col/value tuples the plan compares) — pass 1 prints exactly those
-  `mcp__sigma-mcp-v2__query` calls; merge their rows into the same file. When
-  NOTHING stays agent-mediated (strict artifact-derived predicate), pass 1
-  chains `--finalize` in-process instead of stopping at exit 12.
+- **Parity actuals the exporter could not collect** — pass 1 collects actuals
+  for every exportable chart itself over the REST API, no Sigma MCP required:
+  `collect-parity-actuals.rb` pools the element exports
+  (`POST /v2/workbooks/{wb}/export` → poll → download, 5-wide, under
+  `sigma_rest`'s auto-refresh) straight into `parity-actuals.json`. Pivot-tables
+  read the element's JSON export, which returns the long row/col/value tuples
+  the plan compares (their CSV export is the WIDE grid). Only charts whose
+  export failed, timed out or truncated stay agent-mediated: pass 1 prints an
+  `mcp__sigma-mcp-v2__query` per chart for when the MCP is connected, and the
+  REST/warehouse route (re-run the collector with a higher `--timeout` /
+  `--row-limit`, or warehouse SQL) for when it is not; merge their rows into the
+  same file. When NOTHING stays agent-mediated (strict artifact-derived
+  predicate), pass 1 chains `--finalize` in-process instead of stopping at
+  exit 12.
 - **Empty-view-CSV recovery** — a view that exports an empty CSV produces no
   chart; surfaced at the consolidated pre-build checkpoint AND by the tile
   census at `--finalize` (exit 7 → rebuild the chart manually or explain with

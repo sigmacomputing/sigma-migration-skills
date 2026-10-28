@@ -15,8 +15,8 @@
 #   1. converter/tableau.mjs's object-graph relationship-derivation ladder
 #      (PR2a) on this genuinely-served .twb produces EXACTLY the pinned
 #      relationshipCoverage ledger: 5 serialized relationships, 4 wired (plain
-#      physical key + mixed serialized/partial + computed-only-but-
-#      name-inferred/partial + a 5th plain physical key), 1
+#      physical key + mixed serialized/partial + IFNULL computed-key + a 5th
+#      plain physical key), 1
 #      recorded-but-unwired (computed-only, no shared key-shaped name) —
 #      never silently dropped from the report.
 #   2. The four WIRED join-key columns (CUSTOMER_KEY, PRODUCT_KEY, STORE_KEY,

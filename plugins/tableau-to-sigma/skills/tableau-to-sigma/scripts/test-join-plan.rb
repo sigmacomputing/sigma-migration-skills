@@ -366,6 +366,69 @@ check(e['keys'] == ['Product Key (Product Dim)'],
 check(e['probe_keys'] == ['PRODUCT_KEY'],
       "probe key stripped + folded to the physical column (got #{e['probe_keys'].inspect})", fails)
 
+puts "\n== emitted self-join matching excludes named inner-joined dimensions =="
+join_dm = {
+  'pages' => [{ 'elements' => [
+    { 'id' => 'fact', 'name' => 'Fact',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[DB S FACT] } },
+    { 'id' => 'alias', 'name' => 'Fact Alias',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[DB S FACT] } },
+    { 'id' => 'dim', 'name' => 'Date Role',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[DB S DATE_DIM] } },
+    { 'id' => 'joined', 'name' => 'Joined Fact',
+      'source' => {
+        'kind' => 'join', 'primarySource' => { 'elementId' => 'fact' },
+        'joins' => [
+          { 'right' => { 'elementId' => 'alias' }, 'joinType' => 'inner' },
+          { 'right' => { 'elementId' => 'dim' }, 'joinType' => 'inner' }
+        ]
+      } }
+  ] }]
+}
+join_entries = [
+  { 'kind' => 'federated-join', 'right' => 'Fact Alias' },
+  { 'kind' => 'federated-join', 'right' => 'Date Role', 'status' => 'unprobed' }
+]
+marked = JoinPlan.mark_emitted_joins(join_entries, join_dm)
+check(marked[0]['kind'] == 'emitted-join' && marked[0]['status'] == 'emitted',
+      'same-table alias is terminal emitted-join', fails)
+check(marked[1]['kind'] == 'federated-join' && marked[1]['status'] == 'unprobed',
+      'named role-played dimension remains queued for uniqueness probing', fails)
+
+puts "\n== computed target relationship key resolves to warehouse probe columns =="
+computed_dm = {
+  'pages' => [{ 'elements' => [
+    { 'id' => 'fact', 'name' => 'ORDER_FACT',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[DB S ORDER_FACT] },
+      'relationships' => [{
+        'name' => 'DATE_DIM', 'targetElementId' => 'date', 'derivedVia' => 'computed-key',
+        'keys' => [{ 'sourceColumnId' => 'order-date', 'targetColumnId' => 'date-calc' }]
+      }] },
+    { 'id' => 'date', 'name' => 'DATE_DIM',
+      'source' => { 'kind' => 'warehouse-table', 'path' => %w[DB S DATE_DIM] },
+      'columns' => [
+        { 'id' => 'date-key', 'name' => 'Date Key', 'formula' => '[DATE_DIM/Date Key]' },
+        { 'id' => 'date-calc', 'name' => 'Date Key (join key)', 'formula' => 'Coalesce([Date Key], -1)' }
+      ] }
+  ] }]
+}
+computed = JoinPlan.dm_object_graph_index(computed_dm)[%w[ORDER_FACT DATE_DIM]]
+check(computed && computed[:keys] == ['DATE_KEY_(JOIN_KEY)'],
+      'ledger provenance keeps the calculated key display name', fails)
+check(computed && computed[:probe_keys] == ['DATE_KEY'],
+      "grain-preserving computed target key probes its physical warehouse column (got #{computed && computed[:probe_keys].inspect})", fails)
+# A grain-collapsing target key (DateTrunc / Int) must NOT be probed on the raw
+# column: a timestamp unique per row is not unique per day, so that probe
+# would pass a target that fans out on the real key. It stays the synthetic
+# name, the probe errors, and gate 16 blocks until resolved.
+%w[DateTrunc("day",\ [Date\ Key]) Int([Date\ Key])].each do |collapsing|
+  dm2 = JSON.parse(JSON.generate(computed_dm))
+  dm2['pages'][0]['elements'][1]['columns'][1]['formula'] = collapsing
+  c2 = JoinPlan.dm_object_graph_index(dm2)[%w[ORDER_FACT DATE_DIM]]
+  check(c2 && c2[:probe_keys] == ['DATE_KEY_(JOIN_KEY)'],
+        "#{collapsing} target key is left unprobeable, not probed as DATE_KEY (got #{c2 && c2[:probe_keys].inspect})", fails)
+end
+
 puts "\n== combined .twb + dm-spec derivation =="
 entries = JoinPlan.derive(dm, File.read(FIX1))
 check(entries.size == 2, "federated join + lookup synthesis both recorded (got #{entries.size})", fails)

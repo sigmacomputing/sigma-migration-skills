@@ -158,6 +158,15 @@ end
 
 BRAND_PALETTE = extract_brand_palette(TWB_TEXT)
 
+# Tableau's built-in sequential ramps referenced by name (`palette='orange_10_0'`
+# on an interpolated color encoding) are NOT written into the .twb. Low / mid /
+# high stops measured from Tableau-rendered heat cells; names not listed here
+# keep the previous behavior (no source ramp → the caller's default scale).
+BUILTIN_SEQUENTIAL_PALETTES = {
+  'orange_10_0' => %w[#ffc685 #f07825 #9e3d22],
+  'blue_10_0'   => %w[#bedef0 #79a6ca #3d658d]
+}.freeze
+
 # ---- Workbook/dashboard style rules (theme channel) ------------------------
 # Tableau's Format▸Workbook + Format▸Dashboard land as <style><style-rule
 # element='all|worksheet|title|dash-title|dash-text|table'> blocks at workbook
@@ -324,6 +333,35 @@ def unquote_member(s)
   s.sub(/^"/, '').sub(/"$/, '')
 end
 
+# Datasource-scoped categorical color assignments, keyed "<datasource>|<field
+# guid>" (also "|<guid>" so a worksheet ref naming a different federated alias
+# still matches). Document order is kept, first map per key wins. Ramp
+# encodings are excluded — their <map> buckets are numeric breakpoints, not
+# members.
+DATASOURCE_COLOR_MAPS = begin
+  maps = {}
+  xml.elements.each('/workbook/datasources/datasource') do |ds|
+    ds_name = ds.attributes['name'].to_s
+    ds.elements.each("style/style-rule/encoding[@attr='color']") do |enc|
+      next if enc.attributes['type'].to_s =~ /interpolated/
+      pairs = []
+      enc.elements.each('map') do |mp|
+        hex = mp.attributes['to'].to_s.strip.downcase
+        next unless hex =~ /\A#[0-9a-f]{6}\z/
+        bucket = mp.elements['bucket']
+        member = bucket && unquote_member(bucket.text)
+        next if member.nil? || member.empty?
+        pairs << { 'member' => member, 'color' => hex }
+      end
+      g = guid_from_param(enc.attributes['field'].to_s)
+      next if pairs.empty? || g.nil?
+      maps["#{ds_name}|#{g}"] ||= pairs
+      maps["|#{g}"] ||= pairs
+    end
+  end
+  maps
+end
+
 # WILDCARD tab filters (D5/P0.6): Tableau compiles the pattern box into a
 # `groupfilter function='filter'` whose expression is a string-match call —
 # CONTAINS([Field],"x") / STARTSWITH(...) / ENDSWITH(...), optionally NOT-
@@ -359,6 +397,20 @@ end
 def wildcard_flavored?(expr)
   expr.to_s =~ /\b(CONTAINS|STARTSWITH|ENDSWITH)\s*\(/i ? true : false
 end
+# A quantitative filter's bounds. Tableau writes them as child elements
+# (<min>0</min><max>10</max>); attributes are accepted too. Numbers come back
+# numeric, and date literals lose their #...# delimiters.
+def quantitative_bound(filter_node, name)
+  raw = filter_node.attributes[name]
+  raw ||= (child = filter_node.elements[name]) && child.text
+  text = raw.to_s.strip
+  return nil if text.empty?
+  text = text[1..-2].strip if text.start_with?('#') && text.end_with?('#') && text.size > 1
+  return Integer(text, 10) if text =~ /\A-?\d+\z/
+  return Float(text) if text =~ /\A-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\z/
+  text
+end
+
 
 # Read a <filter> element and emit a normalized spec:
 #   { kind: "list" | "date-range" | "relative-date" | "number-range" | "action" | "unknown",
@@ -524,8 +576,8 @@ def normalize_filter(f)
     out['include_null']   = f.attributes['include-null']
   when 'quantitative'
     out['kind'] = 'number-range'
-    out['min'] = f.attributes['min']
-    out['max'] = f.attributes['max']
+    out['min'] = quantitative_bound(f, 'min')
+    out['max'] = quantitative_bound(f, 'max')
   else
     out['kind'] = 'unknown'
   end
@@ -659,6 +711,72 @@ def parse_shelf(shelf_str)
     end
   end
   out
+end
+
+# Split a shelf field on top-level `+` (bracket depth 0): `([A] + [B])` is how
+# Tableau writes a dual-axis pair (two continuous measures, one pane each).
+def split_shelf_plus(field_str)
+  terms = []
+  buffer = +''
+  bracket_depth = 0
+  field_str.to_s.each_char do |char|
+    bracket_depth += 1 if char == '['
+    bracket_depth -= 1 if char == ']' && bracket_depth.positive?
+    if char == '+' && bracket_depth.zero?
+      terms << buffer
+      buffer = +''
+    else
+      buffer << char
+    end
+  end
+  terms << buffer
+  terms
+end
+
+# Unsynchronized dual-axis combo: `<rows>([ds].[sum:A:qk] + [ds].[usr:B:qk])</rows>`
+# plus one `<pane y-axis-name='...'>` per measure carrying its own mark class
+# (Bar on the left axis, Line on the right). Only `synchronized='true'` used to
+# raise `dual_axis`, so an ordinary dual-axis combo collapsed into ONE field
+# (the last term) and lost its bars/line split. Returns the series in shelf
+# order, primary (left/bottom) axis first, or nil unless BOTH the two-measure
+# `+` shelf and a matching pane per measure are present (a sparkline-style
+# `SUM(a) + SUM(b)` overlay has no per-axis panes and stays out). Mirrored in
+# parse-twb-layout.py.
+def parse_dual_axis_series(ws, rows_shelf, cols_shelf)
+  return nil if rows_shelf['has_measure_values'] || cols_shelf['has_measure_values']
+  terms = nil
+  axis_attr = nil
+  [[rows_shelf, 'y-axis-name'], [cols_shelf, 'x-axis-name']].each do |shelf, attr_name|
+    split_shelf_fields(shelf['raw']).each do |field|
+      parts = split_shelf_plus(field).map { |t| t.strip.gsub(/\A[(\s]+/, '').gsub(/[)\s]+\z/, '') }
+      next unless parts.size == 2
+      next unless parts.all? { |t| (c = classify_shelf_field(t)) && c[0] == :measure && !c[2] }
+      terms = parts
+      axis_attr = attr_name
+      break
+    end
+    break if terms
+  end
+  return nil unless terms
+  panes = []
+  ws.elements.each('.//panes/pane') do |pane|
+    name = pane.attributes[axis_attr].to_s
+    next if name.empty?
+    mk = pane.elements['mark']
+    panes << { 'name' => name, 'mark_class' => mk && mk.attributes['class'].to_s }
+  end
+  inst = ->(ref) { ref.to_s[/(\[[^\[\]]*\])\s*\z/, 1] }
+  series = terms.each_with_index.map do |term, i|
+    pane = panes.find { |pn| inst.call(pn['name']) == inst.call(term) }
+    return nil unless pane
+    _role, deriv, _discrete = classify_shelf_field(term)
+    mark = pane['mark_class'].to_s
+    { 'raw' => term, 'guid' => guid_from_param(term), 'derivation' => deriv,
+      'mark_class' => (mark.empty? ? nil : mark),
+      'axis' => (i.zero? ? 'primary' : 'secondary') }
+  end
+  return nil if series.map { |sr| sr['raw'] }.uniq.size < 2
+  series
 end
 
 # Measure Names member order. With the Measure Names pill on Rows/Cols, Tableau
@@ -798,6 +916,26 @@ def parse_customized_tooltip(ws)
   txt = txt.gsub(/<\[[^<>]*\]>/, '').strip
   return nil if txt.empty?
   [txt, dropped]
+end
+
+# Fields a chart's hover tooltip shows: every Tooltip-shelf channel on the marks
+# card (`<encoding attr='tooltip' column=…>` or `<tooltip column=…>`, one per pane)
+# plus the `<[ds].[prefix:field:kind]>` tokens inside the customized tooltip's
+# runs. Raw field refs, ordered and deduped; Measure Names / Measure Values /
+# Multiple Values pseudo-fields are dropped. [] when the sheet shows none.
+TOOLTIP_PSEUDO_FIELD = /Measure Names|Measure Values|Multiple Values/i
+def parse_tooltip_fields(ws)
+  refs = []
+  ws.elements.each('.//encodings/*') do |e|
+    ch = e.name.to_s == 'encoding' ? e.attributes['attr'].to_s : e.name.to_s
+    next unless ch == 'tooltip'
+    col = e.attributes['column'].to_s.strip
+    refs << col unless col.empty?
+  end
+  ws.elements.each('.//customized-tooltip//run') do |r|
+    r.text.to_s.scan(/<(\[[^<>]*\]\.\[[^<>]*\])>/) { |m| refs << m[0].strip }
+  end
+  refs.uniq.reject { |ref| ref =~ TOOLTIP_PSEUDO_FIELD }
 end
 
 worksheets = {}
@@ -1158,6 +1296,7 @@ xml.elements.each('//worksheet') do |ws|
   cols_node  = ws.elements['.//table/cols'] || ws.elements['.//cols']
   rows_shelf = parse_shelf(rows_node&.text)
   cols_shelf = parse_shelf(cols_node&.text)
+  dual_axis_series = parse_dual_axis_series(ws, rows_shelf, cols_shelf)
 
   # Crosstab signal:
   #   (a) explicit Text/Square mark with ≥1 real dim on BOTH shelves, OR a
@@ -1294,6 +1433,9 @@ xml.elements.each('//worksheet') do |ws|
       next if pname.empty? || heat_scheme
       body = TWB_TEXT[/<color-palette[^>]*name='#{Regexp.escape(pname)}'[^>]*type='ordered-(?:sequential|diverging)'[^>]*>(.*?)<\/color-palette>/m, 1]
       cols = body.to_s.scan(/#[0-9a-fA-F]{6}/).map(&:downcase)
+      # Tableau's BUILT-IN named ramps are not serialized in the workbook (no
+      # <color-palette> body) — fall back to the measured built-in ends.
+      cols = BUILTIN_SEQUENTIAL_PALETTES[pname.downcase].to_a if cols.size < 2
       heat_scheme = cols if cols.size >= 2
     end
   end
@@ -1330,6 +1472,24 @@ xml.elements.each('//worksheet') do |ws|
     break
   end
 
+  # DATASOURCE-scoped assignments: Tableau (Edit Colors / a field's Default
+  # Properties) also persists the member→color map on the <datasource>, keyed
+  # by the encoded field with no worksheet-level copy — so a sheet coloring by
+  # that field carries no <encoding> of its own and the loop above saw nothing
+  # (the palette then fell to row-order positional colors). A worksheet-level
+  # map always wins; the datasource map is the fallback, matched on
+  # (datasource, field).
+  if series_colors.nil? && (cc = channels['color']) && cc[:column]
+    ds_name = cc[:column].to_s[/\A\[([^\]]+)\]\./, 1]
+    g = guid_from_param(cc[:column].to_s)
+    hit = g && (DATASOURCE_COLOR_MAPS["#{ds_name}|#{g}"] || DATASOURCE_COLOR_MAPS["|#{g}"])
+    if hit
+      series_colors = hit.map(&:dup)
+      info = COL_BY_GUID[g]
+      series_color_field = (info && info[:caption]) || g
+    end
+  end
+
   worksheets[name] = {
     mark_class:       mark_class,
     geo_role:         geo_role,
@@ -1350,6 +1510,7 @@ xml.elements.each('//worksheet') do |ws|
     formats:          formats,
     calculations:     calcs,
     dual_axis:        dual_axis,
+    dual_axis_series: dual_axis_series,
     measures:         measures.uniq { |m| m['column'] },
     ref_marks:        ref_marks,
     axis_formats:     axis_formats,
@@ -1377,6 +1538,9 @@ xml.elements.each('//worksheet') do |ws|
     worksheets[name][:tooltip_text] = tt[0]
     worksheets[name][:tooltip_dynamic_dropped] = true if tt[1]
   end
+  # Fields shown in the hover tooltip (Tooltip shelf + customized-tooltip tokens).
+  tt_fields = parse_tooltip_fields(ws)
+  worksheets[name][:tooltip_fields] = tt_fields unless tt_fields.empty?
 end
 
 # ---- Tableau format → Sigma format translator -----------------------------
@@ -2025,6 +2189,7 @@ xml.elements.each('//dashboard') do |d|
       'formats'      => (kind == 'chart' ? ws_meta&.dig(:formats)       : nil),
       'calculations' => (kind == 'chart' ? ws_meta&.dig(:calculations)  : nil),
       'dual_axis'    => (kind == 'chart' ? ws_meta&.dig(:dual_axis)     : nil),
+      'dual_axis_series' => (kind == 'chart' ? ws_meta&.dig(:dual_axis_series) : nil),
       'measures'     => (kind == 'chart' ? ws_meta&.dig(:measures)      : nil),
       'ref_marks'    => (kind == 'chart' ? ws_meta&.dig(:ref_marks)     : nil),
       'axis_formats' => (kind == 'chart' ? ws_meta&.dig(:axis_formats)  : nil),
@@ -2080,6 +2245,10 @@ xml.elements.each('//dashboard') do |d|
     if kind == 'chart' && ws_meta&.dig(:tooltip_text)
       zones.last['tooltip_text'] = ws_meta[:tooltip_text]
       zones.last['tooltip_dynamic_dropped'] = true if ws_meta[:tooltip_dynamic_dropped]
+    end
+    # Hover-tooltip field refs (only stamped when present).
+    if kind == 'chart' && ws_meta&.dig(:tooltip_fields)
+      zones.last['tooltip_fields'] = ws_meta[:tooltip_fields]
     end
   end
   # A "storyboard" dashboard is Tableau's story container (sequential story
@@ -2182,6 +2351,7 @@ if dashboards.empty? && !worksheets.empty?
         'formats'      => ws_meta[:formats],
         'calculations' => ws_meta[:calculations],
         'dual_axis'    => ws_meta[:dual_axis],
+        'dual_axis_series' => ws_meta[:dual_axis_series],
         'measures'     => ws_meta[:measures],
         'ref_marks'    => ws_meta[:ref_marks],
         'axis_formats' => ws_meta[:axis_formats],
@@ -2477,6 +2647,27 @@ if dashboard_scoping?
   end
 end
 
+# ---- Drill paths (hierarchies) ----------------------------------------------
+# <datasource><drill-paths><drill-path name='H'><field>[level]</field>…: the
+# datasource's user-defined hierarchies, in level order. `fields` keeps the raw
+# names; `captions` resolves each through the column lookup (caption when the
+# column has one, else the bare name) so the builder can match master columns.
+# Workbook-global (never narrowed by dashboard scoping); absent → no meta key.
+drill_paths = []
+xml.elements.each('//datasource') do |ds|
+  ds.elements.each('drill-paths/drill-path') do |dp|
+    raw_fields = dp.elements.to_a('field').map { |f| f.text.to_s.strip }.reject(&:empty?)
+    next if raw_fields.empty?
+    captions = raw_fields.map do |rf|
+      guid = guid_from_param(rf)
+      (guid && COL_BY_GUID[guid] && COL_BY_GUID[guid][:caption]) || guid || rf.gsub(/\A\[|\]\z/, '')
+    end
+    entry = { 'name' => dp.attributes['name'].to_s, 'datasource' => ds.attributes['name'].to_s,
+              'fields' => raw_fields, 'captions' => captions }
+    drill_paths << entry unless drill_paths.include?(entry)
+  end
+end
+
 meta = {
   'worksheets'     => scoped_worksheets.transform_values { |v| v.transform_keys(&:to_s) },
   'stories'        => stories,
@@ -2496,6 +2687,7 @@ meta = {
     h
   }
 }
+meta['drill_paths'] = drill_paths unless drill_paths.empty?
 META_OUT = OUT.sub(/\.json$/, '-meta.json')
 File.write(META_OUT, JSON.pretty_generate(meta))
 scope_note = dashboard_scoping? ? " [scoped: #{(DASHBOARD_FILTERS + PAGE_FILTERS).join(', ')}]" : ''

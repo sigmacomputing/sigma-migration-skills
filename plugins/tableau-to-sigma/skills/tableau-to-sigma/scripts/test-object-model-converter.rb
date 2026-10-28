@@ -287,7 +287,7 @@ def rp_rel(first_obj, second_obj, left_op, right_op)
   XML
 end
 
-def roleplay_ds(ds_name, with_objids: true, calckey_only: false)
+def roleplay_ds(ds_name, with_objids: true, calckey_only: false, calckey_target: '[DATE_DAY]')
   dim_instances = calckey_only ? %w[DIM_DATES] : %w[DIM_DATES DIM_DATES1 DIM_DATES2]
   fact_meta = rp_meta('FACT_STAYS', RP_FACT_OBJ, RP_FACT_COLS, with_objids: with_objids)
   if calckey_only
@@ -315,7 +315,7 @@ def roleplay_ds(ds_name, with_objids: true, calckey_only: false)
             dim_instances.each_with_index.map { |inst, i| rp_object(calckey_only ? 'DIM_DATES' : RP_ROLES[i], RP_DIM_OBJS[i], inst) }
   rels =
     if calckey_only
-      [rp_rel(RP_FACT_OBJ, RP_DIM_OBJS[0], "DATE([#{RP_STAY_TS_UUID}])", '[DATE_KEY]')]
+      [rp_rel(RP_FACT_OBJ, RP_DIM_OBJS[0], "DATE([#{RP_STAY_TS_UUID}])", calckey_target)]
     else
       %w[ADMIT_DATE_KEY DISCHARGE_DATE_KEY FOLLOWUP_DATE_KEY].each_with_index.map do |fk, i|
         rp_rel(RP_FACT_OBJ, RP_DIM_OBJS[i], "[#{fk}]", '[DATE_KEY]')
@@ -368,7 +368,11 @@ end
 ROLEPLAY_FIXTURES = {
   'roleplay' => { xml: roleplay_wb('federated.1role') },
   'roleplay-ambiguous' => { xml: roleplay_wb('federated.1roleamb', with_objids: false) },
-  'roleplay-calckey' => { xml: roleplay_wb('federated.1rolekey', calckey_only: true) }
+  'roleplay-calckey' => { xml: roleplay_wb('federated.1rolekey', calckey_only: true) },
+  # DATE(<date>) = <integer surrogate key>: a date key cannot equal an integer
+  # key in Sigma, so the computed-key rung must refuse rather than wire it.
+  'roleplay-calckey-typemismatch' => { xml: roleplay_wb('federated.1rolekeytm', calckey_only: true,
+                                                        calckey_target: '[DATE_KEY]') }
 }.freeze
 
 FIXTURES = {
@@ -693,13 +697,21 @@ check(amb['warnings'].any? { |w| w =~ /role attribution AMBIGUOUS/ }, 'ambiguous
 
 ck = results['roleplay-calckey']
 cfact = ck['elements'].find { |e| e['name'].to_s.include?('FACT_STAYS') && e['kind'] == 'warehouse-table' }
-ckcol = (cfact && cfact['colDefs'] || []).find { |c| c['formula'] == 'Date([Stay Start])' }
+ckcol = (cfact && cfact['colDefs'] || []).find { |c| c['formula'] == 'DateTrunc("day", [Stay Start])' }
 ckrel = (cfact && cfact['relationships'] || []).find { |r| r['target'].to_s.include?('DIM_DATES') }
 check(ckcol && ckrel && ckrel.dig('keys', 0, 'sourceColumnId') == ckcol['id'],
       'computed DATE([col]) key wired via a synthesized calc key column on the fact', fails)
-check(ck['warnings'].any? { |w| w =~ /wired via synthesized calc key/ }, 'calc-key wiring is announced', fails)
+check(ckrel && ckrel['derivedVia'] == 'computed-key', 'calc-key relationship records derivedVia computed-key', fails)
+check(ck['warnings'].any? { |w| w =~ /wired via a calculated join-key column/ }, 'calc-key wiring is announced', fails)
 check(ck['workbookPatterns'].none? { |p| p['name'].to_s =~ /computed-only-key/ },
       'no computed-only-key gap when the wrapped column resolves (wire, not refuse)', fails)
+tm = results['roleplay-calckey-typemismatch']
+tmfact = tm['elements'].find { |e| e['name'].to_s.include?('FACT_STAYS') && e['kind'] == 'warehouse-table' }
+check((tmfact && tmfact['relationships'] || []).none? { |r| r['target'].to_s.include?('DIM_DATES') } &&
+      (tmfact && tmfact['colDefs'] || []).none? { |c| c['name'].to_s.include?('join key') },
+      'DATE(<date>) = <integer key>: NOT wired and no calc key column left behind', fails)
+check(tm['warnings'].any? { |w| w.include?('key types differ (date vs number)') },
+      'type-mismatched computed key is refused with a named reason', fails)
 
 puts
 if fails.empty?

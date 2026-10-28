@@ -45,6 +45,35 @@ module SeriesColors
     good.sort_by { |p| p['member'].to_s.downcase }.map { |p| p['color'].to_s.downcase }
   end
 
+  # Chart-membership scheme. Sigma applies a categorical scheme positionally
+  # over the members PRESENT in the chart (ascending), so a map that names five
+  # members pinned as a five-slot scheme shifts every color when the chart shows
+  # only four of them (a Top-N chart colored by Category, a filtered view):
+  # slot 2 lands on the wrong member. Re-derive the scheme over the chart's own
+  # members — each member's mapped color, ascending member order. A member the
+  # map does not name takes the next palette color the map has not used (nil
+  # when none is left, so the caller keeps its fallback). Pure.
+  #   map:      { 'Apparel' => '#4e79a7', … } (member → hex)
+  #   members:  the chart's category members (CSV rows)
+  #   fallback: ordered palette for unmapped members
+  def scheme_for_members(map, members, fallback = [])
+    ms = Array(members).map { |m| m.to_s.strip }.reject(&:empty?).uniq
+    return nil if ms.size < 2 || !map.is_a?(Hash)
+    lookup = map.each_with_object({}) { |(k, v), h| h[k.to_s.downcase] = v.to_s.downcase }
+    return nil unless ms.any? { |m| lookup.key?(m.downcase) }
+    spare = Array(fallback).map { |c| c.to_s.downcase }.select { |c| c =~ HEX } - lookup.values
+    scheme = ms.sort_by(&:downcase).map { |m| lookup[m.downcase] || spare.shift }
+    scheme.any?(&:nil?) ? nil : scheme
+  end
+
+  # member → color dict for ONE worksheet's explicit pairs (first wins).
+  def member_map(pairs)
+    Array(pairs).each_with_object({}) do |p, h|
+      next unless p.is_a?(Hash) && !p['member'].to_s.empty? && p['color'].to_s.downcase =~ HEX
+      h[p['member'].to_s] ||= p['color'].to_s.downcase
+    end
+  end
+
   # Does the .twb color-encoding field bind to THIS chart's color column?
   # A blank field (encoding present but caption unresolved) matches — the map
   # still came from this worksheet's only color encoding.
@@ -69,7 +98,15 @@ module SeriesColors
   # gluing unrelated fields together would be worse than the theme palette.
   # nil unless >=2 members merged (a 1-color scheme recolors the whole chart).
   def scheme_for_field(zones, column_name)
-    return nil if norm(column_name).empty?
+    members = member_map_for_field(zones, column_name)
+    return nil if members.size < 2
+    members.keys.sort_by(&:downcase).map { |k| members[k] }
+  end
+
+  # The merged member → color dict behind scheme_for_field (empty when no
+  # sibling carries an assignment on a matching, resolved field).
+  def member_map_for_field(zones, column_name)
+    return {} if norm(column_name).empty?
     members = {}
     Array(zones).each do |z|
       next unless z.is_a?(Hash) && z['series_colors'].is_a?(Array)
@@ -82,8 +119,7 @@ module SeriesColors
         members[m] = c if !m.empty? && c =~ HEX && !members.key?(m)
       end
     end
-    return nil if members.size < 2
-    members.keys.sort_by(&:downcase).map { |k| members[k] }
+    members
   end
 
   # Dashboard-level ordered scheme for themeOverrides.categoricalScheme — the
