@@ -1,4 +1,4 @@
-// ../wt-mcp-adddate/build/sigma-ids.js
+// converter-source/build/sigma-ids.js
 var NS_MODULUS = 62 ** 4;
 var SIGMA_LOWERCASE_WORDS = /* @__PURE__ */ new Set([
   "a",
@@ -58,7 +58,7 @@ Groupings (for LOD / different aggregation levels):
   Array order = nesting hierarchy. Use child elements for LOD patterns.
 `.trim();
 
-// ../wt-mcp-adddate/build/formulas.js
+// converter-source/build/formulas.js
 function decodeXmlEntities(s) {
   if (!s || s.indexOf("&") === -1)
     return s;
