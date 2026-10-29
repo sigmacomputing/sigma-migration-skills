@@ -78,10 +78,23 @@ normalized: for example, `emitted`/`built`/`pass` become `migrated`,
 `approximated` remains `approximated`, `degraded` becomes `needs-review`, and
 `dropped` becomes `skipped`.
 
+`dropped-unused` (a control the builder never placed because nothing reads it)
+also becomes `skipped`.
+
 Repeating the same terminal status is allowed and preserves all evidence.
 Different terminal statuses for the same source object are contradictory and
-RED. A status record naming an object absent from the source inventory is also
+RED. One exception: `migrated` beside a `needs-review` that is only the
+census's "built, but final parity does not prove it" rationale resolves to
+`needs-review` (the conservative status) with both evidence entries kept; a
+census "no matching built object" or any other mix stays contradictory. A
+status record naming an object absent from the source inventory is also
 an inconsistency, not extra inventory.
+
+Records match an inventory object by id, then name; within each, the exact
+spelling (unstripped, case-sensitive) is tried before the folded one, so names
+that differ only by whitespace stay distinct. When a name is shared by one
+worksheet and its dashboard zone(s), a record with a missing or other type
+(e.g. a `chart`) routes to the worksheet; zones are reached by id or zone type.
 
 ## Consumed artifacts
 

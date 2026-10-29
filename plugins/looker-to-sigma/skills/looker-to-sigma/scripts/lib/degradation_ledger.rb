@@ -199,7 +199,7 @@ module DegradationLedger
     if ctl_census_path
       doc = read_json_path(ctl_census_path)
       Array(doc.is_a?(Hash) ? doc['detail'] : nil).each do |r|
-        next unless r.is_a?(Hash) && r['status'].to_s != 'emitted'
+        next unless r.is_a?(Hash) && !%w[emitted source-inert].include?(r['status'].to_s)
         name = r['name'].to_s
         key = norm(name)
         reason = dropped_notes[key] ||

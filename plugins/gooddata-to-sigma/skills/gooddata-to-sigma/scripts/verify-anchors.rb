@@ -607,6 +607,10 @@ abort('--workdir required') unless opts[:dir]
 anchors_path = opts[:anchors] || File.join(opts[:dir], 'source-anchors.json')
 out_path     = opts[:out]     || File.join(opts[:dir], 'anchors-verdict.json')
 
+# A failed/aborted attempt must not leave a previous passing verdict behind.
+File.write(out_path, JSON.pretty_generate('pass' => false, 'checked' => 0, 'matched' => 0,
+                                         'status' => 'incomplete', 'reason' => 'anchor verification has not completed'))
+
 unless File.exist?(anchors_path)
   warn "FATAL: #{anchors_path} not found — transcribe the source dashboard's printed values"
   warn '       at Phase 1d (every KPI, top-3 of every ranked list/table, one bucket value per'
@@ -743,101 +747,74 @@ else
        ExportPool::SIGMA_EXPORT_HARD_CAP].min
     end
 
-  body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'text/yaml')
-  raw_spec = begin
-    JSON.parse(body)
-  rescue JSON::ParserError, TypeError
-    require 'yaml'
-    require 'date'
-    body.is_a?(Hash) ? body : (YAML.safe_load(body.to_s, permitted_classes: [Date, Time]) || {})
+  read_spec = lambda do
+    body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'text/yaml')
+    begin
+      JSON.parse(body)
+    rescue JSON::ParserError, TypeError
+      require 'yaml'
+      require 'date'
+      body.is_a?(Hash) ? body : (YAML.safe_load(body.to_s, permitted_classes: [Date, Time]) || {})
+    end
   end
+  raw_spec = read_spec.call
   # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
   # `document` key (live since 2026-08-03/04). Flatten metadata (workbookId,
   # latestDocumentVersion, ...) and document content onto one hash: this file
   # reads BOTH off `spec` below (flat document elements, the doc version
   # from spec['latestDocumentVersion'] via ExportPool.resolve_doc_version, the
-  # workbook id from spec['workbookId']) and mutates elements in place for the
-  # pivot-totals strip/restore bracket, so one flat hash keeps every existing
-  # read/mutation site below working unchanged. put_spec re-nests at the wire.
+  # workbook id from spec['workbookId']). Verification is read-only: pivots use
+  # JSON export rather than stripping and restoring their totals configuration.
   spec = Sigma::CodeRep.metadata(raw_spec).merge(Sigma::CodeRep.document(raw_spec))
   elements = Sigma::CodeRep.workbook_elements(spec)
   queryable = elements.reject { |el| %w[control text image container].include?(el['kind'].to_s) }
-
-  # v5.4 PIVOT-TOTALS CEILING: a pivot carrying a `totals` key 500s its CSV
-  # export (probe-isolated: the key's PRESENCE is the sole trigger — value type
-  # irrelevant), so a totals-bearing pivot's anchor values would read as MISSING
-  # here through no fault of the data. Bracket the exports: capture + STRIP each
-  # pivot's totals (one PUT), export against totals-free pivots, then RESTORE the
-  # captured totals (ensure). Renders keep their hidden grand totals before and
-  # after — only the brief export window is totals-free. The shipped hide state
-  # is re-guaranteed by `put-layout.rb --apply-pivot-totals` at the finalize ship
-  # step. Read-only spec fields are stripped before each PUT (Sigma rejects them).
-  READONLY_SPEC_KEYS = %w[workbookId url ownerId createdBy updatedBy createdAt updatedAt latestDocumentVersion].freeze
-  put_spec = lambda do |s|
-    meta = Sigma::CodeRep.metadata(s).reject { |k, _| READONLY_SPEC_KEYS.include?(k) }
-    body = Sigma::CodeRep.wrap(Sigma::CodeRep.document(s), extra: meta)
-    Sigma.request(:put, "/v2/workbooks/#{wb}/spec", body: JSON.generate(body))
-  end
-  captured_totals = {}
-  queryable.each do |el|
-    next unless el['kind'] == 'pivot-table' && el.is_a?(Hash) && el.key?('totals')
-    captured_totals[el['id'].to_s] = el.delete('totals')
-  end
-  # v5.4.9 review fix: persist the captured totals to a *-pivot-totals.json
-  # sidecar BEFORE the strip PUT. If this process dies (or the restore PUT
-  # fails) between strip and restore, the finalize ship step (put-layout.rb
-  # --apply-pivot-totals, which globs the workdir) re-applies the FULL captured
-  # totals — including showSubtotals — instead of stamping the lossy
-  # showGrandTotals-only default. Deleted again after a successful restore.
-  totals_sidecar = File.join(opts[:dir], 'anchors-restore-pivot-totals.json')
-  if captured_totals.any?
-    begin
-      File.write(totals_sidecar, JSON.pretty_generate({ 'workbook' => wb, 'totals' => captured_totals }))
-    rescue StandardError => e
-      warn "  [WARN] could not write totals restore sidecar (#{e.class}: #{e.message.to_s[0, 80]})"
-    end
-  end
 
   # RAW export cache (#7a/#7d): one export per (workbook, latestDocumentVersion,
   # element) shared with collect-parity-actuals.rb and across gate re-runs.
   # RAW bodies only — every anchor/emptiness/truncation verdict below is still
   # recomputed from the bytes on every run (the reconciled #7 red line). The
-  # cache is DISABLED when the totals strip/restore bracket is active: the
-  # strip PUT bumps the document version mid-run, so payloads exported inside
-  # the bracket cannot be strictly attributed to any stable version.
-  export_doc_version = captured_totals.any? ? nil : ExportPool.resolve_doc_version(spec)
+  # JSON keeps pivot totals untouched, so its raw payload can share the same
+  # version-keyed cache as normal parity collection.
+  export_doc_version = ExportPool.resolve_doc_version(spec)
   export_cache = ExportPool::Cache.new(opts[:dir], workbook_id: wb.to_s,
                                        doc_version: export_doc_version)
   if export_cache.enabled?
     warn "  [cache] raw export cache active (wb #{wb} @ doc v#{export_doc_version}; " \
          'strict version keys, verdicts always recomputed)'
-  elsif captured_totals.any?
-    warn '  [cache] raw export cache OFF — pivot-totals strip/restore bumps the document version mid-run'
   else
     warn '  [cache] raw export cache OFF — spec carries no latestDocumentVersion (cannot version-key payloads)'
   end
 
   # Export one element, bounded by row_limit and the shared deadline.
   # Returns [:ok | :ok_truncated, rows] | [:timeout, nil] | [:failed, nil].
+  pending_cache = Queue.new
+  parse_export = lambda do |raw, fmt|
+    next CSV.parse(raw) if fmt == 'csv'
+    data = JSON.parse(raw)
+    raise JSON::ParserError, 'expected element JSON row array' unless data.is_a?(Array) && data.all? { |r| r.is_a?(Hash) }
+    headers = data.flat_map(&:keys).uniq
+    [headers] + data.map { |row| headers.map { |key| row[key] } }
+  end
   export_one = lambda do |el|
     name = el_display_name(el)
     t_el = Time.now
+    fmt = el['kind'] == 'pivot-table' ? 'json' : 'csv'
     # Version-keyed raw-cache hit: skip the wire flow, reparse the recorded
     # bytes, recompute truncation — never a recorded verdict (#7 red line).
-    if (cached = export_cache.fetch(el['id'], 'csv', row_limit))
-      rows = CSV.parse(cached)
+    if (cached = export_cache.fetch(el['id'], fmt, row_limit))
+      rows = parse_export.call(cached, fmt)
       trunc = ExportPool.truncated?(rows, row_limit)
       ExportPool.progress(deadline, format('CACHED  %s — %d recorded row(s) @ doc v%s (verdicts recomputed)%s',
                                            name.inspect, [rows.length - 1, 0].max, export_doc_version,
                                            trunc ? " [TRUNCATED at --row-limit #{row_limit}]" : ''))
       return [trunc ? :ok_truncated : :ok, rows]
     end
-    qid = ExportPool.start_csv_export(wb, el['id'], row_limit)
+    qid = ExportPool.start_export(wb, el['id'], fmt, row_limit)
     unless qid
       warn "  [WARN] export POST returned no queryId for element #{name.inspect}"
       return [:failed, nil]
     end
-    status, body = ExportPool.poll_csv_download(qid, deadline)
+    status, body = ExportPool.poll_download(qid, deadline, accept: fmt == 'json' ? 'application/json' : 'text/csv')
     case status
     when :timeout
       ExportPool.progress(deadline, "TIMEOUT #{name.inspect} after #{(Time.now - t_el).round(1)}s — " \
@@ -847,42 +824,22 @@ else
       warn "  [WARN] export for element #{name.inspect} returned HTML behind a 200 (renderer error)"
       [:failed, nil]
     else
-      rows = CSV.parse(body)
-      export_cache.store(el['id'], 'csv', row_limit, body)
+      rows = parse_export.call(body, fmt)
+      pending_cache << [el['id'], fmt, body]
       trunc = ExportPool.truncated?(rows, row_limit)
       ExportPool.progress(deadline, format('DONE    %s — %d row(s) in %.1fs%s', name.inspect,
                                            [rows.length - 1, 0].max, Time.now - t_el,
                                            trunc ? " [TRUNCATED at --row-limit #{row_limit}]" : ''))
       [trunc ? :ok_truncated : :ok, rows]
     end
-  rescue Sigma::Error, CSV::MalformedCSVError => e
+  rescue Sigma::Error, CSV::MalformedCSVError, JSON::ParserError => e
     msg = e.message.lines.first.to_s.strip[0, 120]
-    ceiling = (el['kind'] == 'pivot-table' && e.is_a?(Sigma::Error) && msg =~ /\b500\b/) ?
-      ' [PIVOT-TOTALS CEILING: a `totals` key 500s a pivot CSV export — this pivot still carries one; ' \
-      'the strip/restore bracket should have removed it. See refs/layout-visual-qa.md]' : ''
-    warn "  [WARN] export failed for element #{el_display_name(el).inspect}: #{msg}#{ceiling}"
+    warn "  [WARN] export failed for element #{el_display_name(el).inspect}: #{msg}"
     [:failed, nil]
   end
 
   require 'thread'
   begin
-    # The strip PUT runs INSIDE this begin/ensure (v5.4.9 review fix): a
-    # network-level exception on the PUT (Net::ReadTimeout, Errno::ECONNRESET,
-    # SocketError — raised raw by Sigma.request, which only wraps HTTP-status
-    # failures in Sigma::Error) can fire AFTER the server applied the strip;
-    # previously it propagated before the restore bracket existed and left the
-    # live workbook totals-stripped (grand totals visible). Restoring when the
-    # strip never landed is an idempotent no-op PUT, so the ensure always
-    # attempts it.
-    if captured_totals.any?
-      begin
-        put_spec.call(spec)
-        warn "  [totals-ceiling] stripped grand-total key from #{captured_totals.size} pivot(s) for CSV export (restored after)"
-      rescue StandardError => e
-        warn "  [WARN] could not strip pivot totals (#{e.class}: #{e.message.lines.first.to_s.strip[0, 100]}) — " \
-             'totals-bearing pivot exports may 500; those anchors can only be checked via a totals-free export'
-      end
-    end
     warn format('  [pool] exporting %d element(s), pool=%d, row limit %s, total budget %ds',
                 queryable.size, [opts[:pool], queryable.size].min.clamp(1, 8),
                 row_limit ? row_limit.to_s : 'UNCAPPED', opts[:timeout])
@@ -926,27 +883,15 @@ else
         end
       end
     end.each(&:join)
-  ensure
-    # Restore the grand-total keys stripped for the export window so renders
-    # (and the shipped workbook) keep hidden grand totals — even if the strip
-    # PUT or an export above raised (network-level errors included). On
-    # restore failure the sidecar written above survives, and the finalize
-    # ship step re-applies the FULL captured totals (incl. showSubtotals).
-    if captured_totals.any?
-      begin
-        elements.each { |el| (t = captured_totals[el['id'].to_s]) && el['totals'] = t }
-        put_spec.call(spec)
-        warn "  [totals-ceiling] restored grand-total key on #{captured_totals.size} pivot(s)"
-        begin
-          File.delete(totals_sidecar) if File.exist?(totals_sidecar)
-        rescue StandardError
-          nil # stale sidecar is harmless: it re-applies the same captured totals
-        end
-      rescue StandardError => e
-        warn "  [WARN] pivot totals RESTORE failed (#{e.class}: #{e.message.lines.first.to_s.strip[0, 100]}) — " \
-             "captured totals kept in #{File.basename(totals_sidecar)}; the finalize ship step " \
-             '(put-layout.rb --apply-pivot-totals) re-applies them, incl. showSubtotals'
-      end
+  end
+  if export_doc_version
+    latest_spec = read_spec.call
+    abort 'FATAL: workbook document version changed during anchor verification; recollect against one version' unless
+      ExportPool.resolve_doc_version(latest_spec) == export_doc_version
+    # Publish raw cache entries only after proving the whole collection stable.
+    pending_cache.size.times do
+      element_id, fmt, body = pending_cache.pop
+      export_cache.store(element_id, fmt, row_limit, body)
     end
   end
 end

@@ -69,8 +69,11 @@
 #                                              //   is INTENDED to affect — the
 #                                              //   single-chart-switcher
 #                                              //   allowlist (grain controls)
-#         "mustReach": ["Monthly Revenue Trend"] // optional hard assertions:
+#         "mustReach": ["Monthly Revenue Trend"], // optional hard assertions:
 #                                              //   each must be in the closure
+#         "sourceInert": true                  // optional: the SOURCE shows this control but
+#                                              //   nothing reads it there either — exempt from
+#                                              //   the dead-control check (and the flip test)
 #       }
 #     ]
 #   }
@@ -370,6 +373,10 @@ module ControlLint
       end
 
       # (a) dead control --------------------------------------------------------
+      # A control the builder marked SOURCE-INERT (sidecar `sourceInert: true`) is shown on the
+      # source dashboard yet read by nothing in the source either: filtering nothing is faithful,
+      # not a defect. Only that explicit marker exempts it; a bare empty-reach control still fails.
+      next if r[:reach].empty? && ann['sourceInert'] == true
       if r[:reach].empty?
         violations << "dead control: #{ctl_label} has no resolving `filters` target and no " \
                       '[controlId] reference in any non-control element — a user changes it and ' \

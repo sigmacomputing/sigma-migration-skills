@@ -528,7 +528,7 @@ module ExportPool
   # serial path had, parallelized.
   #
   # jobs: [{ 'element_id' => <id>, 'params' => nil | {controlId => value},
-  #          'row_limit' => nil | N }, ...]
+  #          'row_limit' => nil | N, 'format' => 'csv' | 'json' }, ...]
   # Returns per-job [ [:ok, body] | [:timeout, nil] | [:error, msg] ] (body =
   # raw wire CSV bytes; callers parse and judge — never this lib).
   # ---------------------------------------------------------------------------
@@ -549,13 +549,16 @@ module ExportPool
           job = jobs[i]
           res =
             begin
-              qid = start_export(wb, job['element_id'], 'csv', job['row_limit'],
+              fmt = job.fetch('format', 'csv')
+              raise ArgumentError, "unsupported element export format #{fmt.inspect}" unless %w[csv json].include?(fmt)
+              qid = start_export(wb, job['element_id'], fmt, job['row_limit'],
                                  params: job['params'])
               if qid.nil?
                 [:error, 'export POST returned no queryId']
               else
-                status, body = poll_csv_download(qid, Deadline.new(timeout_per_job),
-                                                 poll_interval: poll_interval)
+                status, body = poll_download(qid, Deadline.new(timeout_per_job),
+                                             accept: fmt == 'json' ? 'application/json' : 'text/csv',
+                                             poll_interval: poll_interval)
                 case status
                 when :timeout then [:timeout, nil]
                 when :html    then [:error, 'export returned HTML behind a 200 (renderer error)']
