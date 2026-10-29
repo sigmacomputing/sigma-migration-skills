@@ -36,13 +36,14 @@ require 'yaml'
 require 'date'
 require 'time'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 opts = {}
 OptionParser.new do |p|
   p.on('--type T', %w[datamodel workbook]) { |v| opts[:type] = v }
   p.on('--spec P')                         { |v| opts[:spec] = v }
   p.on('--out P')                          { |v| opts[:out]  = v }
-  p.on('--workdir P', 'Per-conversion working dir (default: dir of --spec). Used to track posted workbook IDs across retries.') { |v| opts[:workdir] = v }
+  p.on('--workdir P', 'Per-conversion working dir (default: dir of --spec). Used to track posted workbook IDs across retries.') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--skip-layout-lint') { opts[:skip_lint] = true }
   p.on('--skip-control-lint') { opts[:skip_control_lint] = true }
   p.on('--control-scope P', 'control-scope.json sidecar (default: <workdir>/control-scope.json if present)') { |v| opts[:control_scope] = v }
@@ -59,6 +60,7 @@ OptionParser.new do |p|
 end.parse!
 %i[type spec out].each { |k| abort("missing --#{k}") unless opts[k] }
 opts[:workdir] ||= File.dirname(File.expand_path(opts[:spec]))
+WorkdirGuard.check!(opts[:workdir], '--workdir (default: the --spec directory)')
 require 'fileutils'
 FileUtils.mkdir_p(opts[:workdir])
 

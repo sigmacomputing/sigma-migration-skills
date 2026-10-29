@@ -16,12 +16,13 @@
 #   1  usage / unexpected error
 
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/cli_encoding'
 require_relative 'lib/factory_punchlist'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR') { |v| opts[:dir] = v }
+  p.on('--workdir DIR') { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
 end.parse!
 abort 'missing --workdir' unless opts[:dir] && Dir.exist?(opts[:dir])
 

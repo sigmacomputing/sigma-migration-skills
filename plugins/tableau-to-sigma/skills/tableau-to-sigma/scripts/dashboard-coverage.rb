@@ -3,11 +3,12 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/dashboard_coverage'
 
 opts = {}
 OptionParser.new do |parser|
-  parser.on('--workdir DIR') { |value| opts[:workdir] = File.expand_path(value) }
+  parser.on('--workdir DIR') { |value| opts[:workdir] = WorkdirGuard.check!(File.expand_path(value), '--workdir') }
   parser.on('--source PATH') { |value| opts[:source] = File.expand_path(value) }
   parser.on('--spec PATH') { |value| opts[:spec] = File.expand_path(value) }
   parser.on('--scope PATH') { |value| opts[:scope] = File.expand_path(value) }

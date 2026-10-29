@@ -32,12 +32,13 @@ require 'json'
 require 'net/http'
 require 'uri'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/datasource_filter_check'
 require_relative 'lib/code_rep'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir PATH', '--tableau PATH') { |v| opts[:work] = v }
+  p.on('--workdir PATH', '--tableau PATH') { |v| opts[:work] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--workbook-id ID')                 { |v| opts[:wb] = v }
   p.on('--skip-datasource-filters REASON') { |v| opts[:skip] = v }
 end.parse!(ARGV)

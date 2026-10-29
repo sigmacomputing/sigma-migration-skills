@@ -29,9 +29,9 @@ spec — re-enter with `--reuse-dm <id> --wb-spec <path>` (never hand-POST),
 `3` = a gate failed, `14` = migration GREEN + Phase E proposals pending,
 `0` = ALL gates green (only reachable via `--finalize`),
 `18` = the Phase-1d dashboard-read WAIT-GATE deadline passed — `png-read.json`
-still missing/unverified/stale after `SIGMA_PNG_READ_TIMEOUT_S` (default 480s;
-headless/CI callers with nobody to write the read: set it to `0` for the
-fail-fast abort) at the DM-POST barrier: do the read (fetch the dashboard
+still missing/unverified/stale after `SIGMA_PNG_READ_TIMEOUT_S` (default 0s;
+positive bounds are opt-in for concurrent runners) at the DM-POST barrier:
+do the read (fetch the dashboard
 PNG, Read it, write `<workdir>/png-read.json` with `"verified": true` —
 schema in `refs/phase-1-discover.md`), then re-run the same command
 (discovery is cached, the re-entry is cheap; genuinely no PNG access →
@@ -40,6 +40,16 @@ schema in `refs/phase-1-discover.md`), then re-run the same command
 NOTHING in this workbook (E9.6) — fix the scope from the banner's printed
 dashboard list and re-run; a scoped mission never silently fans out to the
 full workbook, and no Sigma objects were created.
+`26` = optional `--wait` budget expired while the child remains alive: inspect
+the PID/log and `migration-process.json`; do not start another run until it exits.
+`28` = another migration holds the workdir's OS lock; the second writer is refused.
+`30` = local TWB/MCP source evidence missing, stale, ambiguous, or incomplete;
+follow `mcp-evidence-request.json` and `refs/mcp-source.md`, not PAT setup.
+The lock survives in-process finalize/reuse-repair exec and is released by the OS
+on exit, including an abrupt kill. Do not delete `migration.lock` to bypass it.
+A tool timeout can terminate a POSIX process with **exit 143** (SIGTERM).
+That is not the live-child exit 26 or a completed checkpoint: inspect the
+process and lock state before resuming.
 DM-reuse is **reuse-first** (auto-reuses a covering DM, skipping the POST);
 `--reuse-dm <id>` pins one, `--skip-reuse-scan` forces build-new. Optional
 `--enhance [--enhance-accept <ids|all-low-risk>]` runs Phase E after all gates
@@ -60,6 +70,13 @@ Exit `17` routes to `refs/extract-landing.md` (extract landing); exit `2` from
 > drifts controlIds from `control-scope.json` and fails control-lint wholesale
 > (the #1 way this handoff spirals). For a master-level calc, prefer
 > `--master-col` over hand-editing the tile.
+
+`workbook-handoff.json` records the failing child stage, exit, error, and any
+identified fields. Exit 4 is not necessarily a translation failure: a validation,
+reference, or API error may require a different repair. Never infer missing calcs
+from a generic handoff. `execution-identity.json` and `execution-history.jsonl`
+identify the installed implementation and selected converter; these stay in the
+run workdir, never in the plugin.
 
 ## The final gate (`assert-phase6-ran.rb`) — exit-code table (load-bearing)
 

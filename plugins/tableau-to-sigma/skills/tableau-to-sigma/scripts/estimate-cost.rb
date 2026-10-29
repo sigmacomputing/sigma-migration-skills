@@ -79,6 +79,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'time'
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
@@ -473,7 +474,7 @@ end
 if $PROGRAM_NAME == __FILE__
   opts = {}
   OptionParser.new do |p|
-    p.on('--workdir DIR', 'estimate from a migration workdir (orchestrator seam)') { |v| opts[:dir] = v }
+    p.on('--workdir DIR', 'estimate from a migration workdir (orchestrator seam)') { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
     p.on('--out PATH', 'write the JSON report here (workdir default: <workdir>/cost-estimate.json)') { |v| opts[:out] = v }
     p.on('--workbook PATH', 'legacy pre-scoping: get-workbook.json') { |v| opts[:wb] = v }
     p.on('--datasource PATH', 'legacy pre-scoping: datasource metadata JSON') { |v| opts[:ds] = v }

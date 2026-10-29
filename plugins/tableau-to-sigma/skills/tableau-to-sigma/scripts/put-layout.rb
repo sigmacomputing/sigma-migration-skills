@@ -26,6 +26,7 @@ require 'json'
 require 'yaml'
 require 'date'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'cgi'
 
 opts = {}
@@ -50,7 +51,7 @@ OptionParser.new do |p|
   # which made the documented sidecar override unreachable on the automated
   # path — migrate-tableau.rb now passes --workdir).
   p.on('--apply-pivot-totals', 'ship step: (re)hide pivot grand totals as a final PUT (see header). --layout optional.') { opts[:apply_pivot_totals] = true }
-  p.on('--workdir DIR', 'migration workdir — where sidecars (*-pivot-totals.json) are globbed when --layout is absent') { |v| opts[:workdir] = v }
+  p.on('--workdir DIR', 'migration workdir — where sidecars (*-pivot-totals.json) are globbed when --layout is absent') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
 end.parse!
 abort('missing --workbook') unless opts[:wb]
 abort('missing --layout') unless opts[:layout] || opts[:apply_pivot_totals]

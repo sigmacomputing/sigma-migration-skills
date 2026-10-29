@@ -28,6 +28,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import workdir_guard  # noqa: E402
+
 
 def pivot_collapse_entries(sidecar):
     if not sidecar or not os.path.exists(sidecar):
@@ -85,6 +88,7 @@ def main(argv=None):
     ap.add_argument("--workbook-id")
     ap.add_argument("--json", action="store_true")
     opts = ap.parse_args(argv)
+    workdir_guard.check(opts.workdir, "--workdir")
     sidecar = opts.sidecar or (os.path.join(opts.workdir, "auto-interactions.json") if opts.workdir else None)
     entries = pivot_collapse_entries(sidecar)
     if not entries:

@@ -59,7 +59,9 @@ twb = <<~XML
         </datasource-dependencies></view>
         <rows>[federated.fact].[Multiple Values]</rows>
         <cols>[federated.fact].[none:Weekly/Monthly Period:ok]</cols>
-        <pane><mark class='Automatic'/></pane></table>
+        <pane><mark class='Automatic'/><encodings>
+          <text column='[federated.fact].[sum:Multiple Values:qk]'/>
+        </encodings></pane></table>
       </worksheet>
       <worksheet name='Data Until'>
         <table><view><datasource-dependencies datasource='federated.fact'>

@@ -22,6 +22,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'fileutils'
 require 'open3'
 require_relative 'lib/tableau_rest'
@@ -30,7 +31,7 @@ require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub saf
 opts = {}
 OptionParser.new do |p|
   p.on('--workbook ID')     { |v| opts[:wb] = v }
-  p.on('--tableau-dir DIR') { |v| opts[:tab] = v }
+  p.on('--tableau-dir DIR') { |v| opts[:tab] = WorkdirGuard.check!(v, '--tableau-dir') }
   p.on('--w N', Integer)    { |v| opts[:w] = v }
   p.on('--h N', Integer)    { |v| opts[:h] = v }
   p.on('--layout PATH')     { |v| opts[:layout] = v }

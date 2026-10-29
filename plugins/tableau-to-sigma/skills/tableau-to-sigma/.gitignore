@@ -49,3 +49,5 @@ posted-workbooks.jsonl
 offramps.jsonl
 phase-metrics.jsonl
 /*.jsonl
+diagnostic-events/
+/diagnostics*.zip

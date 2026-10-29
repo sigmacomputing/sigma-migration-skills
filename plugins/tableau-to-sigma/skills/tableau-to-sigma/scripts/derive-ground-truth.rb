@@ -32,12 +32,13 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'ground_truth_sql'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR')     { |v| opts[:dir] = v }
+  p.on('--workdir DIR')     { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--plan PATH')       { |v| opts[:plan] = v }
   p.on('--layout PATH')     { |v| opts[:layout] = v }
   p.on('--meta PATH')       { |v| opts[:meta] = v }

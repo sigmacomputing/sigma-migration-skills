@@ -32,6 +32,7 @@
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'net/http'
 require 'uri'
 require 'set'
@@ -39,10 +40,11 @@ require 'set'
 # when LANG is unset — CSV.read otherwise tags the file US-ASCII and raises.
 require_relative 'lib/cli_encoding'
 require_relative 'lib/workbook_code'
+require_relative 'lib/carried_calc_filters'
 
 opts = { renames: {}, trusted_rename_sources: Set.new }
 OptionParser.new do |p|
-  p.on('--tableau DIR')          { |v| opts[:tab] = v }
+  p.on('--tableau DIR')          { |v| opts[:tab] = WorkdirGuard.check!(v, '--tableau') }
   p.on('--workbook-spec PATH')   { |v| opts[:wb]  = v }
   p.on('--out PATH')             { |v| opts[:out] = v }
   p.on('--workbook-id ID')       { |v| opts[:wb_id] = v }
@@ -346,7 +348,10 @@ sigma_charts.each do |el|
   mv_i = header.index { |h| h.to_s.strip.casecmp?('Measure Values') }
   if mn_i && mv_i && header.length == 3
     dim_i  = ([0, 1, 2] - [mn_i, mv_i]).first
-    labels = rows.map { |r| r[mn_i] }.compact.map(&:strip).reject(&:empty?).uniq
+    # a table calc's label carries its addressing ("Rank - Mo along Table (Down)"); the
+    # Sigma column is named for the calc itself, so pivot under the base name
+    tc_base = ->(l) { l.to_s.sub(/\s+along\s+(?:(?:Table|Pane|Cell)\b(?:\s*\([^)]*\))?|[^()\[\]]+)\s*\z/i, '').strip }
+    labels = rows.map { |r| r[mn_i] }.compact.map { |l| tc_base.call(l) }.reject(&:empty?).uniq
     wide   = {}
     order  = []
     rows.each do |r|
@@ -355,7 +360,7 @@ sigma_charts.each do |el|
         wide[k] = {}
         order << k
       end
-      wide[k][r[mn_i].to_s.strip] = r[mv_i]
+      wide[k][tc_base.call(r[mn_i])] = r[mv_i]
     end
     header = [header[dim_i]] + labels
     rows   = order.map { |k| [k] + labels.map { |l| wide[k][l] } }
@@ -413,8 +418,12 @@ sigma_charts.each do |el|
   # column order by NAME so 3-channel charts (stacked color / pivot / scatter)
   # compare every channel — not an arbitrary first-2-columns slice.
   all_cols = (el['columns'] || [])
+  tc_base = lambda do |h|
+    # a table calc's addressing tail ("Rank along Table (Down)") is not part of its name
+    h.to_s.sub(/\s+along\s+(?:(?:Table|Pane|Cell)\b(?:\s*\([^)]*\))?|[^()\[\]]+)\s*\z/i, '').strip
+  end
   header_base = lambda do |h|
-    h.to_s.strip
+    tc_base.call(h)
      .sub(/^(?:sum|avg|average|min|max|median|distinct count|count) of /i, '')
      .sub(/^(?:avg|sum|min|max|med|cnt|ctd)\.\s*/i, '')
      .sub(/^(?:second|minute|hour|day|week|month|quarter|year) of /i, '')
@@ -424,7 +433,9 @@ sigma_charts.each do |el|
     base = header_base.call(h)
     cands = all_cols.select do |c|
       nm = c['name'].to_s.strip
-      nm.casecmp?(h.to_s.strip) || nm.casecmp?(base)
+      # A table keeps Tableau's full header ("Rank - Mo along Table (Down)") as its column name
+      # while the pivoted CSV header is the base name, so compare the column's base name too.
+      nm.casecmp?(h.to_s.strip) || nm.casecmp?(base) || tc_base.call(nm).casecmp?(base)
     end
     # Prefer plotted channel columns over hidden filter passthroughs.
     pref = %w[x- c- y- y2- k- p- calc-]
@@ -546,6 +557,9 @@ if File.exist?(opts[:out])
     nil
   end
 end
+# Calc-filters build-charts-from-signals.rb already carried onto a Sigma element
+# (<tableau-dir>/carried-calc-filters.json). Absent ledger = [] = today's behaviour.
+carried_ledger = CarriedCalcFilters.load(opts[:tab])
 dash_layout_path = File.join(opts[:tab], 'dashboard-layout.json')
 if File.exist?(dash_layout_path)
   begin
@@ -606,6 +620,18 @@ if File.exist?(dash_layout_path)
               else
                 warn "hidden_filters gate: DROPPED prior '#{prev['status']}' for [#{entry['tile']}] #{entry['calc_ref']} — " \
                      'the filter definition CHANGED (members/type differ); re-review and re-resolve it'
+              end
+            end
+            # Machine handoff: the builder's carried-calc-filters.json ledger resolves a
+            # filter it already put on the element (same tile + calc, SAME definition) —
+            # no human `translated` needed. A changed definition never matches.
+            if entry['status'] == 'unresolved' && carried_ledger.any?
+              if (hit = CarriedCalcFilters.resolve!(entry, carried_ledger, dashboard: d['dashboard']))
+                warn "hidden_filters gate: [#{entry['tile']}] #{entry['calc_ref']} translated — carried by " \
+                     "build-charts-from-signals.rb (#{hit['mode']}, element #{hit['element_id']})"
+              elsif CarriedCalcFilters.match(entry, carried_ledger, dashboard: d['dashboard'], same_def: false)
+                warn "hidden_filters gate: [#{entry['tile']}] #{entry['calc_ref']} was carried but its definition " \
+                     'CHANGED since the build (members/type/range differ) — NOT auto-resolved; rebuild charts or re-review it'
               end
             end
             hidden_filters_gate << entry

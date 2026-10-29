@@ -23,9 +23,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "lib"))
+import workdir_guard  # noqa: E402
 import sigma_rest  # noqa: E402
 import published_datasource  # noqa: E402
 import tableau_source  # noqa: E402
+from migration_diagnostics import Span  # noqa: E402
+
+DIAGNOSTIC_SPAN = None
 
 
 class ExtractLandingRequired(RuntimeError):
@@ -287,12 +291,34 @@ def prepare_numeric_parity(
     return plan_path, expected_path, actuals_path
 
 
+def visual_render_dimensions(spec_path: Path, page_id: str, width: int = 1600, height: int = 900) -> tuple[int, int]:
+    """Render size covering the Sigma page's last grid row (twin of the Ruby helper).
+
+    A page taller than the default 900px (full-row tables, charts grown so Sigma
+    draws their axis title) was rendered cropped and graded as clipped.
+    """
+    spec = load(spec_path, {}) or {}
+    layout = str((spec.get("document") or spec).get("layout") or "")
+    block = re.search(r'<Page\b[^>]*\bid="' + re.escape(page_id) + r'".*?</Page>', layout, re.S)
+    rows = [int(end) for end in re.findall(r'gridRow="\d+\s*/\s*(\d+)"', block.group(0))] if block else []
+    if rows:
+        height = max(height, (max(rows) - 1) * 28 + 64)
+    return width, height
+
+
 def run(phase: str, script: str, arguments: list[str]) -> None:
     print(f"── {phase}: {script}")
-    completed = subprocess.run(
-        [sys.executable, str(HERE / script), *arguments],
-        check=False,
-    )
+    span = Span(DIAGNOSTIC_SPAN.workdir, "script", script) if DIAGNOSTIC_SPAN else None
+    code = None
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(HERE / script), *arguments],
+            check=False,
+        )
+        code = completed.returncode
+    finally:
+        if span:
+            span.finish(code)
     if completed.returncode:
         raise RuntimeError(
             f"{phase} failed: {script} exited {completed.returncode}"
@@ -622,6 +648,7 @@ def is_current_run_resume(args: argparse.Namespace, state: dict) -> bool:
 
 
 def main() -> int:
+    global DIAGNOSTIC_SPAN
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workbook", required=True, help="name or Tableau share URL")
     parser.add_argument("--connection", required=True)
@@ -676,9 +703,11 @@ def main() -> int:
     parser.add_argument("--skip-doctor-gate", help="named reason; recorded by gate")
     parser.add_argument("--discover-only", action="store_true")
     args = parser.parse_args()
+    workdir_guard.check(args.out, "--out")
 
     workdir = Path(args.out).expanduser().resolve()
     workdir.mkdir(parents=True, exist_ok=True)
+    DIAGNOSTIC_SPAN = Span(workdir, "invocation", "migrate-tableau.py")
     state_path = workdir / "migrate-state-python.json"
     state = load(state_path, {}) or {}
     name = args.name or "Tableau Migration — Python"
@@ -748,13 +777,16 @@ def main() -> int:
             "dashboards": selected_dashboards,
         },
     )
+    # The scan writes its JSON beside the markdown with the same stem, so the
+    # markdown must be gaps.md for the gaps.json read below (and Phase 6's
+    # gaps.json / formula-audit.json checks) to see this scan.
     if not (workdir / "gaps.json").is_file():
         run(
             "Phase 1 gap scan",
             "scan-workbook-gaps.py",
             [
                 str(workdir / "workbook-content.twb"),
-                str(workdir / "gaps-report.md"),
+                str(workdir / "gaps.md"),
             ],
         )
     gaps = load(workdir / "gaps.json", {}) or {}
@@ -912,6 +944,19 @@ def main() -> int:
                 str(columns_path),
             ],
         )
+
+    # Referenceable names (twin of MechanicalSpecs.fixup_dm_spec's slash step): a column or
+    # metric NAME holding "/" "[" "]" can never be referenced by a formula, so rename it and
+    # every reference to it before the DM is posted. build-workbook-from-signals.py derives
+    # the same safe name from the Tableau caption; the caption -> safe-name map is recorded.
+    tableau_source.sanitize_bracket_path_captions(raw_model)
+    slash = tableau_source.sanitize_slash_column_names(raw_model)
+    if slash["renamed"]:
+        effective_dm_spec = workdir / "dm-remapped.json"
+        write(effective_dm_spec, raw_model)
+        write(workdir / "slash-renames.json", slash)
+        for record in slash["renamed"]:
+            print(f"WARN: {record['warning']}")
 
     dm_spec = effective_dm_spec
     metadata_path = workdir / "conv-meta.json"
@@ -1373,6 +1418,7 @@ def main() -> int:
             ],
         )
     render_png = workdir / "sigma-render-final.png"
+    render_w, render_h = visual_render_dimensions(workdir / "wb-spec-python.json", args.page_id)
     run(
         "Phase 6 render",
         "sigma-export-png.py",
@@ -1383,6 +1429,10 @@ def main() -> int:
             args.page_id,
             "--out",
             str(render_png),
+            "--w",
+            str(render_w),
+            "--h",
+            str(render_h),
         ],
     )
     run(
@@ -1496,8 +1546,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    exit_code = 1
     try:
-        raise SystemExit(main())
+        exit_code = main()
     except (OSError, ValueError, KeyError, RuntimeError, json.JSONDecodeError) as exc:
         print(f"FATAL: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    finally:
+        if DIAGNOSTIC_SPAN:
+            DIAGNOSTIC_SPAN.finish(exit_code)
+    raise SystemExit(exit_code)

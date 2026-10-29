@@ -56,12 +56,13 @@ require 'json'
 # does nothing for ARGV, which is what this require fixes.
 require_relative 'lib/cli_encoding'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'lod_audit'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR')         { |v| opts[:workdir] = v }
+  p.on('--workdir DIR')         { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--calc-fields PATH')    { |v| opts[:calc_fields] = v }
   p.on('--twb PATH')            { |v| opts[:twb] = v }
   p.on('--dm-spec PATH')        { |v| opts[:dm_spec] = v }

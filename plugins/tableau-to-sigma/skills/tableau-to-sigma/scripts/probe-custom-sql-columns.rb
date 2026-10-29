@@ -39,6 +39,7 @@ require 'uri'
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
 require_relative 'lib/probe_registry'
 
@@ -48,7 +49,7 @@ OptionParser.new do |p|
   p.on('--table-path PATH')   { |v| opts[:path]    = v }
   p.on('--dialect D')         { |v| opts[:dialect] = v }
   p.on('--folder-id ID')      { |v| opts[:folder]  = v }
-  p.on('--workdir DIR', 'conversion workdir — homes the probe-artifact registry') { |v| opts[:workdir] = v }
+  p.on('--workdir DIR', 'conversion workdir — homes the probe-artifact registry') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--out PATH')          { |v| opts[:out]     = v }
 end.parse!
 abort 'missing --connection-id' unless opts[:conn]

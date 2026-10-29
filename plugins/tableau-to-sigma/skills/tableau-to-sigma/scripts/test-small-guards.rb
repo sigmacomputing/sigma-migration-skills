@@ -37,6 +37,8 @@ real_log = <<~LOG
   unmapped measure: Net Revenue
 LOG
 got = cull_failed_fields(real_log)
+check(cull_failed_fields("  ✗ Return Ratio (referenced via [Master/…])") == ['Return Ratio'],
+      'structured master-ref failure identifies the field for the handoff', fails)
 check(got.include?('Preset Room Used') && got.include?('Runner Dir') && got.include?('Net Revenue'),
       "real field names still extracted (got #{got.inspect})", fails)
 

@@ -56,7 +56,7 @@ Sigma SEs, technical CSMs, and migration partners running 1:1 Tableau-to-Sigma c
 <ul>
   <li><strong>A coding agent that runs skills</strong> — Claude Code (CLI or desktop), Cursor, Cortex Code, etc. These skills are <strong>agent-neutral</strong>: each is a <code>SKILL.md</code> plus <code>scripts/</code>, indexed by <code>AGENTS.md</code> at the repo root. For Claude Code, the skill ships as a directory under <code>~/.claude/skills/tableau-to-sigma/</code>; other agents read the skill folder directly. Where this guide says "Claude," substitute your agent.</li>
   <li><strong>Sigma authentication</strong> — preferably a one-time browser login stored in the OS keychain (<code>eval "$(bash scripts/browser-login.sh)"</code> after setting <code>SIGMA_BASE_URL</code>). Unattended hosts can instead use a client ID + secret via <code>python3 scripts/setup.py</code> or <code>ruby scripts/setup.rb</code>.</li>
-  <li><strong>Tableau access</strong> — either the Tableau MCP tools loaded in your agent session or a Tableau Personal Access Token via <code>python3 scripts/setup-tableau.py</code> / <code>ruby scripts/setup-tableau.rb</code>. PAT mode is required when you need the workbook's <code>.twb</code> XML (most conversions).</li>
+  <li><strong>Tableau access</strong> — a supplied <code>.twb</code> plus Tableau MCP works without a PAT: use the Ruby orchestrator's <code>--twb</code> route and <code>refs/mcp-source.md</code>. Otherwise use a Tableau PAT via <code>python3 scripts/setup-tableau.py</code> / <code>ruby scripts/setup-tableau.rb</code> for REST discovery and workbook download.</li>
   <li><strong>The data-model converter backend</strong> — the Tableau→Sigma converter (<code>convert_tableau_to_sigma</code>). <strong>This works out of the box — no setup, no data egress.</strong> Note the local converter is <em>not</em> a server: it's a pure function (<code>.twb</code> XML → Sigma JSON) the orchestrator runs via <code>node</code>; no HTTP, no daemon, nothing leaves your machine. In precedence order:
     <ul>
       <li><strong>VENDORED local build (default — zero config, no data leaves your machine).</strong> A prebuilt converter ships inside the skill at <code>converter/tableau.mjs</code> and is auto-discovered as the guaranteed fallback. No clone, no <code>npm install</code>, no network. This is what runs unless you point at a fresher build below. Refresh it after the converter changes with <code>scripts/dev/vendor-converter.sh</code> (see <code>converter/PROVENANCE.json</code> for the pinned source commit). Requires only <code>node</code> on PATH.</li>
@@ -225,7 +225,8 @@ is detail on these steps):
    the hard-gate suite; exit 0 is the only green
 
 All artifacts live in the workdir convention `~/tableau-migration/<slug>` (or
-`--out <dir>`) — never a scratch `/tmp` path that evaporates between sessions.
+`--out <dir>`) — never a scratch `/tmp` path that evaporates between sessions, and never inside the
+installed plugin / skill directory (the scripts refuse that; see `refs/environment.md`).
 
 Two rules that keep a run honest:
 

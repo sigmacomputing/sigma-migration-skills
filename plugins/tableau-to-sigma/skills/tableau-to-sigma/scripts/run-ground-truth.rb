@@ -50,12 +50,13 @@
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
 require_relative 'lib/workbook_code'
 
 opts = { timeout: 600, row_limit: 5000, pool: 5 }
 OptionParser.new do |p|
-  p.on('--workdir DIR')      { |v| opts[:dir] = v }
+  p.on('--workdir DIR')      { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--plan PATH')        { |v| opts[:plan] = v }
   p.on('--out PATH')         { |v| opts[:out] = v }
   p.on('--connection-id ID') { |v| opts[:conn] = v }

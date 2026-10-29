@@ -264,7 +264,9 @@ def read_expected_csv(path: Path, chart_name: str) -> tuple[list[str], list[list
         wide = {}
         order = []
         for row in body:
-            label = row[measure_names].strip()
+            # a table calc's label carries its addressing ("Rank - Mo along Table (Down)");
+            # the Sigma column is named for the calc itself, so pivot under the base name
+            label = strip_tc_addressing(row[measure_names])
             if label and label not in labels:
                 labels.append(label)
             key = row[dimension]
@@ -287,8 +289,18 @@ def read_expected_csv(path: Path, chart_name: str) -> tuple[list[str], list[list
     return header, expected
 
 
+def strip_tc_addressing(header: str) -> str:
+    # a table calc's addressing tail ("Rank along Table (Down)") is not part of its name
+    return re.sub(
+        r"\s+along\s+(?:(?:Table|Pane|Cell)\b(?:\s*\([^)]*\))?|[^()\[\]]+)\s*$",
+        "",
+        str(header),
+        flags=re.I,
+    ).strip()
+
+
 def header_base(header: str) -> str:
-    value = str(header).strip()
+    value = strip_tc_addressing(header)
     value = re.sub(
         r"^(?:sum|avg|average|min|max|median|distinct count|count) of ",
         "",
@@ -312,11 +324,14 @@ def select_columns(element: dict, headers: list[str]) -> list[str]:
     selected = []
     for header in headers:
         base = header_base(header)
+        # A table keeps Tableau's full header ("Rank - Mo along Table (Down)") as its column
+        # name while the pivoted CSV header is the base name, so match the column's base too.
         candidates = [
             column
             for column in all_columns
             if str(column.get("name") or "").strip().casefold()
             in {str(header).strip().casefold(), base.casefold()}
+            or strip_tc_addressing(str(column.get("name") or "")).casefold() == base.casefold()
         ]
         candidates.sort(
             key=lambda column: next(
@@ -363,8 +378,69 @@ def layout_renames(dashboards: list[dict]) -> dict[str, str]:
     return renames
 
 
+CARRIED_LEDGER_FILE = "carried-calc-filters.json"
+CARRIED_NOTE = "carried by build-charts-from-signals.rb"
+
+
+def load_carried_ledger(tableau_dir: Path) -> list[dict]:
+    """Calc-filters build-charts-from-signals.rb carried onto a Sigma element.
+
+    Absent or unreadable ledger = [] = no auto-resolution (the gate stays manual).
+    """
+    path = tableau_dir / CARRIED_LEDGER_FILE
+    if not path.is_file():
+        return []
+    try:
+        data = load_json(path)
+    except (OSError, ValueError):
+        return []
+    entries = data.get("entries") if isinstance(data, dict) else None
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def same_filter_definition(left: dict, right: dict) -> bool:
+    # The carry-forward fingerprint: a changed definition never inherits a resolution.
+    return (
+        str(left.get("filter_type") or "") == str(right.get("filter_type") or "")
+        and sorted(map(str, left.get("members") or []))
+        == sorted(map(str, right.get("members") or []))
+        and str(left.get("min") or "") == str(right.get("min") or "")
+        and str(left.get("max") or "") == str(right.get("max") or "")
+    )
+
+
+def carried_ledger_match(
+    entry: dict,
+    ledger: list[dict],
+    dashboard: str | None = None,
+    same_definition: bool = True,
+) -> dict | None:
+    """The ledger entry that carried this hidden filter, or None.
+
+    Tile matches exactly (caption whitespace is part of the key); then calc_ref,
+    or the calc caption when either side has no calc_ref. A ledger entry for
+    another dashboard (when both name one) does not count.
+    """
+    for item in ledger:
+        if str(item.get("worksheet") or "") != str(entry.get("tile") or ""):
+            continue
+        if dashboard and item.get("dashboard") and item.get("dashboard") != dashboard:
+            continue
+        if entry.get("calc_ref") and item.get("calc_ref"):
+            same_calc = entry["calc_ref"] == item["calc_ref"]
+        elif entry.get("caption") and item.get("calc_caption"):
+            same_calc = entry["caption"] == item["calc_caption"]
+        else:
+            same_calc = False
+        if same_calc and (not same_definition or same_filter_definition(entry, item)):
+            return item
+    return None
+
+
 def hidden_filters(
-    dashboards: list[dict], prior_output: dict | None
+    dashboards: list[dict],
+    prior_output: dict | None,
+    carried_ledger: list[dict] | None = None,
 ) -> list[dict]:
     prior = {}
     for item in (prior_output or {}).get("hidden_filters", []):
@@ -428,6 +504,30 @@ def hidden_filters(
                     for key in ("waive_reason", "translation", "translated_to", "note"):
                         if previous.get(key) is not None:
                             entry[key] = previous[key]
+                # Machine handoff: a filter the builder already put on a Sigma element
+                # (same tile + calc, SAME definition) resolves without a human edit.
+                if entry["status"] == "unresolved" and carried_ledger:
+                    carried = carried_ledger_match(
+                        entry, carried_ledger, dashboard.get("dashboard")
+                    )
+                    if carried:
+                        entry["status"] = "translated"
+                        entry["translated_to"] = str(
+                            carried.get("sigma_formula")
+                            or carried.get("sigma_column")
+                            or carried.get("mode")
+                            or ""
+                        )
+                        entry["note"] = CARRIED_NOTE
+                    elif carried_ledger_match(
+                        entry, carried_ledger, dashboard.get("dashboard"), False
+                    ):
+                        print(
+                            f"hidden_filters gate: [{entry.get('tile')}] "
+                            f"{entry.get('calc_ref')} was carried but its definition "
+                            "CHANGED since the build - NOT auto-resolved",
+                            file=sys.stderr,
+                        )
                 output.append(entry)
     return output
 
@@ -533,7 +633,9 @@ def build_plan(
             "name-keyed parity-actuals contract: " + ", ".join(repr(name) for name in duplicates)
         )
 
-    filters = hidden_filters(scoped_dashboards, prior_output)
+    filters = hidden_filters(
+        scoped_dashboards, prior_output, load_carried_ledger(tableau_dir)
+    )
     unresolved = [
         item for item in filters if item.get("status") not in {"translated", "waived"}
     ]

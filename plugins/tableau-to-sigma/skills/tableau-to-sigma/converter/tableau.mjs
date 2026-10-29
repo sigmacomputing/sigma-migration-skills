@@ -3619,6 +3619,62 @@ function _windowAlias(caption, used) {
 function _stripBrackets(s) {
   return (s || "").replace(/^\[|\]$/g, "").trim();
 }
+// LOCAL PATCH (fix/tableau-calc-parens-groups): Tableau GROUP fields. A group is a datasource
+// <column> whose <calculation class='categorical-bin' column='[Src]'> lists <bin value='"Bucket"'>
+// elements, each with its member <value>s (twb_2026.2.0.xsd DataSource-Bins-G). The group was never
+// emitted — the column loop skipped every "(group)" field — so calcs, shelves and filters that
+// referenced it lost it (or, worse, the caption<->alias reconciliation below silently re-pointed
+// "[Officer Name (group)]" at the UNGROUPED "[Officer Name]"). Translate it to a calculated column:
+// Switch([Src], member, bucket, ..., else) where else is the member itself (an unlisted member keeps
+// its own value) or the "Other" bucket when the group has one.
+function _groupLiteral(raw) {
+  const s = String(raw === void 0 || raw === null ? "" : raw).trim();
+  if (s === "%null%")
+    return "Null";
+  const q = s.match(/^"([\s\S]*)"$/);
+  if (q)
+    return `"${q[1].replace(/\\"/g, '"').replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (/^-?\d+(\.\d+)?$/.test(s) || /^(true|false)$/i.test(s))
+    return s.toLowerCase();
+  const d = s.match(/^#([^#]+)#$/);
+  if (d)
+    return `Date("${d[1]}")`;
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+function tableauCategoricalBinToSigma(calcEl, srcRef, srcIsText) {
+  const pairs = [];
+  const seen = /* @__PURE__ */ new Set();
+  let nullLabel = null;
+  let otherLabel = null;
+  const dflt = attr(calcEl, "default");
+  if (dflt)
+    otherLabel = _groupLiteral(dflt);
+  for (const bin of asArray(calcEl.bin)) {
+    const label = _groupLiteral(attr(bin, "value"));
+    const members = asArray(bin.value).map((v) => v !== null && typeof v === "object" ? v["#text"] : v).filter((v) => v !== void 0 && v !== null && String(v).trim() !== "");
+    if (attr(bin, "others") === "true" || attr(bin, "other") === "true" || attr(bin, "default-name") === "true" && members.length === 0) {
+      otherLabel = label;
+      continue;
+    }
+    for (const m of members) {
+      const lit = _groupLiteral(m);
+      if (seen.has(lit))
+        continue;
+      seen.add(lit);
+      if (lit === "Null") {
+        nullLabel = label;
+        continue;
+      }
+      pairs.push([lit, label]);
+    }
+  }
+  const keep = otherLabel === null ? pairs.filter(([m, b]) => m !== b) : pairs;
+  const fallback = otherLabel !== null ? otherLabel : srcIsText ? srcRef : `Text(${srcRef})`;
+  let formula = keep.length > 0 ? `Switch(${srcRef}, ${keep.map(([m, b]) => `${m}, ${b}`).join(", ")}, ${fallback})` : fallback;
+  if (nullLabel !== null)
+    formula = `If(IsNull(${srcRef}), ${nullLabel}, ${formula})`;
+  return { formula, buckets: keep.length, other: otherLabel !== null };
+}
 function tableauParseTopNSet(calcEl, caption, setName) {
   if (!calcEl)
     return null;
@@ -7111,8 +7167,33 @@ ${joinSql}
       const formula = calcEl ? rewriteGuidRefs(attr(calcEl, "formula") || "") : "";
       const fieldKey = rawName.replace(/^\[|\]$/g, "");
       const colDatatype = attr(col, "datatype") || "";
-      if (hidden || !fieldKey || fieldKey.startsWith("Number of Records") || fieldKey.includes("__tableau_internal_object_id__") || colDatatype === "table" || /\(group\)\s*$/i.test(fieldKey) || /\(bin\)\s*$/i.test(fieldKey))
+      const _isGroup = !!calcEl && attr(calcEl, "class") === "categorical-bin";
+      // A calculated field that merely HAS "(group)" / "(bin)" in its name (class 'tableau' + a formula) is a
+      // normal calc, e.g. an IF/IN dimension called "Store Name (group)" - only the suffix-named fields with
+      // no formula of their own (Tableau's generated artifacts) stay skipped.
+      const _isNamedCalc = !!calcEl && !!formula && attr(calcEl, "class") !== "categorical-bin";
+      if (!fieldKey || !_isGroup && (hidden || fieldKey.startsWith("Number of Records") || fieldKey.includes("__tableau_internal_object_id__") || colDatatype === "table" || !_isNamedCalc && (/\(group\)\s*$/i.test(fieldKey) || /\(bin\)\s*$/i.test(fieldKey))))
         continue;
+      if (_isGroup) {
+        const rawSrc = attr(calcEl, "column") || "";
+        const srcNorm = rewriteGuidRefs(rawSrc).replace(/^\[|\]$/g, "");
+        const srcCol = asArray(ds.ds?.column || []).find((c) => attr(c, "name") === rawSrc);
+        const srcName = (srcCol && attr(srcCol, "caption") || srcNorm).trim();
+        const srcType = srcCol ? attr(srcCol, "datatype") : "";
+        if (!srcName) {
+          warnings.push(`\u26A0 Group "${caption}": no source column on its categorical-bin calculation \u2014 skipped.`);
+          continue;
+        }
+        const grp = tableauCategoricalBinToSigma(calcEl, `[${srcName}]`, !srcType || srcType === "string");
+        const _grpColId = sigmaShortId();
+        factEl.columns.push({ id: _grpColId, formula: grp.formula, name: caption });
+        factEl.order.push(_grpColId);
+        displayNameMap[caption.toUpperCase()] = { colId: _grpColId, el: factEl };
+        displayNameMap[caption.replace(/\s+/g, "_").toUpperCase()] = { colId: _grpColId, el: factEl };
+        globalColMap[caption.toUpperCase()] = { elId: factEl.id, displayName: caption };
+        warnings.push(`\u2705 Group "${caption}" \u2192 calculated column over [${srcName}] (${grp.buckets} explicit member mapping(s), ${grp.other ? "unlisted members \u2192 the Other bucket" : "unlisted members keep their own value"}): ${grp.formula.slice(0, 120)}`);
+        continue;
+      }
       const guidMatch = (fieldKey.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [])[0];
       if (factRelName && !formula) {
         const flattenSuffix = /\s\([^()]*\([^)]*\)\)\s*$/.test(caption);

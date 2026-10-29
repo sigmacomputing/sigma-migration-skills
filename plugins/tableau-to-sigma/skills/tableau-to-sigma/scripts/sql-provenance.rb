@@ -3,19 +3,22 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/sql_provenance'
 
 opts = {}
 OptionParser.new do |parser|
-  parser.on('--workdir DIR') { |value| opts[:workdir] = File.expand_path(value) }
+  parser.on('--workdir DIR') { |value| opts[:workdir] = WorkdirGuard.check!(File.expand_path(value), '--workdir') }
   parser.on('--dm-spec PATH') { |value| opts[:dm_spec] = File.expand_path(value) }
   parser.on('--check') { opts[:check] = true }
 end.parse!
 
 workdir = opts[:workdir] || abort('usage: sql-provenance.rb --workdir DIR [--dm-spec PATH] [--check]')
-dm_spec = opts[:dm_spec] ||
-          [File.join(workdir, 'dm-spec.json'), File.join(workdir, 'dm-raw.json')]
-          .find { |path| File.file?(path) }
+dm_specs = %w[dm-spec.json dm-spec-reused.json].map { |name| File.join(workdir, name) }
+current_dm_spec = dm_specs.select { |path| File.file?(path) }.max_by do |path|
+  [File.mtime(path), File.basename(path) == 'dm-spec.json' ? 1 : 0]
+end
+dm_spec = opts[:dm_spec] || current_dm_spec || File.join(workdir, 'dm-raw.json')
 artifact = File.join(workdir, 'sql-provenance.json')
 unless dm_spec && File.file?(dm_spec)
   warn 'SQL PROVENANCE FAIL: no data-model spec is available'

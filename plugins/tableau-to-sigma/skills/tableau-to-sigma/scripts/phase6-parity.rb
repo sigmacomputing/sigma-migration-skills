@@ -32,6 +32,7 @@ require 'json'
 require 'net/http'
 require 'uri'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'base64'
 require 'open3'
 require 'time'
@@ -40,13 +41,14 @@ require 'time'
 # in US-ASCII" on any non-ASCII chart name.
 require_relative 'lib/cli_encoding'
 require_relative 'lib/zone_census'
+require_relative 'lib/carried_calc_filters'
 
 opts = { extract_mode: false, extract_tol: 0.30, renames: [], finalize: false }
 OptionParser.new do |p|
-  p.on('--tableau DIR')          { |v| opts[:tab] = v }
-  p.on('--workdir DIR', 'alias of --tableau') { |v| opts[:tab] = v }
+  p.on('--tableau DIR')          { |v| opts[:tab] = WorkdirGuard.check!(v, '--tableau') }
+  p.on('--workdir DIR', 'alias of --tableau') { |v| opts[:tab] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--workbook-id ID')       { |v| opts[:wb] = v }
-  p.on('--out PATH')             { |v| opts[:out] = v }
+  p.on('--out PATH')             { |v| opts[:out] = WorkdirGuard.check_file!(v, '--out') }
   p.on('--extract-mode')         { opts[:extract_mode] = true }
   p.on('--extract-tol F', Float) { |v| opts[:extract_tol] = v }
   p.on('--rename PAIR', 'Tableau-name=Sigma-name (repeat)') { |v| opts[:renames] << v }
@@ -174,6 +176,17 @@ if !opts[:finalize]
   if (opts[:dashboards] || []).any? && plan["dashboards_scope"] != opts[:dashboards]
     plan["dashboards_scope"] = opts[:dashboards]
     File.write(plan_path, JSON.pretty_generate(plan))
+  end
+
+  # A REUSED plan was generated before the charts were (re)built, so its hidden
+  # filters may still read `unresolved` for filters the builder has since carried
+  # (<tab>/carried-calc-filters.json). Resolve them in place — same match rule as
+  # auto-parity-plan.rb (tile + calc, SAME definition); operator edits stay untouched.
+  carried_resolved = CarriedCalcFilters.resolve_plan!(plan, CarriedCalcFilters.load(opts[:tab]))
+  if carried_resolved.positive?
+    File.write(plan_path, JSON.pretty_generate(plan))
+    warn "hidden_filters gate: #{carried_resolved} unresolved calc-filter(s) in the reused plan are carried by " \
+         'build-charts-from-signals.rb (carried-calc-filters.json) — marked translated'
   end
 
   # ---- Hidden calc-filter gate (Phase 6 enforcement) -----------------------

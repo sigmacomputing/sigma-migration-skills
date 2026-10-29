@@ -36,11 +36,12 @@
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
 
 opts = { max_cardinality: 1000 }
 OptionParser.new do |p|
-  p.on('--workdir DIR')        { |v| opts[:workdir] = v }
+  p.on('--workdir DIR')        { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--ledger PATH')        { |v| opts[:ledger] = v }
   p.on('--connection-id ID')   { |v| opts[:conn] = v }
   p.on('--folder-id ID')       { |v| opts[:folder] = v }

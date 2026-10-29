@@ -24,6 +24,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 def pivot_collapse_entries(sidecar)
   return [] unless sidecar && File.exist?(sidecar)
@@ -74,7 +75,7 @@ end
 if $PROGRAM_NAME == __FILE__
   opts = {}
   OptionParser.new do |o|
-    o.on('--workdir DIR') { |v| opts[:workdir] = v }
+    o.on('--workdir DIR') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
     o.on('--sidecar PATH', 'default: <workdir>/auto-interactions.json') { |v| opts[:sidecar] = v }
     o.on('--workbook-id ID') { |v| opts[:workbook_id] = v }
     o.on('--json') { opts[:json] = true }

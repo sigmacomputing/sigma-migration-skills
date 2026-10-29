@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
+
 
 FAMILY_MAP = {
     "bar": "bar",
@@ -211,6 +214,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workdir", required=True, type=Path)
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     try:
         result = evaluate(args.workdir)
     except (OSError, ValueError) as exc:

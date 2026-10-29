@@ -17,9 +17,12 @@ the chart editor after publish.
 | Bar chart orientation (horizontal vs vertical) | **Yes** — `"orientation": "horizontal"` on the `bar-chart` (omit for the default vertical) | n/a — set in spec |
 | Trellis (small multiples / panel charts) | **Yes on supported chart kinds** | `build-charts-from-signals.rb` collapses detected repeated worksheets to one chart with `trellis.rowsBy` or `columnsBy`; unsupported kinds remain explicit sibling elements |
 | Axis label rotation (0°, 45°, 90°) | No | Chart editor → Format → X-axis → Label rotation |
-| Series color | No (not yet) | Chart editor → Properties → Color |
+| Single-series (whole-mark) color | **Yes (live-verified 2026-10-28)** — `"color": {"by": "single", "value": "#1f4e79"}` on bar/line/area; the converter carries Tableau's `<format attr='mark-color'>` (no color encoding) this way | n/a — set in spec |
+| Per-series color (several series) | No (not yet) | Chart editor → Properties → Color |
 | Chart color palette | No | Chart editor → Properties → Color |
-| Font size / axis title | No | Chart editor → Format tab |
+| Axis title | **Yes (live-verified 2026-10-28)** — `xAxis.format.title` / `yAxis.format.title` `{text, fontSize}`; Sigma omits a BOTTOM title when the chart is shorter than ~15 grid rows | n/a — set in spec |
+| KPI tile background | **Yes (live-verified 2026-10-28)** — element-level `style.backgroundColor` on a `kpi-chart` (whole tile; no title-band-only tint) | n/a — set in spec |
+| Font size (chart body) | No | Chart editor → Format tab |
 | Text element alignment (center / right) | **Yes (since 2026-06-11)** | Inline HTML in `body`: `<p style="text-align: center">…</p>` (also `right`/`left`). Round-trips through GET/PUT — live-verified 2026-06-11. Combines with `<span>` color/font-size styling. Pre-fix UI-set alignment did not serialize; re-apply once via spec or UI and it sticks. |
 
 **`"orientation": "horizontal"` makes a horizontal bar chart and round-trips through GET** (live-verified 2026-06-15). The enum accepts `"horizontal"` only — omit the field entirely for the default vertical orientation (`"orientation": "vertical"` is rejected).

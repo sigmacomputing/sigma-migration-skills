@@ -52,6 +52,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'fileutils'
 require 'tempfile'
 require 'open3'
@@ -60,7 +61,7 @@ require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub saf
 
 opts = { method: 'auto', dashboards: [] }
 OptionParser.new do |p|
-  p.on('--tableau-dir DIR')  { |v| opts[:tab] = v }
+  p.on('--tableau-dir DIR')  { |v| opts[:tab] = WorkdirGuard.check!(v, '--tableau-dir') }
   p.on('--dashboard NAME')   { |v| opts[:dashboards] << v }
   p.on('--method M', %w[auto pdf image]) { |v| opts[:method] = v }
   p.on('--force')            { opts[:force] = true }

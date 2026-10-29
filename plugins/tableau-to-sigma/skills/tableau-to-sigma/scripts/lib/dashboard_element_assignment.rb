@@ -36,17 +36,19 @@ module DashboardElementAssignment
       aliases << record['worksheet']
       aliases << record['name']
     end
-    aliases.map(&:to_s).map(&:strip).reject(&:empty?).uniq
+    # Names stay EXACT (worksheets 'X' and 'X ' are different sheets); only blank aliases drop.
+    aliases.map(&:to_s).reject { |name| name.strip.empty? }.uniq
   end
 
   def zone_names(zone, renames)
-    caption = zone['caption'].to_s.strip
+    caption = zone['caption'].to_s
     display_title = zone['display_title'].to_s.strip
-    explicit = renames[caption].to_s.strip
+    explicit = (renames[caption] || renames[caption.strip]).to_s.strip
     # Provenance aliases are keyed by worksheet caption, so try the caption
-    # before collision-prone display titles. Explicit reconstruction renames
-    # are the fallback for hand-built elements with no provenance record.
-    [caption, explicit, display_title].reject(&:empty?).uniq
+    # (exact, whitespace included) before collision-prone display titles.
+    # Explicit reconstruction renames are the fallback for hand-built elements
+    # with no provenance record.
+    [caption, explicit, display_title].reject { |name| name.strip.empty? }.uniq
   end
 
   # Mutates legacy_pages' nested `elements` arrays. Returns an audit record:

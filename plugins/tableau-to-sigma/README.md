@@ -33,7 +33,7 @@ flowchart TB
 
     subgraph DISCOVER["1 · DISCOVER — inventory & plan"]
         direction TB
-        P0a["<b>0a · Gap scan</b> (mandatory)<br/>scan-workbook-gaps.rb → gaps.json<br/>✅ auto · ⚠️ hint · 🛠 manual · ❌ unhandled"]
+        P0a["<b>0a · Gap scan</b> (mandatory)<br/>scan-workbook-gaps.rb → &lt;stem&gt;-gaps-report.json + formula-audit.json<br/>✅ auto · ⚠️ hint · 🛠 manual · ❌ unhandled"]
         SCOUT["<b>0a-scout</b> — resolve ❌ gaps (subagent)<br/>gap-scout.md · validate-sigma-formula.rb<br/>scout-validate-and-persist.rb · learned-rules.rb · escalate-gap.py"]
         P0b["<b>0b · Pick mode</b> (ask)<br/>mechanical ↔ dashboard-fidelity"]
         P0c["<b>0 / 0c · Cost + house style</b><br/>estimate-cost.rb · scan-customer-style.rb"]

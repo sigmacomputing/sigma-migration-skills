@@ -1,0 +1,183 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Minimal synthetic fixture for test-visual-fidelity-leaderboard.rb — invented
+     names, no customer data. Covers the presentation signals a store leaderboard
+     dashboard carries: single mark colors (no color encoding), a navigation
+     button with its own fill, axis titles shown vs hidden vs overridden, KPI
+     tiles with a tinted zone background, and a bold-sans title whose font name is
+     a Tableau-bundled (non-web) family. -->
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales Demo' name='federated.demo1'>
+      <column caption='Store Name' datatype='string' name='[Store Name]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Store Bars'>
+      <table>
+        <view>
+          <datasources><datasource caption='Sales Demo' name='federated.demo1' /></datasources>
+          <datasource-dependencies datasource='federated.demo1'>
+            <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+            <column caption='Store Name' datatype='string' name='[Store Name]' role='dimension' type='nominal' />
+            <column-instance column='[Store Name]' derivation='None' name='[none:Store Name:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Net Revenue]' derivation='Sum' name='[sum:Net Revenue:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes>
+          <pane>
+            <mark class='Bar' />
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-color' value='#1f4e79' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows>[federated.demo1].[none:Store Name:nk]</rows>
+        <cols>[federated.demo1].[sum:Net Revenue:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Store Bars Quiet'>
+      <table>
+        <view>
+          <datasources><datasource caption='Sales Demo' name='federated.demo1' /></datasources>
+          <datasource-dependencies datasource='federated.demo1'>
+            <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+            <column caption='Store Name' datatype='string' name='[Store Name]' role='dimension' type='nominal' />
+            <column-instance column='[Store Name]' derivation='None' name='[none:Store Name:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Net Revenue]' derivation='Sum' name='[sum:Net Revenue:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <style>
+          <style-rule element='worksheet'>
+            <format attr='display-field-labels' scope='cols' value='false' />
+            <format attr='display-field-labels' scope='rows' value='false' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane>
+            <mark class='Bar' />
+            <style>
+              <style-rule element='mark'>
+                <format attr='mark-color' value='#e76f51' />
+              </style-rule>
+            </style>
+          </pane>
+        </panes>
+        <rows>[federated.demo1].[none:Store Name:nk]</rows>
+        <cols>[federated.demo1].[sum:Net Revenue:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Store Bars Custom'>
+      <table>
+        <view>
+          <datasources><datasource caption='Sales Demo' name='federated.demo1' /></datasources>
+          <datasource-dependencies datasource='federated.demo1'>
+            <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+            <column caption='Store Name' datatype='string' name='[Store Name]' role='dimension' type='nominal' />
+            <column-instance column='[Store Name]' derivation='None' name='[none:Store Name:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Net Revenue]' derivation='Sum' name='[sum:Net Revenue:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <style>
+          <style-rule element='axis'>
+            <format attr='title' class='0' field='[federated.demo1].[sum:Net Revenue:qk]' scope='cols' value='Revenue (USD)' />
+          </style-rule>
+        </style>
+        <panes>
+          <pane>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.demo1].[none:Store Name:nk]</rows>
+        <cols>[federated.demo1].[sum:Net Revenue:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Net KPI'>
+      <layout-options>
+        <title>
+          <formatted-text>
+            <run>Net Revenue</run>
+          </formatted-text>
+        </title>
+      </layout-options>
+      <table>
+        <view>
+          <datasources><datasource caption='Sales Demo' name='federated.demo1' /></datasources>
+          <datasource-dependencies datasource='federated.demo1'>
+            <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+            <column-instance column='[Net Revenue]' derivation='Sum' name='[sum:Net Revenue:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <panes>
+          <pane>
+            <mark class='Automatic' />
+            <encodings>
+              <text column='[federated.demo1].[sum:Net Revenue:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows />
+        <cols />
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Demo Board'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='vert' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='8000' id='3' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+              <zone forceUpdate='true' h='8000' id='4' type-v2='text' w='72000' x='0' y='0'>
+                <formatted-text>
+                  <run fontalignment='0' fontcolor='#1a1a2e' fontname='Tableau Bold' fontsize='22'>Store Sales Leaderboard Overview Demo Board</run>
+                </formatted-text>
+              </zone>
+              <zone h='8000' id='5' type-v2='dashboard-object' w='28000' x='72000' y='0'>
+                <button action='tabdoc:goto-sheet window-id=&quot;{11111111-2222-3333-4444-555555555555}&quot;' button-type='text'>
+                  <button-visual-state>
+                    <caption>Detail Board</caption>
+                    <button-caption-font-style fontcolor='#ffffff' fontsize='11' />
+                    <format attr='background-color' value='#1f4e79' />
+                  </button-visual-state>
+                </button>
+              </zone>
+            </zone>
+            <zone h='14000' id='6' param='horz' type-v2='layout-flow' w='100000' x='0' y='8000'>
+              <zone h='14000' id='7' name='Net KPI' w='100000' x='0' y='8000'>
+                <zone-style>
+                  <format attr='background-color' value='#f6f8fb' />
+                </zone-style>
+              </zone>
+            </zone>
+            <zone h='78000' id='8' param='horz' type-v2='layout-flow' w='100000' x='0' y='22000'>
+              <zone h='78000' id='9' name='Store Bars' w='34000' x='0' y='22000' />
+              <zone h='78000' id='10' name='Store Bars Quiet' w='33000' x='34000' y='22000' />
+              <zone h='78000' id='11' name='Store Bars Custom' w='33000' x='67000' y='22000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+      <simple-id uuid='{99999999-8888-7777-6666-555555555555}' />
+    </dashboard>
+    <dashboard name='Detail Board'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' sizing-mode='fixed' />
+      <zones>
+        <zone h='100000' id='21' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='22' name='Store Bars' w='100000' x='0' y='0' />
+        </zone>
+      </zones>
+      <simple-id uuid='{11111111-2222-3333-4444-555555555555}' />
+    </dashboard>
+  </dashboards>
+  <windows>
+    <window class='dashboard' maximized='true' name='Demo Board'>
+      <simple-id uuid='{99999999-8888-7777-6666-555555555555}' />
+    </window>
+    <window class='dashboard' name='Detail Board'>
+      <simple-id uuid='{11111111-2222-3333-4444-555555555555}' />
+    </window>
+  </windows>
+</workbook>

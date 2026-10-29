@@ -1896,6 +1896,90 @@ module MechanicalSpecs
     rewritten
   end
 
+  # A column NAME containing "/" (or "[" / "]") can never be referenced, and
+  # the failure is invisible until Sigma parses it. The formula engine reads
+  # "/" inside a bracketed reference as a path separator, so a data-model
+  # column named "Region - East/West" is unreachable: the workbook master's
+  # `[Order Fact View/Region - East/West]` exports as 'Unknown column', and a
+  # list control over it POSTs as "Invalid value source for list control"
+  # (live-probed). The repo's own sigma-data-models reference (sources.md,
+  # "Column names containing /") records that NO formula syntax can reference
+  # such a column; Sigma's own friendly-names convention replaces the
+  # character with a space. #685-B only desensitized the FORMULA of a warehouse
+  # passthrough and deliberately kept the raw caption as the NAME, so the name
+  # stayed unreferenceable (and every DM calc column keeps its Tableau caption,
+  # slash and all). This gives every column AND metric a referenceable name.
+  #
+  #   * the safe form replaces each of "/", "[", "]" with a space and squeezes
+  #     space runs ("Region - East/West" -> "Region - East West"); a hyphen is
+  #     subtraction only OUTSIDE brackets, so it stays (live-probed);
+  #   * a collision with a name already on the model gets a numeric suffix
+  #     ("... West 2"); the old->new choice is one model-wide map, so every
+  #     reference to a name is rewritten identically wherever it appears;
+  #   * every formula in the model is rewritten (calcs, metrics, derived-view
+  #     passthroughs `[Base/<name>]`, cross-element `[Elem/Rel/<name>]`); ids,
+  #     relationship keys and orders hold ids, so they are untouched.
+  #
+  # Returns { renamed: [{ 'element', 'kind', 'from', 'to' }], map: { from => to } }
+  # — the caption->safe-name map the workbook side needs (derive_master's
+  # caption_aliases:), one record per renamed column for the named warning.
+  # Idempotent: a second pass finds nothing left to rename.
+  def sigma_safe_column_name(name)
+    safe = name.to_s.gsub(BRACKET_PATH_SPECIAL_RE, ' ').gsub(/\s+/, ' ').strip
+    safe.empty? ? 'Column' : safe
+  end
+
+  def sanitize_slash_column_names!(model)
+    els = all_elements(model)
+    holders = els.flat_map do |el|
+      ((el['columns'] || []).map { |c| [el, c, 'column'] } + (el['metrics'] || []).map { |m| [el, m, 'metric'] })
+    end
+    bad = holders.select { |_el, c, _k| c['name'].is_a?(String) && c['name'] =~ BRACKET_PATH_SPECIAL_RE }
+    return { renamed: [], map: {} } if bad.empty?
+    taken = {}
+    holders.each { |_el, c, _k| (n = col_display(c)) && taken[n.to_s.downcase] = true }
+    map = {}
+    bad.each do |_el, c, _k|
+      next if map.key?(c['name'])
+      base = sigma_safe_column_name(c['name'])
+      cand = base
+      n = 2
+      while taken[cand.downcase]
+        cand = "#{base} #{n}"
+        n += 1
+      end
+      taken[cand.downcase] = true
+      map[c['name']] = cand
+    end
+    # Longest name first so a name that is a substring of another is not hit first.
+    ordered = map.sort_by { |old, _| -old.length }
+    rewrite = lambda do |node|
+      case node
+      when Hash
+        node.each do |k, v|
+          if k == 'formula' && v.is_a?(String)
+            ordered.each do |old, new|
+              v = v.gsub(/(?<=\[|\/)#{Regexp.escape(old)}(?=\])/) { new }
+            end
+            node[k] = v
+          else
+            rewrite.call(v)
+          end
+        end
+      when Array then node.each { |v| rewrite.call(v) }
+      end
+    end
+    rewrite.call(model)
+    renamed = bad.map do |el, c, kind|
+      from = c['name']
+      c['name'] = map[from]
+      { 'element' => (el['name'] || el['id']).to_s, 'kind' => kind, 'from' => from, 'to' => map[from],
+        'warning' => "renamed for Sigma: '/' cannot appear in a referenced column name — " \
+                     "#{kind} '#{from}' on '#{(el['name'] || el['id'])}' is now '#{map[from]}'" }
+    end
+    { renamed: renamed, map: map }
+  end
+
   # Issue #685-C: a generated Custom-SQL helper element (window/LOD/Top-N
   # builder) can reference a Tableau CALCULATED field — e.g. "Days to Ship" =
   # DATEDIFF('day',[Order Date],[Ship Date]) — as though it were a physical
@@ -2014,6 +2098,11 @@ module MechanicalSpecs
     # Caption hygiene FIRST (bead 320u): Sigma trims display names server-side,
     # so trailing-space captions must be trimmed everywhere refs are built.
     trim_spec_whitespace!(model)
+    # Referenceable names: a column/metric NAME containing "/" "[" "]" cannot be
+    # referenced by any formula, so it is renamed model-wide here — BEFORE
+    # expose_base_calcs_on_derived! below copies base names into `[Src/<name>]`
+    # derived-view refs. The caption->safe map goes back to the caller.
+    slash = sanitize_slash_column_names!(model)
     # Role-based unique relationship names (bead ovud): multi-FK-to-one-dim
     # duplicate names make joins unreachable and date axes NULL-bucket.
     dedupe_relationship_names!(model)
@@ -2212,7 +2301,8 @@ module MechanicalSpecs
         el['metrics'] = kept_metrics
       end
     end
-    { fixed: fixed, dropped: dropped.uniq, phantom: phantom, remapped: remapped }
+    { fixed: fixed, dropped: dropped.uniq, phantom: phantom, remapped: remapped,
+      renamed: slash[:renamed], rename_map: slash[:map] }
   end
 
   # The display-name suffix Sigma stamps on a derived-view column when its bare
@@ -2277,6 +2367,17 @@ module MechanicalSpecs
             .select { |cap| parse_disambiguated_caption(cap) }.uniq
   end
 
+  # Every <column caption='...'> the .twb declares whose caption holds "/" "[" "]",
+  # as { caption => safe name } — the caption_aliases a REUSED data model needs
+  # (its columns were named safe by an earlier run; no fixup renamed them here).
+  # An alias with no matching master column is simply never registered.
+  def slash_captions_from_twb(twb_text)
+    twb_text.to_s.scan(/<column\b[^>]*?\bcaption=(['"])(.*?)\1/m)
+            .map { |(_q, cap)| cap.gsub('&apos;', "'").gsub('&quot;', '"').gsub('&lt;', '<').gsub('&gt;', '>').gsub('&amp;', '&') }
+            .select { |cap| cap =~ BRACKET_PATH_SPECIAL_RE }.uniq
+            .each_with_object({}) { |cap, h| h[cap] = sigma_safe_column_name(cap) }
+  end
+
   # Derive { 'master_columns' => [...], 'mmap' => {...}, 'untranslated_metrics' => [...] }.
   # fact_name is the AUTHORITATIVE Sigma element name (from the DM readback) used
   # in master-column formulas [fact_name/Col]. base_el (optional) is the element a
@@ -2313,7 +2414,14 @@ module MechanicalSpecs
   # name and every other path gets its own distinct master column
   # "Region (STORE_DIM)" — registered in the master-map under the Tableau caption —
   # instead of silently collapsing onto one column.
-  def derive_master(fact_el, fact_name, base_el = nil, real_labels = nil, model = nil, disambiguated: [])
+  #
+  # caption_aliases (optional): { Tableau caption => safe name } for every column
+  # fixup_dm_spec renamed because its caption held "/" "[" "]" (sanitize_slash_column_names!).
+  # The master column and every workbook ref use the SAFE name (a "/" in a name
+  # cannot be referenced); the Tableau caption stays a lookup key — a second
+  # master-map regex pointing at the same entry, plus entry['caption'] so the
+  # builder can show the caption where a display label is allowed.
+  def derive_master(fact_el, fact_name, base_el = nil, real_labels = nil, model = nil, disambiguated: [], caption_aliases: {})
     # A Custom SQL fact element is NAMELESS in the DM spec (rule 3), but Sigma
     # assigns it the name "Custom SQL" server-side. An empty fact_name makes every
     # master column formula an INVALID `[/Col]` (empty element segment) → the
@@ -2327,6 +2435,17 @@ module MechanicalSpecs
     id_owner = {}       # base id -> first exact name, shared across master/LOD/metric mints (#455)
     used_regex = {}
     untranslated = []
+    alias_by_safe = Hash.new { |h, k| h[k] = [] }
+    (caption_aliases || {}).each { |cap, safe| alias_by_safe[safe.to_s.downcase] << cap.to_s unless cap.to_s == safe.to_s }
+    register_aliases = lambda do |dname, entry|
+      alias_by_safe[dname.to_s.downcase].each do |cap|
+        entry['caption'] ||= cap
+        arx = header_regex(cap)
+        next if used_regex[arx]
+        mmap[arx] = entry
+        used_regex[arx] = true
+      end
+    end
     guid_idx = guid_display_index(fact_el, base_el)
     # Native-grain index: converter column formula -> dim element name + FK key
     # (see the doc comment above). Keyed by the column's bare display name.
@@ -2385,6 +2504,7 @@ module MechanicalSpecs
           used_regex[brx] = true
         end
       end
+      register_aliases.call(dname, entry)
       entry
     end
     raw_cols = (fact_el['columns'] || [])
@@ -2478,6 +2598,7 @@ module MechanicalSpecs
             mmap[rx] = entry
             used_regex[rx] = true
           end
+          register_aliases.call(dn, entry)
         end
       end
     end
@@ -2501,6 +2622,7 @@ module MechanicalSpecs
         entry['format'] = m['format'] if m['format']
         mmap[rx] = entry
         used_regex[rx] = true
+        register_aliases.call(nm, entry)
       end
     end
     { 'master_columns' => master_columns, 'mmap' => mmap, 'untranslated_metrics' => untranslated }
@@ -2567,6 +2689,8 @@ module MechanicalSpecs
     candidates = (conv_fact['columns'] || []).each_with_object([]) do |col, acc|
       dname = col_display(col)
       next if dname.nil? || dname.to_s.empty? || dname =~ GUID_RE
+      # Tableau's synthetic shelves are not columns a reusable data model needs.
+      next if dname.match?(/\A:(?:Measure Names|Measure Values|Multiple Values)\z/)
       next if known.include?(dname.downcase) # already present verbatim — nothing to author
       acc << { 'name' => dname, 'formula' => col['formula'].to_s, 'format' => col['format'] }.compact
     end

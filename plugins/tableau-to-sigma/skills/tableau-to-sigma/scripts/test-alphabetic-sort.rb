@@ -82,5 +82,25 @@ check(naive.call({}, 'x-dim', 'y-meas') == 'y-meas',
 check(resolve({ 'alphabetic' => true }, 'Region', 'x-dim', 'y-meas') != naive.call({}, 'x-dim', 'y-meas'),
       'PLANTED-DEFECT GUARD: the marker changes the outcome', fails)
 
+puts 'Part F — a computed-sort BY a measure sorts by the measure, even when `column` names the plotted dim'
+# Live-caught: a bar on a group dim sorted by a parameter-switched measure
+# (<computed-sort column='[none:Store Name (group):nk]' using='[sum:Volume Measure - Mo:qk]'>)
+# came out reverse-alphabetical, because `column` (always the sorted dim) matched
+# the plotted dim. Exercised against the REAL builder function, not a mirror.
+real_src = builder[/def sort_target_column_id.*?\nend/m].to_s
+real = Module.new { module_eval(real_src); module_function :sort_target_column_id }
+group_sort = { 'column' => '[federated.a].[none:Store Name (group):nk]', 'direction' => 'descending',
+               'using' => '[federated.a].[sum:Volume Measure - Mo:qk]' }
+dim = { 'name' => 'Store Name (group)' }
+check(real.sort_target_column_id(group_sort, dim, 'Store Name (group)', 'x-dim', 'y-meas') == 'y-meas',
+      'computed-sort column=<plotted dim> using=<measure> -> sorts by the MEASURE', fails)
+check(real.sort_target_column_id(group_sort.merge('column' => '[federated.a].[none:3c4fbb09-a975-3126-96e1-2f64fae9ff89:nk]'),
+                                 dim, 'Store Name (group)', 'x-dim', 'y-meas') == 'y-meas',
+      'computed-sort on a GUID-named dim using a measure -> measure (unchanged)', fails)
+check(real.sort_target_column_id({ 'column' => '[federated.a].[none:REGION:nk]' }, { 'name' => 'Region' }, 'Region', 'x-dim', 'y-meas') == 'x-dim',
+      'a sort on the dim with no `using` -> dimension (unchanged)', fails)
+check(real.sort_target_column_id({ 'alphabetic' => true, 'using' => '[x].[sum:A:qk]' }, dim, nil, 'x-dim', 'y-meas') == 'x-dim',
+      'alphabetic marker still wins', fails)
+
 puts(fails.empty? ? "\nALL PASS" : "\n#{fails.size} FAILURE(S)")
 exit(fails.empty? ? 0 : 1)
