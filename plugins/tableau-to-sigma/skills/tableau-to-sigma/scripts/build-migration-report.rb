@@ -26,6 +26,13 @@ class MigrationReport
     'degraded' => 'needs-review', 'partial' => 'needs-review',
     'skipped' => 'skipped', 'skip' => 'skipped', 'dropped' => 'skipped',
     'omitted' => 'skipped', 'excluded' => 'skipped', 'not-emitted' => 'skipped',
+    # A control the builder decided not to place (nothing reads it): the source
+    # parameter exists and was explicitly left out, so it is skipped, not
+    # migrated (and not not-applicable: the source dashboard still shows it).
+    'dropped-unused' => 'skipped',
+    # A parameter control the source dashboard shows but nothing reads (inert in the source
+    # too): built and visible, so it is an approximation, not a skip.
+    'source-inert' => 'approximated',
     'not-applicable' => 'not-applicable', 'n-a' => 'not-applicable',
     'na' => 'not-applicable'
   }.freeze
@@ -43,6 +50,11 @@ class MigrationReport
   FAIL_WORDS = %w[fail failed failure error red unhealthy blank divergent
                   not-executable high-risk risky].freeze
   PASS_WORDS = %w[pass passed ok green healthy clear no-risk success successful].freeze
+  # The census's needs-review rationale for an object that IS built but that
+  # final parity does not name (build-source-object-census.rb, account_objects).
+  # It is an absence of proof, not evidence against the build, so it does not
+  # contradict a migrated status from an artifact that saw the object built.
+  UNPROVEN_BUILT_DETAIL = 'matching built object exists, but final parity does not prove this source object'
 
   attr_reader :document
 
@@ -54,6 +66,8 @@ class MigrationReport
     @input_errors = []
     @unknown_records = []
     @duplicate_inventory = []
+    @unproven_built = []
+    @source_inert = []
     @objects = []
   end
 
@@ -231,8 +245,10 @@ class MigrationReport
       type = first_value(raw, TYPE_KEYS).to_s.strip
       type = singularize(inferred_type) if type.empty?
       type = 'object' if type.empty?
-      id = first_value(raw, ID_KEYS).to_s.strip
-      name = first_value(raw, NAME_KEYS).to_s.strip
+      # id/name keep their whitespace: Tableau allows sheets named "X", "X "
+      # and "X  ", which are distinct source objects.
+      id = first_value(raw, ID_KEYS).to_s
+      name = first_value(raw, NAME_KEYS).to_s
       if id.empty? && name.empty?
         @input_errors << "inventory object #{index} has neither id nor name"
         next
@@ -255,7 +271,11 @@ class MigrationReport
       @objects << object
     end
     raise MigrationReportError, @input_errors.join('; ') unless @input_errors.empty?
-    @objects.sort_by! { |object| [fold(object['type']), fold(object['id']), fold(object['name'])] }
+    # Raw id/name break ties between names that fold equal ("X" / "X "), so the
+    # order stays deterministic (sort_by is not stable).
+    @objects.sort_by! do |object|
+      [fold(object['type']), fold(object['id']), fold(object['name']), object['id'], object['name']]
+    end
   end
 
   def inventory_rows(doc)
@@ -355,19 +375,24 @@ class MigrationReport
           (record['object'].is_a?(Hash) ? record['object'] : record)
     type = first_value(ref, TYPE_KEYS).to_s.strip
     type = singularize(inferred_type) if type.empty?
-    id = first_value(ref, ID_KEYS).to_s.strip
-    name = first_value(ref, NAME_KEYS).to_s.strip
+    # Unstripped: match_object tries the exact spelling before the folded one.
+    id = first_value(ref, ID_KEYS).to_s
+    name = first_value(ref, NAME_KEYS).to_s
     object = match_object(type, id, name)
     if object
       add_status(object, status, source, record)
-    elsif !id.empty? || !name.empty?
-      @unknown_records << "#{source} refers to unknown #{type.empty? ? 'object' : type} #{id.empty? ? name : id}"
+    elsif !id.strip.empty? || !name.strip.empty?
+      @unknown_records << "#{source} refers to unknown #{type.empty? ? 'object' : type} #{id.strip.empty? ? name : id}"
     end
   end
 
   def add_status_from_record(object, record, source)
     status = status_from(record)
     add_status(object, status, source, record) if status
+    unproven = Array(record['evidence']).any? do |item|
+      item.is_a?(Hash) && item['detail'].to_s == UNPROVEN_BUILT_DETAIL
+    end
+    @unproven_built << [object['key'], source] if status == 'needs-review' && unproven
     accounting = record['accounting']
     direct_accounting = normalize_status(accounting)
     add_status(object, direct_accounting, "#{source}#object-accounting", record) if direct_accounting
@@ -388,6 +413,7 @@ class MigrationReport
     evidence = { 'status' => status, 'artifact' => source }
     evidence['detail'] = detail.to_s unless detail.nil? || detail.to_s.empty?
     object['status_sources'] << evidence unless object['status_sources'].include?(evidence)
+    @source_inert << object['key'] if STATUS_KEYS.any? { |key| record[key].to_s.strip.downcase == 'source-inert' }
   end
 
   def finalize_objects
@@ -397,30 +423,78 @@ class MigrationReport
                            'missing'
                          elsif statuses.length == 1
                            statuses.first
+                         elsif source_inert_approximation?(object, statuses)
+                           'approximated'
+                         elsif unproven_built_only?(object, statuses)
+                           'needs-review'
                          else
                            'contradictory'
                          end
     end
   end
 
-  def match_object(type, id, name)
-    unless id.empty?
-      candidates = @objects.select { |object| fold(object['id']) == fold(id) }
-      unless type.empty?
-        typed = candidates.select { |object| fold(object['type']) == fold(type) }
-        return typed.first if typed.length == 1
-      end
-      return candidates.first if candidates.length == 1
+  def source_inert_approximation?(object, statuses)
+    return false unless @source_inert.include?(object['key'])
+    return false unless statuses.include?('approximated') &&
+                        (statuses - %w[approximated migrated needs-review]).empty?
+    object['status_sources'].select { |source| source['status'] == 'needs-review' }.all? do |source|
+      @unproven_built.include?([object['key'], source['artifact']])
     end
-    unless name.empty?
-      candidates = @objects.select { |object| fold(object['name']) == fold(name) }
-      unless type.empty?
-        typed = candidates.select { |object| fold(object['type']) == fold(type) }
-        return typed.first if typed.length == 1
+  end
+
+  # migrated + needs-review is NOT a contradiction when every needs-review
+  # record is the census's "built, but parity does not prove it" rationale: one
+  # artifact saw the object built, the other merely lacks proof. The conservative
+  # status wins and both evidence entries stay on the object. Every other mix
+  # (migrated vs skipped, or a census "no matching built object" vs migrated) is
+  # a real conflict and stays contradictory.
+  def unproven_built_only?(object, statuses)
+    return false unless statuses.sort == %w[migrated needs-review]
+    object['status_sources'].select { |source| source['status'] == 'needs-review' }.all? do |source|
+      @unproven_built.include?([object['key'], source['artifact']])
+    end
+  end
+
+  # Resolve a status record to ONE inventory object, or nil when it cannot be
+  # done without guessing. The id is tried before the name, and within each the
+  # EXACT spelling (unstripped, case-sensitive) before the folded one: Tableau
+  # allows worksheets named "X", "X " and "X  ", which all fold to "x" and would
+  # otherwise be mutually ambiguous.
+  def match_object(type, id, name)
+    [id, name].zip(%w[id name]).each do |value, field|
+      next if value.strip.empty?
+      [->(object) { object[field] == value },
+       ->(object) { fold(object[field]) == fold(value) }].each do |same|
+        found = resolve_candidates(@objects.select(&same), type)
+        return found if found
       end
-      return candidates.first if candidates.length == 1
     end
     nil
+  end
+
+  def resolve_candidates(candidates, type)
+    unless type.empty?
+      typed = candidates.select { |object| fold(object['type']) == fold(type) }
+      return typed.first if typed.length == 1
+    end
+    return candidates.first if candidates.length == 1
+    route_worksheet_or_zone(candidates, type)
+  end
+
+  # A worksheet and the dashboard zone(s) that place it share its name (always
+  # true for a sheet on a dashboard), so a record with a missing type, or a type
+  # that names neither (a coverage.json `chart` / `visual` record), is ambiguous
+  # between them. Rule: such a record describes the SOURCE WORKSHEET, so it
+  # routes to the single worksheet candidate; the zones keep the status the
+  # census derived for them. A record that does name the zone type but cannot
+  # pick one zone (no id) stays ambiguous, and any candidate set that includes
+  # another object type (e.g. a dashboard) is never guessed.
+  def route_worksheet_or_zone(candidates, type)
+    return nil unless candidates.all? { |object| %w[worksheet dashboard-zone].include?(object['type']) }
+    worksheets = candidates.select { |object| object['type'] == 'worksheet' }
+    return nil unless worksheets.length == 1
+    return nil if fold(type) == 'dashboard-zone'
+    worksheets.first
   end
 
   def accounting_check
@@ -460,7 +534,7 @@ class MigrationReport
       TERMINAL.each do |status|
         declared_status = numeric_value(summary, status) || numeric_value(summary, status.tr('-', '_'))
         next unless declared_status
-        actual = @objects.count { |object| object['status'] == status }
+        actual = @objects.count { |object| summary_status(object) == status }
         errors << "inventory summary #{status}=#{declared_status} != #{actual}" if declared_status != actual
       end
     end
@@ -489,6 +563,14 @@ class MigrationReport
     end
     errors.empty? ? check('artifact-consistency', 'PASS', 'artifact summaries agree with detail records') :
                     check('artifact-consistency', 'FAIL', errors.join('; '))
+  end
+
+  def summary_status(object)
+    return object['status'] unless object['status'] == 'approximated' &&
+                                   @source_inert.include?(object['key'])
+    inventory_source = display_path(@inventory_path)
+    object['status_sources'].find { |source| source['artifact'] == inventory_source }&.fetch('status') ||
+      object['status']
   end
 
   def controls_check
@@ -693,7 +775,8 @@ class MigrationReport
   end
 
   def object_key(type, id, name)
-    identity = id.empty? ? "name:#{fold(name)}" : fold(id)
+    # Case-folded but NOT stripped: "X" and "X " must keep distinct keys.
+    identity = id.empty? ? "name:#{name.downcase}" : id.downcase
     "#{fold(type)}:#{identity}"
   end
 

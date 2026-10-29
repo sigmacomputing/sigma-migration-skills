@@ -185,6 +185,38 @@ Dir.mktmpdir('migration-report-yellow') do |dir|
   ok('approximated accounting remains complete', result.dig('summary', 'complete') == true)
 end
 
+# A source-inert control is an approximation even when the census calls the
+# built object migrated or unproven needs-review.
+Dir.mktmpdir('migration-report-source-inert') do |dir|
+  unproven = 'matching built object exists, but final parity does not prove this source object'
+  write_json(File.join(dir, 'source-object-census.json'),
+             'summary' => { 'total' => 2, 'migrated' => 1, 'needs-review' => 1 },
+             'objects' => [
+               { 'type' => 'parameter', 'id' => 'p1', 'name' => 'Green', 'status' => 'migrated' },
+               {
+                 'type' => 'parameter', 'id' => 'p2', 'name' => 'Unproven',
+                 'status' => 'needs-review', 'evidence' => [{ 'detail' => unproven }]
+               }
+             ])
+  write_json(File.join(dir, 'tableau-controls-coverage.json'),
+             'detail' => [
+               { 'kind' => 'parameter', 'id' => 'p1', 'status' => 'source-inert' },
+               { 'kind' => 'parameter', 'id' => 'p2', 'status' => 'source-inert' }
+             ])
+  write_health_artifacts(dir)
+
+  _stdout, _stderr, status = run_builder(dir)
+  result = JSON.parse(File.read(File.join(dir, 'migration-result.json')))
+  ok('source-inert census aliases exit 0', status.exitstatus == 0)
+  ok('source-inert census aliases are YELLOW', result['verdict'] == 'YELLOW')
+  ok('source-inert census aliases remain approximated',
+     result.dig('summary', 'counts', 'approximated') == 2)
+  ok('source-inert census summary remains consistent',
+     result['checks'].any? do |check|
+       check['name'] == 'artifact-consistency' && check['status'] == 'PASS'
+     end)
+end
+
 # Hard verification evidence dominates complete source accounting.
 Dir.mktmpdir('migration-report-render-failure') do |dir|
   write_json(File.join(dir, 'inventory.json'),

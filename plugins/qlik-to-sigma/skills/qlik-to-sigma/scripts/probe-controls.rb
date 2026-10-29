@@ -14,10 +14,10 @@
 #   1. computes the control's reach (filter targets + [controlId] formula
 #      references, expanded through source.elementId chains —
 #      ControlLint.controls_report)
-#   2. exports one IN-closure queryable element as CSV twice via
+#   2. exports one IN-closure queryable element twice (JSON for pivots, CSV otherwise) via
 #      POST /v2/workbooks/{id}/export — once with no `parameters` (the saved
 #      control defaults) and once with parameters:{<controlId>: <flip value>}.
-#      The two CSVs MUST differ, or the control is wired but inert -> FAIL.
+#      The two row sets MUST differ, or the control is wired but inert -> FAIL.
 #   3. with --check-out-of-closure: also exports one same-page queryable
 #      element OUTSIDE the closure with and without the parameter — those
 #      MUST be identical (the flip must not leak) -> FAIL if they differ
@@ -25,7 +25,7 @@
 #
 # Flip-value selection ("first non-default value"):
 #   --value <controlId>=<value> beats everything (repeatable).
-#   Otherwise: the control's value-source column (source.columnId, falling
+#   Otherwise: use a non-default manual choice, or the control's value-source column (source.columnId, falling
 #   back to the first filter target's columnId) is resolved to its display
 #   label via GET /v2/workbooks/{id}/columns, that element is exported once,
 #   and the first distinct value of that column NOT in the control's saved
@@ -121,6 +121,7 @@ OptionParser.new do |p|
   end
   p.on('--check-out-of-closure')  { opts[:check_out] = true }
   p.on('--out DIR')               { |v| opts[:out] = v }
+  p.on('--control-scope PATH', 'control-scope.json (default: <out>/../control-scope.json) — only its sourceInert marks are read') { |v| opts[:control_scope] = v }
   p.on('--timeout SECS', Integer) { |v| opts[:timeout] = v }
   p.on('--no-pool', 'serial exports (fallback transport)') { opts[:no_pool] = true }
   p.on('--pool N', Integer, 'pooled export width (default 5)') { |v| opts[:pool] = v }
@@ -130,6 +131,16 @@ abort('--workbook-id required') unless opts[:wb]
 WB = opts[:wb]
 OUT = opts[:out] || "/tmp/probe-controls-#{WB}"
 FileUtils.mkdir_p(OUT)
+# Controls the builder marked source-inert (shown in the source, read by nothing there either)
+# have no reach by design: they are reported, not failed as dead.
+SOURCE_INERT = begin
+  sp = opts[:control_scope] || File.join(OUT, '..', 'control-scope.json')
+  doc = File.exist?(sp) ? JSON.parse(File.read(sp)) : nil
+  Array(doc.is_a?(Hash) ? doc['controls'] : nil).select { |c| c.is_a?(Hash) && c['sourceInert'] == true }
+                                                  .map { |c| c['controlId'] }.compact
+rescue StandardError
+  []
+end
 
 # --- Sigma plumbing ---------------------------------------------------------
 
@@ -148,11 +159,12 @@ end
 # is not vendored, the serial seam below walks the same wire flow through
 # Sigma.request. Either way an HTML body behind a 200 (renderer error) raises
 # instead of masquerading as comparable CSV.
-def export_csv(wb, element_id, params, timeout)
-  return serial_export_csv(wb, element_id, params, timeout) unless HAVE_POOL
-  qid = ExportPool.start_export(wb, element_id, 'csv', nil, params: params)
+def export_csv(wb, element_id, params, timeout, format: 'csv')
+  return serial_export_csv(wb, element_id, params, timeout, format: format) unless HAVE_POOL
+  qid = ExportPool.start_export(wb, element_id, format, nil, params: params)
   raise "export request failed: no queryId for #{element_id}" unless qid
-  status, body = ExportPool.poll_csv_download(qid, ExportPool::Deadline.new(timeout))
+  status, body = ExportPool.poll_download(qid, ExportPool::Deadline.new(timeout),
+                                        accept: format == 'json' ? 'application/json' : 'text/csv')
   case status
   when :timeout then raise "export timed out after #{timeout}s (queryId=#{qid})"
   when :html    then raise "export returned HTML behind a 200 (renderer error, queryId=#{qid})"
@@ -164,8 +176,8 @@ end
 # above): POST the export and poll the download through the shared REST layer,
 # bounded by the same per-CSV --timeout. Same wire flow, same HTML-behind-200
 # guard as the pooled seam.
-def serial_export_csv(wb, element_id, params, timeout)
-  body = { 'elementId' => element_id, 'format' => { 'type' => 'csv' } }
+def serial_export_csv(wb, element_id, params, timeout, format: 'csv')
+  body = { 'elementId' => element_id, 'format' => { 'type' => format } }
   body['parameters'] = params if params && !params.empty?
   res = Sigma.request(:post, "/v2/workbooks/#{wb}/export", body: JSON.generate(body))
   qid = res.is_a?(Hash) && res['queryId']
@@ -173,7 +185,8 @@ def serial_export_csv(wb, element_id, params, timeout)
   deadline = Time.now + timeout
   loop do
     begin
-      b = Sigma.request(:get, "/v2/query/#{qid}/download", accept: 'text/csv', binary: true)
+      b = Sigma.request(:get, "/v2/query/#{qid}/download",
+                        accept: format == 'json' ? 'application/json' : 'text/csv', binary: true)
       if b && !b.to_s.empty?
         raise "export returned HTML behind a 200 (renderer error, queryId=#{qid})" if b.to_s.lstrip.start_with?('<')
         return b
@@ -192,6 +205,23 @@ def csv_sig(text)
   text.to_s.lines.map(&:chomp).sort
 end
 
+def export_table(text, format)
+  if format == 'json'
+    rows = JSON.parse(text)
+    raise 'element JSON export must be an array of row objects' unless rows.is_a?(Array) && rows.all? { |r| r.is_a?(Hash) }
+    [rows.flat_map(&:keys).uniq.sort, rows]
+  else
+    table = CSV.parse(text, headers: true)
+    [table.headers || [], table.map(&:to_h)]
+  end
+end
+
+def export_sig(text, format)
+  return csv_sig(text) unless format == 'json'
+  headers, rows = export_table(text, format)
+  [headers, rows.sort_by { |r| JSON.generate(r.sort.to_h) }]
+end
+
 # --- reach + element metadata ------------------------------------------------
 
 spec_raw = fetch_spec(WB)
@@ -202,6 +232,7 @@ spec_raw = fetch_spec(WB)
 # `document` and must not be read through the unwrapped `spec`.
 spec  = CODE_REP_LOADED ? Sigma::CodeRep.document(spec_raw) : spec_raw
 elems = ControlLint.elements(spec)
+export_format = lambda { |eid| elems.dig(eid, :kind) == 'pivot-table' ? 'json' : 'csv' }
 rows  = ControlLint.controls_report(spec)
 rows.select! { |r| opts[:controls].include?(r[:control_id]) } if opts[:controls].any?
 abort "no controls found in workbook #{WB}#{opts[:controls].any? ? " matching #{opts[:controls].inspect}" : ''}" if rows.empty?
@@ -216,7 +247,7 @@ end
 
 baseline_cache = {}
 get_baseline = lambda do |eid|
-  baseline_cache[eid] ||= export_csv(WB, eid, nil, opts[:timeout])
+  baseline_cache[eid] ||= export_csv(WB, eid, nil, opts[:timeout], format: export_format.call(eid))
 end
 
 # --- version-keyed raw evidence ----------------------------------------------
@@ -261,18 +292,22 @@ pick_value = lambda do |r|
   el = elems[r[:control_element_id]][:el]
   cid = r[:control_id]
   return [opts[:values][cid], 'explicit --value'] if opts[:values].key?(cid)
-  defaults = Array(el['values']).map(&:to_s)
+  defaults = Array(el.key?('values') ? el['values'] : el['value']).map(&:to_s)
   case el['controlType'].to_s
   when 'switch'
     return [(defaults.first.to_s.downcase == 'true' ? 'false' : 'true'), 'switch flip']
   when 'list', 'segmented', 'text'
+    if el.dig('source', 'kind') == 'manual'
+      choice = Array(el.dig('source', 'values')).compact.map(&:to_s).find { |v| !defaults.include?(v) }
+      return choice ? [choice, 'auto-picked non-default manual choice'] : [nil, 'no non-default manual choice']
+    end
     src = value_src.call(r)
     return [nil, 'no value-source column resolvable — pass --value'] unless src
     label = col_label[[src['elementId'], src['columnId']]]
     return [nil, "no /columns label for #{src['elementId']}/#{src['columnId']} — pass --value"] unless label
-    csv = CSV.parse(get_baseline.call(src['elementId']), headers: true)
-    return [nil, "column #{label.inspect} not in export of #{src['elementId']} — pass --value"] unless csv.headers.include?(label)
-    distinct = csv.map { |row| row[label] }.compact.map(&:to_s).reject(&:empty?).uniq
+    headers, exported_rows = export_table(get_baseline.call(src['elementId']), export_format.call(src['elementId']))
+    return [nil, "column #{label.inspect} not in export of #{src['elementId']} — pass --value"] unless headers.include?(label)
+    distinct = exported_rows.map { |row| row[label] }.compact.map(&:to_s).reject(&:empty?).uniq
     val = distinct.find { |v| !defaults.include?(v) }
     val ? [val, "auto-picked from #{label.inspect}"] : [nil, 'no non-default value found — pass --value']
   when 'date-range', 'date'
@@ -295,9 +330,9 @@ pick_value = lambda do |r|
     return [nil, 'date-range: no target column resolvable — pass --value "min:<YYYY-MM-DD>,max:<YYYY-MM-DD>"'] unless src.is_a?(Hash) && src['elementId'] && src['columnId']
     label = col_label[[src['elementId'], src['columnId']]]
     return [nil, "date-range: no /columns label for #{src['elementId']}/#{src['columnId']} — pass --value \"min:<YYYY-MM-DD>,max:<YYYY-MM-DD>\""] unless label
-    csv = CSV.parse(get_baseline.call(src['elementId']), headers: true)
-    return [nil, "date-range: column #{label.inspect} not in export — pass --value \"min:<YYYY-MM-DD>,max:<YYYY-MM-DD>\""] unless csv.headers.include?(label)
-    days = csv.map { |row| (Date.parse(row[label].to_s) rescue nil) }.compact.uniq.sort
+    headers, exported_rows = export_table(get_baseline.call(src['elementId']), export_format.call(src['elementId']))
+    return [nil, "date-range: column #{label.inspect} not in export — pass --value \"min:<YYYY-MM-DD>,max:<YYYY-MM-DD>\""] unless headers.include?(label)
+    days = exported_rows.map { |row| (Date.parse(row[label].to_s) rescue nil) }.compact.uniq.sort
     return [nil, "date-range: fewer than 2 distinct dates in #{label.inspect} — nothing to narrow; pass --value"] if days.size < 2
     lo = days.first
     mid = days[(days.size - 1) / 2]
@@ -339,7 +374,7 @@ unless opts[:no_pool]
     end
   end
   round1 = round1.compact.uniq.reject { |e| baseline_cache.key?(e) }
-  ExportPool.pooled_element_exports(WB, round1.map { |e| { 'element_id' => e } },
+  ExportPool.pooled_element_exports(WB, round1.map { |e| { 'element_id' => e, 'format' => export_format.call(e) } },
                                     pool: opts[:pool], timeout_per_job: opts[:timeout])
             .each_with_index { |(st, body), j| baseline_cache[round1[j]] = body if st == :ok }
   probeable.each { |r| picked[r[:control_element_id]] = pick_value.call(r) }
@@ -358,6 +393,7 @@ unless opts[:no_pool]
   end
   round2 = base_needed.uniq.reject { |e| baseline_cache.key?(e) }
                      .map { |e| { 'element_id' => e } } + flips
+  round2.each { |job| job['format'] = export_format.call(job['element_id']) }
   ExportPool.pooled_element_exports(WB, round2, pool: opts[:pool], timeout_per_job: opts[:timeout])
             .each_with_index do |(st, body), j|
     job = round2[j]
@@ -371,7 +407,7 @@ unless opts[:no_pool]
   end
 end
 get_flip = lambda do |eid, cid, val|
-  flip_cache[[eid, cid, val]] || export_csv(WB, eid, { cid => val }, opts[:timeout])
+  flip_cache[[eid, cid, val]] || export_csv(WB, eid, { cid => val }, opts[:timeout], format: export_format.call(eid))
 end
 
 # --- probe loop ----------------------------------------------------------------
@@ -382,6 +418,10 @@ results = []
 rows.each do |r|
   cid = r[:control_id]
   ctl = "#{r[:name].inspect} [#{cid}]"
+  if r[:reach].empty? && SOURCE_INERT.include?(cid)
+    results << { control: cid, result: 'SKIP', note: 'source-inert: the source parameter is inert in Tableau too — nothing to flip' }
+    next
+  end
   if r[:reach].empty?
     results << { control: cid, result: 'FAIL', note: 'dead control — empty reach (run the control lint)' }
     failures += 1
@@ -403,12 +443,13 @@ rows.each do |r|
   probed += 1
   base = get_baseline.call(in_el)
   flip = get_flip.call(in_el, cid, val)
-  record_evidence.call("#{cid}--#{in_el}--base.csv", base)
-  record_evidence.call("#{cid}--#{in_el}--flip.csv", flip)
-  changed = csv_sig(base) != csv_sig(flip)
+  fmt = export_format.call(in_el)
+  record_evidence.call("#{cid}--#{in_el}--base.#{fmt}", base)
+  record_evidence.call("#{cid}--#{in_el}--flip.#{fmt}", flip)
+  changed = export_sig(base, fmt) != export_sig(flip, fmt)
   if changed
     results << { control: cid, result: 'PASS', element: in_el, value: val,
-                 note: "#{note}; in-closure export differs (#{base.lines.count - 1} -> #{flip.lines.count - 1} rows)" }
+                 note: "#{note}; in-closure export differs (#{export_table(base, fmt)[1].size} -> #{export_table(flip, fmt)[1].size} rows)" }
   else
     failures += 1
     # A date-range value in ANY spelling other than "min:<date>,max:<date>" is
@@ -434,15 +475,25 @@ rows.each do |r|
   else
     obase = get_baseline.call(out_el)
     oflip = get_flip.call(out_el, cid, val)
-    record_evidence.call("#{cid}--#{out_el}--out-base.csv", obase)
-    record_evidence.call("#{cid}--#{out_el}--out-flip.csv", oflip)
-    if csv_sig(obase) == csv_sig(oflip)
+    fmt = export_format.call(out_el)
+    record_evidence.call("#{cid}--#{out_el}--out-base.#{fmt}", obase)
+    record_evidence.call("#{cid}--#{out_el}--out-flip.#{fmt}", oflip)
+    if export_sig(obase, fmt) == export_sig(oflip, fmt)
       results << { control: cid, result: 'OK', element: out_el, note: 'out-of-closure export unchanged (no leak)' }
     else
       failures += 1
       results << { control: cid, result: 'FAIL', element: out_el,
                    note: 'out-of-closure export CHANGED — the closure walk missed an edge (fix control_lint, not the workbook)' }
     end
+  end
+end
+
+if DOC_VERSION
+  final_spec = fetch_spec(WB)
+  final_version = HAVE_POOL ? ExportPool.resolve_doc_version(final_spec) : (final_spec['latestDocumentVersion'] || final_spec['latestVersion']).to_s
+  if final_version != DOC_VERSION
+    failures += 1
+    results << { result: 'FAIL', note: 'workbook document version changed during the control probe; recollect evidence against one version' }
   end
 end
 
@@ -459,7 +510,7 @@ File.write(File.join(OUT, 'probe-evidence.json'), JSON.pretty_generate(
              'doc_version' => DOC_VERSION, # nil = spec carried no version (evidence unattributable to a version)
              'transport' => opts[:no_pool] ? 'serial' : "pooled(#{opts[:pool]})",
              'probed_at' => Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
-             'contract' => 'raw wire CSVs only; verdicts recomputed from these bytes every run, never reused',
+             'contract' => 'raw wire CSV/JSON exports; verdicts recomputed from these bytes every run, never reused',
              'exports' => EVIDENCE))
 puts "evidence: #{OUT}/ (CSVs + probe-results.json + probe-evidence.json)"
 

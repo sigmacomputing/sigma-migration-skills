@@ -2035,7 +2035,7 @@ else
     kind = r['kind'].to_s
     name = r['name'].to_s
     status = r['status'].to_s
-    if status == 'emitted'
+    if %w[emitted source-inert].include?(status) # source-inert: shown, as in the source, filters nothing
       ctl_built << name
     elsif (note = ctl_declared[ctl_norm.call(name)])
       ctl_declared_rows << [kind, name, status, note]

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "omni-to-sigma",
   "displayName": "Omni → Sigma",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Migrate Omni content to Sigma — topic YAML and dashboard export to a data model and workbook, plus a read-only assessment. Bundles omni-to-sigma + omni-assessment.",
   "author": {
     "name": "Sigma Computing"
