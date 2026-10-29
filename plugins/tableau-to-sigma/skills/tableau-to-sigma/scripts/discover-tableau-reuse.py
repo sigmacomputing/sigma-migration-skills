@@ -20,6 +20,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
+import workdir_guard  # noqa: E402
 import sigma_rest  # noqa: E402
 
 DEFAULT_MAX_CANDIDATES = 500
@@ -724,6 +725,7 @@ def main() -> int:
         "--max-candidates", type=int, default=DEFAULT_MAX_CANDIDATES
     )
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
     output = Path(args.out).expanduser().resolve() if args.out else (
         workdir / "reuse-discovery.json"

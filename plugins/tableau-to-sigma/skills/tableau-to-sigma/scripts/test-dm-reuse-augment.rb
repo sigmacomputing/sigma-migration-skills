@@ -85,6 +85,15 @@ candidate = {
 }
 
 puts '-- plan_reuse_derived_columns: the pre-fix decision this pins --'
+with_shelves = Marshal.load(Marshal.dump(conv_fact))
+with_shelves['columns'] += [
+  { 'name' => ':Measure Names', 'formula' => '[:Measure Names]' },
+  { 'name' => ':Measure Values', 'formula' => '[:Measure Values]' },
+  { 'name' => 'Measure Names', 'formula' => '[Physical Names]' }
+]
+shelf_plan = MechanicalSpecs.plan_reuse_derived_columns(with_shelves, candidate, 'Order Fact')
+check(shelf_plan['unclosable'].map { |c| c['name'] }.sort == ['Loyalty Score', 'Measure Names'],
+      'synthetic Tableau shelves do not block reuse; a real similarly named field still does', fails)
 plan = MechanicalSpecs.plan_reuse_derived_columns(conv_fact, candidate, 'Order Fact')
 closable_names = plan['closable'].map { |c| c['name'] }
 unclosable_names = plan['unclosable'].map { |c| c['name'] }

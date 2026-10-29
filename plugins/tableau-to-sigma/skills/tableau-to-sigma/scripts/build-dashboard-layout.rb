@@ -50,6 +50,7 @@
 #   --chart-row0 N   first grid row of the chart band     (default 6)
 
 require 'json'
+require 'csv'
 require 'optparse'
 require_relative 'lib/layout'
 require_relative 'lib/zone_census'
@@ -492,6 +493,127 @@ def kpi_min_rows(el)
   [base, COMPARATIVE_KPI_MIN_ROWS].max
 end
 
+# ---- Text-table height: show every row the source zone shows --------------------------------------
+# A Tableau text table's zone is sized so its rows (up to the zone height) are all visible; mapped at
+# the generic table floor (KIND_MIN_ROWS['table']) or the zone's own proportions, the Sigma `table`
+# came out 8 rows + a clipped ninth where the source listed 14-15 (live blind-grade, two dashboards).
+# So a worksheet `table` tile gets a floor derived from the worksheet's exported view CSV (row count)
+# x a Sigma row pitch + header + title. Only when the SOURCE zone itself is tall enough to show them
+# all - a table the source scrolls keeps its geometry. Measured live on a titled table inside a section
+# card (28px grid rows; a card renders ~43px shorter than rows x 28): 72px from the card top to the
+# table header, a 30px header, 20px per row, ~33px from the last row to the card bottom.
+SIGMA_TABLE_TITLE_PX  = 72
+SIGMA_TABLE_HEADER_PX = 30
+SIGMA_TABLE_ROW_PX    = 20
+SIGMA_TABLE_PAD_PX    = 76 # 33px below the rows + 43px card chrome
+TABLEAU_TABLE_TITLE_PX  = 40 # Tableau text-table furniture at 100% zoom (title, header, default row pitch)
+TABLEAU_TABLE_HEADER_PX = 25
+TABLEAU_TABLE_ROW_PX    = 21
+TABLE_FIT_MAX_ROWS = 60 # a table beyond this scrolls inside its tile whatever the zone height
+
+# worksheet name -> [table rows, measures] of its exported view CSV, from <workdir>/get-workbook.json +
+# views/<viewId>.csv beside --layout. A wide export is one table row per CSV row (measures = 1). A long-format
+# export (Measure Names / Measure Values columns) is one row per dimension tuple per measure, so its table rows
+# are the distinct tuples of the other columns and `measures` the distinct Measure Names (a table that stacks
+# measures on Rows shows rows x measures). Best-effort: missing files -> {} (tables keep the geometry floor).
+def load_table_rows_by_worksheet(layout_path)
+  dir = File.dirname(layout_path)
+  gw_path = File.join(dir, 'get-workbook.json')
+  return {} unless File.exist?(gw_path)
+  gw = JSON.parse(File.read(gw_path))
+  views = gw.dig('views', 'view') || []
+  views = [views] unless views.is_a?(Array)
+  views.each_with_object({}) do |v, h|
+    csv_path = File.join(dir, 'views', "#{v['id']}.csv")
+    next unless v['name'] && File.exist?(csv_path)
+    rows = CSV.read(csv_path, encoding: 'bom|utf-8')
+    next if rows.empty?
+    body = rows.drop(1).select { |r| r.any? { |c| !c.to_s.strip.empty? } }
+    head = rows.first.map { |c| c.to_s.strip }
+    mn = head.index { |c| c.casecmp?('Measure Names') }
+    if mn
+      mv = head.index { |c| c.casecmp?('Measure Values') }
+      keep = (0...head.size).reject { |i| i == mn || i == mv }
+      n = body.map { |r| keep.map { |i| r[i] } }.uniq.size
+      m = [body.map { |r| r[mn] }.uniq.size, 1].max
+    else
+      n = body.size
+      m = 1
+    end
+    h[v['name'].to_s.strip] = [n, m] if n.positive?
+  end
+rescue StandardError
+  {}
+end
+
+# Grid rows a worksheet `table` element needs to show all its source rows, or nil when it keeps the
+# geometry floor (not a table, no row count, or the source zone scrolls). `zone` is the Tableau zone,
+# `canvas_px` the dashboard canvas ({'h'=>px}).
+def table_fit_rows(el, zone, canvas_px, rows_by_ws)
+  return nil unless el && el['kind'] == 'table' && zone.is_a?(Hash) && rows_by_ws
+  n, measures = rows_by_ws[zone['caption'].to_s.strip]
+  return nil unless n
+  n *= measures if zone.dig('rows_shelf', 'has_measure_names') # measures stacked down the rows
+  n = [n, TABLE_FIT_MAX_ROWS].min
+  titled = zone['show_title'] != false
+  canvas_h = canvas_px.is_a?(Hash) ? canvas_px['h'].to_f : 0.0
+  if canvas_h.positive? && zone['h_pct']
+    source_need = (titled ? TABLEAU_TABLE_TITLE_PX : 0) + TABLEAU_TABLE_HEADER_PX + n * TABLEAU_TABLE_ROW_PX
+    return nil if zone['h_pct'].to_f / 100.0 * canvas_h < source_need * 0.85
+  end
+  name = el_display_name(el)
+  title_px = titled && !name.to_s.strip.empty? ? SIGMA_TABLE_TITLE_PX : 20
+  ((title_px + SIGMA_TABLE_HEADER_PX + n * SIGMA_TABLE_ROW_PX + SIGMA_TABLE_PAD_PX) / SigmaLayout::SIGMA_ROW_PX.to_f).ceil
+end
+
+# ---- Axis-titled charts: the bottom axis title needs >= 15 grid rows -------------------------------
+# Sigma silently DROPS a chart's bottom axis title when the tile is shorter than 15 grid rows (live probe:
+# absent at 12-14 rows, drawn at 15+; left-side titles always draw). A chart that carries an axis title
+# (xAxis/yAxis.format.title) therefore gets a 15-row floor. The wb-ids readback does not carry axis format,
+# so the ids come from the workbook spec the builder wrote beside --layout (wb-spec.json, else
+# chart-specs.json). Best-effort: no file -> empty set (no axis floor).
+AXIS_TITLE_MIN_ROWS = 15
+$axis_titled_ids = {}
+
+def load_axis_titled_ids(layout_path)
+  dir = File.dirname(layout_path)
+  els = []
+  %w[wb-spec.json chart-specs.json].each do |name|
+    path = File.join(dir, name)
+    next unless File.exist?(path)
+    j = JSON.parse(File.read(path, encoding: 'UTF-8'))
+    doc = j.is_a?(Hash) ? (j['document'] || j) : j
+    found = if doc.is_a?(Array)
+              doc
+            elsif doc['elements'].is_a?(Array)
+              doc['elements']
+            else
+              Array(doc['pages']).flat_map { |pg| Array(pg['elements']) }
+            end
+    els.concat(found.grep(Hash))
+  end
+  els.each_with_object({}) do |e, h|
+    next unless e['id'] && e['kind'].to_s.end_with?('-chart')
+    titled = %w[xAxis yAxis].any? do |ax|
+      fmt = e[ax].is_a?(Hash) ? e[ax]['format'] : nil
+      t = fmt.is_a?(Hash) ? fmt['title'] : nil
+      t.is_a?(Hash) ? !(t['text'] || t['value']).to_s.strip.empty? : !t.to_s.strip.empty?
+    end
+    h[e['id']] = true if titled
+  end
+rescue StandardError
+  {}
+end
+
+def axis_title_min_rows(el)
+  el && el['id'] && $axis_titled_ids[el['id']] ? AXIS_TITLE_MIN_ROWS : 0
+end
+
+# kpi_min_rows + the text-table fit floor + the axis-title floor: the one floor every layout path asks per element.
+def elem_min_rows(el, zone, canvas_px, rows_by_ws)
+  [kpi_min_rows(el), table_fit_rows(el, zone, canvas_px, rows_by_ws) || 0, axis_title_min_rows(el)].max
+end
+
 # Same push-down/expand algorithm as SigmaLayout.enforce_min_rows (band-level
 # E1 floor enforcement), but keyed on the resolved ELEMENT rather than kind
 # alone, so kpi_min_rows can see comparisonColumn. Mirrors the shared logic
@@ -500,14 +622,14 @@ end
 # Used by the banded-fallback path (build_page_for_dashboard) — the one
 # el-aware site that went through a kind-only id->kind map rather than a
 # direct min_rows_for(el['kind']) call.
-def enforce_min_rows_els(bands, els_by_id)
+def enforce_min_rows_els(bands, els_by_id, extra_mins = {})
   total = 0
   offset = 0
   out = bands.map do |band|
     shifted = band.map { |it| [it[0], it[1], it[2], it[3] + offset, it[4] + offset, *it[5..-1]] }
     bottom_before = shifted.map { |i| i[4] }.max
     rects = shifted.map { |it| it[1, 4] }
-    mins  = shifted.map { |it| kpi_min_rows(els_by_id[it[0]]) }
+    mins  = shifted.map { |it| [kpi_min_rows(els_by_id[it[0]]), extra_mins[it[0]].to_i].max }
     rects, n = SigmaLayout.expand_min_rows(rects, mins)
     total += n
     grown = shifted.each_with_index.map do |it, i|
@@ -618,7 +740,7 @@ def plan_node(node, c0, c1, r0, r1, ctx)
     span = r1 - r0
     el = ctx[:els_by_id][eid]
     min = if el && el['kind']
-            kpi_min_rows(el)
+            elem_min_rows(el, ctx[:zone_by_id][node['id']] || node, ctx[:canvas_px], ctx[:table_rows])
           else
             SigmaLayout.min_rows_for_zone(ctx[:zone_by_id][node['id']] || node)
           end
@@ -737,7 +859,7 @@ def build_page_from_tree(dashboard, page, opts)
   ctx = { page_id: page['id'], renames: opts[:renames], els_by_name: els_by_name,
           ctl_by_name: ctl_by_name, els_by_id: els_by_id, title_el: title_el, title_used: false,
           extra: [], placed: [], zone_to_ctl: {}, zone_by_id: zone_by_id, min_row_expansions: 0,
-          canvas_px: dashboard['canvas_px'] }
+          canvas_px: dashboard['canvas_px'], table_rows: opts[:table_rows] }
 
   # Assign workbook control elements to control zones in document order (see
   # assign_controls) so a rail's controls land INSIDE the rail even when a
@@ -934,6 +1056,18 @@ def build_page_from_tree(dashboard, page, opts)
   band_rect = safety_net_band(page, ctx[:placed], extra_els, children,
                               "tc-#{page['id']}", content_bottom, page_rows)
   content_rects << band_rect if band_rect # safety band holds real tiles → counts as filled
+
+  # Root controls (including collapsed wrappers and header floats) need a band,
+  # but keep their settled page footprint and leave nested rails unchanged.
+  children.map! do |xml|
+    leaf = xml.match(/\A\s*<Element elementId="([^"]+)" gridColumn="(\d+) \/ (\d+)" gridRow="(\d+) \/ (\d+)"\/>\s*\z/)
+    next xml unless leaf && els_by_id.dig(leaf[1], 'kind') == 'control'
+    eid = leaf[1]
+    c0, c1, r0, r1 = leaf.captures.drop(1).map(&:to_i)
+    cid = "tc-#{page['id']}-control-#{eid}"
+    extra_els << container_el(cid, { 'backgroundColor' => 'transparent', 'padding' => 'none' })
+    gc(cid, c0, c1, r0, r1, le(eid, 1, 25, 1, r1 - r0 + 1))
+  end
 
   # ---- Layout census (gate 8c, #259) ----------------------------------------
   # zones from the authoritative flat source list; placed = content zones whose
@@ -1389,7 +1523,7 @@ def build_page_synthesized(dashboard, page, opts, structure)
   # layout_lint checks); the zone (chart_kind + plot signals) is the fallback.
   min_for = lambda do |z, eid|
     el = els_by_id[eid]
-    el && el['kind'] ? kpi_min_rows(el) : SigmaLayout.min_rows_for_zone(z)
+    el && el['kind'] ? elem_min_rows(el, z, dashboard['canvas_px'], opts[:table_rows]) : SigmaLayout.min_rows_for_zone(z)
   end
 
   # --- units: KPI rows, section text separators, section panels ---------------
@@ -1625,7 +1759,8 @@ def build_page_for_dashboard(dashboard, page, opts)
     next nil unless el && !used_el_ids[el['id']]
     used_el_ids[el['id']] = true
     c1, c2, r1, r2 = chart_pos(z, o)
-    { el_id: el['id'], c1: c1, c2: c2, r1: r1, r2: r2 }
+    { el_id: el['id'], c1: c1, c2: c2, r1: r1, r2: r2,
+      fit: [table_fit_rows(el, z, dashboard['canvas_px'], o[:table_rows]) || 0, axis_title_min_rows(el)].max }
   end.compact
 
   # Close horizontal gaps within each row (Tableau dashboards often have
@@ -1693,7 +1828,8 @@ def build_page_for_dashboard(dashboard, page, opts)
   # grid rows render BLANK in Sigma (page render AND PNG exports). Expansion
   # pushes subsequent bands down; the grid stays collision-free.
   els_by_id_full = page['elements'].each_with_object({}) { |e, h| h[e['id']] = e }
-  bands, min_exp = enforce_min_rows_els(bands, els_by_id_full)
+  fit_mins = chart_layouts.each_with_object({}) { |c, h| h[c[:el_id]] = c[:fit] if c[:fit].to_i.positive? }
+  bands, min_exp = enforce_min_rows_els(bands, els_by_id_full, fit_mins)
   content_start = 1 + hdr_rows + ctl_rows
   band_offset = bands.empty? ? 0 : content_start - bands.first.map { |i| i[3] }.min
   bands.each_with_index do |band, i|
@@ -1816,6 +1952,8 @@ sidecar = {}
 census_pages = []
 arrangement_pages = []
 totals = { charts: 0, bands: 0, controls: 0 }
+opts[:table_rows] = load_table_rows_by_worksheet(opts[:layout]) # text-table row counts (fit floor)
+$axis_titled_ids = load_axis_titled_ids(opts[:layout])    # charts carrying an axis title (15-row floor)
 bands_detected = { 'header' => false, 'kpi_rows' => 0, 'sidebar' => false }
 min_row_expansions = 0
 dash_layout.each do |d|
@@ -1838,6 +1976,7 @@ dash_layout.each do |d|
   # page_rows * row_scale mapping, byte-identical.
   o = opts.dup
   cpx = d['canvas_px']
+  o[:no_synthetic_title] = true if d['show_dashboard_title'] == false
   canvas_rows = nil
   if cpx.is_a?(Hash) && cpx['sizing_mode'] == 'fixed' && cpx['h'].to_i >= 400
     canvas_rows = [[(cpx['h'].to_f / SigmaLayout::SIGMA_ROW_PX).round, 24].max, 400].min
@@ -1861,8 +2000,13 @@ dash_layout.each do |d|
   bands_detected['kpi_rows'] += structure[:kpi_rows].length
   bands_detected['sidebar'] ||= !structure[:sidebar].nil?
   use_synth = !o[:no_containers] && (structure[:sidebar] || structure[:kpi_rows].any?)
+  # Preserve authored whitespace on flat fixed canvases; missing titles alone
+  # must not change the layout algorithm for nested or responsive dashboards.
+  flat_fixed_source = d['show_dashboard_title'] == false && cpx.is_a?(Hash) && cpx['sizing_mode'] == 'fixed' &&
+                      Array(d['zone_tree']).any? && Array(d['zone_tree']).none? { |n| n['kind'] == 'container' }
   use_tree  = !o[:no_containers] &&
-              (tree_has_controls?(d['zone_tree']) || tree_has_styled_containers?(d['zone_tree']))
+              (tree_has_controls?(d['zone_tree']) || tree_has_styled_containers?(d['zone_tree']) ||
+               flat_fixed_source)
   result = nil
   if use_synth
     begin
@@ -1885,6 +2029,16 @@ dash_layout.each do |d|
   end
   result ||= build_page_for_dashboard(d, page, o)
   pxml, extra_els, n_charts, n_bands, n_ctls, census, n_minexp = result
+  if d['source_locale']
+    extra_els.each do |element|
+      next unless element['kind'] == 'container'
+      element['style'] ||= {}
+      element['style']['backgroundColor'] ||= 'transparent'
+      if !element['style'].key?('borderWidth') && !element['style'].key?('borderColor')
+        element['style']['padding'] ||= 'none'
+      end
+    end
+  end
   if census
     # Telemetry for the page-height budget (v5.1): rows actually built vs the
     # canvas-implied row count (present only for fixed-px sources).

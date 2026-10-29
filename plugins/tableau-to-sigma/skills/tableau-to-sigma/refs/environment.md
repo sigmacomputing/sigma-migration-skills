@@ -64,6 +64,15 @@ Exit 0 = good to go; every ✗/[X] line's remediation is the bootstrap one-liner
 | **node 18+** | the vendored converters (`converter/*.mjs`) and `*.mjs` build steps | often installed-but-not-on-PATH (version managers) — bootstrap activates it |
 | **bash** | hand-driven `get-token.sh` / `*-auth.sh` only — the orchestrator mints tokens in-process | **Windows: use the Python twins instead (see below)** |
 
+## Workdir must live OUTSIDE the plugin
+Run scripts from the skill directory if you like (`cd` there), but never pass that directory — or `.` — as
+`--workdir` / `--out` / `--tableau-dir`. The skill dir is the installed plugin
+(`~/.claude/plugins/cache/.../tableau-to-sigma/<version>/skills/tableau-to-sigma/`); run artifacts written there are
+read back by the NEXT migration and the source-object census resolves evidence through the plugin cache. Use
+`--workdir ~/tableau-migration/<name>`. `scripts/lib/workdir_guard.{rb,py}` refuses (exit 2) any workdir that is, or sits
+inside, the skill dir, the plugin root, or a `.claude/plugins/{cache,marketplaces}` path (symlinks resolved).
+`SIGMA_ALLOW_WORKDIR_IN_SKILL=1` bypasses it, for skill development only.
+
 ## Windows footguns (what the bootstrap handles for you)
 
 1. **Python "Store stub."** A bare `python` / `python3` on Windows usually resolves to

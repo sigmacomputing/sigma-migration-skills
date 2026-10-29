@@ -25,12 +25,13 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/dashboard_read'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--tableau DIR')       { |v| opts[:dir] = v }
-  p.on('--workdir DIR', 'alias of --tableau') { |v| opts[:dir] = v }
+  p.on('--tableau DIR')       { |v| opts[:dir] = WorkdirGuard.check!(v, '--tableau') }
+  p.on('--workdir DIR', 'alias of --tableau') { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--skip-dashboard-read REASON',
        'waive the Phase 1d dashboard-read gate — REQUIRED reason string; name it in your migration report') do |v|
     opts[:skip] = v

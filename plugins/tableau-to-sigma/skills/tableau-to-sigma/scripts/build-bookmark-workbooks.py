@@ -29,6 +29,9 @@ Usage:
 """
 import argparse, json, os, subprocess, sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import workdir_guard  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 def _bake_filters(spec, filters):
@@ -60,6 +63,7 @@ def main():
     ap.add_argument("--build-script", default=os.path.join(HERE, "build-workbook-from-pbir.rb"),
                     help="vendor signals->workbook builder (default: build-workbook-from-pbir.rb)")
     a = ap.parse_args()
+    workdir_guard.check(a.out_dir, "--out-dir")
     base = json.load(open(a.signals)); states = json.load(open(a.bookmarks))["bookmarks"]
     os.makedirs(a.out_dir, exist_ok=True)
     page = base["pages"][0]; all_vis = page["visuals"]; built = []

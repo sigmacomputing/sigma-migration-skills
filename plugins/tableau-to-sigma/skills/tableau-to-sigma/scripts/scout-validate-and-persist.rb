@@ -38,6 +38,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'open3'
 require 'shellwords'
 require 'time'
@@ -65,7 +66,7 @@ OptionParser.new do |p|
   # before it proceeds. --gap-id is the gap-report row this scout addressed
   # (NOT the function-level --feature); --workdir is the conversion working dir.
   p.on('--gap-id S')               { |v| opts[:gap_id] = v }
-  p.on('--workdir S')              { |v| opts[:workdir] = v }
+  p.on('--workdir S')              { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
 end.parse!
 
 %i[feature pattern template test_formula dm_id el_id].each { |k| abort("missing --#{k.to_s.tr('_','-')}") unless opts[k] }

@@ -18,8 +18,16 @@
 #   - Manual-setup features (action filters, ref-marks etc. that need
 #     post-publish UI work)
 #
-# The same data is also written as <name>-gaps.json so the gap-scout subagent
-# and other downstream tools can consume it programmatically.
+# The same data is also written as <out-stem>.json (default <name>-gaps-report.json;
+# pass <workdir>/gaps.md to get <workdir>/gaps.json, the name the Python-profile
+# gate and orchestrator read) so the gap-scout subagent and other downstream tools
+# can consume it programmatically.
+#
+# The converter-backed formula audit is ALSO written standalone as
+# <out-dir>/formula-audit.json (same content as the `formula_audit` object embedded
+# in the JSON report; mirrors scan-workbook-gaps.py). build-source-object-census
+# and assert-phase6-ran.py read that fixed basename, so a run that scanned with
+# this Ruby scanner must not be missing it.
 #
 # SCOPE: the scan itself is WORKBOOK-WIDE (no scope input — expectations are
 # set for the whole file). For SCOPED runs (E9.6), each detected feature
@@ -37,6 +45,7 @@ require 'cgi'
 # Nokogiri-backed REXML drop-in — REXML is O(n^2) on large .twb files. See lib/twb_xml.rb.
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'twb_xml'
+require 'workdir_guard' # refuse an output dir inside the installed plugin
 require 'calc_coverage' # masked function extraction + official catalog (v5.0)
 require_relative 'learned-rules' # validated customer rewrites rescue converter refusals
 require 'chart_calc_translate' # build-charts' own chart/pivot calc translators (shared lib)
@@ -97,7 +106,7 @@ INVENTORY = [
     status: :hint, blurb: 'Tableau context filters scope FIXED LODs and narrow downstream filter domains. They become Sigma filters/controls, but the SCOPING is not automatic — verify any FIXED-LOD calc that depended on the context still evaluates over the intended row set. High counts (10+) mean filter-order matters.' },
   { name: 'IF/ELSEIF chain calc',                      pat: /\bIF\b[^']+\bELSEIF\b[^']+\bEND\b/i,
     status: :hint, blurb: 'WARN with suggested Sigma If(...) chain or Switch(). Agent adds to master.' },
-  { name: 'Ratio calc (SUM/SUM, SUM/COUNT)',           pat: /SUM\s*\([^)]+\)\s*\/\s*(?:SUM|COUNT)\s*\(/i,
+  { name: 'Ratio calc (SUM/SUM, SUM/COUNT)',           pat: /SUM\s*\((?:\[[^\]]*\]|[^)\[])+\)\s*\/\s*(?:SUM|COUNT)\s*\(/i, # [..] opaque: a field name may carry parens
     status: :hint, blurb: 'WARN suggests Sum(x) / NullIf(Sum(y), 0) — agent wires on master.' },
   { name: 'INCLUDE/EXCLUDE LOD',                       pat: /\{\s*(INCLUDE|EXCLUDE)\b/i,
     status: :manual, blurb: 'Needs the chart-grouping context: INCLUDE = add the dim to the chart grouping and use the plain aggregate; EXCLUDE = remove it (or OVER(PARTITION BY view-dims-minus-excluded) via Custom SQL). The skill surfaces the formula + suggestion; customer wires it post-publish.' },
@@ -1722,10 +1731,30 @@ def render_md(wb_name, summary, results, fields = nil)
   md
 end
 
+# Fail-closed formula-audit payload (same key set as scan-workbook-gaps.py's
+# error_audit). `inventory` is nil when the workbook XML never parsed.
+def error_formula_audit(message, inventory = nil)
+  inv = inventory || {}
+  {
+    'status' => 'ERROR',
+    'error' => message,
+    'formulas' => [],
+    'counts' => FORMULA_AUDIT_STATUSES.to_h { |name| [name, 0] },
+    'converted' => 0,
+    'coverage_pct' => 0.0,
+    'datasources' => [],
+    'calculation_cycles' => inv['calculation_cycles'] || [],
+    'orphan_internal_calculation_references' => inv['orphan_internal_calculation_references'] || [],
+    'unused_calculations' => inv['unused_calculations'] || [],
+    'expected_formula_count' => (inv['inputs'] || []).length
+  }
+end
+
 def main
   inp = ARGV[0] || abort('usage: scan-workbook-gaps.rb <workbook.twb> [out.md]')
   out = ARGV[1] || inp.sub(/\.(twbx?|xml)$/i, '-gaps-report.md')
   abort("not found: #{inp}") unless File.exist?(inp)
+  WorkdirGuard.check_file!(out, 'gap-scan output (out.md) directory')
 
   content = File.read(inp, encoding: 'utf-8', invalid: :replace)
 
@@ -1802,17 +1831,7 @@ def main
         formula_audit = run_formula_audit(calc_inventory)
         results.concat(formula_audit_gap_results(formula_audit))
       rescue StandardError => e
-        formula_audit = {
-          'status' => 'ERROR',
-          'error' => e.message,
-          'formulas' => [],
-          'counts' => FORMULA_AUDIT_STATUSES.to_h { |name| [name, 0] },
-          'coverage_pct' => 0.0,
-          'calculation_cycles' => calc_inventory['calculation_cycles'],
-          'orphan_internal_calculation_references' =>
-            calc_inventory['orphan_internal_calculation_references'],
-          'unused_calculations' => calc_inventory['unused_calculations']
-        }
+        formula_audit = error_formula_audit(e.message, calc_inventory)
         results << {
           name: 'Converter-backed formula audit unavailable',
           status: :unhandled,
@@ -1834,16 +1853,23 @@ def main
     end
   end
 
+  # An unparseable workbook still gets a (fail-closed) audit so the standalone
+  # file always exists for the census/gate, like the Python scanner.
+  formula_audit ||= error_formula_audit('workbook XML parse failed')
   File.write(md_path, render_md(File.basename(inp), summary, results, fields))
   json_payload = {
     'workbook' => summary,
     'detected_features' => results.map { |r| r.transform_keys(&:to_s) }
   }
   json_payload['field_statistics'] = fields.reject { |k, _| k == 'components' } if fields
-  json_payload['formula_audit'] = formula_audit if formula_audit
+  json_payload['formula_audit'] = formula_audit
   json_payload['multi_datasource'] = multi_ds_detail if multi_ds_detail
   json_payload['object_model'] = object_model_detail if object_model_detail
   File.write(json_path, JSON.pretty_generate(json_payload))
+  # Fixed basename next to the report — consumed by build-source-object-census
+  # and the completion gate; identical to the audit embedded above.
+  formula_path = File.join(File.dirname(File.expand_path(out)), 'formula-audit.json')
+  File.write(formula_path, JSON.pretty_generate(formula_audit) + "\n")
 
   if fields && !fields['components'].empty?
     csv_path = out.sub(/-gaps-report\.md$/, '').sub(/\.md$/, '') + '-components.csv'
@@ -1858,6 +1884,7 @@ def main
 
   warn "wrote #{md_path}"
   warn "wrote #{json_path}"
+  warn "wrote #{formula_path}"
   warn ""
   warn "Summary: " + results.group_by { |r| r[:status] }.map { |s, rs| "#{rs.length} #{s}" }.join(', ')
 end

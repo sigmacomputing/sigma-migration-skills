@@ -53,15 +53,10 @@ Dir.mktmpdir do |d|
 
   puts '== The orchestrator no longer swallows detection failure ================='
   src = File.read(ORCH)
-  # Anchor on the unique call-site text ("build-postpublish-guide.rb')," appears
-  # exactly once in migrate-tableau.rb) and capture only up to the NEXT closing
-  # paren — the one that closes this run! call. A looser regex here (matching
-  # from the first *mention* of "build-postpublish-guide.rb" — there's an
-  # earlier one in an unrelated advisory `puts` string — to the first
-  # "--detect-only" anywhere after it) spans thousands of unrelated lines and
-  # false-fails/false-passes on whichever `allow_fail: true` it happens to
-  # sweep up from other run! calls in between.
-  detect_call = src[/'build-postpublish-guide\.rb'\),.*?\)/m].to_s
+  # The guide also runs during finalize. Select the bounded detection call,
+  # not the first use of the script name or an unrelated advisory string.
+  calls = src.scan(/run!\(\['ruby', File\.join\(HERE, 'build-postpublish-guide\.rb'\),[^\]]*\][^\n]*\)/m)
+  detect_call = calls.find { |call| call.include?('--detect-only') }.to_s
   check(!detect_call.empty? && detect_call.include?('--detect-only'),
         'found the --detect-only call site in migrate-tableau.rb to check ' \
         "(matched: #{detect_call.inspect})")

@@ -32,6 +32,7 @@
 require 'json'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'rbconfig'
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ OptionParser.new do |p|
   p.on('--image PATH',      'Full dashboard PNG')           { |v| opts[:image]     = v }
   p.on('--layout PATH',     'layout.json from parse-twb-layout') { |v| opts[:layout] = v }
   p.on('--dashboard NAME',  'Dashboard name to match')      { |v| opts[:dashboard] = v }
-  p.on('--out-dir DIR',     'Output directory for crops')   { |v| opts[:out_dir]   = v }
+  p.on('--out-dir DIR',     'Output directory for crops')   { |v| opts[:out_dir]   = WorkdirGuard.check!(v, '--out-dir') }
   p.on('--kinds LIST',      'Comma-sep zone kinds (default: chart)') { |v| opts[:kinds] = v.split(',') }
   p.on('--min-pct N', Float,'Skip zones smaller than N% in w or h (default: 2.0)') { |v| opts[:min_pct] = v }
 end.parse!

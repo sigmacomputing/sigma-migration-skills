@@ -52,6 +52,7 @@ require 'json'
 require 'csv'
 require 'set'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'fileutils'
 require 'net/http'
 require 'uri'
@@ -273,7 +274,7 @@ require_relative 'lib/py_resolve'
 
 opts = { values: {}, controls: [], per_dashboard: 1, timeout: 90, renders: true }
 OptionParser.new do |p|
-  p.on('--workdir DIR')           { |v| opts[:wd] = v }
+  p.on('--workdir DIR')           { |v| opts[:wd] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--workbook-id ID')        { |v| opts[:wb] = v }
   p.on('--control CID')           { |v| opts[:controls] << v }
   p.on('--value SPEC', '<controlId>=<value>') do |v|

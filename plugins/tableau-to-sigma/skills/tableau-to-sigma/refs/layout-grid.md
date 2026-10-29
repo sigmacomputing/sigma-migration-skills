@@ -314,6 +314,15 @@ real run collected 19 violations). The enforced floors
 | `control` | 2 | one input strip; 2 keeps the label visible |
 | `text` | 2 | |
 
+A worksheet `table` gets a taller, data-driven floor: `build-dashboard-layout.rb` reads the worksheet's
+exported view CSV (distinct rows; x measures when they stack down Rows) and sizes the tile to
+title + header + rows x 20px (`SIGMA_TABLE_*` constants, measured live) — only when the source zone is itself
+tall enough to show every row. `build-charts-from-signals.rb` also sets `tableComponents.summaryBar: hidden`
+on every worksheet table (Sigma's "SUMMARY n rows" bar is not in Tableau and costs ~30px).
+
+A chart carrying an axis title (`xAxis`/`yAxis.format.title`, read from the workbook spec beside `--layout`) gets
+a 15-row floor: Sigma silently drops the BOTTOM axis title on a shorter tile (absent at 12-14 rows, drawn at 15+).
+
 When authoring `layout` XML by hand, give every element at least its floor —
 the lint (gate 6) fails otherwise, and shrinking a section to match tight
 source geometry must come out of GAPS, not out of tile heights.

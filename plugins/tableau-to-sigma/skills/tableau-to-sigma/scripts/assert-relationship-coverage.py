@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
 import relationship_coverage  # noqa: E402
 
 
@@ -18,6 +19,7 @@ def main() -> int:
     parser.add_argument("--metadata")
     parser.add_argument("--source")
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
     metadata = (
         Path(args.metadata).expanduser().resolve()

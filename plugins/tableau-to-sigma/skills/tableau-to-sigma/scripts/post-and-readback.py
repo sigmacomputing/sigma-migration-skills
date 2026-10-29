@@ -13,6 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
 import sigma_rest  # noqa: E402
 import code_rep  # noqa: E402
+import workdir_guard  # noqa: E402
 
 DERIVATION_FIELDS = {"derivedVia", "partial", "droppedConditions"}
 
@@ -187,6 +188,7 @@ def main() -> int:
     parser.add_argument("--folder-id", help="override create destination folder")
     args = parser.parse_args()
     workdir = Path(args.workdir or Path(args.spec).resolve().parent)
+    workdir_guard.check(workdir, "--workdir (default: the --spec directory)")
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         draft = load_object(args.spec)

@@ -140,7 +140,7 @@ Dir.mktmpdir do |tmp|
   FileUtils.mkdir_p(File.join(tmp, 'lib'))
   script = File.join(tmp, 'tableau-discover.rb')
   FileUtils.cp(File.join(DIR, 'tableau-discover.rb'), script)
-  %w[zip_extract.rb fcp_normalize.rb].each do |l|
+  %w[zip_extract.rb fcp_normalize.rb workdir_guard.rb].each do |l|
     FileUtils.cp(File.join(DIR, 'lib', l), File.join(tmp, 'lib', l))
   end
   File.write(File.join(tmp, 'lib', 'tableau_rest.rb'), STUB)

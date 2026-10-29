@@ -41,13 +41,14 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'probe_registry'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR', 'conversion workdir whose probe-artifacts.jsonl to sweep') { |v| opts[:workdir] = v }
+  p.on('--workdir DIR', 'conversion workdir whose probe-artifacts.jsonl to sweep') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--folder-id ID', 'dedicated probe folder to enumerate (listing stays inside this folder)') { |v| opts[:folder] = v }
   p.on('--delete', 'actually delete (default: dry-run, print the plan only)') { opts[:delete] = true }
 end.parse!

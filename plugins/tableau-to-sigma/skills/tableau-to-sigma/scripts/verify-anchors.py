@@ -29,6 +29,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
+
 STOPWORDS = {"the", "a", "an", "of", "by", "per", "and", "or", "in", "on", "for", "to", "vs"}
 NAME_ONLY_KINDS = {"text", "roster", "member"}
 VALUED_PROVENANCE = {"view-csv", "vds"}
@@ -649,6 +652,7 @@ def main(argv: list[str] | None = None) -> int:
         help="explicit absolute tolerance in actual-value units; recorded per match",
     )
     args = parser.parse_args(argv)
+    workdir_guard.check(args.workdir, "--workdir")
 
     workdir = Path(args.workdir).expanduser().resolve() if args.workdir else None
     if not workdir and not (args.anchors and args.actuals and args.out):

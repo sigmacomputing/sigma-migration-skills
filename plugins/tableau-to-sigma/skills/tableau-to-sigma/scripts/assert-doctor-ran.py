@@ -10,6 +10,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
+
 
 def warn(message: str) -> None:
     print(message, file=sys.stderr)
@@ -55,6 +58,7 @@ def main() -> int:
     parser.add_argument("--runtime-profile", choices=("ruby", "python"))
     parser.add_argument("--skip-doctor-gate")
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
 
     workdir = Path(args.workdir).expanduser().resolve() if args.workdir else None
     if args.skip_doctor_gate:

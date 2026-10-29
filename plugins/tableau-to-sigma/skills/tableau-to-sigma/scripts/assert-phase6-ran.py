@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
 import relationship_coverage as relationship_coverage_lib  # noqa: E402
 import dashboard_coverage as dashboard_coverage_lib  # noqa: E402
 import sql_provenance as sql_provenance_lib  # noqa: E402
@@ -852,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--blind-grade", required=True)
     args = parser.parse_args(argv)
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
     blind_grade = Path(args.blind_grade).expanduser().resolve()
     marker = workdir / "phase6-success-python.json"

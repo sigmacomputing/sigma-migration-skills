@@ -53,7 +53,7 @@ At Phase 0, after `scan-workbook-gaps.rb` and `estimate-cost.rb` have produced t
 complexity bucket, evaluate:
 
 **IF** the bucket is `large` or `very-large` — or any of: more than 1 dashboard, more than
-30 zones on any dashboard, any ❌/manual rows in `gaps.json`, more than 50 calc fields —
+30 zones on any dashboard, any ❌/manual rows in the gap-report JSON (`*-gaps-report.json`), more than 50 calc fields —
 **AND** the current model is not the top tier, **THEN pause and ask the user once** before
 proceeding. Suggested wording (fill in N/M/K from the gap scan + cost estimate):
 

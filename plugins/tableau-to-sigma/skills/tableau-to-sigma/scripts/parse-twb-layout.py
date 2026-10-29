@@ -1068,6 +1068,46 @@ class TableauLayoutParser:
                     if attr(fmt, "attr") == "display-field-labels" and scope in ("rows", "cols"):
                         field_label_state[scope] = attr(fmt, "value") or ""
             field_labels_hidden = [sc for sc in ("rows", "cols") if field_label_state.get(sc) == "false"]
+            # Single (whole-mark) color: <pane><style><style-rule element='mark'>
+            # <format attr='mark-color' value='#1f4e79'/> with no color encoding.
+            # Field-less rules only; surfaced ONLY when every pane agrees (mixed
+            # dual-axis panes stay None); alpha-00 = no color. Mirrors the .rb twin.
+            mark_colors: list[str] = []
+            for pane in descendants(worksheet, "pane"):
+                for rule in descendants(pane, "style-rule"):
+                    if attr(rule, "element") != "mark":
+                        continue
+                    for fmt in children(rule, "format"):
+                        if attr(fmt, "attr") != "mark-color" or attr(fmt, "field"):
+                            continue
+                        hexv = (attr(fmt, "value") or "").strip().lower()
+                        if not re.fullmatch(r"#[0-9a-f]{6}(?:[0-9a-f]{2})?", hexv):
+                            continue
+                        if len(hexv) == 9 and hexv.endswith("00"):
+                            continue
+                        if hexv[:7] not in mark_colors:
+                            mark_colors.append(hexv[:7])
+            mark_color = mark_colors[0] if len(mark_colors) == 1 else None
+            # Explicit axis-title overrides: <style-rule element='axis'><format
+            # attr='title' scope='cols' value='Custom'/> (value='' = cleared) and the
+            # Show Header toggle (attr='display' value='false'). Absent = default.
+            axis_titles: list[dict[str, Any]] = []
+            for rule in descendants(worksheet, "style-rule"):
+                if attr(rule, "element") != "axis":
+                    continue
+                for fmt in children(rule, "format"):
+                    kind_attr = attr(fmt, "attr")
+                    scope = attr(fmt, "scope") or ""
+                    if kind_attr not in ("title", "display") or scope not in ("rows", "cols"):
+                        continue
+                    if kind_attr == "display" and (attr(fmt, "value") or "") != "false":
+                        continue
+                    rec: dict[str, Any] = {"scope": scope, "class": attr(fmt, "class") or ""}
+                    if kind_attr == "title":
+                        rec["text"] = attr(fmt, "value") or ""
+                    else:
+                        rec["hidden"] = True
+                    axis_titles.append(rec)
             self.worksheets[name] = {
                 "mark_class": mark_class, "geo_role": geo_role, "has_lat": has_lat,
                 "has_long": has_long, "has_geometry": first_desc(worksheet, "geometry") is not None,
@@ -1079,6 +1119,7 @@ class TableauLayoutParser:
                 "dual_axis": axis_synced, "dual_axis_series": dual_axis_series,
                 "measures": measures, "ref_marks": ref_marks,
                 "axis_formats": axis_formats, "mark_labels_show": mark_labels_show,
+                "mark_color": mark_color, "axis_titles": axis_titles,
                 "field_labels_hidden": field_labels_hidden,
                 "rows_shelf": rows_shelf, "cols_shelf": cols_shelf,
                 "is_crosstab": is_crosstab, "is_kpi": is_kpi,
@@ -1198,10 +1239,16 @@ class TableauLayoutParser:
         runs = []
         for run in children(formatted, "run"):
             value = text_of(run).replace("Æ", "")
+            # Tableau's bundled families ('Tableau Bold', 'Tableau Book', ...) are not
+            # web fonts: as a font-family they make Sigma fall back to a serif. Drop the
+            # family (theme sans applies) and carry the weight the NAME encodes as bold.
+            fname = attr(run, "fontname") or None
+            tableau_face = bool(fname) and re.match(r"Tableau($|\s)", fname, re.I) is not None
+            name_bold = tableau_face and re.search(r"\b(?:bold|semibold|black|heavy)\b", fname, re.I) is not None
             runs.append(compact({
                 "text": value, "color": attr(run, "fontcolor") or None,
                 "font_size": int_value(attr(run, "fontsize")) if attr(run, "fontsize") else None,
-                "bold": attr(run, "bold") == "true", "font": attr(run, "fontname") or None,
+                "bold": attr(run, "bold") == "true" or name_bold, "font": None if tableau_face else fname,
                 "italic": True if attr(run, "italic") == "true" else None,
                 "underline": True if attr(run, "underline") == "true" else None,
                 "align": {"1": "center", "2": "right"}.get(attr(run, "fontalignment") or ""),
@@ -1263,6 +1310,19 @@ class TableauLayoutParser:
         if font is not None:
             result["button_font_color"] = attr(font, "fontcolor")
             result["button_font_size"] = int_value(attr(font, "fontsize")) if attr(font, "fontsize") else None
+        # The button's own fill lives on its visual state, not the zone-style.
+        for state in descendants(button, "button-visual-state"):
+            fill = None
+            for fmt in children(state, "format"):
+                if attr(fmt, "attr") != "background-color":
+                    continue
+                hexv = (attr(fmt, "value") or "").strip().lower()
+                if re.fullmatch(r"#[0-9a-f]{6}(?:[0-9a-f]{2})?", hexv) and not (len(hexv) == 9 and hexv.endswith("00")):
+                    fill = hexv[:7]
+                    break
+            if fill:
+                result["button_fill_color"] = fill
+                break
         return compact(result)
 
     def build_zone_tree(self, zone: ET.Element) -> dict[str, Any]:
@@ -1433,6 +1493,8 @@ class TableauLayoutParser:
             "ref_marks": chart.get("ref_marks") if kind == "chart" else None,
             "axis_formats": chart.get("axis_formats") if kind == "chart" else None,
             "mark_labels_show": chart.get("mark_labels_show") if kind == "chart" else None,
+            "mark_color": chart.get("mark_color") if kind == "chart" else None,
+            "axis_titles": chart.get("axis_titles") if kind == "chart" else None,
             "field_labels_hidden": chart.get("field_labels_hidden") if kind == "chart" else None,
             "rows_shelf": chart.get("rows_shelf") if kind == "chart" else None,
             "cols_shelf": chart.get("cols_shelf") if kind == "chart" else None,
@@ -1460,6 +1522,7 @@ class TableauLayoutParser:
             "button_caption": button.get("button_caption"), "button_tooltip": button.get("button_tooltip"),
             "button_image_path": button.get("button_image_path"), "button_type": button.get("button_type"),
             "button_font_color": button.get("button_font_color"), "button_font_size": button.get("button_font_size"),
+            "button_fill_color": button.get("button_fill_color"),
         }
         # Measure Names member order (only stamped when the sheet carries the pill).
         if kind == "chart" and chart.get("measure_names_sort"):
@@ -1502,6 +1565,8 @@ class TableauLayoutParser:
             } if width > 0 and height > 0 else None
             result = {
                 "dashboard": name, "is_story": is_story,
+                "show_dashboard_title": attr(dashboard, "show-title") == "true" or any(zone["kind"] == "title" for zone in zones),
+                "source_locale": attr(self.root, "locale"),
                 "emit_page": (
                     not self.visible_dashboard_windows
                     or name in self.visible_dashboard_windows or name in self.story_captured_sheets
@@ -1543,6 +1608,7 @@ class TableauLayoutParser:
                     "measures": meta.get("measures"),
                     "ref_marks": meta.get("ref_marks"), "axis_formats": meta.get("axis_formats"),
                     "mark_labels_show": meta.get("mark_labels_show"),
+                    "mark_color": meta.get("mark_color"), "axis_titles": meta.get("axis_titles"),
                     "field_labels_hidden": meta.get("field_labels_hidden"),
                     "rows_shelf": meta.get("rows_shelf"), "cols_shelf": meta.get("cols_shelf"),
                     "is_crosstab": meta.get("is_crosstab"), "is_kpi": meta.get("is_kpi"),

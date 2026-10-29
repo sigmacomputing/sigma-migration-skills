@@ -24,6 +24,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/run_state'
 
 # The phases that run in EVERY conversion mode. Phase 0a (gap scan), 1.6
@@ -38,8 +39,8 @@ LABEL = {
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR') { |v| opts[:dir] = v }
-  p.on('--tableau DIR', 'alias of --workdir') { |v| opts[:dir] = v }
+  p.on('--workdir DIR') { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
+  p.on('--tableau DIR', 'alias of --workdir') { |v| opts[:dir] = WorkdirGuard.check!(v, '--tableau') }
   p.on('--skip-run-state REASON',
        'waive the run-state chain audit — REQUIRED reason string; name it in your migration report') do |v|
     opts[:skip] = v

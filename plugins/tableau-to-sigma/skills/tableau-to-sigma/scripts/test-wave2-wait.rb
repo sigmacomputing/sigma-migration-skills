@@ -85,6 +85,10 @@ Dir.mktmpdir do |d|
   pid = out[/pid (\d+)/, 1].to_i
   alive = pid.positive? && (Process.kill(0, pid) rescue nil) == 1
   check(alive, "child pid #{pid} is still alive after the wrapper exits", fails)
+  out2, st2 = wait_run(d, ['--folder', 'fold-x', '--yes', '--wait=240'], {}, png_wait: '120')
+  check(st2.exitstatus == 28, "repeat invocation refuses a second writer (got #{st2.exitstatus})", fails)
+  check(out.include?('do NOT re-run while this PID is active') && !out.include?('re-attach:'),
+        'timeout gives truthful observation instructions, not a false reattach command', fails)
   if pid.positive? # reap the intentionally-orphaned child so the test leaves nothing behind
     Process.kill('TERM', pid) rescue nil
     20.times { break unless (Process.kill(0, pid) rescue nil); sleep 0.25 }
@@ -169,8 +173,8 @@ wait_banner = SRC.lines.find { |l| l.include?('PASS-1-TAIL WAIT (W2.6)') }
 check(wait_banner && wait_banner.include?('SIGMA_VISUAL_VERDICT_TIMEOUT_S') &&
       wait_banner.include?("0 = don't wait"),
       'banner line ONE names the override env + the 0=don\'t-wait escape (1d headless rule)', fails)
-check(SRC.include?("(ENV['SIGMA_VISUAL_VERDICT_TIMEOUT_S'] || '480').to_i"),
-      'default bound is 480s', fails)
+check(SRC.include?("(ENV['SIGMA_VISUAL_VERDICT_TIMEOUT_S'] || '0').to_i"),
+      'agent handoff returns immediately by default; waiting is opt-in', fails)
 check(SRC =~ /fail-open to the exit-12 two-invocation contract/,
       'deadline falls OPEN to exit 12 (today\'s contract; a wait never invents a failure)', fails)
 check(SRC.scan(/SIGMA_NO_CHAIN_FINALIZE/).size >= 3,

@@ -28,9 +28,14 @@
 require 'json'
 require 'open3'
 require 'tmpdir'
+require 'fileutils'
 require 'rbconfig'
 
 SCRIPT = File.join(__dir__, 'probe-equivalence.rb')
+# Bad-invocation cases never touch the workdir, but it must not be inside the skill
+# dir (workdir_guard) — so not '.'.
+NOOP_WORKDIR = Dir.mktmpdir('probe-eq-noop-')
+at_exit { FileUtils.rm_rf(NOOP_WORKDIR) }
 
 fails = []
 def check(cond, msg, fails)
@@ -189,9 +194,9 @@ end
 
 # ---- 6. bad invocations → exit 1 ---------------------------------------------
 [
-  ['--workdir', '.', '--edit', 'x', '--claim', 'y', '--before-sql', 'a', '--after-sql', 'b', '--fixture', '.'],  # no grain
-  ['--workdir', '.', '--edit', 'x', '--claim', 'y', '--grain', 'K', '--before-sql', 'a', '--fixture', '.'],      # no after side
-  ['--workdir', '.', '--edit', 'x', '--claim', 'y', '--grain', 'K', '--before-sql', 'a', '--after-sql', 'b']     # no mode
+  ['--workdir', NOOP_WORKDIR, '--edit', 'x', '--claim', 'y', '--before-sql', 'a', '--after-sql', 'b', '--fixture', '.'],  # no grain
+  ['--workdir', NOOP_WORKDIR, '--edit', 'x', '--claim', 'y', '--grain', 'K', '--before-sql', 'a', '--fixture', '.'],      # no after side
+  ['--workdir', NOOP_WORKDIR, '--edit', 'x', '--claim', 'y', '--grain', 'K', '--before-sql', 'a', '--after-sql', 'b']     # no mode
 ].each_with_index do |args, i|
   _out, _err, st = run_probe(*args)
   check(st.exitstatus == 1, "bad invocation ##{i + 1} → exit 1 (got #{st.exitstatus})", fails)
@@ -291,7 +296,7 @@ Dir.mktmpdir do |dir|
 end
 
 # withdraw mode rejects probe flags in the same call
-_out, _err, st = run_probe('--workdir', '.', '--withdraw', 'x', '--reason', 'y', '--edit', 'z')
+_out, _err, st = run_probe('--workdir', NOOP_WORKDIR, '--withdraw', 'x', '--reason', 'y', '--edit', 'z')
 check(st.exitstatus == 1, '--withdraw mixed with probe flags → exit 1', fails)
 
 # Live probe POST contract: workbook writes must use the released nested

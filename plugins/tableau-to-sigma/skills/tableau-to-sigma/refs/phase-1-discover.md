@@ -114,6 +114,12 @@ If `get-view-data` returns 401 for a view, retry that view solo (the contention 
 > ```
 >
 > `png-read.json` schema (enumerate EVERY zone — chart AND non-chart):
+> For automatically formatted measures, also record each tile's visible format
+> as `"display_formats": {"Failure Rate": "0.00000"}` using source captions and
+> Tableau format strings. CSV exports can carry extra numeric precision, so read
+> the visible decimals and percent/currency symbols from the PNG. The first
+> chart build consumes this field; do not wait for a failed visual comparison.
+> Add `dashboard` when the same worksheet has different display formats by page.
 >
 > ```json
 > {

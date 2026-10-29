@@ -64,13 +64,14 @@
 require 'json'
 require 'set'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/dim_canon'
 
 STRICT_TOL = 1e-4
 
 opts = { tol: STRICT_TOL }
 OptionParser.new do |p|
-  p.on('--workdir DIR')         { |v| opts[:dir] = v }
+  p.on('--workdir DIR')         { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--plan PATH')           { |v| opts[:plan] = v }
   p.on('--actuals PATH')        { |v| opts[:actuals] = v }
   p.on('--sigma-actuals PATH')  { |v| opts[:sigma] = v }

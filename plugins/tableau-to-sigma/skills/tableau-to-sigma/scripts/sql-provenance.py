@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
 import sql_provenance  # noqa: E402
 
 
@@ -18,6 +19,7 @@ def main() -> int:
     parser.add_argument("--dm-spec")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
     dm_spec = (
         Path(args.dm_spec).resolve()

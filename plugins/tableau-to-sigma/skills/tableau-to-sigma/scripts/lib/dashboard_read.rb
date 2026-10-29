@@ -444,8 +444,16 @@ module DashboardRead
     # (target_tiles) and/or the tiles it only re-colors (highlight_tiles). A
     # page-wide filter is fine — it just has to list the tiles explicitly.
     fshelf = doc['filter_shelf']
+    # Keyed by the EXACT title (worksheets 'X' and 'X ' are distinct tiles);
+    # the folded lookup is only a fallback when it names ONE tile.
     tiles_by_title = (tiles.is_a?(Array) ? tiles : []).each_with_object({}) do |t, h|
-      h[t['title'].to_s.downcase.strip] = t if t.is_a?(Hash) && t['title']
+      h[t['title'].to_s] = t if t.is_a?(Hash) && t['title']
+    end
+    folded_title_hits = Hash.new { |h, k| h[k] = [] }
+    tiles_by_title.each { |title, t| folded_title_hits[title.downcase.strip] << t }
+    tile_for_title = lambda do |name|
+      tiles_by_title[name.to_s] ||
+        (folded_title_hits[name.to_s.downcase.strip].size == 1 ? folded_title_hits[name.to_s.downcase.strip].first : nil)
     end
     any_highlight = false
     if fshelf.is_a?(Array)
@@ -471,7 +479,7 @@ module DashboardRead
         # MUST name its metric column, or the bar silently renders 0 / a %-calc.
         Array(hl).reject { |t| t.to_s.strip.empty? }.each do |t|
           any_highlight = true
-          tile = tiles_by_title[t.to_s.downcase.strip]
+          tile = tile_for_title.call(t)
           if tile && tile['measure'].to_s.strip.empty?
             errs << "highlight tile #{t.inspect} has no `measure` — name the metric column it plots " \
                     '(the real DM column, e.g. "Revenue (current US$)"), or the recipe rebuilds it to 0/a %-calc.'

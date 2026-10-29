@@ -51,12 +51,13 @@ require 'json'
 # `encoding: 'UTF-8'` on the reads below cannot fix this — only ARGV can.
 require_relative 'lib/cli_encoding'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'agg_semantics_lint'
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR')            { |v| opts[:workdir] = v }
+  p.on('--workdir DIR')            { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--calc-fields PATH')       { |v| opts[:calc_fields] = v }
   p.on('--twb PATH')               { |v| opts[:twb] = v }
   p.on('--dm-spec PATH')           { |v| opts[:dm_spec] = v }

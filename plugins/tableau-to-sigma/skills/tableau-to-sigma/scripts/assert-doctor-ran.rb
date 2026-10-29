@@ -23,11 +23,12 @@
 #   2  usage error
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR') { |v| opts[:dir] = v }
-  p.on('--tableau DIR', 'alias of --workdir') { |v| opts[:dir] = v }
+  p.on('--workdir DIR') { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
+  p.on('--tableau DIR', 'alias of --workdir') { |v| opts[:dir] = WorkdirGuard.check!(v, '--tableau') }
   p.on('--skip-doctor-gate REASON',
        'waive the environment gate — REQUIRED reason string; name it in your report') do |v|
     opts[:skip] = v

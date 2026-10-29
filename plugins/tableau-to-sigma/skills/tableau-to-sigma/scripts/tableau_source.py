@@ -469,6 +469,134 @@ def remap_from_manifest(model: dict, manifest: list[dict]) -> dict:
     }
 
 
+BRACKET_PATH_SPECIAL = re.compile(r"[/\[\]]")
+
+
+def sigma_safe_column_name(name: object) -> str:
+    """Twin of MechanicalSpecs.sigma_safe_column_name (Ruby).
+
+    "/" "[" "]" cannot appear in a column name Sigma can reference (it reads "/"
+    inside a bracketed reference as a path separator), so each becomes a space
+    (Sigma's own friendly-names convention) and space runs squeeze. A hyphen is
+    subtraction only outside brackets, so it stays.
+    """
+    safe = re.sub(r"\s+", " ", BRACKET_PATH_SPECIAL.sub(" ", str(name or ""))).strip()
+    return safe or "Column"
+
+
+def sanitize_bracket_path_captions(model: dict) -> int:
+    """Twin of MechanicalSpecs.sanitize_bracket_path_captions! (#685-B).
+
+    A warehouse passthrough formula embeds the Tableau caption raw inside a
+    `[Table/Column]` bracket path; a caption holding "/" "[" "]" reads as a
+    multi-segment path and the column compiles to type="error". Fold the caption
+    segment to the UPPER_SNAKE physical form and keep the caption as the name.
+    """
+    rewritten = 0
+    for element in _elements(model):
+        source = element.get("source") or {}
+        path = source.get("path") or []
+        if source.get("kind") != "warehouse-table" or not path:
+            continue
+        table = str(path[-1])
+        prefix = re.compile(r"\A\[" + re.escape(table) + r"/(.+)\]\Z", re.DOTALL)
+        for column in element.get("columns") or []:
+            match = prefix.match(str(column.get("formula") or ""))
+            if not match or not BRACKET_PATH_SPECIAL.search(match.group(1)):
+                continue
+            caption = match.group(1)
+            physical = re.sub(r"\A_+|_+\Z", "", re.sub(r"[^0-9A-Za-z]+", "_", caption)).upper()
+            if not column.get("name"):
+                column["name"] = caption
+            column["formula"] = f"[{table}/{physical}]"
+            rewritten += 1
+    return rewritten
+
+
+def sanitize_slash_column_names(model: dict) -> dict:
+    """Twin of MechanicalSpecs.sanitize_slash_column_names! (Ruby).
+
+    Every column and metric whose NAME holds "/" "[" "]" is renamed to its
+    referenceable form and every formula that reads the old name is rewritten.
+    Such a column can never be referenced (the master's `[Elem/Region - East/West]`
+    exports as 'Unknown column'; a list control over it POSTs as 'Invalid value
+    source for list control' — live-probed). Collisions take a numeric suffix.
+    Run sanitize_bracket_path_captions first. Returns
+    {"renamed": [...], "map": {old: new}}; idempotent.
+    """
+    elements = _elements(model)
+    holders = [
+        (element, item, kind)
+        for element in elements
+        for kind, items in (("column", element.get("columns")), ("metric", element.get("metrics")))
+        for item in items or []
+        if isinstance(item, dict)
+    ]
+    bad = [
+        entry
+        for entry in holders
+        if isinstance(entry[1].get("name"), str) and BRACKET_PATH_SPECIAL.search(entry[1]["name"])
+    ]
+    if not bad:
+        return {"renamed": [], "map": {}}
+
+    def display(item: dict) -> str | None:
+        if item.get("name"):
+            return str(item["name"])
+        match = re.search(r"\[([^\]]+)\]\s*$", str(item.get("formula") or ""))
+        return match.group(1).split("/")[-1] if match else None
+
+    taken = {name.lower() for _e, item, _k in holders for name in [display(item)] if name}
+    mapping: dict[str, str] = {}
+    for _element, item, _kind in bad:
+        old = item["name"]
+        if old in mapping:
+            continue
+        base = sigma_safe_column_name(old)
+        candidate, n = base, 2
+        while candidate.lower() in taken:
+            candidate = f"{base} {n}"
+            n += 1
+        taken.add(candidate.lower())
+        mapping[old] = candidate
+    ordered = sorted(mapping.items(), key=lambda pair: -len(pair[0]))
+
+    def rewrite(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "formula" and isinstance(value, str):
+                    for old, new in ordered:
+                        value = re.sub(
+                            r"(?<=[\[/])" + re.escape(old) + r"(?=\])", lambda _m, n=new: n, value
+                        )
+                    node[key] = value
+                else:
+                    rewrite(value)
+        elif isinstance(node, list):
+            for value in node:
+                rewrite(value)
+
+    rewrite(model)
+    renamed = []
+    for element, item, kind in bad:
+        old = item["name"]
+        item["name"] = mapping[old]
+        label = element.get("name") or element.get("id")
+        renamed.append(
+            {
+                "element": str(label),
+                "kind": kind,
+                "from": old,
+                "to": mapping[old],
+                "warning": (
+                    "renamed for Sigma: '/' cannot appear in a referenced column name — "
+                    f"{kind} '{old}' on '{label}' is now '{mapping[old]}'"
+                ),
+            }
+        )
+    return {"renamed": renamed, "map": mapping}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--twb", required=True)

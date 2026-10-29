@@ -6,6 +6,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'pathname'
 require 'set'
 
@@ -320,6 +321,7 @@ class SourceObjectCensus
     # The TWB remains the source inventory. calc-fields.json enriches those
     # records and may add Metadata-API calculations not represented as top-level
     # datasource columns in unusual workbook shapes.
+    twb_calcs = []
     @twb_doc.elements.each('/workbook/datasources/datasource') do |datasource|
       ds_name = attr(datasource, 'caption') || attr(datasource, 'name') || 'datasource'
       next if ds_name.downcase.start_with?('parameter')
@@ -329,16 +331,33 @@ class SourceObjectCensus
         raw = attr(column, 'name')
         name = attr(column, 'caption') || unbracket(raw)
         next if blank?(name)
-        enriched = records.find do |record|
-          fold(record['internal_name']) == fold(raw) ||
-            (fold(record['name']) == fold(name) && fold(record['datasource']) == fold(ds_name))
-        end || {}
+        twb_calcs << { 'raw' => raw, 'name' => name, 'datasource' => ds_name }
+        enriched = records.find { |record| calc_record_match?(record, raw, name, ds_name) } || {}
         add_calculation(enriched.merge('name' => name, 'internal_name' => raw,
                                        'datasource' => ds_name,
                                        'formula' => attr(calculation, 'formula') || enriched['formula']))
       end
     end
-    records.each { |record| add_calculation(record) }
+    # A Metadata-API record that describes a calc the TWB already produced is
+    # the SAME source object, not an extra one. calc-fields.json often has no
+    # internal_name, so add_calculation would key it by caption and register a
+    # second object (different id) for every calc, inflating the object count
+    # and making every name-based match in the migration report ambiguous.
+    records.each do |record|
+      next if twb_calcs.any? { |calc| calc_record_match?(record, calc['raw'], calc['name'], calc['datasource']) }
+      add_calculation(record)
+    end
+  end
+
+  # Does a calc-fields.json record describe this TWB calculation? By internal
+  # name, or by folded caption plus datasource. A record with NO datasource
+  # (the Metadata API often omits it) matches on the folded caption alone.
+  def calc_record_match?(record, raw, name, ds_name)
+    internal = record['internal_name']
+    return true if !blank?(internal) && fold(internal) == fold(raw)
+    caption = record['name'] || record['caption']
+    return false if blank?(caption) || fold(caption) != fold(name)
+    blank?(record['datasource']) || fold(record['datasource']) == fold(ds_name)
   end
 
   def add_calculation(record)
@@ -597,8 +616,15 @@ class SourceObjectCensus
     nested = record['source_object']
     record_names.concat(%w[name id].filter_map { |key| nested[key] }) if nested.is_a?(Hash)
     return true if record_names.any? { |name| names.include?(fold(unbracket(name))) }
+    # A record's `worksheets` list locates it on SHEETS: it says nothing about a
+    # parameter or calculation that merely shares a sheet's name (a "Store
+    # Lookup" parameter beside a "Store Lookup" worksheet took the sheet's gap
+    # record and went contradictory).
+    return false unless WORKSHEET_LIKE.include?(object['type'])
     Array(record['worksheets']).any? { |name| names.include?(fold(name)) }
   end
+
+  WORKSHEET_LIKE = %w[worksheet dashboard-zone].freeze
 
   def gap_matches?(record, object)
     return true if record_matches?(record, object)
@@ -610,9 +636,12 @@ class SourceObjectCensus
   end
 
   def negative_status(value)
-    word = fold(value).tr('_ ', '--').gsub(/-+/, '-')
-    return 'skipped' if %w[dropped skipped omitted excluded not-emitted].include?(word)
-    return 'approximated' if %w[approximated approximate substituted].include?(word)
+    # Normalize separators WITHOUT `fold` (which strips every non-alphanumeric
+    # and so turned `not-emitted` / `needs-review` into words that never match
+    # the hyphenated lists below).
+    word = value.to_s.strip.downcase.tr('_ ', '--').gsub(/-+/, '-')
+    return 'skipped' if %w[dropped dropped-unused skipped omitted excluded not-emitted].include?(word)
+    return 'approximated' if %w[approximated approximate substituted source-inert].include?(word)
     return 'needs-review' if %w[
       degraded needs-review review unresolved unhandled manual unsupported
       missing unbuilt fail failed failure error invalid pending not-converted unmapped
@@ -708,7 +737,9 @@ class SourceObjectCensus
   end
 
   def stable_id(type, *parts)
-    ([type] + parts.map { |part| part.to_s.strip.gsub(/\s+/, ' ') }).join(':')
+    # Names are used verbatim: Tableau allows worksheets named "X", "X " and
+    # "X  ", and trimming/collapsing here would merge them into one object.
+    ([type] + parts.map(&:to_s)).join(':')
   end
 
   def input_manifest
@@ -766,7 +797,7 @@ end
 options = { controls: [] }
 parser = OptionParser.new do |p|
   p.banner = 'Usage: build-source-object-census.rb --workdir DIR [artifact options]'
-  p.on('--workdir DIR') { |value| options[:workdir] = value }
+  p.on('--workdir DIR') { |value| options[:workdir] = WorkdirGuard.check!(value, '--workdir') }
   p.on('--twb PATH') { |value| options[:twb] = value }
   p.on('--dashboard-layout PATH', '--layout PATH') { |value| options[:layout] = value }
   p.on('--dashboard-meta PATH', '--dashboard-layout-meta PATH', '--layout-meta PATH') { |value| options[:layout_meta] = value }
@@ -779,7 +810,7 @@ parser = OptionParser.new do |p|
   p.on('--parity-final PATH', '--parity PATH') { |value| options[:parity] = value }
   p.on('--wb-spec PATH') { |value| options[:wb_spec] = value }
   p.on('--wb-readback PATH') { |value| options[:wb_readback] = value }
-  p.on('--out PATH') { |value| options[:out] = value }
+  p.on('--out PATH') { |value| options[:out] = WorkdirGuard.check_file!(value, '--out') }
 end
 
 begin

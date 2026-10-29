@@ -36,7 +36,7 @@ TWB = <<~XML
       <worksheet name='Sales by Region'><table><view><datasource-dependencies datasource='federated.x' /></view></table></worksheet>
     </worksheets>
     <dashboards>
-      <dashboard name='Regions'>
+      <dashboard name='Regions' show-title='true'>
         <zones>
           <zone id='1' type-v2='layout-basic' x='0' y='0' w='100000' h='100000'>
             <zone id='2' type-v2='layout-flow' param='vert' x='0' y='0' w='50000' h='100000'>
@@ -82,7 +82,7 @@ check(tinted && tinted.dig('style', 'borderRadius') == 'round', "tinted containe
 check(tinted && tinted.dig('style', 'borderColor') == '#07b4a2', "tinted container carries borderColor from the zone", fails)
 # #271: the page-header container is now SOURCE-DERIVED (header_from_source) — the
 # skill no longer stamps a fixed navy band on every dashboard. This fixture has no
-# header band in the source, so the header container is still emitted but carries
+# header fill in the source, but explicitly shows its title: the header carries
 # NO hardcoded fill (transparent), and stays distinct from the tint.
 # (Was: asserted the old fixed HEADER_STYLE '#0F172A', removed in #271.)
 hdr = containers.find { |c| c['id'].to_s.end_with?('-hdr') }

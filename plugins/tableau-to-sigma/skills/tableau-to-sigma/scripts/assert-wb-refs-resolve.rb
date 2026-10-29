@@ -55,6 +55,7 @@
 #   2  usage error
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'set'
 
 opts = {}
@@ -63,7 +64,7 @@ OptionParser.new do |p|
   p.on('--dm-ids PATH')   { |v| opts[:dm_ids] = v }
   p.on('--dm-id ID')      { |v| opts[:dm_id] = v }
   p.on('--metrics PATH', 'DM metrics census for [Metrics/<name>] references') { |v| opts[:metrics] = v }
-  p.on('--workdir DIR', 'workdir for the off-ramp trail (a waiver is recorded there)') { |v| opts[:workdir] = v }
+  p.on('--workdir DIR', 'workdir for the off-ramp trail (a waiver is recorded there)') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--skip-ref-check REASON',
        'waive the ref-resolution gate — REQUIRED reason; name it in your report') { |v| opts[:skip] = v }
 end.parse!
@@ -289,12 +290,22 @@ wb_elements.each_with_index do |el, i|
     # real column (in the DM or on the ref's own internal element), it is a
     # 2-segment [Element/Column] ref — check it as-is; only otherwise is the
     # tail a relationship path whose final segment is the column.
+    #
+    # BUT such a column is NOT referenceable: Sigma reads '/' in a reference as a
+    # path separator, so the ref compiles to type="error" ("Unknown column") and a
+    # list control over it POSTs as "Invalid value source for list control"
+    # (live-probed). A name match is not enough — the name itself is the defect.
+    # Fail it with the reason instead of passing a ref Sigma can never resolve.
     col =
       if col_raw.include?('/')
         whole = norm(col_raw)
         internal_names = (wb_internal[prefix.strip] || {})[:names]
         if available.include?(whole) || internal_names&.include?(whole)
-          col_raw
+          msg = "element #{el_desc}: [#{prefix.strip}/#{col_raw.strip}] names a column that contains '/' — " \
+                "Sigma parses '/' in a reference as a path separator, so no formula can reference it (it compiles to " \
+                'type="error"); rename the column to a slash-free name (MechanicalSpecs.sanitize_slash_column_names!)'
+          extra_fails << msg unless extra_fails.include?(msg)
+          next
         else
           col_raw.split('/').last
         end

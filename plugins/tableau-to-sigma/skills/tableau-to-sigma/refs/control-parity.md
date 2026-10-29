@@ -160,3 +160,14 @@ Consume per type (`[Range].start`, `Text([Ctl])`, `[Col] = [ListCtl]`), don't st
 the control. Full syntax + typed-value table + worked examples:
 `sigma-authoring/skills/sigma-workbooks/reference/specification/controls.md`
 → "Referencing a Control's Value in a Formula". (Verified live 2026-07-01.)
+
+## Quick filter on a calculated dimension
+
+A list quick filter whose column is a row-level dimension CALC (an IF/IN team bucket, a boolean exclusion
+flag) gets a control even when no master column carries it: `build-charts-from-signals.rb`
+(`materialize_calc_filter_master_column`) translates the calc over the master's own columns, appends it to
+`master_calc_columns` (the orchestrator adds it to the master) and binds the list control to it. A boolean calc
+is `Text()`-wrapped (a raw boolean list-filter target blanks every tile). Aggregates, table calcs, LODs and
+calcs over a parameter or an unmapped column are not row-level master columns and stay `needs-materialization`.
+The vendored converter also converts a class='tableau' calc whose NAME merely ends in "(group)" / "(bin)"
+like any calc; only formula-less suffix-named artifacts are skipped.

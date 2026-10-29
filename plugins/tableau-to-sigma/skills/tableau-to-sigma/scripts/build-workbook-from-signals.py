@@ -132,12 +132,28 @@ def sigma_format(tableau_format: object) -> dict[str, str] | None:
     return None
 
 
+def sigma_safe_name(name: object) -> str:
+    """Twin of MechanicalSpecs.sigma_safe_column_name / convert-tableau.py.
+
+    "/" "[" "]" cannot appear in a column name Sigma can reference, so the data
+    model (convert-tableau.py) and this builder both name a column
+    "Region - East/West" -> "Region - East West". Identity for every other name.
+    """
+    safe = re.sub(r"\s+", " ", re.sub(r"[/\[\]]", " ", str(name or ""))).strip()
+    return safe or "Column"
+
+
 @dataclass(frozen=True)
 class Field:
     key: str
     caption: str
     datatype: str
     tableau_formula: str | None = None
+
+    @property
+    def ref_name(self) -> str:
+        """The referenceable column name: the caption unless it holds "/" "[" "]"."""
+        return sigma_safe_name(self.caption)
 
 
 class WorkbookBuilder:
@@ -298,7 +314,7 @@ class WorkbookBuilder:
                 return None
             return self.master_ids[field.key]
         if any(
-            current.caption.casefold() == field.caption.casefold() and current.key != field.key
+            current.ref_name.casefold() == field.ref_name.casefold() and current.key != field.key
             for current in self.master_fields.values()
         ):
             self.master_resolution_errors[field.key] = {
@@ -490,7 +506,7 @@ class WorkbookBuilder:
         self, field: Field
     ) -> tuple[str | None, dict[str, Any]]:
         if not self.has_dm_spec:
-            return f"[{self.source_name}/{field.caption}]", {}
+            return f"[{self.source_name}/{field.ref_name}]", {}
         if self.data_model_source is None:
             return None, {
                 "reasonCode": "unbound-data-model-source",
@@ -510,7 +526,7 @@ class WorkbookBuilder:
             if self._column_id_matches_field(field, column)
         ]
         if len(direct_guid) == 1:
-            return f"[{self.source_name}/{field.caption}]", {
+            return f"[{self.source_name}/{field.ref_name}]", {
                 "match": "direct-column-id",
                 "candidate": direct_guid[0],
             }
@@ -540,7 +556,7 @@ class WorkbookBuilder:
                 "candidates": related_guid,
             }
 
-        caption = field.caption.casefold()
+        caption = field.ref_name.casefold()
         direct_caption = [
             self._candidate(self.data_model_source, column)
             for column in direct_columns
@@ -557,7 +573,7 @@ class WorkbookBuilder:
             formula = (
                 self._formula_from_candidate(candidate)
                 if candidate.get("relationshipName")
-                else f"[{self.source_name}/{field.caption}]"
+                else f"[{self.source_name}/{field.ref_name}]"
             )
             return formula, {
                 "match": (
@@ -717,7 +733,7 @@ class WorkbookBuilder:
                 or mapped.key == current_field.key
                 or mapped.tableau_formula is not None
                 or (
-                    mapped.caption.casefold() == current_field.caption.casefold()
+                    mapped.ref_name.casefold() == current_field.ref_name.casefold()
                     and mapped.key != current_field.key
                 )
             ):
@@ -727,7 +743,7 @@ class WorkbookBuilder:
                 missing.append(reference)
                 continue
             replacement = (
-                f"[Master/{mapped.caption}]" if qualify else f"[{mapped.caption}]"
+                f"[Master/{mapped.ref_name}]" if qualify else f"[{mapped.ref_name}]"
             )
             replacements.append((start, end, replacement))
         if missing:
@@ -765,7 +781,7 @@ class WorkbookBuilder:
             metric
             for metric in matches
             if str(metric.get("name") or "").strip().casefold()
-            == field.caption.casefold()
+            in (field.caption.casefold(), field.ref_name.casefold())
         ]
         selected = named if named else matches
         return selected[0] if len(selected) == 1 else None
@@ -885,7 +901,7 @@ class WorkbookBuilder:
             if not self.master_column(field):
                 self.add_master_resolution_residue(dashboard, zone, field)
                 return None
-            formula = f"[Master/{field.caption}]"
+            formula = f"[Master/{field.ref_name}]"
         grain = DATE_DERIVATIONS.get(derivation)
         return f'DateTrunc("{grain}", {formula})' if grain else formula
 
@@ -944,7 +960,7 @@ class WorkbookBuilder:
         if not self.master_column(field):
             self.add_master_resolution_residue(dashboard, zone, field)
             return None
-        return f"{AGGREGATIONS[derivation]}([Master/{field.caption}])"
+        return f"{AGGREGATIONS[derivation]}([Master/{field.ref_name}])"
 
     def dimension_column(
         self,
@@ -959,7 +975,7 @@ class WorkbookBuilder:
             return None
         column: dict[str, Any] = {
             "id": column_id,
-            "name": field.caption,
+            "name": field.ref_name,
             "formula": formula,
         }
         field_format = self._field_format(zone, field)
@@ -980,7 +996,7 @@ class WorkbookBuilder:
             return None
         column: dict[str, Any] = {
             "id": column_id,
-            "name": field.caption,
+            "name": field.ref_name,
             "formula": formula,
         }
         field_format = self._field_format(zone, field)
@@ -1807,13 +1823,13 @@ class WorkbookBuilder:
                 if not master_id:
                     self.add_master_resolution_residue(dashboard, zone, field)
                     return None
-                formula = f"[Master/{field.caption}]"
+                formula = f"[Master/{field.ref_name}]"
             grain = DATE_DERIVATIONS.get(str(dimensions[0].get("derivation") or "").lower())
             if grain:
                 formula = f'DateTrunc("{grain}", {formula})'
             dimension_column = {
                 "id": dimension_column_id,
-                "name": field.caption,
+                "name": field.ref_name,
                 "formula": formula,
             }
             field_format = self._field_format(zone, field)
@@ -1864,12 +1880,12 @@ class WorkbookBuilder:
                 if not self.master_column(field):
                     self.add_master_resolution_residue(dashboard, zone, field)
                     return None
-                formula = f"{AGGREGATIONS[derivation]}([Master/{field.caption}])"
+                formula = f"{AGGREGATIONS[derivation]}([Master/{field.ref_name}])"
             column_id = f"{element_id}-measure-{index}"
             measure_ids.append(column_id)
             item = {
                 "id": column_id,
-                "name": field.caption,
+                "name": field.ref_name,
                 "formula": formula,
             }
             field_format = self._field_format(zone, field)
@@ -2087,7 +2103,7 @@ class WorkbookBuilder:
                         {"token": match.group(0), "needed": "supported aggregation"}
                     )
                     return match.group(0)
-                return f"{{{{{function}([Master/{field.caption}])}}}}"
+                return f"{{{{{function}([Master/{field.ref_name}])}}}}"
 
             field = self.resolve_field(expression)
             if field is None:
@@ -2565,7 +2581,7 @@ class WorkbookBuilder:
         master_columns = [
             {
                 "id": self.master_ids[key],
-                "name": field.caption,
+                "name": field.ref_name,
                 "formula": self.master_formulas[key],
             }
             for key, field in self.master_fields.items()

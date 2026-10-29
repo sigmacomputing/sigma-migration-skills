@@ -65,6 +65,7 @@ require_relative 'lib/cli_encoding'
 require_relative 'lib/code_rep'
 require_relative 'lib/workbook_code'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 # ---------------------------------------------------------------------------
 # Pure, IO-free core — unit-tested in test-fidelity-loop.rb.
@@ -336,7 +337,7 @@ end
 cmd = ARGV.shift
 opts = { width: 1920, height: 1500 }
 parser = OptionParser.new do |p|
-  p.on('--workdir DIR')       { |v| opts[:dir] = v }
+  p.on('--workdir DIR')       { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--workbook-id ID')    { |v| opts[:wb] = v }
   p.on('--page-id ID')        { |v| opts[:page] = v }
   p.on('--source-image PNG')  { |v| opts[:src] = v }
@@ -361,6 +362,9 @@ parser = OptionParser.new do |p|
 end
 parser.parse!(ARGV)
 die 'missing --workdir' unless opts[:dir]
+require_relative 'lib/migration_diagnostics'
+diagnostic_kind = cmd == 'render' ? 'render' : (%w[record resolve apply-patch].include?(cmd) ? 'repair' : 'script')
+MigrationDiagnostics.process(opts[:dir], kind: diagnostic_kind, operation: "fidelity-loop.rb:#{cmd}")
 
 case cmd
 when 'init'

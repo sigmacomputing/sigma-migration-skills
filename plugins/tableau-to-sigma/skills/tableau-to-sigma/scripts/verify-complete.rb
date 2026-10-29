@@ -64,6 +64,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/offramp'
 require_relative 'lib/degradation_ledger'
 require_relative 'lib/relationship_coverage'
@@ -93,12 +94,14 @@ end
 
 opts = {}
 OptionParser.new do |p|
-  p.on('--workdir DIR') { |v| opts[:wd] = v }
+  p.on('--workdir DIR') { |v| opts[:wd] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--workbook-id ID') { |v| opts[:wb] = v }
 end.parse!(ARGV)
 abort 'FATAL: --workdir required' unless opts[:wd]
 
 wd       = opts[:wd]
+require_relative 'lib/migration_diagnostics'
+MigrationDiagnostics.process(wd, kind: 'completion', operation: 'verify-complete.rb')
 pending  = File.join(wd, 'parity-pending.json')
 success  = File.join(wd, 'phase6-success.json')
 
@@ -243,11 +246,11 @@ end
 
 sql_provenance_path = File.join(wd, 'sql-provenance.json')
 if File.file?(sql_provenance_path)
-  sql_spec_path = [
-    File.join(wd, 'dm-spec-reused.json'),
-    File.join(wd, 'dm-spec.json'),
-    File.join(wd, 'dm-raw.json')
-  ].find { |path| File.file?(path) }
+  sql_specs = %w[dm-spec.json dm-spec-reused.json].map { |name| File.join(wd, name) }
+  sql_spec_path = sql_specs.select { |path| File.file?(path) }.max_by do |path|
+    [File.mtime(path), File.basename(path) == 'dm-spec.json' ? 1 : 0]
+  end
+  sql_spec_path ||= File.join(wd, 'dm-raw.json')
   begin
     expected_sql = SqlProvenance.evaluate(
       dm_spec_path: sql_spec_path,

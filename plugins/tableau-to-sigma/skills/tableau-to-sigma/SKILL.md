@@ -17,15 +17,10 @@ user-invocable: true
 > - macOS / Linux / Git Bash: `bash scripts/bootstrap.sh --workdir <WORK>`
 > - Windows PowerShell: `powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1 -WorkDir <WORK>`
 >
-> It resolves a supported runtime profile from `runtime-capabilities.json`,
-> installs only that profile's missing dependencies (user-scoped, never admin),
-> persists credentials with the matching setup script, ends in a doctor run
-> (`doctor.json`), and writes
-> the **bootstrap sentinel** (`bootstrap.json`).
-> Both orchestrators REFUSE to start without sentinel +
-> doctor-green. **NEVER hand-install a runtime or edit PATH yourself** — if
-> bootstrap reports no admin-free route, surface its message to the user and
-> stop. Dry run: `--check` / `-Check`. Details: `refs/environment.md`.
+> Bootstrap selects a supported runtime, installs missing dependencies without
+> admin, and writes `doctor.json` + `bootstrap.json`; both are required.
+> **Do not hand-install runtimes or edit PATH.** If bootstrap cannot proceed,
+> surface its blocker. Dry run: `--check` / `-Check`. See `refs/environment.md`.
 
 > ## ⛔ STEP 1 — THE ONE PATH (a single entry point; do not improvise one)
 > After the bootstrap, **always run the orchestrator** — it chains every phase
@@ -36,13 +31,14 @@ user-invocable: true
 > # or, when selectedProfile=python:
 > python3 scripts/migrate-tableau.py --workbook "<name>" --connection <id> …
 > ```
-> - **Pass the Tableau `/#/views/…` share URL straight to `--workbook` (quote it).**
->   The orchestrator resolves the workbook LUID from the URL's `contentUrl` slug
->   in process. Display names diverge from slugs, so **never** hand-roll
->   `name:eq:` filters or page the workbook list — that field-cost a
->   500-workbook scan. Give it the URL.
+> **Supplied `.twb` + Tableau MCP, no PAT:** use the Ruby entrypoint with
+> `--twb FILE --out WORK --connection ID`. Read `refs/mcp-source.md`: fill its
+> scoped evidence request, seal exports, then resume. No Tableau REST calls.
+> Sigma CLI auth uses the shared provider.
+> - **Pass the quoted Tableau `/#/views/…` share URL to `--workbook`.** It resolves
+>   the LUID by contentUrl; do not hand-roll name filters or page the workbook list.
 > - **Flag cheatsheet — use the EXACT flags for the selected entrypoint:**
->   `migrate-tableau.rb --out DIR` (the workdir flag is **`--out`**, not `--workdir`);
+>   `migrate-tableau.rb --out DIR` (`--workdir` is an alias);
 >   `migrate-tableau.py --out DIR` uses the same workdir flag;
 >   `validate-spec.rb <spec.json> --type dm|workbook` (spec is a **positional** arg, no `--spec`);
 >   `put-layout.rb --workbook ID` (**not** `--workbook-id`), reading `SIGMA_API_TOKEN` from the env.
@@ -63,10 +59,8 @@ user-invocable: true
 >   STOP/handoff, or surface the blocker plainly and stop — NEVER a third
 >   "lighter/simplified" path; only the **user** may descope. Verbatim rule:
 >   `refs/operating-contract.md` §Never negotiate fidelity down.
-> - **An orchestrator STOP is an instruction to YOU (the agent), not a handoff
->   to a human — keep going.** A routing exit authorizes you to do the next
->   step yourself and re-enter the gated spine; the only finish line is
->   `verify-complete.rb` exit 0. Verbatim rule: `refs/gates.md`.
+> - **A routing STOP instructs the agent to perform the named repair and resume.**
+>   It is not completion or an automatic handoff to a human. See `refs/gates.md`.
 > - **At the exit-4 handoff, PATCH the auto-built `<WORK>/wb-spec.json` — do NOT
 >   rewrite it** (a from-scratch rewrite drifts controlIds and fails
 >   control-lint wholesale — the #1 way this handoff spirals; prefer
@@ -152,11 +146,13 @@ multiple compatible objects.
 
 ## One command (orchestrated path)
 
-> **⏱ Invocation (G2/W2.5):** full pass = 5–20+ min. Default: `--wait` (ONE
-> tool call; tool timeout ≥ 25 min) — inner exit code passes through verbatim;
-> **exit 26** = budget up, run STILL ALIVE (pid+log printed; re-run to
-> re-attach — never a failure). Detached: poll only on a `migrate-state.json`
-> transition, else ≥90s. Bare 2-min Bash kills runs (exit 143); check `$?`.
+> **Invocation:** use a tool timeout long enough for the scripted phases, or
+> async execution. Image/verdict checkpoints return
+> immediately by default: perform the named action, then resume the same workdir.
+> `--wait` is optional (tool timeout >= its budget); inner exits pass through.
+> **Exit 26** means the child is STILL ALIVE: inspect its PID/log and
+> `migration-process.json`, and do not launch another run until it exits.
+> **Exit 28** refuses a second writer to the same workdir. No gates are waived.
 
 ```bash
 # PASS 1 — discover → gap gate → DM-reuse scan → DM → workbook → layout → parity plan
@@ -178,12 +174,14 @@ ruby scripts/migrate-tableau.rb --workbook "<name>" \
 > `<connection dbname=/schema=>` attributes — and **hard-stops asking** when
 > none resolve, never guessing: a fabricated pair 404s every table at DM POST.
 
-> **🚧 PASS 1 WAITS for you twice:** (1d) Read the dashboard PNG, write
-> `<workdir>/png-read.json` `"verified": true` — the run continues (exit 18 on
-> deadline; schema `refs/phase-1-discover.md`; no PNG →
-> `--skip-dashboard-read "<r>"`). (tail, W2.6) discharge the visual verdict
-> per the banner → a cold run chains `--finalize` in-process
-> (`SIGMA_VISUAL_VERDICT_TIMEOUT_S`, 0=skip).
+> **PASS 1 has two agent handoffs:** (1d, exit 18) Read the dashboard PNG and
+> verify `<workdir>/png-read.json`; (tail, exit 12) discharge the visual verdict
+> and finalize. Reuse the same workdir after the previous process exits. If your
+> runner can act concurrently, opt into bounded waits with
+> `SIGMA_PNG_READ_TIMEOUT_S=480` and `SIGMA_VISUAL_VERDICT_TIMEOUT_S=480`.
+> Both default to 0 (return immediately, not skip verification).
+> `execution-identity.json` / `execution-history.jsonl` record the executed build;
+> inspect them after an update or reported code drift.
 
 > **Converter backend — LOCAL by default (`converter/tableau.mjs`, no
 > network); the hosted converter uploads the `.twb` and runs ONLY with
@@ -210,6 +208,8 @@ codes (10/11/12/16/4/3/14/0 + 18 wait deadline, 19 scope mismatch, 26
 done-done — run `--finalize`**.
 
 ## Scripts
+
+`refs/diagnostics.md`: local timers and ZIPs.
 
 **`migrate-tableau.rb` and `migrate-tableau.py` compose the selected profile**
 (STEP 1) — run exactly the entrypoint recorded in `doctor.json`. Invoke another
@@ -248,7 +248,7 @@ phase by hand or need to understand why it stopped.
 |---|---|---|---|---|
 | −1 | Mission intake | write `mission.json` | inferred fields confirmed | `MIGRATION_REQUEST.md` |
 | 0 | Preflight + intake | `bootstrap.sh`; `doctor.sh`; `intake.rb` | `bootstrap.json` + `doctor.json` + `connection.json` | `refs/environment.md`, `refs/model-fit.md`, `refs/orchestration.md` (contexts) |
-| 0a | **Gap scan** (mandatory) | `scan-workbook-gaps.rb` | `gaps.json` + `formula-audit.json` + `source-object-census.json` — ❌ features → scout or `--force`; every source formula/object starts an accounting row | `refs/phase-0-scope.md`, `refs/coverage-matrix.md`, `refs/blending.md` (blends) |
+| 0a | **Gap scan** (mandatory) | `scan-workbook-gaps.rb` | `*-gaps-report.json` + `formula-audit.json` + `source-object-census.json` — ❌ features → scout or `--force`; every source formula/object starts an accounting row | `refs/phase-0-scope.md`, `refs/coverage-matrix.md`, `refs/blending.md` (blends) |
 | 0b | Destination + mode (ask) | `pick-destination.rb` | folder id + conversion mode | `refs/phase-0-scope.md` |
 | 0c | Scope/cost sign-off | `estimate-cost.rb --workdir` | `cost-estimate.json` + run-state ack (`cost_estimate_acknowledged`) | `refs/phase-0-scope.md`, `refs/model-fit.md` §3, `refs/performance.md` |
 | 1 | Discover the source | `tableau-discover.rb` (PAT) or MCP | `get-workbook.json`, `views/*.csv`, `.twb` | `refs/phase-1-discover.md`, `refs/tableau-rest.md`, `refs/multi-datasource.md`, `refs/object-model.md`, `refs/story-points.md`, `refs/extract-landing.md` |

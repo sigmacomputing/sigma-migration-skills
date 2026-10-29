@@ -30,12 +30,13 @@ require 'net/http'
 require 'uri'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/code_rep'
 
 opts = { width: 1400, height: 700 }
 OptionParser.new do |p|
   p.on('--workbook ID')     { |v| opts[:workbook]    = v }
-  p.on('--out-dir D')       { |v| opts[:out_dir]     = v }
+  p.on('--out-dir D')       { |v| opts[:out_dir]     = WorkdirGuard.check!(v, '--out-dir') }
   p.on('--element-ids IDS') { |v| opts[:element_ids] = v.split(',') }
   p.on('--width N',  Integer) { |v| opts[:width]  = v }
   p.on('--height N', Integer) { |v| opts[:height] = v }

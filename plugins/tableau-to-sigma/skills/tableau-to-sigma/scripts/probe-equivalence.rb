@@ -73,6 +73,7 @@
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'equivalence_probe'
@@ -82,7 +83,7 @@ $stdout.sync = true # progress lines interleave correctly with the FATAL block
 
 opts = { timeout: 600 }
 OptionParser.new do |p|
-  p.on('--workdir DIR')          { |v| opts[:dir] = v }
+  p.on('--workdir DIR')          { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--edit DESC', 'what the edit IS (the ledger key; re-probing the same edit replaces its entry)') { |v| opts[:edit] = v }
   p.on('--claim TEXT', 'the equivalence claim being proven (e.g. "join contributes no shelf column; elision is a no-op")') { |v| opts[:claim] = v }
   p.on('--grain COLS', 'comma-separated declared-grain columns for COUNT(DISTINCT ...)') { |v| opts[:grain] = v.split(',').map(&:strip).reject(&:empty?) }

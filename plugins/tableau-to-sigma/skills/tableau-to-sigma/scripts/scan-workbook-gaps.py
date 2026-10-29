@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "lib"))
+import workdir_guard  # noqa: E402
 FORMULA_AUDIT_HELPER = HERE / "formula-audit.mjs"
 FUNCTION_CATALOG = HERE.parent / "refs" / "functions.json"
 FORMULA_STATUSES = (
@@ -1546,6 +1548,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         if len(arguments) == 2
         else default_report_path(input_path)
     )
+    workdir_guard.check_file(output_path, "gap-scan output (out.md) directory")
     try:
         scan(input_path, output_path)
     except (OSError, ValueError, KeyError, TypeError) as exc:

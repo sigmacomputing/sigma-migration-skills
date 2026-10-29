@@ -57,8 +57,8 @@ changing any gate's semantics:
 
 - **Phase-1d is a WAIT-GATE, not an abort.** At the DM-POST barrier the
   orchestrator now **waits** for a verified `png-read.json` (poll every 2s,
-  30s heartbeats, bound `SIGMA_PNG_READ_TIMEOUT_S`, default 480s; `0` = fail
-  immediately) — do the dashboard-PNG read **while it waits** and the run
+  30s heartbeats, bound `SIGMA_PNG_READ_TIMEOUT_S`, default 0s; set 480 only
+  when the runner can act concurrently) — do the dashboard-PNG read **while it waits** and the run
   continues in-process. Deadline passed → **exit 18** with a banner naming
   exactly what is missing (absent / `verified: false` / stale). **No
   stale-seed reuse:** a `png-read.json` older than this run's discovery fetch
@@ -92,19 +92,22 @@ changing any gate's semantics:
   only on re-entry workdirs. Now, when the predicate fails ONLY on
   agent-dischargeable obligations (no recorded verdict; staged RCF ledger
   missing/unresolved), the tail prints a banner (first line names
-  `SIGMA_VISUAL_VERDICT_TIMEOUT_S`, default 480s, `0` = don't wait) with the
+   `SIGMA_VISUAL_VERDICT_TIMEOUT_S`, default 0s, `0` = don't wait) with the
   exact discharge commands — `phase6-parity.rb --finalize` → read the staged
   6f pairs / resolve the RCF ledger → `record-visual-check.rb` — and polls the
   predicate every 5s. Discharged in time ⇒ the chain fires and a COLD run is
   single-invocation end-to-end. Deadline (or a recorded `not-executable`
   verdict — that is an answer, not a pending one) ⇒ the unchanged exit-12
   two-invocation contract, fail-open.
-- **W2.5 — `--wait[=SECONDS]` is the default driving pattern.** One tool call
+- **W2.5 — `--wait[=SECONDS]` is an optional driving pattern.** One tool call
   (tool timeout ≥ 25 min): the run backgrounds itself into
   `<WORK>/migrate-full.log`, the wrapper returns the inner exit code VERBATIM
   within the budget (default 1500s), and **exit 26** = budget exhausted with
-  the run STILL ALIVE (pid + log + state named; re-run the same command to
-  re-attach — never treat 26 as a failure). Detached-agent cadence contract:
+  the run STILL ALIVE (pid + log + state named). Observe that process; do NOT
+  launch another run until it exits. A workdir OS lock refuses a second writer
+  with exit 28, including finalize attempts. `migration-process.json` records
+  the owner PID and terminal exit (after a hard kill, the OS lock still releases).
+  Detached-agent cadence contract:
   poll the log only on a `migrate-state.json` phase transition, else every
   ≥90s — never tighter.
 - **W2.1/W2.2/W2.4 — tier ratchet + factory flow.** At 0c the run resolves
@@ -240,9 +243,9 @@ pollers (`sigma-export-png.py` 60×3s, `export-chart-png.rb` 20×3s,
 (`lane_wait_for` 600s, join `TABLEAU_LANE_TIMEOUT` default 600s — a transient
 render wedge under the old 1800s default silently burned 30 min; large sites
 raise it via the env var — both with 30s heartbeats), the Phase-1d
-dashboard-read WAIT-GATE (`SIGMA_PNG_READ_TIMEOUT_S` default 480s, 30s
+dashboard-read WAIT-GATE (`SIGMA_PNG_READ_TIMEOUT_S` default 0s, 30s
 heartbeats, exit 18 at the deadline), the pass-1-tail visual-verdict wait
-(`SIGMA_VISUAL_VERDICT_TIMEOUT_S` default 480s, fail-open to exit 12 — W2.6),
+(`SIGMA_VISUAL_VERDICT_TIMEOUT_S` default 0s, return to exit 12 — W2.6),
 the `--wait` wrapper budget (default 1500s, exit 26 with the run still alive —
 W2.5), lane reaps (60s), and all REST retry loops (attempt-capped
 with exponential backoff). If you ever observe a script spinning past its

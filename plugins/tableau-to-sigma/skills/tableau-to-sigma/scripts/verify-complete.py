@@ -10,9 +10,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
 import relationship_coverage as relationship_coverage_lib  # noqa: E402
 import dashboard_coverage as dashboard_coverage_lib  # noqa: E402
 import sql_provenance as sql_provenance_lib  # noqa: E402
+from migration_diagnostics import Span  # noqa: E402
 
 
 def load(path: Path) -> dict:
@@ -292,7 +294,9 @@ def main() -> int:
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--blind-grade", required=True)
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
+    span = Span(workdir, "completion", "verify-complete.py")
     try:
         result = evaluate(workdir, Path(args.blind_grade).expanduser().resolve())
         (workdir / "migration-result.json").write_text(
@@ -300,9 +304,11 @@ def main() -> int:
             encoding="utf-8",
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
+        span.finish(2)
         print(f"FATAL: completion gate could not run: {exc}", file=sys.stderr)
         return 2
     if not result["complete"]:
+        span.finish(1)
         print("BLOCKED: Tableau Python migration is not complete", file=sys.stderr)
         for failure in result["failures"]:
             print(f"  - {failure}", file=sys.stderr)
@@ -311,6 +317,7 @@ def main() -> int:
         f"DONE: GREEN dataModelId={result['dataModelId']} "
         f"workbookId={result['workbookId']}"
     )
+    span.finish(0)
     return 0
 
 

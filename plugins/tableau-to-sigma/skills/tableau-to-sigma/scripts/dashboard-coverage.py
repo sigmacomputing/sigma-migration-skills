@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import workdir_guard  # noqa: E402
 import dashboard_coverage  # noqa: E402
 
 
@@ -20,6 +21,7 @@ def main() -> int:
     parser.add_argument("--scope")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
     source = Path(args.source).resolve() if args.source else workdir / "workbook-content.twb"
     if args.spec:

@@ -1,0 +1,91 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for table-calc rewrites over fields whose
+     bracketed Tableau name carries parentheses: the duplicated-field form
+     "[Volume Measure (copy)_123]" and the group form "[Officer Name (group)]".
+     - "Leaderboard": a bar chart whose measure is RANK(SUM([Volume Measure (copy)_123])) — the
+       rank calc of a leaderboard. Every RANK/LOOKUP/WINDOW_* rewrite used to read the paren in
+       the field name as call structure and refuse the whole calc ("window construct RANK() has
+       no validated mapping in this shape"), so the builder fell back to Sum([Master/<rank calc>]). -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Activity' inline='true' name='federated.paren0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.paren0001'>
+            <connection class='snowflake' dbname='SALESDB' schema='DEMO' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.paren0001' name='OFFICER_ACTIVITY' table='[DEMO].[OFFICER_ACTIVITY]' type='table' />
+      </connection>
+      <column caption='Officer Name' datatype='string' name='[OFFICER_NAME]' role='dimension' type='nominal' />
+      <column caption='Volume Measure' datatype='real' name='[VOLUME_MEASURE]' role='measure' type='quantitative' />
+      <column caption='Volume Measure (copy)' datatype='real' name='[Volume Measure (copy)_123]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[VOLUME_MEASURE]' />
+      </column>
+      <column caption='Volume Rank' datatype='integer' name='[Calculation_2001]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RANK(SUM([Volume Measure (copy)_123]))'>
+          <table-calc ordering-type='Rows' />
+        </calculation>
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Leaderboard'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Activity' name='federated.paren0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.paren0001'>
+            <column caption='Officer Name' datatype='string' name='[OFFICER_NAME]' role='dimension' type='nominal' />
+            <column caption='Volume Measure' datatype='real' name='[VOLUME_MEASURE]' role='measure' type='quantitative' />
+            <column caption='Volume Measure (copy)' datatype='real' name='[Volume Measure (copy)_123]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='[VOLUME_MEASURE]' />
+            </column>
+            <column caption='Volume Rank' datatype='integer' name='[Calculation_2001]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='RANK(SUM([Volume Measure (copy)_123]))'>
+                <table-calc ordering-type='Rows' />
+              </calculation>
+            </column>
+            <column-instance column='[OFFICER_NAME]' derivation='None' name='[none:OFFICER_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_2001]' derivation='User' name='[usr:Calculation_2001:qk]' pivot='key' type='quantitative'>
+              <table-calc ordering-field='[federated.paren0001].[none:OFFICER_NAME:nk]' ordering-type='Field' />
+            </column-instance>
+            <column-instance column='[Volume Measure (copy)_123]' derivation='Sum' name='[sum:Volume Measure (copy)_123:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+            <encodings>
+              <tooltip column='[federated.paren0001].[sum:Volume Measure (copy)_123:qk]' />
+            </encodings>
+          </pane>
+        </panes>
+        <rows>[federated.paren0001].[none:OFFICER_NAME:nk]</rows>
+        <cols>[federated.paren0001].[usr:Calculation_2001:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Leaders'>
+      <size maxheight='600' maxwidth='900' minheight='600' minwidth='900' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Activity' name='federated.paren0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='vert' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='3' name='Leaderboard' w='100000' x='0' y='0' />
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

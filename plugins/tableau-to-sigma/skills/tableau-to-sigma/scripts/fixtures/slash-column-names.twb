@@ -1,0 +1,126 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for column captions that
+     contain "/": Sigma reads "/" in a bracketed reference as a path separator, so
+     a data-model or master column NAMED with one can never be referenced.
+     - "Area - East/West" is a calculated dimension (a hyphen AND a slash).
+     - "Area Tag" is a second calc that reads "Area - East/West" (a DM-internal ref).
+     - "Country/Region" is a plain warehouse column whose caption has a slash.
+     - "Revenue by Area" plots Area - East/West; "Revenue by Country" plots
+       Country/Region. Both captions are quick filters on the dashboard. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Orders' inline='true' name='federated.slash0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.slash0001'>
+            <connection class='snowflake' dbname='SALESDB' schema='SALES' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.slash0001' name='ORDERS' table='[SALES].[ORDERS]' type='table' />
+      </connection>
+      <column caption='Order Date' datatype='date' name='[ORDER_DATE]' role='dimension' type='ordinal' />
+      <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+      <column caption='Country/Region' datatype='string' name='[COUNTRY_REGION]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Area - East/West' datatype='string' name='[Calculation_401]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [REGION] = &apos;East&apos; THEN &apos;East&apos; ELSE &apos;West&apos; END' />
+      </column>
+      <column caption='Area Tag' datatype='string' name='[Calculation_402]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[Calculation_401] + &apos; zone&apos;' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Revenue by Area'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.slash0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.slash0001'>
+            <column caption='Area - East/West' datatype='string' name='[Calculation_401]' role='dimension' type='nominal'>
+              <calculation class='tableau' formula='IF [REGION] = &apos;East&apos; THEN &apos;East&apos; ELSE &apos;West&apos; END' />
+            </column>
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column-instance column='[Calculation_401]' derivation='None' name='[none:Calculation_401:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.slash0001].[none:Calculation_401:nk]'>
+            <groupfilter function='level-members' level='[none:Calculation_401:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.slash0001].[none:Calculation_401:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.slash0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.slash0001].[none:Calculation_401:nk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Revenue by Country'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Orders' name='federated.slash0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.slash0001'>
+            <column caption='Country/Region' datatype='string' name='[COUNTRY_REGION]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column-instance column='[COUNTRY_REGION]' derivation='None' name='[none:COUNTRY_REGION:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.slash0001].[none:COUNTRY_REGION:nk]'>
+            <groupfilter function='level-members' level='[none:COUNTRY_REGION:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <slices>
+            <column>[federated.slash0001].[none:COUNTRY_REGION:nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.slash0001].[sum:NET_REVENUE:qk]</rows>
+        <cols>[federated.slash0001].[none:COUNTRY_REGION:nk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Area Review'>
+      <size maxheight='700' maxwidth='1200' minheight='700' minwidth='1200' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Orders' name='federated.slash0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='3' param='vert' type-v2='layout-flow' w='20000' x='0' y='0'>
+              <zone h='10000' id='10' mode='checkdropdown' name='Revenue by Area' param='[federated.slash0001].[none:Calculation_401:nk]' type-v2='filter' values='relevant' w='20000' x='0' y='0' />
+              <zone h='10000' id='11' mode='checkdropdown' name='Revenue by Country' param='[federated.slash0001].[none:COUNTRY_REGION:nk]' type-v2='filter' values='relevant' w='20000' x='0' y='10000' />
+            </zone>
+            <zone h='100000' id='4' param='vert' type-v2='layout-flow' w='80000' x='20000' y='0'>
+              <zone h='50000' id='21' name='Revenue by Area' w='80000' x='20000' y='0' />
+              <zone h='50000' id='22' name='Revenue by Country' w='80000' x='20000' y='50000' />
+            </zone>
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

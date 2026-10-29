@@ -88,12 +88,21 @@ model3 = { 'pages' => [{ 'elements' => [
     { 'id' => 'c-4', 'name' => nil, 'formula' => '[WORLDIND_2F6653_WORLD_INDICATORS/Country/Region]' }
   ])
 ] }] }
-MechanicalSpecs.fixup_dm_spec(model3)
+fx3 = MechanicalSpecs.fixup_dm_spec(model3)
 c4 = model3['pages'][0]['elements'][0]['columns'][0]
 check(c4['formula'] == '[WORLDIND_2F6653_WORLD_INDICATORS/COUNTRY_REGION]',
       "fixup_dm_spec (called with NO real_columns/column_mapping — the live-run first-pass call shape) " \
       "still sanitizes the caption (got #{c4['formula']})", fails)
-check(c4['name'] == 'Country/Region', 'fixup_dm_spec preserves the display caption', fails)
+# #685-B keeps the raw caption as the column NAME (sanitize_bracket_path_captions! still does,
+# Part A). A NAME containing "/" can never be referenced, though: Sigma reads it as a path
+# separator and the column compiles to type="error". So fixup_dm_spec now runs
+# sanitize_slash_column_names! right after and renames the column to Sigma's friendly form.
+# The caption is not lost — it is the caption -> safe-name map that derive_master registers
+# (see test-slash-column-names.rb), which is why this assertion changed from the raw caption.
+check(c4['name'] == 'Country Region',
+      "fixup_dm_spec renames the slash-bearing display name to its referenceable form (got #{c4['name'].inspect})", fails)
+check(fx3[:rename_map] == { 'Country/Region' => 'Country Region' },
+      "the original caption survives as the caption -> safe-name map (got #{fx3[:rename_map].inspect})", fails)
 
 puts 'Part E — the phantom-column check now sees the CORRECT physical name (COUNTRY_REGION, not REGION)'
 # A landed table carrying a genuinely SEPARATE "Region" column (the coincidence

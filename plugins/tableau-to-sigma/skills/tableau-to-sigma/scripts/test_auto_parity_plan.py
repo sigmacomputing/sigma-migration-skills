@@ -157,6 +157,58 @@ class AutoParityPlanTest(unittest.TestCase):
             plan["charts"][0]["sigma_columns"],
         )
 
+    def test_table_calc_addressing_is_stripped_from_measure_names_labels(self):
+        root, spec_path = self.fixture(
+            "Measure Names,Month,Measure Values\n"
+            "Rank - Mo along Table (Down),Jan,1\nVolume,Jan,10\n"
+            "Rank - Mo along Table (Down),Feb,2\nVolume,Feb,20\n"
+        )
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        chart = spec["document"]["elements"][1]
+        chart["columns"] = [
+            {"id": "x-month", "name": "Month"},
+            {"id": "y-rank", "name": "Rank - Mo"},
+            {"id": "y-volume", "name": "Volume"},
+        ]
+        spec_path.write_text(json.dumps(spec), encoding="utf-8")
+
+        plan = auto_parity_plan.build_plan(root, spec_path)
+
+        self.assertEqual(
+            [["Jan", 1.0, 10.0], ["Feb", 2.0, 20.0]], plan["charts"][0]["expected"]
+        )
+        self.assertEqual(
+            ["x-month", "y-rank", "y-volume"], plan["charts"][0]["sigma_columns"]
+        )
+        self.assertEqual("Rank - Mo", auto_parity_plan.header_base("Rank - Mo along Table (Down)"))
+        self.assertEqual("Net Revenue", auto_parity_plan.header_base("Sum of Net Revenue"))
+
+    def test_table_keeps_full_header_as_column_name_and_still_matches(self):
+        # A rank table's column carries Tableau's full header; the CSV is pivoted under the
+        # base name, so the plan must match the column through its own base name.
+        root, spec_path = self.fixture(
+            "Measure Names,Month,Measure Values\n"
+            "Rank - Mo along Table (Down),Jan,1\nVolume,Jan,10\n"
+            "Rank - Mo along Table (Down),Feb,2\nVolume,Feb,20\n"
+        )
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        chart = spec["document"]["elements"][1]
+        chart["columns"] = [
+            {"id": "x-month", "name": "Month"},
+            {"id": "y-rank", "name": "Rank - Mo along Table (Down)"},
+            {"id": "y-volume", "name": "Volume"},
+        ]
+        spec_path.write_text(json.dumps(spec), encoding="utf-8")
+
+        plan = auto_parity_plan.build_plan(root, spec_path)
+
+        self.assertEqual(
+            ["x-month", "y-rank", "y-volume"], plan["charts"][0]["sigma_columns"]
+        )
+        self.assertEqual(
+            [["Jan", 1.0, 10.0], ["Feb", 2.0, 20.0]], plan["charts"][0]["expected"]
+        )
+
     def test_hidden_filter_resolution_only_carries_when_definition_matches(self):
         root, spec_path = self.fixture()
         prior = {
@@ -187,6 +239,89 @@ class AutoParityPlanTest(unittest.TestCase):
         )
         self.assertEqual("needs_review", changed["plan_status"])
         self.assertEqual("unresolved", changed["hidden_filters"][0]["status"])
+
+    def write_ledger(self, root, entries):
+        (root / "carried-calc-filters.json").write_text(
+            json.dumps({"version": 1, "entries": entries}), encoding="utf-8"
+        )
+
+    @staticmethod
+    def carried(**overrides):
+        # A ledger entry as build-charts-from-signals.rb writes it for the
+        # fixture's "Current" calc-filter (members ["Yes"]).
+        entry = {
+            "worksheet": "Sales Sheet",
+            "dashboard": "Overview",
+            "calc_caption": "Current",
+            "calc_ref": "[Calculation_1]",
+            "filter_type": "categorical",
+            "kind": "list",
+            "members": ["Yes"],
+            "element_id": "el-sales",
+            "sigma_column": "Current Match",
+            "sigma_formula": 'Text(Contains([Region], "Yes"))',
+            "mode": "boolean-calc",
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_carried_calc_filters_ledger_resolves_matching_hidden_filters(self):
+        root, spec_path = self.fixture()
+        # Missing ledger: today's behaviour, the filter blocks.
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        self.assertEqual("needs_review", plan["plan_status"])
+        self.assertEqual("unresolved", plan["hidden_filters"][0]["status"])
+
+        # Carried boolean calc -> translated, with the formula and the note.
+        self.write_ledger(root, [self.carried()])
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        hidden = plan["hidden_filters"][0]
+        self.assertEqual("green", plan["plan_status"])
+        self.assertEqual("translated", hidden["status"])
+        self.assertEqual('Text(Contains([Region], "Yes"))', hidden["translated_to"])
+        self.assertEqual("carried by build-charts-from-signals.rb", hidden["note"])
+
+        # Carried search filter (members ["true"]) -> translated too.
+        layout = json.loads((root / "dashboard-layout.json").read_text())
+        layout[0]["zones"][0]["hidden_filters"][0]["members"] = ["true"]
+        (root / "dashboard-layout.json").write_text(json.dumps(layout))
+        self.write_ledger(
+            root,
+            [self.carried(members=["true"], mode="search-filter", sigma_formula=None)],
+        )
+        plan = auto_parity_plan.build_plan(root, spec_path)
+        self.assertEqual("translated", plan["hidden_filters"][0]["status"])
+        self.assertEqual("Current Match", plan["hidden_filters"][0]["translated_to"])
+
+    def test_carried_calc_filters_ledger_never_resolves_a_different_filter(self):
+        root, spec_path = self.fixture()
+        cases = {
+            "uncarried calc filter (ledger names another calc)": self.carried(
+                calc_ref="[Calculation_9]", calc_caption="Other"
+            ),
+            "definition changed since the build": self.carried(members=["No"]),
+            "filter type changed": self.carried(filter_type="quantitative"),
+            "another worksheet's carry": self.carried(worksheet="Other Sheet"),
+            "tile caption whitespace is part of the key": self.carried(
+                worksheet="Sales Sheet "
+            ),
+            "carried on another dashboard only": self.carried(dashboard="Elsewhere"),
+        }
+        for label, entry in cases.items():
+            with self.subTest(label):
+                self.write_ledger(root, [entry])
+                plan = auto_parity_plan.build_plan(root, spec_path)
+                self.assertEqual("needs_review", plan["plan_status"])
+                self.assertEqual("unresolved", plan["hidden_filters"][0]["status"])
+        # An empty or unparseable ledger changes nothing.
+        self.write_ledger(root, [])
+        self.assertEqual(
+            "needs_review", auto_parity_plan.build_plan(root, spec_path)["plan_status"]
+        )
+        (root / "carried-calc-filters.json").write_text("{not json", encoding="utf-8")
+        self.assertEqual(
+            "needs_review", auto_parity_plan.build_plan(root, spec_path)["plan_status"]
+        )
 
     def test_quick_filter_left_at_all_is_not_a_hidden_filter(self):
         root, spec_path = self.fixture()
