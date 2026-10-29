@@ -1,9 +1,4 @@
 {
-  "freshness_check": {
-    "checked_at": "2026-10-13",
-    "upstream_head": "d527526",
-    "result": "no-module-drift"
-  },
   "bundler": "esbuild --bundle --format=esm --platform=node",
   "vendored_modules": "sql.mjs",
   "note": "Self-contained bundled artifacts, not source. Refresh with tools/vendor-converters.sh after the converter repo changes."
