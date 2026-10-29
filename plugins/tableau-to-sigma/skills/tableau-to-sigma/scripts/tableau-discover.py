@@ -23,6 +23,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
+import workdir_guard  # noqa: E402
 import tableau_rest as tableau  # noqa: E402
 
 WRITE_LOCK = threading.Lock()
@@ -352,6 +353,7 @@ def main() -> int:
     parser.add_argument("--skip-images", action="store_true")
     parser.add_argument("--skip-content", action="store_true")
     args = parser.parse_args()
+    workdir_guard.check(args.out, "--out")
     if args.pool < 1:
         parser.error("--pool must be at least 1")
     try:

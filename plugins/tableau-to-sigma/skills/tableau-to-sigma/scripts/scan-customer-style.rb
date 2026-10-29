@@ -30,12 +30,13 @@ require 'net/http'
 require 'uri'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/workbook_code'
 
 opts = { sample: 20, sort: 'updatedAt:desc', keep_raw: false }
 OptionParser.new do |p|
   p.on('--sample N', Integer)   { |v| opts[:sample]   = v }
-  p.on('--out-dir D')           { |v| opts[:out_dir]  = v }
+  p.on('--out-dir D')           { |v| opts[:out_dir]  = WorkdirGuard.check!(v, '--out-dir') }
   p.on('--sort S')              { |v| opts[:sort]     = v }
   p.on('--workbook-ids IDS')    { |v| opts[:wb_ids]   = v.split(',') }
   p.on('--exclude-folder F')    { |v| opts[:excl]     = v }

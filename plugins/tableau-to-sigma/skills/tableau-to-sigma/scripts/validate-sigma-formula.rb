@@ -61,6 +61,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
@@ -79,7 +80,7 @@ OptionParser.new do |p|
   p.on('--folder-id ID')          { |v| opts[:folder_id] = v }
   p.on('--chart-kind K')          { |v| opts[:chart_kind] = v }
   p.on('--label L')               { |v| opts[:label] = v }
-  p.on('--workdir DIR', 'conversion workdir — homes the probe-artifact registry') { |v| opts[:workdir] = v }
+  p.on('--workdir DIR', 'conversion workdir — homes the probe-artifact registry') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--keep-workbook')         { opts[:keep] = true }
   p.on('--batch FILE', 'JSON entries — N formulas, ONE probe workbook, one readback (W2.14)') { |v| opts[:batch] = v }
   p.on('--connection-id ID', 'warehouse connection for the optional per-entry SQL ground-truth half') { |v| opts[:conn_id] = v }

@@ -31,8 +31,10 @@ OptionParser.new do |o|
   o.on('--workbook-luid LUID') { |v| opts[:wb_luid] = v }
   o.on('--twb PATH')           { |v| opts[:twb] = v }
   o.on('--out PATH')           { |v| opts[:out] = v }
+  o.on('--local-only', 'Read only the supplied TWB; never call Tableau GraphQL/REST') { opts[:local_only] = true }
 end.parse!
 abort 'usage: --out PATH (optional: --workbook-luid LUID  OR  --twb PATH)' unless opts[:out]
+abort '--local-only requires an existing --twb file' if opts[:local_only] && !File.file?(opts[:twb].to_s)
 
 results = []
 
@@ -73,7 +75,7 @@ gql_scope = if opts[:wb_luid]
             end
 
 begin
-  resp = Tableau.graphql(gql_scope)
+  resp = opts[:local_only] ? {} : Tableau.graphql(gql_scope)
   if opts[:wb_luid]
     wbs = resp.dig('data', 'workbooks') || []
     wbs.each do |wb|

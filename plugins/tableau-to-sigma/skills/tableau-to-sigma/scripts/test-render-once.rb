@@ -133,6 +133,15 @@ check(visual_render_dimensions({ 'name' => 'Alpha Overview' }, fixed) == [1600, 
       'fixed source canvas replaces the old hard-coded 1800×1000 render', fails)
 check(visual_render_dimensions({ 'name' => 'Other' }, fixed) == [1800, 1000],
       'unmatched/automatic dashboard keeps the safe render fallback', fails)
+# Live-caught: a page whose layout outgrew the 900px source canvas (full-row
+# tables, 15-row titled charts) rendered cropped and was graded "clipped".
+lay = %(<Page type="grid" id="page-data"><Element elementId="m" gridRow="1 / 90"/></Page>) +
+      %(<Page type="grid" id="p1"><Element elementId="a" gridRow="1 / 4"/><Element elementId="b" gridRow="23 / 42"/></Page>)
+short = [{ 'dashboard' => 'Alpha Overview', 'canvas_px' => { 'w' => 1400, 'h' => 900, 'sizing_mode' => 'fixed' } }]
+check(visual_render_dimensions({ 'name' => 'Alpha Overview', 'id' => 'p1' }, short, lay) == [1400, (41 * 28) + 64],
+      'a Sigma page taller than the source canvas renders to its last grid row (not cropped at 900px)', fails)
+check(visual_render_dimensions({ 'name' => 'Alpha Overview', 'id' => 'p1' }, fixed, lay.sub('23 / 42', '23 / 25')) == [1600, 1000],
+      'a page that fits the canvas keeps the canvas size; another page\'s rows are ignored', fails)
 
 puts
 if fails.empty?

@@ -42,6 +42,7 @@ require 'yaml'
 require 'fileutils'
 require 'open3'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'set'
 require 'tmpdir'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
@@ -62,7 +63,7 @@ OptionParser.new do |p|
   p.on('--folder ID')         { |v| opts[:folder] = v }
   p.on('--build PATH')        { |v| opts[:build] = v }
   p.on('--discover-dir DIR')  { |v| opts[:discover] = v }
-  p.on('--workdir DIR')       { |v| opts[:workdir] = v }
+  p.on('--workdir DIR')       { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--name NAME')         { |v| opts[:name] = v }
   p.on('--dashboard NAME')    { |v| (opts[:dashboards] ||= []) << v }
   p.on('--grant-role ROLE')   { |v| opts[:grant_role] = v }

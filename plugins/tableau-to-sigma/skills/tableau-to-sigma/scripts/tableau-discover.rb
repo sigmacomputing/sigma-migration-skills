@@ -79,6 +79,7 @@
 require 'json'
 require 'fileutils'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'thread'
 require 'timeout' # explicit: the offline test stubs tableau_rest, so net/http
                   # never loads it transitively — the budget wrap needs it
@@ -106,7 +107,7 @@ OptionParser.new do |o|
   o.on('--datasource-name NAME')  { |v| opts[:datasource_name] = v }
   o.on('--datasource-luid LUID', 'FULL datasource UUID (no prefix matching)') { |v| opts[:datasource_luid] = v }
   o.on('--no-auto-ds', 'Disable .twb-based datasource auto-detect') { opts[:no_auto_ds] = true }
-  o.on('--out DIR', 'Output directory (required)') { |v| opts[:out] = v }
+  o.on('--out DIR', 'Output directory (required)') { |v| opts[:out] = WorkdirGuard.check!(v, '--out') }
   o.on('--skip-images')           { opts[:fetch_view_images] = 'none' }
   o.on('--all-view-images')       { opts[:fetch_view_images] = 'all' }
   o.on('--skip-content')          { opts[:skip_content] = true }

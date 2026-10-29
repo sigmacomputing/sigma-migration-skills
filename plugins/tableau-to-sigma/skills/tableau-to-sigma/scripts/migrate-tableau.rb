@@ -117,7 +117,7 @@ Encoding.default_external = Encoding::UTF_8
 #      refs/extract-landing.md), or re-run with --skip-extract-landing "<reason>";
 # 18 = the Phase-1d dashboard-read WAIT-GATE deadline passed: png-read.json is
 #      still missing/unverified/stale after SIGMA_PNG_READ_TIMEOUT_S (default
-#      480s). The banner names exactly what is missing. Verify the read (or
+#      0s; opt into waiting on concurrent runners). The banner names exactly what is missing. Verify the read (or
 #      --skip-dashboard-read "<reason>") and re-run — discovery is cached;
 # 19 = scoped-run mismatch: a --dashboard / mission.json stated scope named a
 #      dashboard that matches NOTHING in the workbook — the banner lists the
@@ -159,6 +159,11 @@ require 'json'
 require 'csv'
 require 'yaml'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
+require_relative 'lib/migration_process'
+require_relative 'lib/execution_identity'
+require_relative 'lib/migration_diagnostics'
+require_relative 'lib/mcp_source'
 require 'fileutils'
 require 'open3'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
@@ -230,6 +235,7 @@ OptionParser.new do |o|
   BANNER
   o.on('--workbook NAME')    { |v| opts[:wb_name] = v }
   o.on('--workbook-id LUID') { |v| opts[:wb_id]   = v }
+  o.on('--twb PATH', 'Local TWB + Tableau MCP evidence in --out; never signs in to Tableau or runs Tableau REST discovery') { |v| opts[:twb] = File.expand_path(v) }
   o.on('--connection ID')    { |v| opts[:conn]    = v }
   o.on('--folder ID')        { |v| opts[:folder]  = v }
   o.on('--db NAME')          { |v| opts[:db]      = v }
@@ -273,11 +279,11 @@ OptionParser.new do |o|
   o.on('--force-route-switch REASON', 'override the route-persistence check (a workdir driven via one route ' \
                                       'must normally be finished the same way) — counted as a quality waiver; ' \
                                       'name it in your report.') { |v| opts[:force_route_switch] = v }
-  o.on('--out DIR')          { |v| opts[:out]     = File.expand_path(v) }
+  o.on('--out DIR')          { |v| opts[:out]     = WorkdirGuard.check!(File.expand_path(v), '--out') }
   # Alias: every sibling script (doctor, intake, verify-complete, assert-*)
   # takes --workdir; this orchestrator uniquely used --out — a copy-paste trap
   # that aborted runs at argv parse (field-caught round 2). Both now work.
-  o.on('--workdir DIR', 'alias of --out') { |v| opts[:out] = File.expand_path(v) }
+  o.on('--workdir DIR', 'alias of --out') { |v| opts[:out] = WorkdirGuard.check!(File.expand_path(v), '--workdir') }
   o.on('--answers JSON')     { |v| opts[:answers] = v }
   o.on('--yes')              {     opts[:yes]     = true }
   # W2.5 — foreground half of the wave-2 poll/wait contract. Optparse consumes
@@ -407,6 +413,12 @@ OptionParser.new do |o|
                               'SAME dashboard rather than orphaning it.') { |v| opts[:reuse_workbook] = v }
 end.parse!
 
+opts[:wb_name] ||= File.basename(opts[:twb], '.*') if opts[:twb] && !opts[:wb_id]
+mcp_resume_slug = (opts[:wb_name] || opts[:wb_id])&.gsub(/[^A-Za-z0-9_-]/, '-')&.squeeze('-')
+mcp_resume_workdir = opts[:out] || (File.expand_path("~/tableau-migration/#{mcp_resume_slug}") if mcp_resume_slug)
+SOURCE_VIA_MCP = !!opts[:twb] || ENV['SIGMA_TABLEAU_VIA_MCP'] == '1' ||
+                 !!(mcp_resume_workdir && File.file?(File.join(mcp_resume_workdir, 'source-evidence.json')))
+
 # --db/--schema travel together: a lone half used to be silently completed by a
 # fabricated default, which 404s in every real org (E2E-caught). Fail loudly.
 if opts[:db].nil? ^ opts[:schema].nil?
@@ -420,7 +432,7 @@ end
 # from its contentUrl slug). Accept a URL pasted into --workbook, parse the
 # workbookContentUrl segment, and resolve it via the REST contentUrl filter.
 # Numeric /workbooks/<id> and /projects/<id> URLs keep routing to resolve-project.rb.
-if opts[:wb_name].to_s =~ %r{\Ahttps?://} || opts[:wb_name].to_s =~ %r{#/site/}
+if !SOURCE_VIA_MCP && (opts[:wb_name].to_s =~ %r{\Ahttps?://} || opts[:wb_name].to_s =~ %r{#/site/})
   url = opts[:wb_name]
   if (m = url.match(%r{/views/([^/?#]+)}))
     content_url = m[1]
@@ -465,6 +477,20 @@ abort 'missing --connection (pass --connection <id>, or run intake.rb first and 
 slug = (opts[:wb_name] || opts[:wb_id]).gsub(/[^A-Za-z0-9_-]/, '-').squeeze('-')
 WORK = opts[:out] || File.expand_path("~/tableau-migration/#{slug}")
 FileUtils.mkdir_p(File.join(WORK, 'views'))
+unless opts[:wait_mode]
+  begin
+    migration_lock = MigrationProcess.acquire(WORK)
+  rescue MigrationProcess::Busy => e
+    warn "FATAL: #{e.message} (exit 28; no second writer started)"
+    exit 28
+  end
+  diagnostic_span = MigrationDiagnostics.process(WORK, kind: 'invocation', operation: 'migrate-tableau.rb')
+  identity = ExecutionIdentity.record(WORK, source_mode: SOURCE_VIA_MCP ? 'local-twb-mcp' : 'tableau-rest')
+  if identity && identity['implementation_changed']
+    warn 'WARN: migration implementation changed since the previous invocation; see execution-history.jsonl. ' \
+         'Review generated artifacts before resuming; no source snapshots or manual patches were discarded.'
+  end
+end
 
 # ── --quiet machine stdout (speed review #3 slice; refs/performance.md) ──────
 # Poll turns against a background log re-pay every banner on every read. With
@@ -515,8 +541,8 @@ end if QUIET
 #     VERBATIM — 0/3/4/10/11/12/16/18/… keep their documented meanings;
 #   budget exhausted → exit 26 = "wait budget exhausted, run STILL ALIVE":
 #     pid + log + state path are named, the child keeps running, nothing is
-#     killed and no failure is invented. Re-attach with another --wait run of
-#     the same command, or poll per the G2 cadence (a migrate-state.json
+#     killed and no failure is invented. Observe the existing PID/log, do NOT
+#     launch another command until it exits. Poll per the G2 cadence (a migrate-state.json
 #     phase transition, else every ≥90s — never tighter).
 # Wait-mode stdout is ≤5 lines (plus quiet_event JSON under --quiet): the
 # point is ONE cheap tool call instead of the ~8-12 background poll turns.
@@ -568,7 +594,7 @@ if opts[:wait_mode]
     exit(_code)
   end
   puts "⚠ WAIT BUDGET EXHAUSTED (#{_wb}s) — the run is STILL ALIVE (pid #{_wait_pid}); exit 26 is NOT a failure."
-  puts "   re-attach: re-run this exact command (same --wait), or tail #{QUIET_FULL_LOG}"
+  puts "   do NOT re-run while this PID is active; inspect #{File.join(WORK, 'migration-process.json')} and #{QUIET_FULL_LOG}; resume only after it exits"
   quiet_event('wait-timeout', 'code' => 26, 'pid' => _wait_pid, 'log' => QUIET_FULL_LOG)
   exit 26
 end
@@ -603,6 +629,17 @@ def mission_scope_for(work)
   return nil if names.empty? && segments.empty?
   { 'names' => names.uniq, 'view_segments' => segments.uniq,
     'provenance' => scope['provenance'].to_s }
+end
+
+def resolve_mission_view_segments(segments, views)
+  Array(segments).map do |seg|
+    hit = Array(views).find do |view|
+      view.is_a?(Hash) &&
+        (view['contentUrl'].to_s.split('/').last == seg ||
+         view['name'].to_s.gsub(/[^A-Za-z0-9]/, '') == seg.to_s.gsub(/[^A-Za-z0-9]/, ''))
+    end
+    hit && hit['name'].to_s
+  end
 end
 
 MISSION_SCOPE = opts[:finalize] ? nil : mission_scope_for(WORK)
@@ -648,6 +685,29 @@ DASH_SCOPE = (opts[:dashboards] || []).flat_map { |d| ['--dashboard', d] } +
 def scoped?
   !DASH_SCOPE.empty?
 end
+
+prepare_mcp_source = lambda do
+  begin
+    raise McpSource::Incomplete, 'use --dashboard names, not --page ids, with local TWB/MCP evidence' if (opts[:pages] || []).any?
+    mcp_dashboards = opts[:dashboards] || []
+    if mcp_dashboards.empty? && MISSION_VIEW_SEGMENTS.any?
+      metadata = JSON.parse(File.read(File.join(WORK, 'get-workbook.json'), encoding: 'bom|utf-8')) rescue {}
+      workbook = metadata.is_a?(Hash) ? (metadata['workbook'] || metadata) : {}
+      views = workbook.is_a?(Hash) ? (workbook.dig('views', 'view') || []) : []
+      resolved = resolve_mission_view_segments(MISSION_VIEW_SEGMENTS, views)
+      mcp_dashboards = resolved if resolved.all? { |name| name && !name.empty? }
+    end
+    source_workbook = McpSource.prepare(WORK, twb: opts[:twb], workbook_id: opts[:wb_id],
+                                        dashboards: mcp_dashboards)
+    opts[:wb_id] = source_workbook['id']
+    opts[:wb_name] = source_workbook['name']
+    source_workbook
+  rescue McpSource::Incomplete => e
+    warn "MCP SOURCE STOP (exit 30):\n  - #{e.message}\nFetch the files listed in mcp-evidence-request.json with Tableau MCP, then seal them; no PAT is required. Existing files were preserved."
+    exit 30
+  end
+end
+source_workbook = prepare_mcp_source.call if SOURCE_VIA_MCP && opts[:finalize]
 
 # ── run_id (run-scoped completion sentinels) ─────────────────────────────────
 # Each PASS-1 invocation mints a fresh uuid (persisted in the run-state ledger,
@@ -781,9 +841,17 @@ _sigma_auth_mode = ENV.fetch('SIGMA_AUTH_MODE', 'auto')
 _client_auth = _sigma_auth_mode != 'browser' &&
                !ENV['SIGMA_CLIENT_ID'].to_s.empty? &&
                !ENV['SIGMA_CLIENT_SECRET'].to_s.empty?
-_browser_auth = _sigma_auth_mode != 'client-credentials' &&
+_browser_auth = _cred_skip.to_s.empty? && _sigma_auth_mode != 'client-credentials' &&
                 sigma_browser_session_present?
 _creds_ok = !ENV['SIGMA_API_TOKEN'].to_s.empty? || _client_auth || _browser_auth
+unless _creds_ok || !_cred_skip.to_s.empty?
+  begin
+    # Use the shared provider for CLI and auth.json sessions too; no interactive login.
+    _creds_ok = !Sigma.auth_token.to_s.empty? && !Sigma.base_url.to_s.empty?
+  rescue StandardError, SystemExit
+    _creds_ok = false
+  end
+end
 if !_creds_ok && (_cred_skip.nil? || _cred_skip.to_s.empty?)
   abort <<~MSG
     FATAL: no usable Sigma authentication is resolvable — the run would fail at the first API call.
@@ -792,7 +860,7 @@ if !_creds_ok && (_cred_skip.nil? || _cred_skip.to_s.empty?)
         eval "$(bash scripts/browser-login.sh)"
     Unattended fallback: export SIGMA_CLIENT_ID + SIGMA_CLIENT_SECRET +
     SIGMA_BASE_URL, then run `ruby scripts/setup.rb --from-env`.
-    A valid caller-provided SIGMA_API_TOKEN is also accepted as-is. Then re-run
+    An authenticated Sigma CLI profile or caller SIGMA_API_TOKEN is also accepted. Then re-run
     this exact command.
     (Genuinely offline/no-Sigma run? Re-run with SIGMA_SKIP_CRED_GATE="<reason>".)
   MSG
@@ -815,7 +883,7 @@ Offramp.log(WORK, kind: 'doctor-gate-waived', reason: _dg_skip.to_s) if _dg_skip
 # and skip if the agent is driving discovery through the Tableau MCP
 # (SIGMA_TABLEAU_VIA_MCP=1). Waive with SIGMA_SKIP_TABLEAU_GATE="<reason>".
 _tab_skip     = ENV['SIGMA_SKIP_TABLEAU_GATE']
-_tab_via_mcp  = ENV['SIGMA_TABLEAU_VIA_MCP'].to_s == '1'
+_tab_via_mcp  = SOURCE_VIA_MCP
 _tab_reuse    = File.exist?(File.join(WORK, 'discovery-stamp.json'))
 _tab_needed   = !opts[:finalize] && !_tab_reuse && !_tab_via_mcp
 # Contents check, not mere existence: the neutral file often has Sigma creds
@@ -1062,7 +1130,7 @@ end
 # Sigma/Tableau token via the skill's get-token scripts so long runs survive
 # the ~1h token TTL.
 def run!(cmd, allow_fail: false, env: nil)
-  out, st = env ? Open3.capture2e(env, *cmd) : Open3.capture2e(*cmd)
+  out, st = MigrationDiagnostics.capture(WORK, cmd, env: env)
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   abort "FATAL: command failed (#{st.exitstatus}): #{cmd.join(' ')}" unless st.success? || allow_fail
   [out, st]
@@ -1138,6 +1206,7 @@ end
 # itself via tableau_rest's own 401 handler.
 TABLEAU_ENV_TTL_SECONDS = 50 * 60
 def tableau_env
+  return {} if defined?(SOURCE_VIA_MCP) && SOURCE_VIA_MCP # no Tableau token on the file/MCP route
   if $tableau_env_cache && (Time.now - $tableau_env_cache[:minted_at]) < TABLEAU_ENV_TTL_SECONDS
     return $tableau_env_cache[:env]
   end
@@ -1201,7 +1270,7 @@ end
 # Like run!, but on failure raises WorkbookBuildError (catchable) instead of
 # abort()ing the process. Captures the child output for field-name mining.
 def run_wb!(cmd, env: nil)
-  out, st = env ? Open3.capture2e(env, *cmd) : Open3.capture2e(*cmd)
+  out, st = MigrationDiagnostics.capture(WORK, cmd, env: env)
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   raise WorkbookBuildError.new("command failed (#{st.exitstatus}): #{cmd.join(' ')}", out) unless st.success?
   out
@@ -1252,6 +1321,7 @@ def cull_failed_fields(*logs)
   text.scan(/Unknown column\s*"?\[?([^"\]\n]+)\]?"?/i) { |m| names << m[0].strip }
   text.scan(/unmapped (?:derived[- ]dim|measure|field)\s*[:=]?\s*([^\n,]+)/i) { |m| names << m[0].strip }
   text.scan(/Circular column reference[^\n]*\[([^\]]+)\]/i) { |m| names << m[0].strip }
+  text.scan(/^\s*✗\s+(.+?)\s+\(referenced via \[Master\//) { |m| names << m[0].strip }
   names.map { |n| n.gsub(/[\[\]"]/, '').strip }
        .select { |n| plausible_field_name?(n) }.uniq
 end
@@ -1374,6 +1444,18 @@ if opts[:finalize]
     ['ruby', File.join(HERE, 'sql-provenance.rb'), '--workdir', WORK, '--check'],
     allow_fail: true
   )
+
+  # Generate the missing action-accounting pair even for zero-action sources.
+  # Preserve existing/partial pairs for validation, not silent regeneration.
+  unless File.exist?(File.join(WORK, 'action-ledger.json')) ||
+         File.exist?(File.join(WORK, 'POSTPUBLISH_GUIDE.md'))
+    run!(['ruby', File.join(HERE, 'build-postpublish-guide.rb'),
+          '--twb', File.join(WORK, 'workbook-content.twb'),
+          '--wb-ids', File.join(WORK, 'wb-ids.json'),
+          '--out', File.join(WORK, 'POSTPUBLISH_GUIDE.md'),
+          '--emitted-manifest', File.join(WORK, 'chart-specs-actions-emitted.json'),
+          '--json-out', File.join(WORK, 'action-ledger.json')], allow_fail: true)
+  end
 
   # The census-aware hard gate. NEVER bypassed — this command fails when it fails.
   gate = ['ruby', File.join(HERE, 'assert-phase6-ran.rb'), '--tableau', WORK, '--workbook-id', wb_id]
@@ -2044,6 +2126,9 @@ end
 # --help banner for the exact semantics; the decision itself is a pure,
 # offline-testable function (lib/fast_path.rb, scripts/test-fastpath-flags.rb).
 # ---------------------------------------------------------------------------
+# Validate route/authorization first so missing source evidence cannot mask a
+# wrong-route or unauthorized manual-spec stop. Finalize validates at launch.
+source_workbook = prepare_mcp_source.call if SOURCE_VIA_MCP && !opts[:finalize]
 twb = File.join(WORK, 'workbook-content.twb')
 layout_json = File.join(WORK, 'dashboard-layout.json')
 fp_artifacts = {
@@ -2116,6 +2201,10 @@ FAKE_OK = Struct.new(:exitstatus) do
   end
 end
 stamp_path = File.join(WORK, 'discovery-stamp.json')
+if SOURCE_VIA_MCP
+  lane = { started: Time.now, ended: Time.now, status: FAKE_OK.new(0), reused: true }
+  line 'Tableau source: sealed local TWB + MCP exports; no PAT, revision probe, or REST discovery'
+else
 disc_artifacts = [File.join(WORK, 'get-workbook.json'), twb, File.join(WORK, 'timings.json')]
 probe = nil
 probe_rb = +"$LOAD_PATH.unshift #{File.join(HERE, 'lib').inspect}; require 'tableau_rest'; require 'json'; "
@@ -2198,6 +2287,7 @@ else
   line "Tableau discovery + gap scan: BACKGROUND lane (pid #{lane[:pid]}, log #{File.basename(disc_log)})"
   line 'Sigma-side phases 1.6 + 2 run concurrently; lanes join before discovery output is consumed.'
 end
+end # REST discovery; the MCP path retains supplied evidence unchanged
 
 lane_done = lambda do
   next true if lane[:status]
@@ -2273,14 +2363,8 @@ line "workbook '#{wb_name}' (#{wb_luid}): #{views.size} view(s)#{has_extracts ? 
 # view's contentUrl tail — the display name with spaces/punctuation stripped).
 # Appends to the mutable DASH_SCOPE BEFORE its first consumer (the parse).
 if MISSION_VIEW_SEGMENTS.any? && (opts[:dashboards] || []).empty? && (opts[:pages] || []).empty?
-  seg_names = MISSION_VIEW_SEGMENTS.map do |seg|
-    hit = views.find do |vw|
-      vw.is_a?(Hash) &&
-        (vw['contentUrl'].to_s.split('/').last == seg ||
-         vw['name'].to_s.gsub(/[^A-Za-z0-9]/, '') == seg.gsub(/[^A-Za-z0-9]/, ''))
-    end
-    hit ? hit['name'].to_s : seg # unresolved → the raw segment (mismatch STOP names it below)
-  end.uniq
+  seg_names = resolve_mission_view_segments(MISSION_VIEW_SEGMENTS, views)
+              .each_with_index.map { |name, i| name || MISSION_VIEW_SEGMENTS[i] }.uniq
   opts[:dashboards] = seg_names
   DASH_SCOPE.concat(seg_names.flat_map { |n| ['--dashboard', n] })
   line "mission scope: single-view URL → dashboard #{seg_names.map(&:inspect).join(', ')}"
@@ -2555,6 +2639,7 @@ if mechanical
     end
   end
   allow_hosted = opts[:converter] == 'hosted' || ENV['SIGMA_CONVERTER_ALLOW_HOSTED'] == '1'
+  ExecutionIdentity.record_converter(WORK, mcp_build) if mcp_build || allow_hosted
   if mcp_build
     line "converter: LOCAL build #{mcp_build} (no data leaves this machine)"
   elsif allow_hosted
@@ -2839,6 +2924,11 @@ if mechanical
     end
   end
   if have_twb && HydrateCustomSql.twb_has_sqlproxy?(twb)
+    if SOURCE_VIA_MCP
+      warn 'MCP SOURCE STOP (exit 30): the TWB contains an unresolved published-datasource placeholder. ' \
+           'Supply an exported source definition with its real tables/Custom SQL; the file/MCP route will not attempt a PAT/REST content download or invent a table.'
+      exit 30
+    end
     line 'published-datasource (sqlproxy) connection detected — chasing the published DS to hydrate before conversion'
     pds_json = File.join(WORK, 'pds.json')
     hcsql = File.join(WORK, 'hydrate-custom-sql.json')
@@ -3069,6 +3159,17 @@ if mechanical
   # still cannot resolve (unknown functions / unresolved refs).
   fx = MechanicalSpecs.fixup_dm_spec(conv['model'])
   line "DM fixup: rewrote #{fx[:fixed]} formula(s); dropped #{fx[:dropped].size} unresolvable calc col(s)" if fx[:fixed].positive? || fx[:dropped].any?
+  # Columns whose Tableau caption holds "/" "[" "]" were renamed (a "/" in a name cannot be
+  # referenced by any formula). One named warning per column; the caption -> safe-name map
+  # is what derive_master registers so every workbook ref resolves to the safe name.
+  $slash_rename_map = (fx[:rename_map] || {}).dup
+  slash_renames = Array(fx[:renamed]).dup
+  slash_renames.each do |r|
+    line "WARN: #{r['warning']}"
+    (conv['warnings'] ||= []) << r['warning']
+  end
+  File.write(File.join(WORK, 'slash-renames.json'), JSON.pretty_generate('renamed' => slash_renames, 'map' => $slash_rename_map)) \
+    if slash_renames.any?
   dropped_calcs = fx[:dropped]
   grounding = TableauWarehouseColumnRefs.apply!(
     conv['model'],
@@ -3211,7 +3312,8 @@ if mechanical
          "(#{Array(_rollup_flag['entity_values']).any? ? "entity_values #{Array(_rollup_flag['entity_values']).join(',')}" : "rollup_values #{Array(_rollup_flag['rollup_values']).join(',')}"})" if _rw.positive?
   end
   conv_base = conv_fact ? MechanicalSpecs.base_of(conv['model'], conv_fact) : nil
-  pre = conv_fact ? MechanicalSpecs.derive_master(conv_fact, (conv_fact['name'] || 'Order Fact'), conv_base, nil, conv['model']) : { 'untranslated_metrics' => [] }
+  pre = conv_fact ? MechanicalSpecs.derive_master(conv_fact, (conv_fact['name'] || 'Order Fact'), conv_base, nil, conv['model'],
+                                                  caption_aliases: ($slash_rename_map || {})) : { 'untranslated_metrics' => [] }
   pre_untranslated = pre['untranslated_metrics'] || []
   # plotted_untranslated (the CSV-header match) is computed after the lane join
   # — it needs the view CSVs.
@@ -3395,7 +3497,7 @@ if wb_luid
   # scope — E9.6: a scoped and an unscoped run must never cross-serve each
   # other's cache), so a re-entry with an unchanged .twb skips it entirely —
   # hours later, not just within the TTL.
-  calc_key = have_twb ? PhaseCache.key('calc-fields', twb_sha, wb_luid,
+  calc_key = have_twb ? PhaseCache.key('calc-fields', twb_sha, wb_luid, SOURCE_VIA_MCP ? 'twb' : 'auto',
                                        PhaseCache.file_sha(File.join(HERE, 'extract-calc-fields.rb')),
                                        DASH_SCOPE.join(' ')) : nil
   if calc_key && PhaseCache.fresh?(WORK, 'calc-fields', key: calc_key, outputs: [calc_path])
@@ -3404,6 +3506,7 @@ if wb_luid
     cf = ['ruby', File.join(HERE, 'extract-calc-fields.rb'),
           '--workbook-luid', wb_luid, '--out', calc_path]
     cf += ['--twb', twb] if have_twb
+    cf += ['--source', 'twb', '--refresh'] if SOURCE_VIA_MCP
     # E9.6 — the stated dashboard scope constrains the calc working set (and so
     # the calc-derived open questions). extract-calc-fields.rb owns the
     # resolution (--dashboard is its documented working-set scoping).
@@ -3453,12 +3556,14 @@ end
 custom_sql = []
 csql_path = File.join(WORK, 'custom-sql.json')
 if wb_luid && have_twb
-  csql_key = PhaseCache.key('custom-sql', twb_sha, wb_luid)
+  csql_key = PhaseCache.key('custom-sql', twb_sha, wb_luid, SOURCE_VIA_MCP ? 'local' : 'auto',
+                           PhaseCache.file_sha(File.join(HERE, 'extract-custom-sql.rb')))
   if PhaseCache.fresh?(WORK, 'custom-sql', key: csql_key, outputs: [csql_path])
     line 'custom-SQL scan REUSED (.twb sha unchanged) — delete custom-sql.json to force'
   else
     csql_cmd = ['ruby', File.join(HERE, 'extract-custom-sql.rb'),
-                '--workbook-luid', wb_luid, '--twb', twb, '--out', csql_path]
+                 '--workbook-luid', wb_luid, '--twb', twb, '--out', csql_path]
+    csql_cmd << '--local-only' if SOURCE_VIA_MCP
     _, csql_st = tableau_run!(csql_cmd, allow_fail: true)
     # Stamp only a SUCCESSFUL scan (an [] from a clean run is a legit "no
     # custom SQL" answer; an auth/network failure is not, and must re-try).
@@ -4133,7 +4238,7 @@ mark('folder-resolve')
 # full abort/re-invocation per cold run. Now the orchestrator WAITS here,
 # polling for a verified png-read.json while the agent reads the PNGs the
 # discovery lane already downloaded — bounded (SIGMA_PNG_READ_TIMEOUT_S,
-# default 480s; 0 = don't wait), with an explicit exit-code contract (exit 18
+# default 0s; positive = opt-in wait), with an explicit exit-code contract (exit 18
 # + a banner naming exactly what is missing) when the deadline passes.
 # NO STALE-SEED REUSE: a png-read.json that predates THIS run's discovery
 # fetch describes a possibly-different source revision — it is set aside as
@@ -4142,7 +4247,7 @@ mark('folder-resolve')
 # only when a fetch actually ran this run (stamp-reused discovery keeps a
 # prior verified read — same source revision). Fires only on a Tableau workdir.
 # ---------------------------------------------------------------------------
-PNG_WAIT_TIMEOUT_S = (ENV['SIGMA_PNG_READ_TIMEOUT_S'] || '480').to_i
+PNG_WAIT_TIMEOUT_S = (ENV['SIGMA_PNG_READ_TIMEOUT_S'] || '0').to_i
 def png_read_stale?(png_path, fetch_started_at)
   return false unless fetch_started_at && File.exist?(png_path)
   File.mtime(png_path) < fetch_started_at
@@ -4202,7 +4307,9 @@ elsif DashboardRead.expected?(WORK)
     dr_errs.each { |e| warn "       - #{e}" }
     warn ''
     warn '       A DRAFT png-read.json was seeded from the .twb parse. The orchestrator cannot read'
-    warn '       images — DO THE READ NOW, while this process WAITS at the DM-POST barrier'
+    warn(PNG_WAIT_TIMEOUT_S.positive? ?
+         '       images — DO THE READ NOW, while this process WAITS at the DM-POST barrier' :
+         '       images — this process returns now; do the read, then resume the same workdir')
     warn "       (up to #{PNG_WAIT_TIMEOUT_S}s; SIGMA_PNG_READ_TIMEOUT_S overrides; no DM was posted):"
     # A4 (wave-1 review): the discovery lane already downloaded the dashboard
     # PNG(s) on every PAT run (dashboards/<name>.png at resolution=high, plus
@@ -4220,7 +4327,9 @@ elsif DashboardRead.expected?(WORK)
     end
     warn '         2. Read it, CORRECT the draft tiles/text_elements/filter_shelf (esp. bar-vs-pie, text'
     warn '            annotations, and the filter shelf — the .twb cannot see these), and set "verified": true.'
-    warn '         3. Save the file — this run picks it up within seconds and continues (no re-invocation).'
+    warn(PNG_WAIT_TIMEOUT_S.positive? ?
+         '         3. Save the file — this run picks it up within seconds and continues (no re-invocation).' :
+         '         3. Save the file and re-run the same command after this process exits.')
     warn '       Genuinely no PNG access? Re-run with --skip-dashboard-read "<reason>" (name it in your report).'
     quiet_event('wait', 'gate' => 'phase-1d-dashboard-read', 'artifact' => _dr_path,
                 'timeout_s' => PNG_WAIT_TIMEOUT_S)
@@ -4439,6 +4548,7 @@ elsif mechanical
       end
     end
     pf = MechanicalSpecs.fixup_dm_spec(dm, real_cols, column_mapping: opts[:column_mapping])
+    ($slash_rename_map ||= {}).merge!(pf[:rename_map] || {})
     line "phantom-column filter: dropped #{pf[:phantom]} non-existent base column(s) using #{real_cols.size} live table catalog(s)" if pf[:phantom].to_i.positive?
     line "column-rename remap: rewired #{pf[:remapped]} base column(s) to their warehouse names (--column-mapping)" if pf[:remapped].to_i.positive?
     # Calc-field-as-physical-column guard (#685-C): a generated Custom-SQL
@@ -4842,8 +4952,17 @@ if mechanical
     line "WARN: could not scan the .twb for disambiguated column captions (#{e.class}: #{e.message}) — same-named columns of different tables keep the bare-name rule"
     []
   end
+  # Slash captions: the fixup's own renames, plus every slash caption the .twb declares (a REUSED
+  # data model was named safe by an earlier run, so no fixup renamed anything on this one).
+  caption_aliases = begin
+    twb_src = [(defined?(conv_twb) ? conv_twb : nil), (have_twb ? twb : nil)].compact.find { |f| File.exist?(f.to_s) }
+    (twb_src ? MechanicalSpecs.slash_captions_from_twb(File.read(twb_src, encoding: 'UTF-8')) : {})
+      .merge($slash_rename_map || {})
+  rescue StandardError
+    $slash_rename_map || {}
+  end
   derived = MechanicalSpecs.derive_master(conv_fact, fact['name'], conv_base, real_labels, conv['model'],
-                                          disambiguated: dis_captions)
+                                          disambiguated: dis_captions, caption_aliases: caption_aliases)
   master_columns = derived['master_columns']
   mmap = derived['mmap']
   # Human-supplied master-calc overrides (--master-col): appended verbatim so a
@@ -4988,7 +5107,7 @@ if mechanical
   # dashboard yields exactly one page; passing the flags keeps a standalone build
   # honest if it's ever handed a full layout).
   build_cmd += DASH_SCOPE if scoped?
-  run!(build_cmd, allow_fail: true)
+  run!(build_cmd) # Never consume a prior chart-specs.json after a failed build.
   raw_charts = (JSON.parse(File.read(charts_path)) rescue [])
   chart_pages = raw_charts.is_a?(Hash) ? (raw_charts['pages'] || []) : nil
   data_elements = raw_charts.is_a?(Hash) ? (raw_charts['data_elements'] || []) : []
@@ -5515,17 +5634,18 @@ rescue WorkbookBuildError => e
   # so it's fast and creates no orphan: the ref gate is PRE-POST, nothing shipped).
   # Fires once (SIGMA_SELFHEAL_RETRIED guard); an EXPLICIT --reuse-dm <id> is the
   # user's decision and is respected (falls through to the handoff below).
-  if opts[:reuse_dm] == :recommended && ENV['SIGMA_SELFHEAL_RETRIED'].to_s.empty?
+  if opts[:reuse_dm] == :recommended && ENV['SIGMA_SELFHEAL_RETRIED'].to_s.empty? && MigrationProcess.exec_supported?
     puts
     puts "── SELF-HEAL: the auto-picked reuse DM (#{reuse_dm_id}) could not satisfy the"
     puts "   workbook (#{e.message.lines.first&.strip}). Rebuilding a FRESH data model"
     puts '   automatically (--skip-reuse-scan) — no manual step needed. ──'
     Offramp.log(WORK, kind: 'reuse-selfheal', detail: "auto-picked DM #{reuse_dm_id} failed the build; rebuilding fresh") if defined?(Offramp)
-    ok = system({ 'SIGMA_SELFHEAL_RETRIED' => '1' }, RbConfig.ruby, File.expand_path(__FILE__),
-                *ORIGINAL_ARGV, '--skip-reuse-scan')
-    child = $?&.exitstatus
-    exit(ok ? 0 : (child.nil? ? 1 : child))
+    diagnostic_span.finish(4)
+    exec({ 'SIGMA_SELFHEAL_RETRIED' => '1', MigrationProcess::INHERITED_FD => migration_lock.fileno.to_s },
+         RbConfig.ruby, File.expand_path(__FILE__), *ORIGINAL_ARGV, '--skip-reuse-scan',
+          migration_lock.fileno => migration_lock.fileno)
   end
+  line 'Windows uses the exit-4 repair handoff; lock-preserving self-heal exec is unavailable.' unless MigrationProcess.exec_supported?
   failed = cull_failed_fields(e.captured_output,
                               (defined?(v_log) ? v_log : ''), (defined?(p_log) ? p_log : ''))
   # Fall back to the mechanically-known untranslatable fields when the log itself
@@ -5534,7 +5654,7 @@ rescue WorkbookBuildError => e
     failed = ((defined?(plotted_untranslated) && plotted_untranslated || []) +
               (defined?(dropped_calcs) && dropped_calcs || [])).compact.uniq
   end
-  names = failed.empty? ? 'one or more fields' : failed.join(', ')
+  names = failed.empty? ? 'no specific field identified' : failed.join(', ')
   n = failed.empty? ? 'some' : failed.size.to_s
   # ── Same-failure loop breaker (mode + progress measure + attempt cap) ──────
   # Every exit-4 handoff records a failure signature: script + exit codes +
@@ -5565,6 +5685,13 @@ rescue WorkbookBuildError => e
   _err_region = Offramp.error_region(e.captured_output)
   _err_region = [_err_line.to_s] if _err_region.empty? # crashed before any output
   _child_exit = e.message[/\Acommand failed \((\d+)\)/, 1]
+  _failure_reason = failed.empty? ? "workbook validation/publish failure: #{_err_line}" : "unresolved field(s): #{names}"
+  File.write(File.join(WORK, 'workbook-handoff.json'), JSON.pretty_generate(
+    'stage' => e.message.scan(/[\w-]+\.rb/).first,
+    'child_exit' => (_child_exit && _child_exit.to_i),
+    'error' => _err_line, 'fields' => failed,
+    'reason' => _failure_reason, 'spec' => wb_spec_path
+  ))
   _exit_key = _child_exit ? { handoff: 4, child: _child_exit } : 4
   _mode = Offramp.failure_mode(script: 'migrate-tableau', context: 'exit4',
                                exit_code: _exit_key, error_class: e.class,
@@ -5620,9 +5747,10 @@ rescue WorkbookBuildError => e
   puts '   substitute a "lighter"/"demo"/reduced-scope workbook. Keep going until verify-complete.rb'
   puts '   exits 0. Pick ONE of the two paths below and continue in this same run:'
   puts
-  puts "── Mechanical path: data model built OK (dataModelId=#{dm_id}). The WORKBOOK " \
-       "layer hit #{n} field(s) the mechanical path can't translate (#{names}). " \
-       'Two ways forward:'
+  puts "── Data model built OK (dataModelId=#{dm_id}). Workbook failure: #{_failure_reason}"
+  puts "   Exact child error and stage: #{File.join(WORK, 'workbook-handoff.json')}"
+  puts '   No field was identified: diagnose the child validation/API error first; do not invent a missing calculation.' if failed.empty?
+  puts '   Repair the existing spec; use a formula translation only when the error identifies one:'
   puts "   1. If the field is a MASTER-LEVEL CALC (a binned/categorized dim like 'Ship"
   puts "      Speed Category'), translate its Tableau formula (see calc-fields.json) to"
   puts '      a Sigma formula over master columns and re-run this exact command with:'
@@ -5669,9 +5797,9 @@ rescue WorkbookBuildError => e
   # Authorize the hand-authoring re-entry: this STOP is the ONLY sanctioned way to
   # reach --wb-spec/--dm-spec. The token lets the re-run's manual-spec gate pass
   # (a COLD hand-author with no prior orchestrator run is refused).
-  authorize_manual_path!(via: 'workbook-handoff', reason: "untranslatable field(s): #{names}",
+  authorize_manual_path!(via: 'workbook-handoff', reason: _failure_reason,
                          exit_code: 4, extra: { 'dataModelId' => dm_id, 'fields' => failed })
-  Offramp.log(WORK, kind: 'workbook-handoff', detail: "untranslatable field(s): #{names}")
+  Offramp.log(WORK, kind: 'workbook-handoff', detail: _failure_reason)
   mark('phase4-workbook')
   phase_summary
   exit 4
@@ -5812,18 +5940,28 @@ end
 # 1600×1000 source rendered into the old hard-coded 1800×1000 target produced
 # gray side gutters, shrunken content, and artificially small labels in the
 # visual grader even when the workbook layout itself was faithful.
-def visual_render_dimensions(page, dash_layout)
+def visual_render_dimensions(page, dash_layout, layout_xml = nil)
   dashboard = Array(dash_layout).find do |candidate|
     candidate.is_a?(Hash) &&
       candidate['dashboard'].to_s.strip.casecmp?(page['name'].to_s.strip)
   end
   canvas = dashboard && dashboard['canvas_px']
-  if canvas.is_a?(Hash) && canvas['sizing_mode'] == 'fixed' &&
-     canvas['w'].to_i >= 600 && canvas['h'].to_i >= 400
-    [canvas['w'].to_i, canvas['h'].to_i]
-  else
-    [1800, 1000]
-  end
+  width, height =
+    if canvas.is_a?(Hash) && canvas['sizing_mode'] == 'fixed' &&
+       canvas['w'].to_i >= 600 && canvas['h'].to_i >= 400
+      [canvas['w'].to_i, canvas['h'].to_i]
+    else
+      [1800, 1000]
+    end
+  # The Sigma page can be TALLER than the source canvas (a table sized to show
+  # every row, a chart grown so Sigma draws its axis title). Rendering at the
+  # canvas height alone cropped the bottom band and graded the crop as a
+  # clipped, dead-space layout. Cover the page's last grid row: rows x 28 px
+  # (Layout::SIGMA_ROW_PX, inlined so this stays self-contained) + page padding.
+  block = layout_xml.to_s[%r{<Page\b[^>]*\bid="#{Regexp.escape(page['id'].to_s)}".*?</Page>}m].to_s
+  last_row = block.scan(%r{gridRow="\d+\s*/\s*(\d+)"}).flatten.map(&:to_i).max
+  height = [height, ((last_row - 1) * 28) + 64].max if last_row
+  [width, height]
 end
 
 # ---------------------------------------------------------------------------
@@ -5840,6 +5978,7 @@ vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
 wbspec_local = (JSON.parse(File.read(wb_spec_path)) rescue {})
 content_pages = WorkbookCode.pages(wbspec_local).reject { |p| p['id'].to_s.downcase.include?('data') }
 vqa_dash_layout = (JSON.parse(File.read(File.join(WORK, 'dashboard-layout.json'))) rescue [])
+vqa_layout_xml = (wbspec_local['document'] || wbspec_local)['layout'].to_s
 # v5.2 (speed): pages render CONCURRENTLY (pool 3) — each export is a 30-90s
 # server-side render; multi-page workbooks paid it serially.
 rendered = 0
@@ -5856,7 +5995,7 @@ Array.new([3, content_pages.size].min.clamp(1, 3)) do
         break
       end
       out = File.join(vqa, "#{pg['id']}.png")
-      render_width, render_height = visual_render_dimensions(pg, vqa_dash_layout)
+      render_width, render_height = visual_render_dimensions(pg, vqa_dash_layout, vqa_layout_xml)
       o, st = Open3.capture2e({ 'SIGMA_API_TOKEN' => vqa_tok },
                               *PyResolve.argv, PyResolve.winpath(File.join(HERE, 'sigma-export-png.py')),
                               '--workbook', wb_id, '--page', pg['id'], '--out', PyResolve.winpath(out),
@@ -6322,13 +6461,13 @@ _chain_ok, _chain_why = finalize_chain_predicate(WORK, fast: !!opts[:fast])
 # writes — so wave-1's in-process chain could never fire on the very cold runs
 # it was justified by (wave-1 review R4; both reviewers converged on this
 # gate). While the obligations are merely UNDISCHARGED (not terminal), banner
-# + bounded poll — SIGMA_VISUAL_VERDICT_TIMEOUT_S, default 480s, 0 = don't
+# + bounded poll — SIGMA_VISUAL_VERDICT_TIMEOUT_S, default 0s, 0 = don't
 # wait (named on the banner's first line) — re-evaluating the predicate; on
 # satisfied → chain below, one invocation end-to-end. Deadline passes → the
 # unchanged exit-12 two-invocation contract (fail-open, never invents a
 # failure). SIGMA_NO_CHAIN_FINALIZE=1 disables the wait AND the chain.
-if ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty? && chain_wait_class(_chain_ok, _chain_why) == :wait
-  _vv_wait = (ENV['SIGMA_VISUAL_VERDICT_TIMEOUT_S'] || '480').to_i
+if MigrationProcess.exec_supported? && ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty? && chain_wait_class(_chain_ok, _chain_why) == :wait
+  _vv_wait = (ENV['SIGMA_VISUAL_VERDICT_TIMEOUT_S'] || '0').to_i
   if _vv_wait.positive?
     puts
     puts "── 🚧 PASS-1-TAIL WAIT (W2.6) · visual verdict → in-process --finalize · SIGMA_VISUAL_VERDICT_TIMEOUT_S=#{_vv_wait}s (0 = don't wait; exit 12 immediately) ──"
@@ -6360,7 +6499,7 @@ if ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty? && chain_wait_class(_chain_ok, _ch
     line 'SIGMA_VISUAL_VERDICT_TIMEOUT_S=0 — not waiting for the visual verdict; exit-12 two-invocation contract'
   end
 end
-if _chain_ok && ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty?
+if _chain_ok && ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty? && MigrationProcess.exec_supported?
   puts
   puts '── SINGLE-INVOCATION · chaining --finalize in-process ──'
   line "agent-mediated actuals list is EMPTY and the agent-side gate obligations are discharged (#{_chain_why})"
@@ -6373,13 +6512,16 @@ if _chain_ok && ENV['SIGMA_NO_CHAIN_FINALIZE'].to_s.empty?
   phase_summary
   $stdout.flush
   begin
-    exec(RbConfig.ruby, __FILE__,
-         *(ORIGINAL_ARGV + ['--finalize', '--actuals', File.join(WORK, 'parity-actuals.json')]))
-  rescue SystemCallError => e
+    diagnostic_span.finish(12)
+    exec({ MigrationProcess::INHERITED_FD => migration_lock.fileno.to_s }, RbConfig.ruby, __FILE__,
+         *(ORIGINAL_ARGV + ['--finalize', '--actuals', File.join(WORK, 'parity-actuals.json')]),
+         migration_lock.fileno => migration_lock.fileno)
+  rescue SystemCallError, ArgumentError => e
     line "WARN: in-process finalize chain failed to exec (#{e.class}: #{e.message}) — falling back to exit 12"
   end
 end
 
+line 'Windows uses the exit-12 two-invocation contract; run --finalize after this process exits.' unless MigrationProcess.exec_supported?
 puts
 puts '⛔ NOT DONE — this is PASS 1 of 2. Do NOT report success or hand off yet.'
 puts '   To confirm completion at any point, run (exit 0 == done, nothing else counts):'

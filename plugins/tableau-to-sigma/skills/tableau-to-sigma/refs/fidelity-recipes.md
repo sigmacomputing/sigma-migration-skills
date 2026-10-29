@@ -61,6 +61,14 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 - **KPI title clipped** → the tile is < ~5 grid rows; grow `gridRow`. Sparkline/comparison KPIs need ~8+ rows. NOTE on KPI sparklines + comparison/delta badges (live-probed 2026-07-11): the spec ACCEPTS `comparison`/`trend` FORMATTING blocks (spec/verify 200), but there is **no create-spec property that binds** the comparison column / trend axis, and the PUT rejects formatting-without-binding (`comparison.display: requires a comparison column or period comparison on the KPI`). Classify `ui-only` for creation; once a user binds it in the UI, the styling round-trips.
 
 ### Number & date formats (mechanical since PR-12)
+- When Tableau uses an automatic display format, its CSV can contain more
+  precision than the visible label. Record the format read from the source PNG
+  on its verified `png-read.json` tile, for example
+  `"display_formats": {"Failure Rate": "0.00000"}`. Use source column captions
+  and Tableau format strings; add `dashboard` when a worksheet repeats across
+  dashboards with different formats. The builder translates these with the
+  same `format_map.rb` used for explicit source formats. Do not infer visible
+  precision from raw CSV decimals or edit the source values to fit the target.
 - The one-shot build emits source formats mechanically: the worksheet's own pill `text-format`
   first, then the column's `.twb` `default-format` (the fix for KPIs printing raw where the
   source shows `$`), then master-map/name-heuristic. ONE translator: `scripts/lib/format_map.rb`
@@ -92,6 +100,14 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 - **Status chip / traffic-light cell** → `conditionalFormats` `type: single` with a **flat** `condition`/`value` (not nested).
 - **Reference line / band / trendline** (Tableau analytics-pane marks) → NATIVE `refMarks` + `trendlines` (live-probed 2026-07-11: POST + readback + PNG render all green). Shapes: `refMarks: [{type: 'line'|'band', axis: 'axis'|'series'|'series2', value: {type: 'constant', value: N} | {type: 'column', columnId, func} | {type: 'formula', formula}, endValue: {…} (band only)}]`; `trendlines: [{columnId, model: linear|quadratic|polynomial|exponential|logarithmic|power}]`. Emit from parse-twb-layout's `ref_marks`. The computed-boolean + 2-color `scheme` trick is now only the fallback for layered-mark effects refMarks can't express.
 - **Table too dense vs the source's roomy grid** → `tableStyle.{preset: presentation, cellSpacing, textStyles}`. `presentation` is the default to reach for; keep `spreadsheet` only for a true data grid.
+- **Pivot rows do not stretch with the tile**: the documented `cellSpacing`
+  choices are presets, not row heights. In a synthetic native-pivot probe with
+  12px cell text and a 1100px PNG, `extra-small` produced 20px rows and `large`
+  produced 48px rows; increasing the tile from 25 to 51 grid rows left the data
+  rows at 48px. This does not reproduce Tableau's entire-view row stretching.
+  Record the measured composition difference and keep visual parity unresolved
+  until a supported equivalent or an explicit user acceptance is recorded.
+  Never insert fake data rows or replace the live pivot with a screenshot.
 - **In-cell data bars dropped** → `conditionalFormats: [{type: dataBars, columnIds: [<agg col id>], scheme: [<tint>, <hue>]}]`. **Scheme comes from the SOURCE, never a literal**: use the worksheet's parsed `heat_scheme` ramp when present, else derive `[mix(dominant, white, 88%), dominant]` from `settings.theme.overrides.categoricalScheme[0]`. The Sigma default royal `#1a70f1` family is the round-4 defect — never fall back to it. dataBars scheme is `[negative, positive]`, NOT a value gradient (probed) — value-shaded bars are a Sigma ceiling; add a parallel `backgroundScale` for the shading.
 - **Ranked pivot (rank order + numbered rank header)** — the 3-round alphabetical-pivot fix. Ranks down ROWS: hidden `SORT_ORD` column (`ROW_NUMBER() OVER (ORDER BY <bias> DESC, <label>)` in the feed) + `rowsBy: [{id: <label col>, sort: {direction: 'ascending', by: <SORT_ORD id>, aggregation: 'min'}}]`; tie-blank labels via `CASE WHEN ROW_NUMBER() OVER (PARTITION BY RNK ...) = 1 THEN TO_VARCHAR(RNK) ELSE '' END`. Ranks across COLUMNS: numeric `RNK` as the OUTER columnsBy level renders the numbered 1..N header AND merges ties into spanning cells (exact Tableau look) — REQUIRES `totals.showSubtotals: 'when-collapsed'` ('hidden' is rejected; without it per-rank "N total" columns appear). **Constant-sort-key guard (the round-4 opus trap)**: never `sort.by` a `PercentOfTotal(…,"row")` column on a rowsBy sort (or `"column"` on columnsBy) — the key is constant across that axis, verify accepts it, and the pivot silently sorts alphabetically; sort by the inner aggregate instead. Top-N pivots need the PRE-FILTERED SOURCE table (element filters don't prune pivots — bisect-proven); build-charts mechanizes this (`-topn-src` helpers + `topn-members.json`).
 - **Table at order-grain but source shows a rollup** → build a hidden grouped rollup element and source the table from it via `groupingId`.

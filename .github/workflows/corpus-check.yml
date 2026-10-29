@@ -118,6 +118,7 @@ jobs:
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_parity.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_complete.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_migrate_tableau.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_diagnostics.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_migration_report.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_discover_columns.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_parse_twb_layout.py
@@ -415,6 +416,18 @@ jobs:
           $wd = Join-Path $env:RUNNER_TEMP 'wd'
           ruby "$env:TS_SKILL\scripts\assert-doctor-ran.rb" --workdir $wd
           if ($LASTEXITCODE -ne 0) { throw "assert-doctor-ran gate failed on a passing doctor.json" }
+
+      - name: Native Ruby migration lock and finalize regressions
+        shell: pwsh
+        run: |
+          ruby "$env:TS_SKILL\scripts\test-migration-process.rb"
+          if ($LASTEXITCODE -ne 0) { throw "native Windows migration lock regression failed" }
+          ruby "$env:TS_SKILL\scripts\test-finalize-artifacts.rb"
+          if ($LASTEXITCODE -ne 0) { throw "native Windows finalize artifact regression failed" }
+          ruby "$env:TS_SKILL\scripts\test-migration-diagnostics.rb"
+          if ($LASTEXITCODE -ne 0) { throw "native Windows diagnostic timing regression failed" }
+          python "$env:TS_SKILL\scripts\test_diagnostics.py"
+          if ($LASTEXITCODE -ne 0) { throw "native Windows diagnostic bundle regression failed" }
 
       - name: offline corpus conversion (local converter) under Git Bash
         shell: bash

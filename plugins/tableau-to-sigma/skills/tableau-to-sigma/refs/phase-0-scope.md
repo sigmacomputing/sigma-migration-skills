@@ -48,7 +48,10 @@ mid-conversion.
 
 ```bash
 ruby scripts/scan-workbook-gaps.rb <WORK>/workbook-content.twb
-# writes <name>-workbook-content-gaps-report.md + <name>-workbook-content-gaps.json
+# writes <name>-workbook-content-gaps-report.md + <name>-workbook-content-gaps-report.json
+#   + formula-audit.json (the same audit embedded as `formula_audit` in the report JSON)
+# Pass an explicit out path (e.g. <WORK>/gaps.md) to name the JSON after it (<WORK>/gaps.json);
+# the Python runtime profile's gate reads <WORK>/gaps.json, so it scans with that out path.
 ```
 
 Categories emitted:
@@ -112,7 +115,7 @@ is unnecessary.
 
 ### Phase 0a-scout — spawn the gap-scout subagent for unhandled features
 
-> **MANDATORY, parallelizable.** As soon as the gap scanner produces `gaps.json`,
+> **MANDATORY, parallelizable.** As soon as the gap scanner produces its report JSON (`<stem>-gaps-report.json`),
 > read the `detected_features` array and **spawn one `gap-scout` Agent per row
 > whose `status` is `unhandled`** (and optionally for high-volume `hint` rows).
 > Use `run_in_background: true` so the scout runs in parallel with the rest of

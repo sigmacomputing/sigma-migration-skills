@@ -77,6 +77,7 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'timeout'
 
 # ---------------------------------------------------------------------------
@@ -566,7 +567,7 @@ return if $PROGRAM_NAME != __FILE__ && !ENV['VDS_ORACLE_CLI'] # allow `require` 
 opts = { max_queries: 25, max_rows: 50_000, tolerance: 1e-6, near_tol: 0.01,
          max_unjoined_frac: 0.1, timeout: 60, luid_overrides: {}, calc_filters: [] }
 OptionParser.new do |p|
-  p.on('--workdir DIR')                { |v| opts[:dir] = v }
+  p.on('--workdir DIR')                { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--window-calcs PATH', 'default: <workdir>/window-calcs.json') { |v| opts[:window_calcs] = v }
   p.on('--calc-fields PATH',  'default: <workdir>/calc-fields.json')  { |v| opts[:calc_fields] = v }
   p.on('--actuals PATH',      'default: <workdir>/parity-actuals.json') { |v| opts[:actuals] = v }

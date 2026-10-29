@@ -15,12 +15,13 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'time'
 require_relative 'lib/code_rep'
 
 opts = {}
 OptionParser.new do |parser|
-  parser.on('--workdir DIR') { |value| opts[:workdir] = File.expand_path(value) }
+  parser.on('--workdir DIR') { |value| opts[:workdir] = WorkdirGuard.check!(File.expand_path(value), '--workdir') }
 end.parse!
 abort('usage: assert-reconstruction-integrity.rb --workdir DIR') unless opts[:workdir]
 

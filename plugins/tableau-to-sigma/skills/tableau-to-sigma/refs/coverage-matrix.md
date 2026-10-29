@@ -145,6 +145,7 @@ All 🧩 forms are **chart-context only** — place in a grouped workbook elemen
 | Parameters | Sigma controls (list / date-range / number-range / text) | ✅ | |
 | Parameter-driven metric/measure switch (`SUM(CASE [P] …)` / `IF [P]=… THEN SUM(x)`) | list control + `Switch()` bound as the chart MEASURE (`rewire_param_switch!`) | ✅ | Measure-role binding fixed (was silently missed — only dimension-swap worked). GOTCHA: numeric-coded params w/ aliases — control option VALUES must equal the `WHEN` keys or the Switch matches nothing. See SKILL.md recipe. |
 | Bins | bucketed `Floor()` calc column | ✅ | |
+| Group field (`<calculation class='categorical-bin'>`, e.g. `[Officer Name (group)]`) | calculated column `Switch([Src], member, bucket, …, else)` on the fact element (`If(IsNull(…), …)` wraps a `%null%` member) | ✅ | else = the member's own value, or the Other bucket (`others='true'` bin / default-name bin with no members / `default='"Other"'`). A normal DM column, so calcs over it, shelves, colour and categorical filters resolve through the master map. Source column must exist (else a named `Dropped calc` warning). Live-verified 2026-10-28; test: `test-tableau-group-fields.rb` |
 
 ## 11. RLS / security
 

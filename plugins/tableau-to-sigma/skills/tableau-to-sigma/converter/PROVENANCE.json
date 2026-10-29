@@ -203,6 +203,29 @@
         "review fix-pass (PR #887): several aliases of one primary are grouped into ONE join element (one alias join each, plus the inner dimension joins), so every alias's fan-out and every calc land in the same row set"
       ],
       "upstream_pr": "the upstream converter repo PR #130"
+    },
+    {
+      "commit": "worktree (fix/tableau-calc-parens-groups, this fix)",
+      "summary": "Tableau GROUP fields (<calculation class='categorical-bin'>, twb_2026.2.0.xsd DataSource-Calculation-G / DataSource-Bins-G) were never converted: the datasource column loop skipped every '(group)' field, so a group on a shelf or in a categorical filter had no DM/master column, and a calc over the group either dropped ('not a resolvable column in the collapsed model') or - worse - was silently re-pointed at the UNGROUPED base column by the caption<->alias reconciliation (stripSuffix turns '[Officer Name (group)]' into '[Officer Name]', so IF [group] = 'Team North' never matched). Chosen over a Ruby-side master-calc approach because the group then flows through every existing path unchanged: it is a normal named DM calc column, so derive_master surfaces it, the reuse path's plan_reuse_derived_columns can author it onto a reused DM, calcs over it resolve by exact name before any reconciliation, and shelves/filters/colour find it in the master map. Live-verified (probe workbook 'Probe groups 20261028-113259') that the emitted Switch/If/IsNull/Text shapes evaluate as intended on a Custom SQL source. Upstream port pending.",
+      "changes": [
+        "datasource column loop: a column whose <calculation> has class 'categorical-bin' is no longer skipped by the hidden / '(group)'-name guards; it is emitted as a named calculated column on the fact element (registered in displayNameMap/globalColMap like sets), formula Switch([<source caption>], <member>, <bucket>, ..., <else>); one case per member (a member listed in two bins keeps its first bucket), so a multi-member bin repeats its bucket",
+        "else branch: the source value itself (unlisted members keep their own value; Text([src]) when the source is not a string so the column stays one type) or, when the group has an Other bucket, the Other label. Other bucket shapes accepted: <bin others='true' value='\"Other\"'/>, a <bin default-name='true'> with no member <value>s, and the calculation's default='\"Other\"' attribute (the XSD documents `default`; it has no `others` attribute, so the bin-level spelling is defensive)",
+        "default-name passthrough bins (a member that keeps its own name) emit no case when the group has no Other bucket (identity), and an explicit identity case when it does (so the member is not swept into Other)",
+        "member literals: quoted strings are re-escaped into valid Sigma literals (backslash and embedded quote), unquoted numbers/booleans stay bare, #date# members become Date(\"...\"), and a %null% member maps through If(IsNull([src]), <bucket>, Switch(...)) because Switch never matches a null",
+        "source column resolved to its caption via the datasource's own <column> list (GUID-named sources go through rewriteGuidRefs); a group whose source column does not exist is not special-cased - the existing unresolvable-calc validator drops it with a named 'Dropped calc' warning (loud, never a dangling reference)",
+        "new module-level helpers _groupLiteral and tableauCategoricalBinToSigma (placed before tableauParseTopNSet); success warning '✅ Group \"<caption>\" -> calculated column over [<src>] (...)'",
+        "tests: scripts/test-tableau-group-fields.rb (converter output, member shapes, derive_master + build-charts on fixtures/group-fields.twb)"
+      ],
+      "upstream_pr": null
+    },
+    {
+      "commit": "worktree (fix/tableau-layout-filter-fidelity, this fix)",
+      "summary": "A normal calculated field whose NAME merely ends in '(group)' or '(bin)' was never converted. The datasource column loop skipped every '(group)'/'(bin)'-suffixed field that was not a categorical-bin group (the guard that predates the group patch above), so a class='tableau' IF/IN dimension called 'Store Name (group)' (live field case: a leaderboard workbook's team-bucket dimension, internal name [Store Name (group)]) got no DM column, no master column, and its quick filter had no control to bind. The suffix guard now applies only to suffix-named fields with no formula of their own; any field carrying a class='tableau' calculation formula converts like any other calc. Upstream port pending.",
+      "changes": [
+        "datasource column loop: new _isNamedCalc (a <calculation> with a formula whose class is not categorical-bin); the '(group)' / '(bin)' name guards are bypassed for it, every other guard (hidden, Number of Records, internal object id, table datatype) is unchanged",
+        "tests: scripts/test-layout-filter-fidelity.rb (a class='tableau' calc named 'Store Name (group)' reaches the DM fact element as a calculated column)"
+      ],
+      "upstream_pr": null
     }
   ],
   "_upstream_and_revendor_tasks": [

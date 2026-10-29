@@ -312,6 +312,10 @@ Optional sub-fields documented in upstream `sigma-workbooks/charts.md` (`labelDi
 
 `parse-twb-layout.rb` surfaces this as `mark_labels_show: true` on the chart zone; the emitter ORs it with the encoding-channel path.
 
+**A second measure as the label (`label: [{columnId}]`, live-verified 2026-10-28).** `dataLabel` only prints the plotted measure. A bar whose Label/Text shelf carries a *different* measure (the "bar = value, label = rank" leaderboard: `RANK(SUM([m]))`) is built with an extra chart column and `label: [{ columnId: lbl-<el> }]` on the `bar-chart` — Sigma prints that column at the bar end (no `dataLabel` needed, and none is emitted so the bar's own value is not printed over it). The column formula is the table calc rendered around the bar's own control-driven measure: `Rank(Sum(Switch([ctl-…], …)), "desc")`. Other kinds fall back to `dataLabel` + a "label not reproduced" warning (only bar labels are verified).
+
+**Search box over a ranked chart (`LOOKUP(…, 0)` filter).** A chart-level `Rank()`/`PercentOfTotal()` is evaluated AFTER the chart's own filters (probed: an element filter, a control filter and a post-aggregate filter column all re-rank the survivors — searching one store shows it at rank 1), while Tableau filters a `LOOKUP(…, 0)` table calc AFTER ranking. The builder therefore keeps the filter (a hidden `<param> Match` column over the parameter's control + a `true` list filter; a control wired to filter an element that also reads it is a Sigma "Circular dependency", so the chart reads the control) and reads the rank back with `Max(Lookup([<helper>/Table Calc], <dim>, [<helper>/Rank Key]))` from a hidden dimension-grain helper (`build_tc_lookup_bridge`) the control never filters. Quick filters such as Region do not reach that helper either.
+
 ### Map elements
 
 Sigma supports two map kinds via spec: **`region-map`** (choropleth — fills named geographic regions) and **`point-map`** (lat/long bubbles or symbols).

@@ -225,6 +225,11 @@ not conversion work of its own.
 
 ## Single-invocation flow (wave 1 — how the stops compose now)
 
+Windows uses separate invocations at the exit-12 finalize checkpoint and the
+exit-4 workbook-repair handoff. It does not attempt POSIX lock-descriptor
+inheritance for automatic finalize or reuse self-healing. Resume only after
+the previous process exits; the same workdir lock still excludes other writers.
+
 The gates are unchanged; the STOPS batch (speed review #2). One driving
 pattern per run:
 
@@ -238,13 +243,12 @@ pattern per run:
    computed `targeted_key` — copy it verbatim into `--answers` (targeted wins
    over the bulk class id; unknown keys draw a WARN). Resolved answers are
    ledgered in `<WORK>/decisions.jsonl`.
-3. **Phase-1d dashboard-read is a WAIT-GATE at the DM-POST barrier**: do the
-   PNG read while the orchestrator waits (`SIGMA_PNG_READ_TIMEOUT_S`, default
-   480s) and the run continues in-process; the deadline is exit 18 naming the
-   missing piece. Headless/CI callers with no driving agent to write the read
-   should set `SIGMA_PNG_READ_TIMEOUT_S=0` — the gate then fails fast (exit
-   18) instead of blocking the full bound; the wait banner's first line names
-   this switch. A `png-read.json` older than this run's discovery fetch is
+3. **Phase-1d dashboard-read is a handoff at the DM-POST barrier**: default
+   `SIGMA_PNG_READ_TIMEOUT_S=0` returns exit 18 naming the missing piece, so a
+   blocking agent can read the PNG and resume. Runners that can act concurrently
+   may set a positive bound (for example 480 seconds) to continue in-process
+   when the read arrives. Neither mode skips verification.
+   A `png-read.json` older than this run's discovery fetch is
    set aside as `.stale` — never silently consumed.
 4. At the pass-1 tail, when the artifacts prove the agent-mediated actuals
    list is EMPTY (all exportable charts machine-collected, pivot grids included,

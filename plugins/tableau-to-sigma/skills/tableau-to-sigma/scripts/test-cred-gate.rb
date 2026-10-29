@@ -151,7 +151,54 @@ Dir.mktmpdir do |home|
     code, out = run_no_creds(MT, home, work,
                              sigma.merge('TABLEAU_PAT_NAME' => 'pat', 'TABLEAU_PAT_SECRET' => 'sec'))
     check(out.include?('sign-in failed at preflight'),
-          'misconfigured/stale PAT aborts at the single-attempt preflight (no retry)', fails)
+           'misconfigured/stale PAT aborts at the single-attempt preflight (no retry)', fails)
+
+    # A CLI-only session must reach the separate Tableau gate, without client
+    # credentials or a browser refresh session. The stub never opens a browser.
+    cli_bin = File.join(home, 'cli-bin')
+    FileUtils.mkdir_p(cli_bin)
+    cli = File.join(cli_bin, 'sigma')
+    File.write(cli, <<~SH)
+      #!/bin/sh
+      case "$*" in
+        'auth --help') printf 'Commands: login token status\n' ;;
+        'auth status') printf 'Profile: fixture\nBase URL: https://api.sigmacomputing.com\nAuth: OK (token acquired)\n' >&2 ;;
+        'auth token') printf '%s\n' "$FAKE_SIGMA_TOKEN" ;;
+        *) exit 2 ;;
+      esac
+    SH
+    FileUtils.chmod(0o755, cli)
+    provider = File.join(home, 'provider.py')
+    File.write(provider, <<~PY)
+      import importlib.util, sys
+      spec = importlib.util.spec_from_file_location('gt', #{File.join(DIR, 'get_token.py').inspect})
+      gt = importlib.util.module_from_spec(spec); spec.loader.exec_module(gt)
+      gt._verify_token = lambda result: result  # no HTTP in this CLI contract test
+      sys.exit(gt.main(sys.argv[1:]))
+    PY
+    fake_jwt = ['{"alg":"none"}', '{"sub":"fixture"}', 'signature'].map { |s| [s].pack('m0').tr('+/', '-_').delete('=') }.join('.')
+    code, out = run_no_creds(MT, home, work,
+                             'PATH' => "#{cli_bin}#{File::PATH_SEPARATOR}#{ENV.fetch('PATH', '')}",
+                             'SIGMA_AUTH_MODE' => 'sigma-cli', 'SIGMA_TOKEN_PROVIDER' => provider,
+                             'FAKE_SIGMA_TOKEN' => fake_jwt)
+    check(!out.include?('no usable Sigma authentication'), 'CLI-only auth satisfies the orchestrator credential gate', fails)
+    check(out.include?('no Tableau credentials resolvable'), 'CLI-only auth does not impersonate Tableau authentication', fails)
+
+    marker = File.join(home, 'provider-called')
+    File.write(provider, <<~PY)
+      from pathlib import Path
+      Path(#{marker.inspect}).touch()
+      print('export SIGMA_API_TOKEN=fixture')
+      print('export SIGMA_AUTH_METHOD=sigma-cli')
+      print('export SIGMA_BASE_URL=https://example.invalid')
+    PY
+    code, out = run_no_creds(MT, home, work, 'SIGMA_SKIP_CRED_GATE' => 'offline-test',
+                             'SIGMA_TOKEN_PROVIDER' => provider)
+    check(!File.exist?(marker), 'offline waiver never invokes the token provider', fails)
+    check(out.include?('no Tableau credentials resolvable'), 'offline waiver reaches the separate source gate', fails)
+    code, out = run_no_creds(MT, home, work, 'SIGMA_TOKEN_PROVIDER' => provider)
+    check(out.include?('refusing to send Sigma credentials'), 'invalid provider host remains refused', fails)
+    check(out.include?('no usable Sigma authentication'), 'provider abort includes actionable credential remediation', fails)
   end
 end
 

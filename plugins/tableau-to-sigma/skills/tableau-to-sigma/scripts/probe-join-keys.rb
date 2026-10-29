@@ -65,6 +65,7 @@
 require 'json'
 require 'csv'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
 require_relative 'lib/workbook_code'
 
@@ -78,7 +79,7 @@ require_relative 'lib/sql_ident_check' # single identifier-legality oracle (W2.9
 
 opts = { dialect: 'snowflake' }
 OptionParser.new do |p|
-  p.on('--workdir DIR')        { |v| opts[:workdir] = v }
+  p.on('--workdir DIR')        { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--plan PATH')          { |v| opts[:plan] = v }
   p.on('--connection-id ID')   { |v| opts[:conn] = v }
   p.on('--folder-id ID')       { |v| opts[:folder] = v }

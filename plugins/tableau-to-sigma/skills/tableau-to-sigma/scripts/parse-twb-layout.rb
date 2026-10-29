@@ -878,11 +878,21 @@ def parse_customized_label(ws)
   cl.elements.each('.//run') do |r|
     txt = r.text.to_s.gsub("Æ", '')
     a = r.attributes
+    # Tableau's bundled families ('Tableau Bold', 'Tableau Book', 'Tableau Light',
+    # 'Tableau Medium', 'Tableau Semibold') are not web fonts: emitted as a
+    # font-family they make Sigma fall back to a SERIF substitute (the dashboard
+    # title rendered serif where the source is a bold sans). Drop the family so the
+    # theme's sans text font applies, and carry the weight the NAME encodes
+    # (Bold/Semibold/Black/Heavy) as bold — the run has no bold= attribute then.
+    # Real families ('Roboto Light', 'Arial') pass through unchanged.
+    fname = (fn0 = a['fontname']) && !fn0.empty? ? fn0 : nil
+    tableau_face = !fname.nil? && fname.match?(/\ATableau(\z|\s)/i)
+    name_bold = tableau_face && fname.match?(/\b(?:bold|semibold|black|heavy)\b/i)
     runs << {
       'text'      => txt,
       'color'     => (c = a['fontcolor']) && !c.empty? ? c : nil,
       'font_size' => (fs = a['fontsize']) && !fs.empty? ? fs.to_i : nil,
-      'bold'      => a['bold'] == 'true',
+      'bold'      => a['bold'] == 'true' || name_bold,
       'break'     => txt.include?("\n"),
       'ref'       => txt.include?('<[')
     }.compact
@@ -1272,6 +1282,50 @@ xml.elements.each('//worksheet') do |ws|
     end
   end
 
+  # Single (whole-mark) color: a Bar/Line/Area sheet with ONE mark color and no
+  # color encoding serializes it on the pane's mark style —
+  #   <pane><style><style-rule element='mark'>
+  #     <format attr='mark-color' value='#1f4e79' />
+  # (Format ▸ Color on the Marks card; there is no <encoding attr='color'>).
+  # Only a field-less rule counts (a `field=` rule styles one measure of a
+  # dual-axis pair). Surfaced as `mark_color` (lowercase #rrggbb) ONLY when every
+  # pane agrees on one color; mixed panes (dual axis) stay nil. A fully
+  # transparent value (alpha 00) is "no color". Mirrored in parse-twb-layout.py.
+  mark_colors = []
+  ws.elements.each(".//pane//style-rule[@element='mark']/format") do |f|
+    next unless f.attributes['attr'].to_s == 'mark-color' && f.attributes['field'].to_s.empty?
+    hex = f.attributes['value'].to_s.strip.downcase
+    next unless hex =~ /\A#[0-9a-f]{6}(?:[0-9a-f]{2})?\z/
+    next if hex.length == 9 && hex.end_with?('00')
+    mark_colors << hex[0, 7]
+  end
+  mark_colors.uniq!
+  mark_color = mark_colors.size == 1 ? mark_colors.first : nil
+
+  # Explicit axis-title overrides (Format ▸ Axis ▸ Title / Edit Axis ▸ Title):
+  #   <style-rule element='axis'><format attr='title' class='0' scope='cols'
+  #     field='[ds].[sum:Sales:qk]' value='Custom' />   (value='' = title cleared)
+  # and the Show Header toggle (`attr='display' value='false'` hides the whole
+  # axis, title included). Absent = Tableau's default: the axis shows its
+  # field-name title. Document order; the last rule per (scope, class) wins in
+  # the consumer. Hidden FIELD LABELS (display-field-labels) are separate and
+  # already in field_labels_hidden.
+  axis_titles = []
+  ws.elements.each(".//style-rule[@element='axis']/format") do |f|
+    a = f.attributes
+    attr = a['attr'].to_s
+    next unless %w[title display].include?(attr)
+    next unless %w[rows cols].include?(a['scope'].to_s)
+    next if attr == 'display' && a['value'].to_s != 'false'
+    rec = { 'scope' => a['scope'].to_s, 'class' => a['class'].to_s }
+    if attr == 'title'
+      rec['text'] = a['value'].to_s
+    else
+      rec['hidden'] = true
+    end
+    axis_titles << rec
+  end
+
   # Hidden field-label bands. Tableau's Format ▸ "Show Field Labels for Rows /
   # Columns" toggle is a worksheet-level style-rule:
   #   <style-rule element='worksheet'>
@@ -1515,6 +1569,8 @@ xml.elements.each('//worksheet') do |ws|
     ref_marks:        ref_marks,
     axis_formats:     axis_formats,
     mark_labels_show: mark_labels_show,
+    mark_color:       mark_color,
+    axis_titles:      axis_titles,
     field_labels_hidden: field_labels_hidden,
     rows_shelf:       rows_shelf,
     cols_shelf:       cols_shelf,
@@ -1806,6 +1862,18 @@ def zone_button_fields(z)
     out['button_font_color'] = f.attributes['fontcolor']
     out['button_font_size']  = f.attributes['fontsize'] && f.attributes['fontsize'].to_i
   end
+  # The button's own fill lives on its visual state, NOT on the zone-style (a
+  # nav button's zone carries no background-color, so zone fill_color is nil and
+  # the native button shipped Sigma's default blue). 6-digit hex only; alpha and
+  # fully-transparent fills are dropped.
+  b.elements.each('.//button-visual-state/format') do |bf|
+    next unless bf.attributes['attr'].to_s == 'background-color'
+    hex = bf.attributes['value'].to_s.strip.downcase
+    next unless hex =~ /\A#[0-9a-f]{6}(?:[0-9a-f]{2})?\z/
+    next if hex.length == 9 && hex.end_with?('00')
+    out['button_fill_color'] = hex[0, 7]
+    break
+  end
   out.reject { |_, v| v.nil? }
 end
 
@@ -1856,15 +1924,25 @@ def zone_text_fields(z)
     # newline is a hard break, one that's whitespace-only is a spacer.
     txt = raw.gsub("Æ", '')
     a = r.attributes
+    # Tableau's bundled families ('Tableau Bold', 'Tableau Book', 'Tableau Light',
+    # 'Tableau Medium', 'Tableau Semibold') are not web fonts: emitted as a
+    # font-family they make Sigma fall back to a SERIF substitute (the dashboard
+    # title rendered serif where the source is a bold sans). Drop the family so the
+    # theme's sans text font applies, and carry the weight the NAME encodes
+    # (Bold/Semibold/Black/Heavy) as bold — the run has no bold= attribute then.
+    # Real families ('Roboto Light', 'Arial') pass through unchanged.
+    fname = (fn0 = a['fontname']) && !fn0.empty? ? fn0 : nil
+    tableau_face = !fname.nil? && fname.match?(/\ATableau(\z|\s)/i)
+    name_bold = tableau_face && fname.match?(/\b(?:bold|semibold|black|heavy)\b/i)
     runs << {
       'text'      => txt,
       'color'     => (c = a['fontcolor']) && !c.empty? ? c : nil,
       'font_size' => (fs = a['fontsize']) && !fs.empty? ? fs.to_i : nil,
-      'bold'      => a['bold'] == 'true',
+      'bold'      => a['bold'] == 'true' || name_bold,
       # v5.0 full run surface: family ('Roboto Light'), italic/underline, and
       # per-run alignment (fontalignment enum PNG-verified: 1=center 2=right;
       # absent/0=left). nil-compacted so absent attrs don't bloat every run.
-      'font'      => (fn = a['fontname']) && !fn.empty? ? fn : nil,
+      'font'      => tableau_face ? nil : fname,
       'italic'    => a['italic'] == 'true' || nil,
       'underline' => a['underline'] == 'true' || nil,
       'align'     => { '1' => 'center', '2' => 'right' }[a['fontalignment'].to_s],
@@ -2194,6 +2272,8 @@ xml.elements.each('//dashboard') do |d|
       'ref_marks'    => (kind == 'chart' ? ws_meta&.dig(:ref_marks)     : nil),
       'axis_formats' => (kind == 'chart' ? ws_meta&.dig(:axis_formats)  : nil),
       'mark_labels_show' => (kind == 'chart' ? ws_meta&.dig(:mark_labels_show) : nil),
+      'mark_color' => (kind == 'chart' ? ws_meta&.dig(:mark_color) : nil),
+      'axis_titles' => (kind == 'chart' ? ws_meta&.dig(:axis_titles) : nil),
       'field_labels_hidden' => (kind == 'chart' ? ws_meta&.dig(:field_labels_hidden) : nil),
       'rows_shelf'   => (kind == 'chart' ? ws_meta&.dig(:rows_shelf)    : nil),
       'cols_shelf'   => (kind == 'chart' ? ws_meta&.dig(:cols_shelf)    : nil),
@@ -2235,6 +2315,7 @@ xml.elements.each('//dashboard') do |d|
       'button_image_path'       => zbtn['button_image_path'],
       'button_type'             => zbtn['button_type'],
       'button_font_color'       => zbtn['button_font_color'],
+      'button_fill_color'       => zbtn['button_fill_color'],
       'button_font_size'        => zbtn['button_font_size']
     }
     # Measure Names member order (only stamped when the sheet carries the pill).
@@ -2278,6 +2359,8 @@ xml.elements.each('//dashboard') do |d|
 
   dash_h = {
     'dashboard'     => d.attributes['name'],
+    'show_dashboard_title' => d.attributes['show-title'] == 'true' || zones.any? { |z| z['kind'] == 'title' },
+    'source_locale' => xml.elements['workbook'].attributes['locale'],
     'is_story'      => is_story,
     # Tableau's <windows> collection is the visible-tab contract. A dashboard
     # absent from it is hidden migration plumbing (parameter hosts are common),
@@ -2356,6 +2439,8 @@ if dashboards.empty? && !worksheets.empty?
         'ref_marks'    => ws_meta[:ref_marks],
         'axis_formats' => ws_meta[:axis_formats],
         'mark_labels_show' => ws_meta[:mark_labels_show],
+        'mark_color' => ws_meta[:mark_color],
+        'axis_titles' => ws_meta[:axis_titles],
         'field_labels_hidden' => ws_meta[:field_labels_hidden],
         'rows_shelf'   => ws_meta[:rows_shelf],
         'cols_shelf'   => ws_meta[:cols_shelf],

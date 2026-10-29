@@ -1,0 +1,174 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic fixture (invented names, no customer data) for Tableau GROUP fields
+     (<calculation class='categorical-bin'>), schema: twb_2026.2.0.xsd DataSource-Calculation-G +
+     DataSource-Bins-G (each <bin value='"bucket"'> lists its member <value>s; default-name='true'
+     marks a member that keeps its own name).
+     - [Officer Name (group)]: two explicit buckets' worth of members ("Team North" = Alice + Bob)
+       plus a default-name passthrough bin (Carol keeps her own name); unlisted members keep their value.
+     - [Region (group)]: West Coast = CA + OR, and an "Other" bucket (others='true') that takes every
+       member not listed.
+     - [Region Tier (group)]: the catch-all spelled as the calculation's default='"Other"' attribute.
+     - Calcs over the group: a simple IF, a row-level CONTAINS over UPPER(group), and the old
+       search shape CONTAINS(LOOKUP(MAX(UPPER([group])),0), UPPER([Parameters].[Parameter 3])).
+     - "Volume by Team": the group on Rows plus a categorical filter on the group.
+     - "Volume by Region": the Other-bucket group on Rows. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <aliases enabled='yes' />
+      <column caption='Officer Search' datatype='string' name='[Parameter 3]' param-domain-type='any' role='measure' type='nominal' value='&quot;&quot;'>
+        <calculation class='tableau' formula='&quot;&quot;' />
+      </column>
+    </datasource>
+    <datasource caption='Activity' inline='true' name='federated.grp0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.grp0001'>
+            <connection class='snowflake' dbname='SALESDB' schema='DEMO' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.grp0001' name='OFFICER_ACTIVITY' table='[DEMO].[OFFICER_ACTIVITY]' type='table' />
+      </connection>
+      <column caption='Officer Name' datatype='string' name='[OFFICER_NAME]' role='dimension' type='nominal' />
+      <column caption='Region' datatype='string' name='[REGION]' role='dimension' type='nominal' />
+      <column caption='Volume' datatype='real' name='[VOLUME]' role='measure' type='quantitative' />
+      <column caption='Officer Name (group)' datatype='string' name='[Officer Name (group)]' role='dimension' type='nominal'>
+        <calculation class='categorical-bin' column='[OFFICER_NAME]' new-bin='true'>
+          <bin value='&quot;Team North&quot;'>
+            <value>&quot;Alice&quot;</value>
+            <value>&quot;Bob&quot;</value>
+          </bin>
+          <bin default-name='true' value='&quot;Carol&quot;'>
+            <value>&quot;Carol&quot;</value>
+          </bin>
+        </calculation>
+      </column>
+      <column caption='Region (group)' datatype='string' name='[Region (group)]' role='dimension' type='nominal'>
+        <calculation class='categorical-bin' column='[REGION]' new-bin='true'>
+          <bin value='&quot;West Coast&quot;'>
+            <value>&quot;CA&quot;</value>
+            <value>&quot;OR&quot;</value>
+          </bin>
+          <bin others='true' value='&quot;Other&quot;' />
+        </calculation>
+      </column>
+      <column caption='Region Tier (group)' datatype='string' name='[Region Tier (group)]' role='dimension' type='nominal'>
+        <calculation class='categorical-bin' column='[REGION]' default='&quot;Other&quot;' new-bin='true'>
+          <bin value='&quot;Core&quot;'>
+            <value>&quot;CA&quot;</value>
+            <value>&quot;NY&quot;</value>
+          </bin>
+        </calculation>
+      </column>
+      <column caption='North Flag' datatype='string' name='[Calculation_3001]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='IF [Officer Name (group)] = &quot;Team North&quot; THEN &quot;Yes&quot; ELSE &quot;No&quot; END' />
+      </column>
+      <column caption='Name Has Ali' datatype='boolean' name='[Calculation_3002]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='CONTAINS(UPPER([Officer Name (group)]), &quot;ALI&quot;)' />
+      </column>
+      <column caption='Name Search' datatype='boolean' name='[Calculation_3003]' role='measure' type='nominal'>
+        <calculation class='tableau' formula='CONTAINS(LOOKUP(MAX(UPPER([Officer Name (group)])),0),UPPER([Parameters].[Parameter 3]))' />
+      </column>
+      <layout dim-ordering='alphabetic' measure-ordering='alphabetic' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Volume by Team'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Activity' name='federated.grp0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.grp0001'>
+            <column caption='Volume' datatype='real' name='[VOLUME]' role='measure' type='quantitative' />
+            <column caption='Officer Name (group)' datatype='string' name='[Officer Name (group)]' role='dimension' type='nominal'>
+              <calculation class='categorical-bin' column='[OFFICER_NAME]' new-bin='true'>
+                <bin value='&quot;Team North&quot;'>
+                  <value>&quot;Alice&quot;</value>
+                  <value>&quot;Bob&quot;</value>
+                </bin>
+                <bin default-name='true' value='&quot;Carol&quot;'>
+                  <value>&quot;Carol&quot;</value>
+                </bin>
+              </calculation>
+            </column>
+            <column-instance column='[Officer Name (group)]' derivation='None' name='[none:Officer Name (group):nk]' pivot='key' type='nominal' />
+            <column-instance column='[VOLUME]' derivation='Sum' name='[sum:VOLUME:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.grp0001].[none:Officer Name (group):nk]'>
+            <groupfilter function='union' user:ui-domain='database' user:ui-enumeration='inclusive' user:ui-marker='enumerate'>
+              <groupfilter function='member' level='[none:Officer Name (group):nk]' member='&quot;Team North&quot;' />
+              <groupfilter function='member' level='[none:Officer Name (group):nk]' member='&quot;Carol&quot;' />
+            </groupfilter>
+          </filter>
+          <slices>
+            <column>[federated.grp0001].[none:Officer Name (group):nk]</column>
+          </slices>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.grp0001].[none:Officer Name (group):nk]</rows>
+        <cols>[federated.grp0001].[sum:VOLUME:qk]</cols>
+      </table>
+    </worksheet>
+    <worksheet name='Volume by Region'>
+      <table>
+        <view>
+          <datasources>
+            <datasource caption='Activity' name='federated.grp0001' />
+          </datasources>
+          <datasource-dependencies datasource='federated.grp0001'>
+            <column caption='Volume' datatype='real' name='[VOLUME]' role='measure' type='quantitative' />
+            <column caption='Region (group)' datatype='string' name='[Region (group)]' role='dimension' type='nominal'>
+              <calculation class='categorical-bin' column='[REGION]' new-bin='true'>
+                <bin value='&quot;West Coast&quot;'>
+                  <value>&quot;CA&quot;</value>
+                  <value>&quot;OR&quot;</value>
+                </bin>
+                <bin others='true' value='&quot;Other&quot;' />
+              </calculation>
+            </column>
+            <column-instance column='[Region (group)]' derivation='None' name='[none:Region (group):nk]' pivot='key' type='nominal' />
+            <column-instance column='[VOLUME]' derivation='Sum' name='[sum:VOLUME:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes>
+          <pane selection-relaxation-option='selection-relaxation-allow'>
+            <view>
+              <breakdown value='auto' />
+            </view>
+            <mark class='Bar' />
+          </pane>
+        </panes>
+        <rows>[federated.grp0001].[none:Region (group):nk]</rows>
+        <cols>[federated.grp0001].[sum:VOLUME:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Groups'>
+      <size maxheight='600' maxwidth='1000' minheight='600' minwidth='1000' sizing-mode='fixed' />
+      <datasources>
+        <datasource caption='Activity' name='federated.grp0001' />
+      </datasources>
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='100000' id='2' param='horz' type-v2='layout-flow' w='100000' x='0' y='0'>
+            <zone h='100000' id='3' name='Volume by Team' w='50000' x='0' y='0' />
+            <zone h='100000' id='4' name='Volume by Region' w='50000' x='50000' y='0' />
+          </zone>
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

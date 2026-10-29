@@ -186,32 +186,50 @@ check(rc == 0, 'bare [ctl-*] and sibling refs are ignored (validate-spec.rb owns
 # "Date (Month /Year)") used to be unconditionally split — the ref resolved as
 # its final fragment ("L" / "Year)"): a false FAIL, or a false PASS when a real
 # same-named column existed. The escape ported from mechanical-specs.rb's
-# derived-rel checker resolves the WHOLE slashed tail first.
+# derived-rel checker resolves the WHOLE slashed tail first, so a name match is
+# still how the gate tells a 2-segment ref from a relationship path.
+#
+# What changed: that name match used to mean "resolves", and it does not. Sigma
+# reads '/' in a reference as a path separator, so a slash-named column compiles
+# to type="error" and a list control over it POSTs as "Invalid value source for
+# list control" (live-probed). The gate passed exactly the refs Sigma rejects, so
+# a whole-name match on a slash-named column now FAILS with that reason.
 DM_SLASH = { 'dataModelId' => 'dm1', 'pages' => [{ 'elements' => [
   { 'id' => 'e1', 'name' => 'Master',
     'columnLabels' => ['Net Revenue', 'Margin Pct H/L', 'Date (Month /Year)'] }
 ] }] }
-# false-FAIL direction: the slash-named DM column resolves as-is now
-rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
   { 'formula' => 'Sum([Master/Margin Pct H/L])' },
   { 'formula' => '[Master/Date (Month /Year)]' }
 ] }] }] }, DM_SLASH)
-check(rc == 0, 'slash-named DM columns resolve whole ("Margin Pct H/L", "Date (Month /Year)") — no false FAIL')
+check(rc == 1, 'slash-named DM columns are UNREFERENCEABLE and fail the gate (they passed before: Sigma rejected them)')
+check(out.include?("contains '/'") && out.include?('Margin Pct H/L') && out.include?('Date (Month /Year)'),
+      'the failure names each slash-named column and says why')
+# the same refs against a DM whose columns were renamed slash-free pass
+DM_SAFE = { 'dataModelId' => 'dm1', 'pages' => [{ 'elements' => [
+  { 'id' => 'e1', 'name' => 'Master',
+    'columnLabels' => ['Net Revenue', 'Margin Pct H L', 'Date (Month Year)'] }
+] }] }
+rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+  { 'formula' => 'Sum([Master/Margin Pct H L])' },
+  { 'formula' => '[Master/Date (Month Year)]' }
+] }] }] }, DM_SAFE)
+check(rc == 0, 'the slash-free (friendly-names) form of the same columns resolves (exit 0)')
 # a slash-named column that is genuinely MISSING (and whose fragment resolves
 # nowhere either) still fails — the escape never widens what passes
-rc, out = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
+rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
   { 'formula' => '[Master/Margin Pct A/B]' }
 ] }] }] }, DM_SLASH)
 check(rc == 1, 'missing slash-named column still fails (exit 1)')
 # internal binding: a workbook element's OWN slash-named calc column (absent
-# from the DM by design) resolves via the element's own column set
-rc, = run_gate({ 'pages' => [{ 'elements' => [
+# from the DM by design) is unreferenceable too
+rc, out = run_gate({ 'pages' => [{ 'elements' => [
   master_el({ 'name' => 'Margin H/L', 'formula' => '[Master/Net Revenue] / 100' }),
   { 'id' => 'el-kpi', 'kind' => 'kpi-chart',
     'source' => { 'kind' => 'table', 'elementId' => 'el-master' },
     'columns' => [{ 'name' => 'KPI', 'formula' => 'Sum([Master/Margin H/L])' }] }
 ] }] }, DM)
-check(rc == 0, 'internal slash-named calc column resolves against the spec element (two-segment escape)')
+check(rc == 1 && out.include?("contains '/'"), 'internal slash-named calc column fails the gate with the slash reason')
 # regression: the escape must NOT break 3-part relationship-path resolution
 rc, = run_gate({ 'pages' => [{ 'elements' => [{ 'columns' => [
   { 'formula' => '[Metric Series/FIXED Year/Revenue World]' }

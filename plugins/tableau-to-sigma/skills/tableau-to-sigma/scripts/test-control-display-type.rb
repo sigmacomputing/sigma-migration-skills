@@ -44,18 +44,26 @@ check(sigma_control_type('radio')   == 'segmented', "unknown/radio → segmented
 # ---- 2. control_display_for lookup (mirrors the benchmark's controls) -------
 LAYOUT = [{
   'dashboard' => 'Job Losses',
+  'source_locale' => 'en_US',
   'zones' => [
     { 'kind' => 'parameter', 'filter_column_caption' => 'Job Loss Metric', 'control_display' => 'compact' },
     { 'kind' => 'parameter', 'filter_column_caption' => 'Immigrant / U.S.-born' }, # no mode → nil → segmented
     { 'kind' => 'filter',    'filter_column_caption' => 'Highlight State', 'control_display' => 'type_in' },
     { 'kind' => 'chart',     'filter_column_caption' => 'Region Chart', 'control_display' => 'compact' } # wrong kind: ignored
   ]
+}, {
+  'dashboard' => 'Alternate Controls',
+  'source_locale' => 'en_US',
+  'zones' => [
+    { 'kind' => 'parameter', 'filter_column_caption' => 'Immigrant / U.S.-born',
+      'control_display' => 'radiolist' }
+  ]
 }]
 
 check(control_display_for(LAYOUT, 'Job Loss Metric', NORM) == 'compact',
       "finds 'compact' for the Metric dropdown", fails)
-check(control_display_for(LAYOUT, 'Immigrant / U.S.-born', NORM).nil?,
-      "returns nil when a control has no explicit mode (→ segmented)", fails)
+check(control_display_for(LAYOUT, 'Immigrant / U.S.-born', NORM) == 'radiolist',
+      "continues past a locale-bearing zone with no mode", fails)
 check(control_display_for(LAYOUT, 'Highlight State', NORM) == 'type_in',
       "finds 'type_in' on a filter zone", fails)
 check(control_display_for(LAYOUT, 'JOB   loss  metric!', NORM) == 'compact',

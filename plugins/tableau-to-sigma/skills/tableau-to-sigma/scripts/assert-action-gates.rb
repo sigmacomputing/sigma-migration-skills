@@ -68,13 +68,14 @@
 # effect on G1 — spec validity is not optional.
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'action_gates'
 
 opts = {}
 OptionParser.new do |p|
   p.banner = 'usage: assert-action-gates.rb --workdir <WORK> [--spec <built-spec.json>] [--skip-postpublish-guide "<reason>"]'
-  p.on('--workdir PATH', '--tableau PATH') { |v| opts[:work] = v }
+  p.on('--workdir PATH', '--tableau PATH') { |v| opts[:work] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--spec PATH', 'built workbook spec JSON to validate for G1 (action schema + workbook-wide id uniqueness)') { |v| opts[:spec] = v }
   p.on('--skip-postpublish-guide REASON', 'waive the GUIDE-RESIDUE check ONLY — never G1. REQUIRED reason string; name it in your migration report.') { |v| opts[:skip_guide] = v }
 end.parse!(ARGV)

@@ -3,11 +3,12 @@
 
 require 'json'
 require 'optparse'
+require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/relationship_coverage'
 
 opts = {}
 OptionParser.new do |parser|
-  parser.on('--workdir DIR') { |value| opts[:workdir] = File.expand_path(value) }
+  parser.on('--workdir DIR') { |value| opts[:workdir] = WorkdirGuard.check!(File.expand_path(value), '--workdir') }
   parser.on('--metadata PATH') { |value| opts[:metadata] = File.expand_path(value) }
   parser.on('--source PATH') { |value| opts[:source] = File.expand_path(value) }
 end.parse!

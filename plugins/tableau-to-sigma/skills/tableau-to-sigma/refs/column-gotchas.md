@@ -35,6 +35,15 @@ If a column's `name` field itself contains `/`, every formula that references it
 **Rule:** Before writing the data model spec, rename any column whose `name` contains `/`.
 Do it once in the data model; all downstream workbook formulas inherit the clean name.
 
+**The converter does this for you** (calc columns, warehouse passthroughs and metrics; `[` and `]` too):
+`MechanicalSpecs.sanitize_slash_column_names!` (Ruby, run by `fixup_dm_spec`) and
+`tableau_source.sanitize_slash_column_names` (Python) replace each of `/ [ ]` with a space and squeeze
+spaces — `Area - East/West` → `Area - East West` (a hyphen stays) — and rewrite every reference. The
+workbook master, charts and controls use the safe name; control labels and axis titles keep the Tableau
+caption. One `renamed for Sigma: '/' cannot appear in a referenced column name` warning per column, and
+`slash-renames.json` holds the caption → safe-name map. A slash-named column that still reaches the pre-POST
+ref gate fails it (it compiles to `type="error"`; a list control over it POSTs as "Invalid value source").
+
 ## Tableau display names ≠ warehouse column names
 
 Tableau stores a human-readable "display name" that is almost never the actual warehouse column name. The exact transform varies by warehouse:

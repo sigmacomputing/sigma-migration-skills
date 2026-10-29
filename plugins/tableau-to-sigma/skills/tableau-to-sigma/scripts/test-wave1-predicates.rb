@@ -24,7 +24,7 @@ require 'fileutils'
 
 DIR = __dir__
 SRC = File.read(File.join(DIR, 'migrate-tableau.rb'), encoding: 'UTF-8')
-%w[finalize_chain_predicate mission_scope_for png_read_stale?].each do |fn|
+%w[finalize_chain_predicate mission_scope_for resolve_mission_view_segments png_read_stale?].each do |fn|
   m = SRC.match(/^def #{Regexp.escape(fn).sub('\\?', '\\?')}.*?\n^end$/m) or abort("could not extract #{fn}")
   eval(m[0]) # rubocop:disable Security/Eval — test-only extraction of first-party code
 end
@@ -242,6 +242,12 @@ Dir.mktmpdir do |d|
   ms = mission_scope_for(d)
   check(ms['view_segments'] == ['BetaDetail'] && ms['names'] == [],
         'single-view /#/views/ URL yields the view segment', fails)
+  resolved = resolve_mission_view_segments(ms['view_segments'], [
+                                             { 'name' => 'Beta Detail',
+                                               'contentUrl' => 'Wave1Fixture/sheets/BetaDetail' }
+                                           ])
+  check(resolved == ['Beta Detail'],
+        'view URL segment resolves to the Tableau view name before MCP dashboard selection', fails)
 
   File.write(File.join(d, 'mission.json'), JSON.generate(
                'scope' => { 'value' => ['Some Workbook'], 'provenance' => 'inferred' }))
@@ -276,12 +282,12 @@ check(SRC.include?("png-read.stale".sub('png-read.stale', '.stale.json')) || SRC
       'gate renames a stale read to png-read.stale.json (never silently consumed, never destroyed)', fails)
 check(SRC.include?("kind: 'png-read-stale'"), 'stale set-aside is offramp-recorded', fails)
 check(SRC.include?("kind: 'png-wait-timeout'"), 'wait-gate deadline is offramp-recorded', fails)
-check(SRC =~ /SIGMA_PNG_READ_TIMEOUT_S.*480/, 'wait bound defaults to 480s and is env-overridable', fails)
+check(SRC.include?("(ENV['SIGMA_PNG_READ_TIMEOUT_S'] || '0').to_i"), 'agent handoff defaults to immediate return and is env-overridable', fails)
 
 puts 'finalize chain is wired at the pass-1 tail (string-pins)'
 check(SRC =~ /_chain_ok && ENV\['SIGMA_NO_CHAIN_FINALIZE'\]\.to_s\.empty\?/,
       'chain gated on the strict predicate AND the escape hatch', fails)
-check(SRC =~ /exec\(RbConfig\.ruby, __FILE__,\s*\*\(ORIGINAL_ARGV \+ \['--finalize', '--actuals'/,
+check(SRC =~ /exec\(\{ MigrationProcess::INHERITED_FD.*RbConfig\.ruby, __FILE__,\s*\*\(ORIGINAL_ARGV \+ \['--finalize', '--actuals'/,
       'chain execs SELF with --finalize --actuals (same invocation, same pid)', fails)
 check(SRC.include?("kind: 'finalize-chained'"), 'the chain is offramp-recorded', fails)
 check(SRC =~ /rescue SystemCallError.*falling back to exit 12/m,

@@ -307,9 +307,14 @@ def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [
   return nil if unresolved_calc
   # ZN(expr) → Coalesce(expr, 0). One nesting level of parens is enough for
   # ZN(Sum([x]))-style wrappers; loop to handle repeated occurrences.
-  while out =~ /\bZN\s*\(((?:[^()]|\([^()]*(?:\([^()]*\)[^()]*)*\))*)\)/i
-    out = out.sub(Regexp.last_match(0), "Coalesce(#{Regexp.last_match(1)}, 0)")
+  # [Master/<name (copy)_1>] refs carry parens — mask each bracket token so the
+  # nesting-bounded pattern only counts real call parens.
+  ref_tokens = []
+  masked = out.gsub(/\[[^\]]*\]/) { ref_tokens << Regexp.last_match(0); "\u0001#{ref_tokens.length - 1}\u0002" }
+  while (zn = masked.match(/\bZN\s*\(((?:[^()]|\([^()]*(?:\([^()]*\)[^()]*)*\))*)\)/i))
+    masked = masked.sub(zn[0]) { "Coalesce(#{zn[1]}, 0)" }
   end
+  out = masked.gsub(/\u0001(\d+)\u0002/) { ref_tokens[Regexp.last_match(1).to_i] }
   # Validate: after stripping translated calls + refs, only arithmetic glue may
   # remain — otherwise the formula has constructs we can't safely auto-emit.
   residue = out.dup
@@ -358,6 +363,11 @@ end
 # DATEDIFF calc). Resolves GUID refs to captions, renames the common Tableau
 # date/logic functions, rewrites bare refs to [Master/...]. Returns nil when
 # the result still contains constructs we can't vouch for.
+# Tableau's infix `[field] IN ("a", "b")` (a GROUP field's calc is a chain of these) is not a
+# Sigma operator — the POST rejects it as "Invalid formula". Sigma's form is the function
+# `In([field], "a", "b")` (live-verified). translate_dim_calc and translate_row_level_calc
+# rewrite the `[bracketed field] IN (<literal list>)` shape inline (each is extracted and
+# evaluated alone by offline tests, so it cannot be a shared helper).
 def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
   return nil if s.empty?
@@ -402,6 +412,7 @@ def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
        .gsub(/\bSTARTSWITH\s*\(/i, 'StartsWith(').gsub(/\bENDSWITH\s*\(/i, 'EndsWith(')
        .gsub(/\bMID\s*\(/i, 'Mid(')
   s = s.gsub(/'([^']*)'/) { %("#{Regexp.last_match(1)}") } # remaining single-quoted strings
+  s = s.gsub(/(\[[^\]]+\])\s+IN\s*\(((?:"[^"]*"|'[^']*'|[^()"'])*)\)/i) { "In(#{Regexp.last_match(1)}, #{Regexp.last_match(2).strip})" } # infix IN -> In()
   unresolved_calc = false
   out = s.gsub(/\[([^\]]+)\]/) do
     cap = Regexp.last_match(1).strip
@@ -421,7 +432,7 @@ def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   residue = out.dup
   residue.gsub!(/"(?:\\.|[^"\\])*"/, '1')
   residue.gsub!(/\[Master\/[^\]]+\]/, '1')
-  residue.gsub!(/\b(DateDiff|DateAdd|DateTrunc|DatePart|Today|Now|If|Coalesce|Abs|Text|Year|Month|Day|Quarter|Hour|Minute|Second|Replace|Upper|Lower|Ltrim|Rtrim|Trim|Left|Right|Len|Contains|StartsWith|EndsWith|Mid)\b/, '')
+  residue.gsub!(/\b(DateDiff|DateAdd|DateTrunc|DatePart|Today|Now|If|Coalesce|Abs|Text|Year|Month|Day|Quarter|Hour|Minute|Second|Replace|Upper|Lower|Ltrim|Rtrim|Trim|Left|Right|Len|Contains|StartsWith|EndsWith|Mid|In)\b/, '')
   return nil unless residue =~ %r{\A[\s()+\-*/.,\d!=<>]*\z}
   out
 end
@@ -481,6 +492,7 @@ def translate_dim_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   end
   return nil if s =~ /\[[0-9a-f\-]{36}\]/i
   s = s.gsub(/'([^']*)'/) { %("#{Regexp.last_match(1)}") }
+  s = s.gsub(/(\[[^\]]+\])\s+IN\s*\(((?:"[^"]*"|'[^']*'|[^()"'])*)\)/i) { "In(#{Regexp.last_match(1)}, #{Regexp.last_match(2).strip})" } # infix IN -> In()
   unresolved_calc = false
   master_ref = lambda do |str|
     str.gsub(/\[([^\]]+)\]/) do
@@ -690,7 +702,15 @@ end
 #   IFNULL(x, y)             → Coalesce(x, y)
 def translate_tableau_tc(formula)
   return [nil, nil] if formula.nil? || formula.empty?
-  s = formula.dup
+  # A bracketed Tableau name is OPAQUE: `[Volume Measure - Mo (copy)_123]`,
+  # `[Officer Name (group)]` and `[Parameters].[P 3]` carry parens/commas the
+  # bounded-nesting rewrite regexes below would read as call structure (every
+  # RANK/LOOKUP/WINDOW_*/TOTAL over such a field fell to nil). Each `[...]` is
+  # swapped for a paren/comma-free sentinel, the rewrites run, and `unmask`
+  # restores the names. Self-contained on purpose: tests extract this def alone.
+  bracket_tokens = []
+  s = formula.gsub(/\[[^\]]*\]/) { bracket_tokens << Regexp.last_match(0); "\u0001#{bracket_tokens.length - 1}\u0002" }
+  unmask = ->(text) { text.gsub(/\u0001(\d+)\u0002/) { bracket_tokens[Regexp.last_match(1).to_i] } }
   hints = []
   changed = false
 
@@ -904,26 +924,27 @@ def translate_tableau_tc(formula)
   #   {EXCLUDE [dim] : SUM([m])}  → remove [dim] from chart grouping, use Sum
   # INCLUDE/EXCLUDE need the chart's grouping context — surfaced as manual
   # hints, not auto-emitted.
-  if s =~ /\{\s*FIXED\s+\[([^\]]+)\]\s*:\s*(SUM|AVG|MIN|MAX|COUNT|COUNTD)\s*\(\[([^\]]+)\]\)\s*\}/i
+  lod_text = unmask.call(s) # the hint regexes below capture field names — match the real text
+  if lod_text =~ /\{\s*FIXED\s+\[([^\]]+)\]\s*:\s*(SUM|AVG|MIN|MAX|COUNT|COUNTD)\s*\(\[([^\]]+)\]\)\s*\}/i
     dim, agg, m = $1, $2.upcase, $3
     hints << "FIXED LOD → auto-built as a hidden grouped helper element when plotted (inner grain = [#{dim}], " \
              "#{agg}(#{m}); 2nd-stage agg at chart grain) ⚠ carried chart dims must be functionally dependent on the FIXED dims"
     changed = true
   end
-  if s =~ /\{\s*FIXED\s*:\s*(SUM|AVG|MIN|MAX|COUNT|COUNTD)\s*\(\[([^\]]+)\]\)\s*\}/i
+  if lod_text =~ /\{\s*FIXED\s*:\s*(SUM|AVG|MIN|MAX|COUNT|COUNTD)\s*\(\[([^\]]+)\]\)\s*\}/i
     agg, m = $1.upcase, $2
     sigma_agg = { 'SUM' => 'Sum', 'AVG' => 'Avg', 'MIN' => 'Min', 'MAX' => 'Max',
                   'COUNT' => 'Count', 'COUNTD' => 'CountDistinct' }[agg]
     hints << "FIXED-no-dim LOD → workbook scalar metric #{sigma_agg}([Master/#{m}]) (no group by)"
     changed = true
   end
-  if (mi = s.match(/\{\s*INCLUDE\s+((?:\[[^\]]+\]\s*,?\s*)+):\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\[([^\]]+)\]\)\s*\}/i))
+  if (mi = lod_text.match(/\{\s*INCLUDE\s+((?:\[[^\]]+\]\s*,?\s*)+):\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\[([^\]]+)\]\)\s*\}/i))
     dims, agg = mi[1].scan(/\[([^\]]+)\]/).flatten.join(', '), mi[2].upcase
     hints << "INCLUDE LOD on [#{dims}] → AUTO-BUILT as a hidden grouped helper when plotted as a chart measure " \
              "(inner = INCLUDE dims below the view, 2nd-stage agg at view grain); elsewhere add [#{dims}] to the grouping"
     changed = true
   end
-  if (me = s.match(/\{\s*EXCLUDE\s+((?:\[[^\]]+\]\s*,?\s*)+):\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\[([^\]]+)\]\)\s*\}/i))
+  if (me = lod_text.match(/\{\s*EXCLUDE\s+((?:\[[^\]]+\]\s*,?\s*)+):\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\[([^\]]+)\]\)\s*\}/i))
     dims, agg = me[1].scan(/\[([^\]]+)\]/).flatten.join(', '), me[2].upcase
     composable = %w[SUM MAX MIN COUNT].include?(agg)
     hints << if composable
@@ -944,7 +965,7 @@ def translate_tableau_tc(formula)
   # AND in DM-element calc columns — no Custom SQL needed. Only the *Over family
   # (SumOver/MaxOver/...) is 'Unknown function' in every spec context.
   hints << 'NOTE: emit as a CHART-element viz formula on the yAxis (the default, WINPROBE-verified); table / DM-element calc columns are also valid. Never the *Over functions — see refs/window-functions.md' if hints.any? { |h| h =~ /Rank|Lag|Lead|RowNumber|Cumulative|Moving/ }
-  [s, hints.join('; ')]
+  [unmask.call(s), hints.join('; ')]
 end
 
 # ---- Tableau window table-calcs → Sigma-native chart formulas --------------
@@ -1214,4 +1235,164 @@ def translate_window_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   { 'mode' => 'inline', 'formula' => final,
     'follows_sort' => !!(final =~ /\b(?:Cumulative\w+|Moving\w+|RowNumber|Lag|Lead)\s*\(/),
     'note' => 'window table-calc → Sigma viz formula on the chart yAxis' }
+end
+
+# ---- Table-calc addressing suffix on exported CSV headers --------------------
+# Tableau's CSV export appends a table calc's addressing to its header:
+# "Rank - Mo along Table (Down)", "Share of Total along Table (Across)",
+# "Rank along Store Name", "... along Pane (Down)", "... along Cell". Every
+# caption/calc match must read the BASE name. A bare " along <name>" tail is
+# stripped too (the dimension-addressed form), so callers that can also match the
+# raw header try it first (a measure literally named "Distance along route").
+TABLEAU_TC_ADDRESSING_RE =
+  /\s+along\s+(?:(?:Table|Pane|Cell)\b(?:\s*\([^)]*\))?|[^()\[\]]+)\s*\z/i
+
+def strip_tc_addressing(header)
+  header.to_s.sub(TABLEAU_TC_ADDRESSING_RE, '').strip
+end
+
+# ---- Rank / dense-rank / share-of-total over ONE aggregated measure ----------
+# `RANK(SUM([m]) [, 'asc'|'desc'])`, `RANK_DENSE(SUM([m]))` and
+# `SUM([m]) / WINDOW_SUM(SUM([m]))` (or TOTAL) are the leaderboard table calcs.
+# translate_window_calc resolves the operand `[m]` itself, which cannot see a
+# PARAMETER-driven measure (an `IF [Parameters].[P] = ... THEN [a] ELSE [b] END`
+# calc comes out as a dangling `[Master/Parameters]` ref). This splits the shape
+# from the operand so the caller can resolve the operand its own way (a
+# control-driven Switch, the plotted column's formula, ...) and render the
+# Sigma formula around it. Returns nil for any other shape, else
+#   { 'kind' => 'rank'|'rank-dense'|'share', 'agg' => 'SUM', 'token' => 'm',
+#     'direction' => 'desc'|'asc' }
+TC_OPERAND_AGG = '(?:SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[[^\]]+\]\s*\)'
+
+def parse_tc_over_operand(formula)
+  s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
+  operand = lambda do |text|
+    m = text.to_s.strip.match(/\A(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[([^\]]+)\]\s*\)\z/i)
+    m && { 'agg' => m[1].upcase, 'token' => m[2].strip }
+  end
+  rank_re = /\A(RANK|RANK_DENSE)\s*\(\s*(#{TC_OPERAND_AGG})\s*(?:,\s*['"](asc|desc)['"]\s*)?\)\z/i
+  if (m = s.match(rank_re)) && (op = operand.call(m[2]))
+    return op.merge('kind' => m[1].casecmp?('RANK') ? 'rank' : 'rank-dense',
+                    'direction' => (m[3] || 'desc').downcase)
+  end
+  share_re = %r{\A(#{TC_OPERAND_AGG})\s*/\s*(?:WINDOW_SUM|TOTAL)\s*\(\s*(#{TC_OPERAND_AGG})\s*\)\z}i
+  if (m = s.match(share_re)) && (a = operand.call(m[1])) && (b = operand.call(m[2])) && a == b
+    return a.merge('kind' => 'share', 'direction' => 'desc')
+  end
+  nil
+end
+
+# Render the Sigma formula for a parse_tc_over_operand plan around an already
+# aggregated Sigma operand ("Sum(Switch([ctl-...], ...))").
+def render_tc_over_operand(plan, operand_formula)
+  case plan['kind']
+  when 'rank'       then %(Rank(#{operand_formula}, "#{plan['direction']}"))
+  when 'rank-dense' then %(RankDense(#{operand_formula}, "#{plan['direction']}"))
+  when 'share'      then %(PercentOfTotal(#{operand_formula}, "grand_total"))
+  end
+end
+
+# ---- Search filter: a table-calc boolean over a parameter --------------------
+# Tableau authors build a "search box" as a boolean calc on a text parameter:
+#   CONTAINS(LOOKUP(MAX(UPPER([Store Name])), 0), UPPER([Parameters].[Search]))
+# kept on `true` as a view filter. The LOOKUP(..., 0)/MAX wrapper makes it a table
+# calc, so the filter hides rows AFTER ranking (the survivors keep their ranks).
+# Returns nil unless the formula is exactly that shape, else
+#   { 'dimension' => token, 'dimension_caption' => 'Store Name',
+#     'param_name' => 'Parameter 2', 'param_caption' => 'Store Lookup',
+#     'mode' => 'contains'|'starts-with'|'ends-with'|'equals',
+#     'case' => 'insensitive'|'sensitive', 'table_calc' => bool }
+SEARCH_FILTER_FNS = { 'CONTAINS' => 'contains', 'STARTSWITH' => 'starts-with',
+                      'ENDSWITH' => 'ends-with' }.freeze
+
+# Index of the first top-level `=` (not part of <=, >=, !=, <>), else nil.
+def top_level_equals_index(text)
+  depth = bracket = 0
+  quote = nil
+  chars = text.to_s.chars
+  chars.each_with_index do |ch, i|
+    if quote
+      quote = nil if ch == quote
+    elsif %w[' "].include?(ch)
+      quote = ch
+    elsif ch == '[' then bracket += 1
+    elsif ch == ']' && bracket.positive? then bracket -= 1
+    elsif bracket.zero?
+      depth += 1 if ch == '('
+      depth -= 1 if ch == ')' && depth.positive?
+      return i if ch == '=' && depth.zero? && !%w[< > ! =].include?(chars[i - 1].to_s) && chars[i + 1] != '='
+    end
+  end
+  nil
+end
+
+def parse_search_filter_calc(formula, columns_by_guid = {}, parameters = [])
+  s = strip_tableau_comments(formula).gsub(/\s+/, ' ').strip
+  return nil if s.empty?
+  # Peel a chain of single-argument wrappers; LOOKUP is only the identity at offset 0.
+  # Returns [inner, wrappers], or nil when a wrapper is not an identity-safe one.
+  unwrap = lambda do |text, allowed|
+    wrappers = []
+    cur = text.to_s.strip
+    loop do
+      fn = cur[/\A([A-Za-z_]+)\s*\(/, 1]
+      break unless fn && allowed.include?(fn.upcase)
+      call = parse_tableau_function_call(cur, fn)
+      break unless call && call[1].empty?
+      args = call[0]
+      if fn.casecmp?('LOOKUP')
+        return nil unless args.size == 2 && args[1].strip == '0'
+      elsif args.size != 1
+        return nil
+      end
+      wrappers << fn.upcase
+      cur = args[0]
+    end
+    [cur, wrappers]
+  end
+  field_arg = param_arg = mode = nil
+  SEARCH_FILTER_FNS.each do |fn, md|
+    call = parse_tableau_function_call(s, fn)
+    next unless call && call[1].empty? && call[0].size == 2
+    field_arg, param_arg, mode = call[0][0], call[0][1], md
+    break
+  end
+  unless mode
+    eq = top_level_equals_index(s)
+    return nil unless eq
+    field_arg, param_arg, mode = s[0...eq], s[(eq + 1)..-1], 'equals'
+  end
+  field, fw = unwrap.call(field_arg, %w[UPPER LOWER TRIM MAX MIN ATTR LOOKUP])
+  param, pw = unwrap.call(param_arg, %w[UPPER LOWER TRIM])
+  return nil unless field && param
+  dim = field.strip[/\A\[([^\]]+)\]\z/, 1]
+  pm = param.strip.match(/\A\[Parameters?(?:\s*\([^)]*\))?\]\s*\.\s*\[([^\]]+)\]\z/i)
+  return nil unless dim && pm && dim !~ /\AParameters?\z/i
+  info = (columns_by_guid || {})[dim]
+  caption = info.is_a?(Hash) ? info['caption'].to_s.strip : ''
+  pname = pm[1].strip
+  prm = Array(parameters).find do |p|
+    p['name'].to_s.gsub(/^\[|\]$/, '').strip.casecmp?(pname) || p['caption'].to_s.strip.casecmp?(pname)
+  end
+  insensitive = (fw & %w[UPPER LOWER]).any? && (pw & %w[UPPER LOWER]).any?
+  { 'dimension' => dim, 'dimension_caption' => caption.empty? ? dim : caption, 'param_name' => pname,
+    'param_caption' => (prm && prm['caption'].to_s.strip) || pname, 'mode' => mode,
+    'case' => insensitive ? 'insensitive' : 'sensitive',
+    'table_calc' => (fw & %w[MAX MIN ATTR LOOKUP]).any? }
+end
+
+# `[Parameters].[Parameter 2]` -> `[ctl-param-store-lookup]`: the workbook control a
+# parameter becomes (the same ids the Switch/If parameter swaps read), so a
+# row-level calc over a parameter translates with translate_dim_calc /
+# translate_row_level_calc instead of dangling on a `[Master/Parameters]` ref.
+def param_refs_to_controls(formula, parameters)
+  names = {}
+  Array(parameters).each do |p|
+    n = p['name'].to_s.gsub(/^\[|\]$/, '').strip
+    names[n] = p['caption'].to_s.strip unless n.empty? || p['caption'].to_s.strip.empty?
+  end
+  formula.to_s.gsub(/\[Parameters?(?:\s*\([^)]*\))?\]\s*\.\s*\[([^\]]+)\]/i) do
+    token = Regexp.last_match(1).strip
+    param_control_ref(names[token] || token)
+  end
 end
