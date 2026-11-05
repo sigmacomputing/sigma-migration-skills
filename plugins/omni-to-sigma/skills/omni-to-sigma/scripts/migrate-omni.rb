@@ -12,6 +12,7 @@ require 'json'
 require 'fileutils'
 require 'open3'
 require_relative 'lib/sigma_rest'
+require_relative 'lib/code_rep'
 
 class MigrationFailed < StandardError; end
 
@@ -124,7 +125,7 @@ if __FILE__ == $PROGRAM_NAME
       wb_spec = wb_env['workbook']
       File.write('wb-spec.json', JSON.pretty_generate(wb_spec) + "\n")
 
-      posted = Sigma.request(:post, '/v2/workbooks/spec', body: wb_spec.to_json)
+      posted = Sigma.request(:post, Sigma::CodeRep.create_path, body: Sigma::CodeRep.create_body(wb_spec).to_json)
       workbook_id = posted.fetch('workbookId') { fail_phase!('post-workbook', "no workbookId in response: #{posted.inspect}") }
       File.write('wb-ids.json', JSON.pretty_generate({ 'workbookId' => workbook_id }) + "\n")
 
