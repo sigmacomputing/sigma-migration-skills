@@ -13,7 +13,7 @@ import argparse, base64, json, os, re, sys, time, urllib.request, html
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import yaml, ts_lib
-import code_rep  # workbook code-rep document-wrapper adapter (nested GET shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped GET shape)
 import sigma_rest
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
 _SSL = ts_lib.ssl_context()
@@ -81,9 +81,9 @@ def main():
         an = v.get("answer")
         if an: ts_vizzes.append({"name": an.get("name", v.get("id")), "guid": v.get("viz_guid") or v.get("id"),
                                  "type": (an.get("chart") or {}).get("type") or ("TABLE" if an.get("display_mode") == "TABLE_MODE" else "?")})
-    raw_wbspec = yaml.safe_load(sigma("GET", f"/v2/workbooks/{a.workbook}/spec")[0])
-    # Workbook code-rep GETs nest pages under a top-level `document` key (live
-    # since 2026-08); a bare wbspec.get("pages", []) read here was always
+    raw_wbspec = yaml.safe_load(sigma("GET", code_rep.read_path(a.workbook))[0])
+    # Workbook code-rep GETs nest pages under a top-level `contents` key (`document`
+    # on the retired /spec GET); a bare wbspec.get("pages", []) read here was always
     # empty, so every viz silently reported as "not resolved" in the report.
     sig_els = {}
     for el in code_rep.workbook_elements(raw_wbspec):

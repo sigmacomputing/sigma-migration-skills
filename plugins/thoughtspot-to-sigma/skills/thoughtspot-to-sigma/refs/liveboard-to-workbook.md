@@ -5,11 +5,16 @@ The exact Sigma workbook-spec shapes the builder (`ts_common.py` /
 Sigma either 400s at POST or **silently degrades** (pivot collapses to one
 cell, KPI fails validation only at POST, sorts dropped).
 
-> **The workbook body is `document`-wrapped, not flat** (verified live 2026-08-03,
-> including on `POST /v2/workbooks/spec/verify` 2026-08-04): outer metadata is
-> `{name, folderId, description?}` and the required inner shape is
-> `document:{schemaVersion, kind:"workbook", pages, elements, layout}`.
-> `document.elements[]` is one flat collection; pages are metadata-only and
+> **The workbook body is `contents`-wrapped, not flat** (live-verified 2026-11-03
+> on `POST /v2/workbooks`, including `dryRun: true`; the deprecated
+> `POST /v2/workbooks/spec` took the same shape under `document`): outer
+> metadata is `{name, folderId, description?}` and the required inner shape is
+> `contents:{schemaVersion, kind:"workbook", pages, elements, layout}`.
+> Endpoints: create `POST /v2/workbooks`, read
+> `GET /v2/workbooks/{id}?includeContents=true`, update
+> `PUT /v2/workbooks/{id}/contents` (`{contents, documentVersion?}`), validate
+> `POST /v2/workbooks` with `dryRun: true`. Use the vendored
+> `scripts/lib/code_rep.*` path/body helpers. `contents.elements[]` is one flat collection; pages are metadata-only and
 > MUST NOT contain `elements`. Layout is authoritative and must place every
 > element exactly once. Data-model specs (`POST /v2/dataModels/spec`) remain flat
 > and retain their existing `pages[].elements` shape.
@@ -89,7 +94,7 @@ navigation, not alternate views sharing one region.
 
 The builder synthesizes layout before POST because the released API rejects an
 unplaced element. Existing-workbook layout edits GET the complete document and
-PUT exactly `{document:<complete document>}` so settings, overlays, panels,
+PUT exactly `{contents:<complete document>}` to `/v2/workbooks/{id}/contents` so settings, overlays, panels,
 agents, and unknown document fields survive. Never PUT a partial document.
 `migrate_out.json` stores `layoutPages` (page ids, source tiles, controls, and
 navigation prefixes) plus `dataElements`; `apply_layouts.py --workdir` consumes
@@ -124,8 +129,9 @@ PATCH /v2/files/{workbookId}   {"name": "New Name"}
 
 ## Misc verified gotchas
 
-- Workbook POST/spec GET respond in **YAML** even with `Accept: application/json`
-  — parse both.
+- Workbook POST / `GET ...?includeContents=true` respond in JSON by default (the
+  retired `/spec` GET answered in YAML); send `Accept: application/yaml` if you
+  want YAML. Readers should still tolerate both.
 - Show value labels on bar/donut via `dataLabel: {labels: "shown"}` (defaults OFF).
 - Search-query filters `[Col] = 'val'` → element list-filters
   `{kind: "list", mode: include|exclude, columnId, values}`; TS lowercases string

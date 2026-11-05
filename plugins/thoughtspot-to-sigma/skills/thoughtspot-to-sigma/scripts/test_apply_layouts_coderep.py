@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """test_apply_layouts_coderep.py — apply_layouts.py's workbook code-rep
-`document` envelope handling (2026-08, task 3.9).
+`contents` envelope handling (GET /v2/workbooks/{id}?includeContents=true,
+PUT /v2/workbooks/{id}/contents).
 
-Before this fix: apply()'s GET read the live nested `document` response as
-if it were flat, so spec["pages"] was silently empty/absent on a real
-workbook and the layout synthesis had nothing to lay out; the PUT also sent
-the flattened working spec FLAT (no `document` wrapper) — a live 400.
+Guards: apply()'s GET must unwrap the nested `contents` response (read flat,
+spec["pages"] is silently empty on a real workbook and the layout synthesis has
+nothing to lay out); the PUT must send the working spec wrapped as
+{contents: ...} — a flat body is a live 400.
 
 Offline: monkeypatches the module's req() (the only network call site) and
 runs the real apply()/build_layout() code unchanged.
@@ -42,7 +43,7 @@ AL = _load_module()
 NESTED_DOC = {
     "workbookId": "wb-test",
     "name": "Test WB",
-    "document": {
+    "contents": {
         "schemaVersion": 1,
         "kind": "workbook",
         "pages": [
@@ -73,13 +74,14 @@ calls = {"get": 0, "put_body": None}
 
 
 def fake_req(method, path, body=None):
-    assert path == "/v2/workbooks/wb-test/spec", path
     if method == "GET":
+        assert path == "/v2/workbooks/wb-test?includeContents=true", path
         calls["get"] += 1
         # 1st GET (apply()'s pre-layout read): the live nested readback.
         payload = NESTED_DOC if calls["get"] == 1 else calls["put_body"]
         return json.dumps(payload)
     if method == "PUT":
+        assert path == "/v2/workbooks/wb-test/contents", path
         calls["put_body"] = json.loads(body)
         return json.dumps({"workbookId": "wb-test"})
     raise AssertionError(f"unexpected method {method}")
@@ -92,27 +94,27 @@ ok = AL.apply("wb-test")
 check(ok is True, f"apply() reports success (got {ok!r})")
 put_body = calls["put_body"]
 check(put_body is not None, "a PUT was issued")
-check(isinstance(put_body, dict) and isinstance(put_body.get("document"), dict),
-      "PUT body carries a top-level `document` key (the wrap the bug would omit)")
+check(isinstance(put_body, dict) and isinstance(put_body.get("contents"), dict),
+      "PUT body carries a top-level `contents` key (the wrap the bug would omit)")
 check(put_body is not None and "pages" not in put_body,
       "PUT body has NO top-level `pages` (must be nested, not flat)")
-check(put_body is not None and isinstance(put_body["document"].get("pages"), list)
-      and len(put_body["document"]["pages"]) == 2,
-      "wrapped document carries both pages (Data + Dashboard)")
-check(all("elements" not in p for p in put_body["document"]["pages"]),
+check(put_body is not None and isinstance(put_body["contents"].get("pages"), list)
+      and len(put_body["contents"]["pages"]) == 2,
+      "wrapped contents carries both pages (Data + Dashboard)")
+check(all("elements" not in p for p in put_body["contents"]["pages"]),
       "pages are metadata-only")
-check({e["id"] for e in put_body["document"]["elements"]}.issuperset({"d1", "c1"}),
+check({e["id"] for e in put_body["contents"]["elements"]}.issuperset({"d1", "c1"}),
       "PUT retains the flat workbook element collection")
-check(put_body is not None and isinstance(put_body["document"].get("layout"), str)
-      and "<Container" in put_body["document"]["layout"]
-      and "<Element" in put_body["document"]["layout"],
-      "wrapped document carries canonical live layout XML")
-check(set(("panels", "overlays", "settings", "agents")).issubset(put_body["document"]),
+check(put_body is not None and isinstance(put_body["contents"].get("layout"), str)
+      and "<Container" in put_body["contents"]["layout"]
+      and "<Element" in put_body["contents"]["layout"],
+      "wrapped contents carries canonical live layout XML")
+check(set(("panels", "overlays", "settings", "agents")).issubset(put_body["contents"]),
       "full-document PUT preserves panels, overlays, settings, and agents")
-check(set(put_body) == {"document"},
-      "PUT sends exactly the document envelope (no response/create metadata)")
-placed = AL._layout_element_ids(put_body["document"]["layout"])
-declared = [e["id"] for e in put_body["document"]["elements"]]
+check(set(put_body) == {"contents"},
+      "PUT sends exactly the contents envelope (no response/create metadata)")
+placed = AL._layout_element_ids(put_body["contents"]["layout"])
+declared = [e["id"] for e in put_body["contents"]["elements"]]
 check(sorted(placed) == sorted(declared) and len(placed) == len(set(placed)),
       "layout places every flat element exactly once")
 check(calls["get"] == 1, f"exactly one GET issued by apply() itself (got {calls['get']})")
