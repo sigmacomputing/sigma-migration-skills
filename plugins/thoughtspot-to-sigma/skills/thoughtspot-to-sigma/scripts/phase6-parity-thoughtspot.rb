@@ -110,10 +110,10 @@ if !opts[:finalize]
   require 'code_rep'
 
   warn "Parity PASS 1: reading workbook spec #{opts[:wb]}"
-  # binary:true returns the raw body — the spec endpoint answers in YAML even
-  # when asked for JSON, so parse both.
-  raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
-  # Live GET now nests non-metadata fields under `document` (verified 2026-08-03/04);
+  # binary:true returns the raw body — parse JSON first, then YAML (the old
+  # /spec GET answered in YAML even when asked for JSON).
+  raw = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:wb]), binary: true)
+  # Live GET nests non-metadata fields under `contents` (`document` on the retired /spec GET);
   # unwrap so both this pass's flat `spec['pages']` read below and the on-disk
   # wb-readback.json stay the flat shape this script (and any downstream reader)
   # expects.

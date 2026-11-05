@@ -141,12 +141,11 @@ def main():
             '</Page>\n'
         ),
     }
-    # Live POST /v2/workbooks/spec now REJECTS the old flat body with a 400
-    # (verified 2026-08-03/04) — every non-metadata field must nest under a
-    # top-level `document` key. code_rep.wrap keeps the metadata (name,
-    # folderId) alongside it.
-    spec = code_rep.wrap(doc, {"name":f"SCOUT TEST {a.feature}","folderId":a.folder_id})
-    st, body = api("POST","/v2/workbooks/spec",spec)
+    # Live POST /v2/workbooks REJECTS a flat body with a 400 — every
+    # non-metadata field must nest under a top-level `contents` key.
+    # code_rep.create_body keeps the metadata (name, folderId) alongside it.
+    spec = code_rep.create_body(doc, {"name":f"SCOUT TEST {a.feature}","folderId":a.folder_id})
+    st, body = api("POST",code_rep.create_path(),spec)
     wb = None
     try: wb = json.loads(body).get("workbookId")
     except Exception: pass
