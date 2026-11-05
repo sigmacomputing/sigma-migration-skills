@@ -13,7 +13,7 @@
 # conversion logic of its own — it only sequences what already exists and
 # stops at the first phase that fails, instead of leaving a human to notice a
 # skipped gate. The one phase with no dedicated script is post-workbook: POST
-# /v2/workbooks/spec directly via Sigma.request, since build-mode-workbook.rb
+# /v2/workbooks directly via Sigma.request, since build-mode-workbook.rb
 # (Task 7) already assembled the full spec (data page + report page +
 # notebook-flow layout) and there is nothing left to build — only to post.
 require 'optparse'
@@ -21,6 +21,7 @@ require 'json'
 require 'fileutils'
 require 'open3'
 require_relative 'lib/sigma_rest'
+require_relative 'lib/code_rep'
 
 class MigrationFailed < StandardError; end
 
@@ -98,7 +99,7 @@ if __FILE__ == $PROGRAM_NAME
       # docstring and every sibling converter's post-and-readback.rb); a bare
       # Hash here blows up inside Net::HTTP with a NoMethodError on
       # Hash#bytesize instead of ever reaching the network.
-      posted = Sigma.request(:post, '/v2/workbooks/spec', body: wb_spec.to_json)
+      posted = Sigma.request(:post, Sigma::CodeRep.create_path, body: Sigma::CodeRep.create_body(wb_spec).to_json)
       workbook_id = posted.fetch('workbookId') { fail_phase!('post-workbook', "no workbookId in response: #{posted.inspect}") }
       File.write('wb-ids.json', JSON.pretty_generate({ 'workbookId' => workbook_id }))
 
