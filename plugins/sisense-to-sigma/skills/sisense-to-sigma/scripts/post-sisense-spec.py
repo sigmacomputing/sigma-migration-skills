@@ -13,6 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
+import code_rep  # noqa: E402
 import sigma_rest  # noqa: E402
 
 
@@ -205,7 +206,10 @@ def find_id(value, kind):
 
 
 def element_ids(readback):
-    root = readback.get("document", readback) if isinstance(readback, dict) else {}
+    # Workbook readbacks carry `contents` (`document` on retired /spec readbacks);
+    # data-model readbacks are flat.
+    root = (readback.get("contents") or readback.get("document") or readback
+            if isinstance(readback, dict) else {})
     elements = list(root.get("elements") or [])
     for page in root.get("pages") or []:
         if isinstance(page, dict):
@@ -271,7 +275,11 @@ def main(argv=None):
         body = json.loads(spec_path.read_text(encoding="utf-8"))
         if args.folder_id and isinstance(body, dict) and "folderId" not in body:
             body["folderId"] = args.folder_id
-        endpoint = "/v2/dataModels/spec" if args.kind == "dm" else "/v2/workbooks/spec"
+        if args.kind == "dm":
+            endpoint = "/v2/dataModels/spec"
+        else:
+            endpoint = code_rep.create_path()
+            body = code_rep.create_body(body)
         response = client.request("POST", endpoint, body)
         object_id = find_id(response, args.kind)
         if not object_id:
@@ -282,7 +290,7 @@ def main(argv=None):
     read_path = (
         "/v2/dataModels/%s/spec" % object_id
         if args.kind == "dm" else
-        "/v2/workbooks/%s/spec" % object_id
+        code_rep.read_path(object_id)
     )
     try:
         readback = client.request("GET", read_path)
