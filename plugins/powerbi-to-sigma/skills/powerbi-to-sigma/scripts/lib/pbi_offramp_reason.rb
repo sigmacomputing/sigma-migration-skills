@@ -39,7 +39,7 @@ module PbiOfframp
                'message' =>
                  'the LAYOUT step rejected the spec (layout lint), not a field translation. ' \
                  'The data model and workbook are posted and usable — fix the layout and re-apply ' \
-                 'with PUT /v2/workbooks/<id>/spec (re-POSTing creates an orphan).' }
+                 'with PUT /v2/workbooks/<id>/contents (re-POSTing creates an orphan).' }
     end
 
     if out =~ /POST\s+\/v2\/workbooks/i || out =~ /->\s*(4\d\d|5\d\d)\b/
