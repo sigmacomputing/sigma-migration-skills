@@ -38,11 +38,11 @@ class SafetyGateTest(unittest.TestCase):
             "request",
             return_value=b"success: true\nworkbookId: wb-123\n",
         ) as request:
-            result = api.request("POST", "/v2/workbooks/spec", {"x": 1})
+            result = api.request("POST", "/v2/workbooks", {"x": 1})
         self.assertEqual(result["workbookId"], "wb-123")
         request.assert_called_once_with(
             "POST",
-            "/v2/workbooks/spec",
+            "/v2/workbooks",
             body='{"x": 1}',
             accept="application/json",
             binary=True,
