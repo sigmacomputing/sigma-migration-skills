@@ -125,6 +125,16 @@ vs = ControlLint.lint(synced_spec)
 check(vs.none? { |v| v.include?('dead control') && v.include?('ctl-copy') },
       'synced copy inherits the primary control reach and is not dead', fails)
 
+narrow = JSON.parse(JSON.generate(synced_spec))
+narrow['elements'] << { 'id' => 'unrelated', 'kind' => 'table', 'name' => 'Intentionally unaffected' }
+narrow['layout'] = narrow['layout'].sub('<Element elementId="ctl-copy"/>', '<Element elementId="ctl-copy"/><Element elementId="unrelated"/>')
+scope = { 'controls' => [{ 'controlId' => 'RegionFilter', 'scope' => ['tbl-sync', 'chart-sync'] }] }
+check(ControlLint.lint(narrow, scope: scope).empty?,
+      'synced copies retain the explicit scope annotation after the primary consumes its census entry', fails)
+scope['controls'][0]['mustReach'] = ['unrelated']
+check(ControlLint.lint(narrow, scope: scope).any? { |v| v.include?('mustReach') && v.include?('ctl-copy') },
+      'synced copy still fails a real mustReach violation', fails)
+
 orphan_synced = JSON.parse(JSON.generate(synced_spec))
 orphan_synced['elements'].delete_if { |el| el['id'] == 'ctl-primary' }
 vo = ControlLint.lint(orphan_synced)

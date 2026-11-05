@@ -189,7 +189,7 @@ if [ "$1 $2" = "auth --help" ]; then
 fi
 if [ "$1 $2" = "auth status" ]; then
   { echo "Profile:   example-profile"; echo "Auth type: api_key"
-    [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "Base URL:  ${FAKE_SIGMA_BASE}"
+    [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"
     echo "Auth:      ${FAKE_SIGMA_AUTH:-OK (token acquired)}"; } >&2
   exit 0
 fi
@@ -239,6 +239,16 @@ check $? "a non-Sigma binary named sigma (auth --help fails) is not accepted"
   bash "$HERE/doctor.sh" --workdir "$TMP/cli-evil" >"$TMP/cli-evil.out" 2>&1
 [ "$(cli_method "$TMP/cli-evil/doctor.json")" = "none" ]
 check $? "a CLI profile on a non-Sigma host is not accepted"
+
+# Sigma CLI v1.2.5+ reports `API host:  <host>` instead of `Base URL:  https://<host>`.
+"${cli_env[@]}" FAKE_SIGMA_BASE_LABEL="API host" FAKE_SIGMA_BASE="${CLI_BASE#https://}" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-apihost" >"$TMP/cli-apihost.out" 2>&1
+[ "$(cli_method "$TMP/cli-apihost/doctor.json")" = "sigma-cli" ]
+check $? "a CLI profile reporting a bare API host is accepted"
+"${cli_env[@]}" FAKE_SIGMA_BASE_LABEL="API host" FAKE_SIGMA_BASE="api.evil.test" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-apihost-evil" >"$TMP/cli-apihost-evil.out" 2>&1
+[ "$(cli_method "$TMP/cli-apihost-evil/doctor.json")" = "none" ]
+check $? "a CLI profile reporting a non-Sigma API host is not accepted"
 
 "${cli_env[@]}" SIGMA_BASE_URL=https://api.sigmacomputing.com \
   bash "$HERE/doctor.sh" --workdir "$TMP/cli-mismatch" >"$TMP/cli-mismatch.out" 2>&1

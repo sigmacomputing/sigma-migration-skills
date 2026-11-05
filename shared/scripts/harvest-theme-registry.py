@@ -2,10 +2,12 @@
 """harvest-theme-registry.py — build a persistent per-org theme registry.
 
 Themes have no list API (unlike plugins, which now have GET /v2/plugins). The
-only place a theme id appears is a workbook spec's `document.settings.theme.name`
-(live since 2026-08; the old top-level `themeName` no longer appears on GET). So
-we harvest: list every workbook, GET each spec, collect the distinct theme name
-values (built-in names + org-theme UUIDs) and how many workbooks use each.
+only place a theme id appears is a workbook's `contents.settings.theme.name`
+(GET /v2/workbooks/{id}?includeContents=true; `document.settings.theme.name` on
+the retired /spec readback; the old top-level `themeName` no longer appears). So
+we harvest: list every workbook, GET each one's contents, collect the distinct
+theme name values (built-in names + org-theme UUIDs) and how many workbooks use
+each.
 
 Persists to ~/.sigma-migration/theme-registry.yaml keyed by org host, so the
 authoring skill can offer known themes instead of asking the user to supply a
@@ -39,7 +41,7 @@ def parse_env(path):
 
 
 def api(base, path, accept_json=True, retries=5):
-    # Sigma sits behind Cloudflare and returns 429 (CF error 1015) when spec GETs
+    # Sigma sits behind Cloudflare and returns 429 (CF error 1015) when workbook GETs
     # are fired too fast — back off and retry so a full harvest doesn't silently
     # drop workbooks. Honors Retry-After when present.
     delay = 1.0
@@ -48,7 +50,7 @@ def api(base, path, accept_json=True, retries=5):
     while True:
         req = urllib.request.Request(base + path)
         req.add_header("Authorization", f"Bearer {sigma_rest.auth_token()}")
-        req.add_header("Accept", "application/json")  # spec GET returns YAML without this
+        req.add_header("Accept", "application/json")  # GET may return YAML without this
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 return json.load(r)
@@ -86,9 +88,10 @@ def list_workbooks(base, cap=None):
 
 def theme_of(base, wb):
     try:
-        spec = api(base, f"/v2/workbooks/{wb}/spec")
-        # Live GET nests under `document`; tolerate a legacy flat artifact too.
-        doc = spec.get("document", spec) if isinstance(spec, dict) else {}
+        spec = api(base, f"/v2/workbooks/{wb}?includeContents=true")
+        # Live GET nests under `contents` (`document` on the retired /spec
+        # readback); tolerate a legacy flat artifact too.
+        doc = (spec.get("contents") or spec.get("document") or spec) if isinstance(spec, dict) else {}
         return (doc.get("settings") or {}).get("theme", {}).get("name")  # None if no theme set
     except Exception as e:
         return ("__error__", str(e)[:40])

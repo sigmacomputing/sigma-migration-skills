@@ -7,7 +7,7 @@
 #
 # Scope, from reading the CURRENT script (2026-07, ~31 gates; header comments
 # lag the code and are NOT trusted):
-#   - Gates 3 (live /columns) and 4 (live /spec layout) hit the network and
+#   - Gates 3 (live /columns) and 4 (live workbook layout) hit the network and
 #     FAIL CLOSED (exit 5 / exit 6) when SIGMA_BASE_URL/SIGMA_API_TOKEN are
 #     unset and a workbook id resolves — they do not silently pass. This
 #     fail-closed behavior itself is file+env driven and IS tested below;
@@ -39,6 +39,7 @@
 # network even by accident).
 #
 #   ruby test/test-assert-phase6.rb
+require 'digest'
 require 'json'
 require 'tmpdir'
 require 'fileutils'
@@ -120,7 +121,7 @@ end
 # the cap of 2, never over it).
 HAPPY_FLAGS = [
   '--skip-column-check', 'offline harness: no live Sigma creds (gate 3 needs GET /v2/workbooks/{id}/columns)',
-  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}/spec)',
+  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}?includeContents=true)',
   '--skip-visual-comparison', 'verifier: render pre-verified by a prior session (policy-excluded from the waiver budget)'
 ].freeze
 
@@ -220,7 +221,7 @@ puts '== gate 3 (live /columns, fail-closed without creds) =='
 # CLOSED rather than silently pass — proves a credential-less run cannot ship.
 scenario('workbook id resolvable, no creds, no waiver -> exit 5', 5, [])
 
-puts '== gate 4 (live /spec layout, fail-closed without creds) =='
+puts '== gate 4 (live workbook layout, fail-closed without creds) =='
 scenario('gate 3 waived, gate 4 not waived, no creds -> exit 6', 6,
          ['--skip-column-check', 'reach gate 4'])
 
@@ -509,6 +510,24 @@ Dir.mktmpdir('domo-p6') do |dir|
      'success line names the page-level fallback wording — proves the print path executed, not a coincidental exit 0')
   eq(out.include?('tile(s) image-verified'), false,
      'success line does NOT use the manifest-path wording ("all N tile(s) image-verified") when no manifest exists')
+  pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
+  av_sha = Digest::SHA256.file(File.join(dir, 'anchors-verdict.json')).hexdigest
+  eq(pf.dig('parity_oracle', 'kind') == 'anchors' && pf.dig('parity_oracle', 'anchors_verdict_sha256') == av_sha, true,
+     'anchors-oracle pass stamps parity_oracle (bound to the anchors-verdict.json sha) for the migration report')
+end
+
+# A failed substitution clears any stamp an earlier passing run left behind.
+Dir.mktmpdir('domo-p6') do |dir|
+  write_good_fixtures(dir)
+  write_json(dir, 'anchors-verdict.json', PASSING_ANCHORS_ORACLE.merge('matched' => 0))
+  write_json(dir, 'parity-final.json',
+             'charts_total' => 0, 'charts_pass' => 0, 'status' => 'FAIL', 'mode' => 'live',
+             'visual_checked' => true, 'visual_verdict' => 'pass', 'agent_vision' => true,
+             'parity_oracle' => { 'kind' => 'anchors', 'anchors_verdict_sha256' => 'stale' })
+  code = run_gate(dir, *HAPPY_FLAGS)
+  pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
+  eq(code, 2, 'anchors-oracle: unmatched anchors -> gate 2 fails')
+  eq(pf.key?('parity_oracle'), false, 'a failed anchors-oracle substitution removes a stale parity_oracle stamp')
 end
 
 Dir.mktmpdir('domo-p6') do |dir|

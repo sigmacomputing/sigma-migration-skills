@@ -127,25 +127,20 @@ def reference_schema_version
   entries.each do |w|
     wid = w['workbookId'] || w['id']
     next unless wid
-    spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
+    spec = (Sigma.request(:get, Sigma::CodeRep.read_path(wid), accept: 'application/json') rescue nil)
     doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
     return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
 
-# POST /v2/workbooks/spec: response is documented as YAML. Request a
-# non-JSON accept so the raw string always comes back, then self-parse (JSON
-# first in case the org actually returns JSON, else scrape `workbookId:` out
-# of the YAML text) — same discipline as verify-ws4-e2e.rb.
+# POST /v2/workbooks: the response is the JSON workbook envelope (workbookId,
+# workbookUrlId, url, latestVersion, ...) — there is no `success` key.
 def post_workbook_spec(spec_hash)
-  raw = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec_hash),
-                                                    content_type: 'application/json', accept: 'application/yaml')
-  parsed = (JSON.parse(raw) rescue nil)
-  return parsed['workbookId'] if parsed.is_a?(Hash) && parsed['workbookId']
-  m = raw.to_s.match(/^\s*workbookId:\s*"?'?([\w-]+)"?'?\s*$/)
-  raise "no workbookId in POST response: #{raw.to_s[0, 600]}" unless m
-  m[1]
+  resp = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(spec_hash)))
+  wb = resp['workbookId'] if resp.is_a?(Hash)
+  raise "no workbookId in POST response: #{resp.inspect[0, 600]}" unless wb
+  wb
 end
 
 def render_png(wb, out_path, page_id: nil, w: 1600, h: 1200)
@@ -250,7 +245,7 @@ begin
   log "workbook #{wb} (#{workbook_url})"
 
   # --- structural (GET) readback ------------------------------------------
-  spec_back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
+  spec_back = Sigma.request(:get, Sigma::CodeRep.read_path(wb), accept: 'application/json')
   spec_back = Sigma::CodeRep.document(spec_back)
   els = Sigma::CodeRep.workbook_elements(spec_back)
   find_el = ->(id) { els.find { |e| e['id'] == id } }

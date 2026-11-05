@@ -52,6 +52,32 @@ Dir.mktmpdir do |d|
   ok('STORE .hyper round-trips bytes exactly') { ZipExtract.read(path, 'Data/x.hyper').b == hyper }
   ok('.hyper presence derivable from names (no inflation)') { names.any? { |n| n.downcase.end_with?('.hyper') } }
   ok('missing member → nil') { ZipExtract.read(path, 'nope').nil? }
+  ok('exact byte limit accepts the complete member') { ZipExtract.read(path, 'wb.twb', max_bytes: twb.bytesize).b == twb.b }
+  %w[wb.twb Data/x.hyper].each do |member|
+    refused = begin
+      ZipExtract.read(path, member, max_bytes: 1)
+      false
+    rescue RangeError
+      true
+    end
+    ok('oversized ZIP member is refused during bounded read') { refused }
+  end
+  entry = ZipExtract.central(zip).find { |member| member[:name] == 'wb.twb' }
+  refused = begin
+    ZipExtract.member_bytes(zip, entry.merge(csize: entry[:csize] - 1), max_bytes: twb.bytesize)
+    false
+  rescue RuntimeError, Zlib::Error
+    true
+  end
+  ok('truncated deflate stream cannot return partial contents') { refused }
+  compressed = build_zip([['large.txt', 'x' * 1_000_000, 8]])
+  refused = begin
+    ZipExtract.member_bytes(compressed, ZipExtract.central(compressed).first, max_bytes: 32)
+    false
+  rescue RangeError
+    true
+  end
+  ok('high-compression member is rejected at the output limit') { refused }
 end
 
 # ZIP64 central-field resolution: classic csize/lho are 0xFFFFFFFF sentinels; real

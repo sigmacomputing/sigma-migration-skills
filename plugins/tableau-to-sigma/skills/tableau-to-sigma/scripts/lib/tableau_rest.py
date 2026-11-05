@@ -46,6 +46,7 @@ _token_mutex = threading.Lock()
 _token_override = None
 _site_id_override = None
 _refresh_inflight = False
+_refresh_flight = None
 
 
 def _load_neutral_env(env=None):
@@ -167,10 +168,19 @@ def _send(method, url, headers, body, timeout):
 
 def refresh_token():
     """Re-sign in with the PAT env vars and cache token + site id. Single-flight."""
-    global _refresh_inflight, _token_override, _site_id_override
+    global _refresh_inflight, _refresh_flight, _token_override, _site_id_override
     with _token_mutex:
         if _refresh_inflight:
-            return _token_override
+            flight = _refresh_flight
+            if flight["owner"] == threading.get_ident():
+                raise TableauAuthError("recursive token refresh")
+            while not flight["done"]:
+                flight["condition"].wait()
+            if "error" in flight:
+                raise flight["error"]
+            return flight["token"]
+        flight = {"owner": threading.get_ident(), "condition": threading.Condition(_token_mutex), "done": False}
+        _refresh_flight = flight
         _refresh_inflight = True
     try:
         name = os.environ.get("TABLEAU_PAT_NAME")
@@ -192,13 +202,22 @@ def refresh_token():
         if not (200 <= resp.status < 300):
             raise TableauAuthError(f"signin -> {resp.status} {resp.body.decode(errors='replace')}")
         j = json.loads(resp.body or b"{}")
+        token, site = _dig(j, "credentials", "token"), _dig(j, "credentials", "site", "id")
+        if not isinstance(token, str) or not token.strip() or not isinstance(site, str) or not site.strip():
+            raise TableauAuthError("Tableau signin response missing token or site id")
         with _token_mutex:
-            _token_override = _dig(j, "credentials", "token")
-            _site_id_override = _dig(j, "credentials", "site", "id")
-        return _token_override
+            _token_override = token
+            _site_id_override = site
+            flight["token"] = _token_override
+        return flight["token"]
+    except BaseException as error:
+        flight["error"] = error
+        raise
     finally:
         with _token_mutex:
+            flight["done"] = True
             _refresh_inflight = False
+            flight["condition"].notify_all()
 
 
 def request(method, path, body=None, content_type="application/json",

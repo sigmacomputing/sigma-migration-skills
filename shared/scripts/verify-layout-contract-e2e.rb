@@ -2,11 +2,11 @@
 # frozen_string_literal: true
 #
 # verify-layout-contract-e2e.rb — LIVE go/no-go probe for the 2026-08-07
-# spec-write contract (document.elements, every element placed, <Element>/
+# spec-write contract (contents.elements, every element placed, <Element>/
 # <Container> tags). Creds-gated: needs a live Sigma org, so it is NOT part of
 # the offline creds-free CI corpus. Mirrors verify-ws5-tabbed-e2e.rb.
 #
-# THE SURFACE UNDER TEST: POST /v2/workbooks/spec accepts a spec our emitters
+# THE SURFACE UNDER TEST: POST /v2/workbooks accepts a spec our emitters
 # built. A WRONG LAYOUT TAG DOES NOT PRODUCE A VALIDATION MESSAGE — it returns
 # an opaque {"message":"An error has occurred ... incident-id=..."} body. This
 # script treats that as a HARD FAILURE, never as a transient outage.
@@ -48,8 +48,8 @@ end
 
 INCIDENT = /incident-id|An error has occurred/i
 
-# POST /v2/workbooks/spec requires a top-level folderId (a live-org UUID) and
-# name, plus document.schemaVersion (literal 1) and document.kind ("workbook")
+# POST /v2/workbooks requires a top-level folderId (a live-org UUID) and
+# name, plus contents.schemaVersion (literal 1) and document.kind ("workbook")
 # — confirmed live against the real 400 validation responses while building
 # this harness. folderId is exactly the kind of live-org id the hygiene sweep
 # blocks from tracked files, so testdata/*.json fixtures never carry one —
@@ -118,7 +118,7 @@ end
 
 # Count the structural facts that the contract break destroyed.
 def shape(spec)
-  doc = spec['document'] || spec
+  doc = Sigma::CodeRep.document(spec) # readbacks carry `contents`, fixtures `document`
   xml = doc['layout'].to_s
   {
     elements:   (doc['elements'] || []).length,
@@ -137,8 +137,8 @@ def probe(path)
       "#{want[:placed]} placed, #{want[:containers]} containers"
 
   begin
-    raw = Sigma.request(:post, '/v2/workbooks/spec',
-                        body: JSON.generate(spec), accept: 'application/json')
+    raw = Sigma.request(:post, Sigma::CodeRep.create_path,
+                        body: JSON.generate(Sigma::CodeRep.create_body(spec)), accept: 'application/json')
   rescue StandardError => e
     log "  REJECTED: #{e.message[0, 300]}"
     log '  ^ opaque incident-id => suspect your layout tags first' if e.message =~ INCIDENT
@@ -166,7 +166,7 @@ def probe(path)
   log "  ACCEPTED workbookId=#{wb}"
 
   begin
-    back  = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
+    back  = Sigma.request(:get, Sigma::CodeRep.read_path(wb), accept: 'application/json')
     got   = shape(back.is_a?(String) ? JSON.parse(back) : back)
     ok    = %i[elements pages containers].all? { |k| got[k] == want[k] }
     log(ok ? "  READBACK intact: #{got.inspect}"

@@ -8,7 +8,9 @@ import io
 import json
 import os
 import stat
+import ssl
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -19,6 +21,9 @@ MODULE_PATH = os.path.join(os.path.dirname(__file__), "get_token.py")
 SPEC = importlib.util.spec_from_file_location("sigma_get_token", MODULE_PATH)
 get_token = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(get_token)
+# Default tests must not read the developer's real credentials. Neutral-file
+# tests pass or patch their own temporary paths explicitly.
+get_token._NEUTRAL_ENV = os.devnull
 
 BASE = "https://api.sigmacomputing.com"
 MINTED = "2026-10-05T20:00:00Z"
@@ -43,6 +48,49 @@ class JsonResponse(io.BytesIO):
 
 
 class TokenProviderTest(unittest.TestCase):
+    def test_token_requests_and_verification_use_system_trust(self):
+        context = ssl.create_default_context()
+        truststore = mock.Mock()
+        truststore.SSLContext.return_value = context
+        with mock.patch.dict(sys.modules, {"truststore": truststore}):
+            handlers = get_token._https_opener().handlers
+            https = next(h for h in handlers if isinstance(h, get_token.urllib.request.HTTPSHandler))
+            self.assertIs(context, https._context)
+            opener = mock.Mock()
+            opener.open.return_value = JsonResponse({"userId": "synthetic-user"})
+            with mock.patch.object(get_token.urllib.request, "build_opener", return_value=opener) as build:
+                get_token._verify_token(get_token.TokenResult(BASE, "synthetic-token", MINTED, "browser"))
+            self.assertIsInstance(build.call_args.args[0], get_token._RejectRedirects)
+            self.assertIs(context, build.call_args.args[1]._context)
+        self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
+        self.assertTrue(context.check_hostname)
+
+    def test_token_trust_fallback_remains_verified(self):
+        certifi = mock.Mock()
+        certifi.where.return_value = "synthetic-ca.pem"
+        with mock.patch.dict(sys.modules, {"truststore": None, "certifi": certifi}), \
+                mock.patch.object(ssl, "create_default_context") as create:
+            get_token._https_opener()
+            create.assert_called_once_with(cafile="synthetic-ca.pem")
+        with mock.patch.dict(sys.modules, {"truststore": None, "certifi": None}), \
+                mock.patch.dict(os.environ, {"SIGMA_INSECURE_TLS": "1"}):
+            https = next(h for h in get_token._https_opener().handlers
+                         if isinstance(h, get_token.urllib.request.HTTPSHandler))
+            self.assertEqual(ssl.CERT_REQUIRED, https._context.verify_mode)
+            self.assertTrue(https._context.check_hostname)
+
+    def test_unusable_optional_ca_stores_fall_back_to_verified_default(self):
+        truststore, certifi = mock.Mock(), mock.Mock()
+        truststore.SSLContext.side_effect = OSError("synthetic OS store failure")
+        certifi.where.return_value = "synthetic-missing-ca.pem"
+        verified = ssl.create_default_context()
+        with mock.patch.dict(sys.modules, {"truststore": truststore, "certifi": certifi}), \
+                mock.patch.object(ssl, "create_default_context", side_effect=[OSError("synthetic CA failure"), verified]) as create:
+            self.assertIs(verified, get_token._ssl_context())
+            self.assertEqual([mock.call(cafile="synthetic-missing-ca.pem"), mock.call()], create.call_args_list)
+        self.assertEqual(ssl.CERT_REQUIRED, verified.verify_mode)
+        self.assertTrue(verified.check_hostname)
+
     def env(self, **values):
         base = {"SIGMA_BASE_URL": BASE}
         base.update(values)
@@ -448,7 +496,7 @@ if [ "$1" = auth ] && [ "$2" = status ]; then
   {
     echo "Profile:   example-profile"
     echo "Auth type: api_key"
-    [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "Base URL:  ${FAKE_SIGMA_BASE}"
+    [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"
     echo "Client ID: abcd...1234"
     echo "Auth:      ${FAKE_SIGMA_AUTH:-OK (token acquired)}"
   } >&2
@@ -571,6 +619,27 @@ class SigmaCliTest(unittest.TestCase):
                 if os.path.exists(self.log):
                     os.unlink(self.log)
                 with self.env(base=None, FAKE_SIGMA_BASE=bad):
+                    with self.assertRaisesRegex(get_token.TokenProviderError, "Sigma CLI.*Base URL"):
+                        self.mint("sigma-cli")
+                self.assertFalse(any(c.startswith("auth token") for c in self.calls()))
+
+    def test_api_host_status_line_with_bare_host_is_accepted(self):
+        # Sigma CLI v1.2.5+ reports `API host:  <host>` instead of `Base URL:  https://<host>`.
+        for base in (None, CLI_BASE):
+            with self.subTest(env_base=base):
+                with self.env(base=base, FAKE_SIGMA_BASE_LABEL="API host",
+                              FAKE_SIGMA_BASE="aws-api.sigmacomputing.com"):
+                    result, _err = self.mint("sigma-cli")
+                self.assertEqual(CLI_BASE, result.base_url)
+                self.assertEqual("sigma-cli", result.auth_method)
+
+    def test_api_host_status_line_on_bad_host_is_refused(self):
+        for bad in ("api.evil.test", "unpublished.sigmacomputing.com",
+                    "http://aws-api.sigmacomputing.com", "aws-api.sigmacomputing.com/some/path"):
+            with self.subTest(host=bad):
+                if os.path.exists(self.log):
+                    os.unlink(self.log)
+                with self.env(base=None, FAKE_SIGMA_BASE_LABEL="API host", FAKE_SIGMA_BASE=bad):
                     with self.assertRaisesRegex(get_token.TokenProviderError, "Sigma CLI.*Base URL"):
                         self.mint("sigma-cli")
                 self.assertFalse(any(c.startswith("auth token") for c in self.calls()))
@@ -779,6 +848,19 @@ class SigmaCliShellFallbackTest(unittest.TestCase):
         junk = self.run_script("--auth-mode", "sigma-cli", FAKE_SIGMA_TOKEN="not a jwt")
         self.assertNotEqual(0, junk.returncode)
         self.assertNotIn("export SIGMA_API_TOKEN", junk.stdout)
+
+    def test_api_host_status_line_with_bare_host_is_accepted(self):
+        proc = self.run_script("--auth-mode", "sigma-cli", FAKE_SIGMA_BASE_LABEL="API host",
+                               FAKE_SIGMA_BASE="aws-api.sigmacomputing.com")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn(f"export SIGMA_API_TOKEN={FAKE_JWT}", proc.stdout)
+        self.assertIn(f"export SIGMA_BASE_URL={CLI_BASE}", proc.stdout)
+
+    def test_api_host_status_line_on_non_sigma_host_is_refused(self):
+        proc = self.run_script("--auth-mode", "sigma-cli", FAKE_SIGMA_BASE_LABEL="API host",
+                               FAKE_SIGMA_BASE="api.evil.test")
+        self.assertNotEqual(0, proc.returncode)
+        self.assertNotIn(FAKE_JWT, proc.stdout + proc.stderr)
 
     def test_missing_or_sigmahq_binary_is_unavailable(self):
         os.unlink(os.path.join(self.bindir, "sigma"))

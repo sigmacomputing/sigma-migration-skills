@@ -135,18 +135,20 @@ sigma_cli_token() {
     CLI_ERROR="sigma auth status failed; run sigma auth login in an interactive terminal"; return 1
   fi
   status_out="$CLI_OUT"$'\n'"$CLI_ERR"
-  local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]' re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
+  local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]' re_base='^[[:space:]]*(Base URL|API host):[[:space:]]*([^[:space:]]+)[[:space:]]*$'
   while IFS= read -r line; do
     if [[ "$line" =~ $re_auth ]]; then
       auth_ok=1
     elif [ -z "$base" ] && [[ "$line" =~ $re_base ]]; then
-      base="${BASH_REMATCH[1]}"
+      base="${BASH_REMATCH[2]}"
     fi
   done <<<"$status_out"
   if [ "$auth_ok" -ne 1 ]; then
     CLI_ERROR="the Sigma CLI profile is not authenticated; run sigma auth login in an interactive terminal"; return 1
   fi
   base="${base%/}"
+  # CLI v1.2.5+ prints `API host:` with a bare host; older CLIs print a full `Base URL:`.
+  case "$base" in *://*|"") ;; *) base="https://$base" ;; esac
   if [ -z "$base" ] || ! sigma_published_base "$base"; then
     CLI_ERROR="Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
   fi

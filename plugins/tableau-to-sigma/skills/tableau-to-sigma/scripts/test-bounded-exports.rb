@@ -50,7 +50,9 @@ STUB = <<~'RUBY'
   module Sigma
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
-      return File.read(ENV['STUB_SPEC']) if method == :get && path.end_with?('/spec')
+      # ?includeContents=true: the migrated shared verify-anchors.rb; /spec: the
+      # not-yet-migrated plugin-local collect-parity-actuals.rb version probe.
+      return File.read(ENV['STUB_SPEC']) if method == :get && (path.end_with?('/spec') || path.include?('?includeContents=true'))
       if method == :post && path.include?('/export')
         req = JSON.parse(body)
         File.open(ENV['STUB_LOG'], 'a') do |f|
@@ -86,8 +88,8 @@ def workbook_response(elements)
   layout = "<Page id=\"pg1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
   {
     'workbookId' => 'wb',
-    'latestDocumentVersion' => '1',
-    'document' => {
+    'latestVersion' => '1',
+    'contents' => {
       'schemaVersion' => 4,
       'kind' => 'workbook',
       'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],

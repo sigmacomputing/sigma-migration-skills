@@ -246,4 +246,72 @@ class TestCodeRep < Minitest::Test
       assert_nil wrapped['agents']
     end
   end
+  # ---- Endpoint helpers (the /spec endpoints are deprecated, OpenAPI 2.0.0+20261030)
+
+  def test_endpoint_paths
+    assert_equal '/v2/workbooks', Sigma::CodeRep.create_path
+    assert_equal '/v2/workbooks/w1?includeContents=true', Sigma::CodeRep.read_path('w1')
+    assert_equal '/v2/workbooks/w1?includeContents=true&documentVersion=3',
+                 Sigma::CodeRep.read_path('w1', document_version: 3)
+    assert_equal '/v2/workbooks/w1/contents', Sigma::CodeRep.update_path('w1')
+    assert_equal '/v2/reports', Sigma::CodeRep.create_path(:report)
+    assert_equal '/v2/reports/r1?includeContents=true', Sigma::CodeRep.read_path('r1', :report)
+    assert_equal '/v2/reports/r1/contents', Sigma::CodeRep.update_path('r1', :report)
+    assert_raises(ArgumentError) { Sigma::CodeRep.create_path(:dataModel) }
+  end
+
+  def test_reads_live_contents_shape
+    live = LIVE.reject { |k, _| k == 'document' }.merge('contents' => LIVE['document'], 'documentVersion' => 2)
+    assert_equal Sigma::CodeRep.document(LIVE), Sigma::CodeRep.document(live)
+    assert_equal %w[documentVersion name workbookId], Sigma::CodeRep.metadata(live).keys.sort
+  end
+
+  def test_create_body_rekeys_document_to_contents
+    body = Sigma::CodeRep.create_body(LIVE.merge('folderId' => 'f1'))
+    assert_equal %w[contents folderId name], body.keys.sort
+    assert_equal ['e1'], body['contents']['elements'].map { |el| el['id'] }
+    refute body.key?('document')
+    refute body.key?('dryRun')
+  end
+
+  def test_create_body_extra_overrides_and_dry_run
+    body = Sigma::CodeRep.create_body(LIVE['document'], extra: { name: 'X', folderId: 'f2' }, dry_run: true)
+    assert_equal 'X', body['name']
+    assert_equal 'f2', body['folderId']
+    assert_equal true, body['dryRun']
+  end
+
+  def test_create_body_flattens_legacy_page_nested_elements
+    body = Sigma::CodeRep.create_body(LEGACY_NESTED, extra: { 'name' => 'N', 'folderId' => 'f' })
+    assert_equal %w[source chart], body['contents']['elements'].map { |el| el['id'] }
+    assert(body['contents']['pages'].none? { |pg| pg.key?('elements') })
+  end
+
+  def test_update_body
+    assert_equal({ 'contents' => Sigma::CodeRep.create_body(LIVE)['contents'] }, Sigma::CodeRep.update_body(LIVE))
+    assert_equal 4, Sigma::CodeRep.update_body(LIVE, document_version: 4)['documentVersion']
+  end
+
+  def test_report_bodies_pass_contents_through
+    rpt = { 'contents' => { 'schemaVersion' => 1, 'pages' => [{ 'id' => 'p', 'elements' => [{ 'id' => 'x' }] }] } }
+    assert_equal rpt['contents'], Sigma::CodeRep.update_body(rpt, type: :report)['contents']
+  end
+
+  # Live-observed 2026-11-03 response shapes.
+  def test_dry_run_result_normalizes_live_shapes
+    ok = Sigma::CodeRep.dry_run_result(200, { 'dryRun' => true, 'warnings' => [] })
+    assert_equal true, ok['valid']
+    bad = Sigma::CodeRep.dry_run_result(400, { 'dryRun' => true, 'valid' => false,
+                                               'errors' => [{ 'summary' => 'contents.pages: Invalid array: undefined' }] })
+    assert_equal false, bad['valid']
+    assert_equal ['contents.pages: Invalid array: undefined'], bad['errors'].map { |e| e['summary'] }
+    other = Sigma::CodeRep.dry_run_result(403, { 'message' => 'forbidden', 'code' => 'forbidden' })
+    assert_equal [{ 'summary' => 'forbidden' }], other['errors']
+  end
+
+  def test_strip_response_only_covers_both_eras
+    rb = { 'workbookId' => 'w', 'workbookUrlId' => 'u', 'path' => 'p', 'latestVersion' => 1,
+           'latestDocumentVersion' => 1, 'folderId' => 'f', 'name' => 'N', 'contents' => {} }
+    assert_equal %w[contents folderId name], Sigma::CodeRep.strip_response_only(rb).keys.sort
+  end
 end

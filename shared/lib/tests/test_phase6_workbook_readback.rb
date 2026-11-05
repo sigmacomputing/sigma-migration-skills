@@ -3,15 +3,16 @@ require_relative '../code_rep'
 
 # Regression pin for the phase-6 gate readback bug: assert-phase6-ran.rb's
 # gate 4 (and probe-controls.rb) used to read spec['layout'] / spec['elements']
-# flat on a live GET /v2/workbooks/{id}/spec response. That surface now nests
-# non-metadata fields under a top-level `document` key (verified live
-# 2026-08-03/04) — the flat read silently returned nil, so gate 4 hard-FAILed
+# flat on a live workbook readback. That surface nests non-metadata fields
+# under a top-level key — `contents` on GET /v2/workbooks/{id}?includeContents=true,
+# `document` on the retired GET /v2/workbooks/{id}/spec (verified live
+# 2026-08-03/04 and 2026-11-03) — the flat read silently returned nil, so gate 4 hard-FAILed
 # with exit 6 ("has NO top-level layout XML") on every workbook. Both gate
 # scripts now route their live-spec reads through Sigma::CodeRep.document(),
 # which this test pins.
 class TestPhase6WorkbookReadback < Minitest::Test
-  NESTED = { 'workbookId' => 'w',
-             'document' => { 'layout' => '<Page id="p"><Element elementId="kpi"/></Page>',
+  NESTED = { 'workbookId' => 'w', 'latestVersion' => 3, 'documentVersion' => 3,
+             'contents' => { 'layout' => '<Page id="p"><Element elementId="kpi"/></Page>',
                              'pages' => [{ 'id' => 'p' }],
                              'elements' => [{ 'id' => 'kpi', 'kind' => 'kpi-chart' }] } }
 
@@ -27,6 +28,14 @@ class TestPhase6WorkbookReadback < Minitest::Test
     refute_empty Sigma::CodeRep.document(NESTED)['layout'].to_s,
                  'gate 4 must read layout from document, not the envelope'
     assert_nil NESTED['layout'], 'proves the old top-level read returned nil'
+  end
+
+  # /spec-era readbacks (older wb-readback.json snapshots) keep the `document` key.
+  def test_spec_era_document_readback_still_works
+    old = { 'workbookId' => 'w', 'latestDocumentVersion' => 2,
+            'document' => NESTED['contents'] }
+    assert_equal Sigma::CodeRep.document(NESTED), Sigma::CodeRep.document(old)
+    assert_equal 1, Sigma::CodeRep.workbook_elements(old).length
   end
 
   def test_legacy_flat_readback_still_works

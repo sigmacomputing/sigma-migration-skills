@@ -11,7 +11,7 @@
 #
 # Usage:
 #   ruby verify-trellis-survived.rb --emitted <native-trellis-emitted.json> \
-#        --spec <readback wb-spec JSON (GET /v2/workbooks/{id}/spec .spec)>
+#        --spec <readback wb-spec JSON (GET /v2/workbooks/{id}?includeContents=true .spec)>
 #
 # Exit 0 = every emitted trellis survived; exit 1 = one or more were stripped
 # (or the axis changed). Pure stdlib; no network.

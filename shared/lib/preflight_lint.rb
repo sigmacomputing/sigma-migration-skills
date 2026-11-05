@@ -31,7 +31,7 @@
 #   C5  a control with selectionMode:"single" carrying `values` (array) instead
 #       of scalar `value` — the filter AND the default silently drop.
 #   C6  a control with an unknown controlType, or the docs-only `top-n` type that
-#       the live tenant 400s — mirrors Sigma spec/verify offline (canary 2026-07-11).
+#       the live tenant 400s — mirrors Sigma's server-side validation (the workbook dry run) offline (canary 2026-07-11).
 #   C7  a control missing a REQUIRED field for its type: `mode` on
 #       switch/checkbox/text/number/date/slider; `low`/`high` on range-slider;
 #       an unbounded `number-range` (control OR element filter) whose `min` AND
@@ -70,7 +70,7 @@ require_relative 'code_rep'
 AGG = /\A\s*(Sum|Avg|Count|CountDistinct|CountIf|SumIf|Min|Max|Median|Percentile|StdDev|Variance|VariancePop|GrandTotal)\s*\(/i
 PLAIN_REF = /\A\s*\[[^\]]+\]\s*\z/   # a bare column reference, e.g. [Table/Region]
 LISTY = %w[list segmented hierarchy].freeze
-# C6/C7/C8: controlType shape rules — mirror Sigma's server-side spec/verify
+# C6/C7/C8: controlType shape rules — mirror Sigma's server-side validation (workbook dry run)
 # OFFLINE, so the control-grammar 400s (each of which otherwise costs a full
 # orchestrator round-trip to discover) are caught pre-POST. Canary-verified
 # server-side 2026-07-11 (see refs/composition-recipe.md).
@@ -161,7 +161,7 @@ DROPPED_BY_API = {
 }.freeze
 
 # UI-only list-control options that are not represented by the Workbook Spec
-# schema. /spec/verify currently accepts unknown fields, so catch the common
+# schema. The workbook dry run (POST /v2/workbooks, dryRun) currently accepts unknown fields, so catch the common
 # spellings locally instead of allowing a false valid:true response.
 UNSUPPORTED_CONTROL_FIELDS = {
   'showValueCounts' => 'The Workbook Spec API has no option to hide/show list-control value counts; configure it in the Sigma UI.',
@@ -321,7 +321,7 @@ def lint(spec)
           errs << "C5 control '#{name}': selectionMode \"single\" carries `values` (array) — the filter and the default silently drop. Use a scalar instead: replace `values: #{el['values'].inspect}` with `value: #{scalar.inspect}`."
         end
 
-        # C6/C7/C8: controlType grammar — mirrors Sigma spec/verify offline.
+        # C6/C7/C8: controlType grammar — mirrors Sigma's server-side validation offline.
         ct = el['controlType'].to_s
         unless ct.empty?
           if ct == 'top-n'
@@ -433,7 +433,7 @@ def lint_warnings(spec, scope: nil)
       end
       UNSUPPORTED_CONTROL_FIELDS.each do |field, guidance|
         next unless el.key?(field)
-        warns << "A4 control '#{name}': `#{field}` is not a Workbook Spec field even if /spec/verify returns valid:true. #{guidance}"
+        warns << "A4 control '#{name}': `#{field}` is not a Workbook Spec field even if the workbook dry run accepts it. #{guidance}"
       end
 
       # A2: date-range default in a non-persisting string form (#415).

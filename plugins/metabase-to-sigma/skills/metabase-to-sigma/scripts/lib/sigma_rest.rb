@@ -32,7 +32,7 @@
 # Usage:
 #   require_relative 'lib/sigma_rest'
 #   wb = Sigma.request(:get, "/v2/workbooks/#{id}")
-#   Sigma.request(:post, '/v2/workbooks/spec', body: spec.to_json)
+#   Sigma.request(:post, Sigma::CodeRep.create_path, body: Sigma::CodeRep.create_body(spec).to_json)
 #
 # All methods return parsed Hash/Array (or raw bytes for binary endpoints).
 
@@ -246,18 +246,33 @@ module Sigma
   # Thread-safe and single-flight: concurrent callers all wait for one
   # provider invocation and share the result. Returns the new token.
   def refresh_token!
-    @token_mutex.synchronize do
-      return @token_override if @refresh_inflight
-      @refresh_inflight = true
-    end
+    flight = nil
+    owner = false
     begin
+      @token_mutex.synchronize do
+        if @refresh_inflight
+          flight = @refresh_flight
+          raise AuthError, 'recursive token refresh' if flight[:owner] == Thread.current
+          flight[:condition].wait(@token_mutex) until flight[:done]
+          raise flight[:error] if flight[:error]
+          return flight[:token]
+        end
+        flight = { owner: Thread.current, condition: ConditionVariable.new, done: false }
+        owner = true
+        @refresh_flight = flight
+        @refresh_inflight = true
+      end
       values = token_provider_result
       tok = values.fetch('SIGMA_API_TOKEN')
       minted_value = values['SIGMA_TOKEN_MINTED_AT']
       if (minted_value.nil? || minted_value.empty?) && values['SIGMA_AUTH_METHOD'] != 'sigma-cli'
         raise AuthError, 'Sigma token provider omitted SIGMA_TOKEN_MINTED_AT'
       end
-      minted_at = Time.parse(minted_value) if minted_value && !minted_value.empty?
+      begin
+        minted_at = Time.parse(minted_value) if minted_value && !minted_value.empty?
+      rescue ArgumentError
+        raise AuthError, 'Sigma token provider returned an invalid mint timestamp'
+      end
       # A base URL the provider derived (Sigma CLI profile) is validated with the
       # same host check as an explicit one, BEFORE anything is stored or any
       # request is made. An explicit SIGMA_BASE_URL is never overwritten.
@@ -269,12 +284,23 @@ module Sigma
       @token_mutex.synchronize do
         @token_override = tok
         @minted_at = minted_at
+        ENV.delete('SIGMA_TOKEN_MINTED_AT') unless minted_at
+        values.each { |key, value| ENV[key] = value unless key == 'SIGMA_BASE_URL' }
+        flight[:token] = tok
       end
-      ENV.delete('SIGMA_TOKEN_MINTED_AT') unless minted_at
-      values.each { |key, value| ENV[key] = value unless key == 'SIGMA_BASE_URL' }
       tok
+    rescue Exception => error # Wake waiters even when provider host validation exits; never swallow it.
+      flight[:error] = error if owner
+      raise
     ensure
-      @token_mutex.synchronize { @refresh_inflight = false }
+      if owner
+        @token_mutex.synchronize do
+          flight[:error] ||= AuthError.new('token refresh aborted') unless flight.key?(:token)
+          flight[:done] = true
+          @refresh_inflight = false
+          flight[:condition].broadcast
+        end
+      end
     end
   end
 

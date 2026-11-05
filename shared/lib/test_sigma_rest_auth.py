@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest import mock
 
@@ -147,6 +149,45 @@ class SigmaRestDualAuthTest(unittest.TestCase):
                 sigma_rest.request("get", "/v2/whoami")
         self.assertEqual([], responses)
 
+    def test_concurrent_refresh_waits_for_the_same_result_or_failure(self):
+        for failure in (None, sigma_rest.SigmaAuthError("synthetic mint failure"), SystemExit("synthetic validation exit")):
+            with self.subTest(failure=failure):
+                entered, release, waiter_done = threading.Event(), threading.Event(), threading.Event()
+                sigma_rest._token_override = "expired-token"
+
+                def provider():
+                    entered.set()
+                    if not release.wait(3):
+                        raise RuntimeError("test release timed out")
+                    if failure:
+                        raise failure
+                    return PROVIDER
+
+                def waiter():
+                    try:
+                        return sigma_rest.refresh_token()
+                    finally:
+                        waiter_done.set()
+
+                with mock.patch.object(sigma_rest, "token_provider_result", side_effect=provider) as mint:
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        leader = pool.submit(sigma_rest.refresh_token)
+                        self.assertTrue(entered.wait(3))
+                        follower = pool.submit(waiter)
+                        try:
+                            self.assertFalse(waiter_done.wait(0.1), "waiter returned the stale token while minting")
+                        finally:
+                            release.set()
+                        for future in (leader, follower):
+                            if failure:
+                                with self.assertRaises(type(failure)):
+                                    future.result(timeout=3)
+                            else:
+                                self.assertEqual("browser-refreshed-token", future.result(timeout=3))
+                    self.assertEqual(1, mint.call_count)
+                with mock.patch.object(sigma_rest, "token_provider_result", return_value=PROVIDER):
+                    self.assertEqual("browser-refreshed-token", sigma_rest.refresh_token())
+
     def test_auth_json_prefers_provider_metadata_over_file_mtime(self):
         with tempfile.TemporaryDirectory() as workdir:
             with open(os.path.join(workdir, "auth.json"), "w", encoding="utf-8") as handle:
@@ -202,7 +243,7 @@ FAKE_SIGMA = """#!/bin/bash
 # Synthetic stand-in for the Sigma CLI.
 if [ "$1 $2" = "auth --help" ]; then echo "Commands: login token status"; exit 0; fi
 if [ "$1 $2" = "auth status" ]; then
-  { echo "Profile:   example-profile"; echo "Base URL:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2
+  { echo "Profile:   example-profile"; echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2
   exit 0
 fi
 if [ "$1 $2" = "auth token" ]; then printf '%s\\n' "${FAKE_SIGMA_TOKEN}"; exit 0; fi

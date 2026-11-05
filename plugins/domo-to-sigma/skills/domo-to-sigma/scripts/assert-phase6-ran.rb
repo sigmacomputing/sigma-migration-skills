@@ -534,10 +534,10 @@ rescue LoadError
 end
 
 # Workbook code-rep document wrapper (#608) — same vendoring rule as the
-# ledgers above. GET /v2/workbooks/{id}/spec now nests pages/layout/
-# schemaVersion/kind under a top-level `document` key (verified live
-# 2026-08-03/04); a legacy flat readback (older wb-readback.json snapshots)
-# still carries them at top level. fetch_live_spec below (gates 4/6/7/7b's
+# ledgers above. GET /v2/workbooks/{id}?includeContents=true nests pages/layout/
+# schemaVersion/kind under a top-level `contents` key (`document` on the retired
+# /spec readback; verified live 2026-08-03/04 and 2026-11-03); a legacy flat
+# readback (older wb-readback.json snapshots) still carries them at top level. fetch_live_spec below (gates 4/6/7/7b's
 # shared live-spec memo) reads through CODE_REP_LOADED so a stale checkout
 # without the lib keeps the old flat read (stated via a one-time WARN) rather
 # than crashing — but every vendored copy carries it (manifest-listed
@@ -644,7 +644,7 @@ GATE_EVIDENCE_PATHS = {
   'waiver-budget' => 'waivers.json'
 }.freeze
 # The version-keyed base identity for this run's evidence: workbook id (flag /
-# wb-ids.json / readback) + latestDocumentVersion (readback; refreshed by the
+# wb-ids.json / readback) + latestVersion (readback; refreshed by the
 # live spec memo below when it fetches). "v?" marks unknown — reuse checks
 # refuse it (fail-closed), recording still names the workbook.
 ev_identity = begin
@@ -652,7 +652,7 @@ ev_identity = begin
   _id ||= (JSON.parse(File.read(File.join(opts[:tab], 'wb-ids.json')))['workbookId'] rescue nil)
   _rb = (JSON.parse(File.read(File.join(opts[:tab], 'wb-readback.json'))) rescue nil)
   _id ||= (_rb.is_a?(Hash) ? _rb['workbookId'] : nil)
-  _vr = _rb.is_a?(Hash) ? (_rb['latestDocumentVersion'] || _rb['latestVersion']) : nil
+  _vr = _rb.is_a?(Hash) ? (_rb['latestVersion'] || _rb['latestDocumentVersion']) : nil
   { 'wb' => _id.to_s.empty? ? '?' : _id.to_s, 'ver' => _vr.nil? || _vr.to_s.empty? ? nil : _vr.to_s }
 end
 ev_key = lambda do |element_id = nil|
@@ -961,6 +961,14 @@ waiver_flags << '--accept-manual-residues'   if opts[:accept_manual_residues] &&
 # be invisible to the cap that exists to stop waiver stacking. Read directly
 # (plain JSONL; no lib dependency — this file is shared across plugins). Counted
 # once per kind.
+#
+# PR-14 skip-flag-waived records (a --skip-* honored by a pass-1 or helper
+# script, e.g. migrate-tableau.rb --skip-extract-landing) join the census the
+# same way: named by their detail flag (the kind itself when no detail is
+# recorded), counted once per flag. lib/degradation_ledger.rb derives the same
+# records as recorded-escape — without them here the census stamps 0 and
+# verify-complete exits 6 on a run that took the skip honestly.
+trail_skip_reasons = {}
 begin
   _or_path = File.join(opts[:tab], 'offramps.jsonl')
   if File.exist?(_or_path)
@@ -971,6 +979,11 @@ begin
                                               !waiver_flags.include?('--force-route-switch')
     waiver_flags << '--allow-manual-spec'  if _or_kinds.any? { |r| r['kind'] == 'manual-spec' && r['reason'].to_s.start_with?('waiver:') } &&
                                               !waiver_flags.include?('--allow-manual-spec')
+    _or_kinds.select { |r| r.is_a?(Hash) && r['kind'] == 'skip-flag-waived' }.each do |r|
+      _sf = r['detail'].to_s.strip.empty? ? 'skip-flag-waived' : r['detail'].to_s.strip
+      trail_skip_reasons[_sf] ||= r['reason'].to_s.strip unless r['reason'].to_s.strip.empty?
+      waiver_flags << _sf unless waiver_flags.include?(_sf)
+    end
   end
 rescue StandardError
   nil # observability only — never sink the gate on trail parsing
@@ -1038,7 +1051,7 @@ _reason_srcs = {
 }
 waiver_reasons = {}
 waiver_flags.each do |f|
-  v = _reason_srcs[f]
+  v = _reason_srcs[f] || trail_skip_reasons[f]
   waiver_reasons[f] = v.to_s.strip if v.is_a?(String) && !v.to_s.strip.empty?
 end
 
@@ -1280,7 +1293,19 @@ else
            "+ anchor coverage #{_cov['covered']}/#{_cov['displayed']} displayed tile(s)" \
            "#{_n_waived.positive? ? " (#{_n_waived} coverage-waived at Phase 1d)" : ''}." \
            "#{anchors_tol_note.call(_av)}"
+      # Stamp the substitution for build-migration-report.rb, which otherwise
+      # sees an empty FAIL pool. Bound to the anchors verdict it accepted.
+      summary['parity_oracle'] = {
+        'kind' => 'anchors',
+        'anchors_matched' => _av['matched'], 'anchors_checked' => _av['checked'],
+        'tiles_covered' => _cov['covered'], 'tiles_displayed' => _cov['displayed'],
+        'anchors_verdict_sha256' => Digest::SHA256.file(File.join(opts[:tab], 'anchors-verdict.json')).hexdigest
+      }
+      File.write(summary_path, JSON.pretty_generate(summary))
     else
+      if summary.delete('parity_oracle')
+        File.write(summary_path, JSON.pretty_generate(summary))
+      end
       warn "[FAIL] parity-final.json reports charts_total=#{total} — no charts were verified."
       warn "       This usually means auto-parity-plan.rb matched zero Tableau views."
       warn "       Phase 6 must verify at least one chart to declare GREEN."
@@ -1616,11 +1641,11 @@ end
 # ---------------------------------------------------------------------------
 # ONE live spec fetch per gate run (#7 dedup — speed review, reconciled
 # program). Gates 4, 6, 7, and 7b all read the live workbook spec; before this
-# memo each paid its own GET /v2/workbooks/{id}/spec — up to four identical
+# memo each paid its own GET /v2/workbooks/{id}?includeContents=true — up to four identical
 # round-trips per gate run. The fetch happens ONCE and is shared; every gate
 # still computes its own verdict from the (raw) spec. The memo also refreshes
 # the evidence-key version and names a stale wb-readback.json loudly — a new
-# POST/PUT bumps latestDocumentVersion, so the post-POST readback stops being
+# POST/PUT bumps latestVersion, so the post-POST readback stops being
 # a valid spec source the moment the live version moves past it (#7b:
 # version-check before reuse; the readback is never silently substituted for
 # the live spec here — live gates verify live state).
@@ -1633,7 +1658,8 @@ fetch_live_spec = lambda do |wb_id, base, tok|
   # URL must never be silently served the OTHER environment's spec.
   memo_k = [wb_id.to_s, base.to_s]
   return live_spec_memo[memo_k] if live_spec_memo.key?(memo_k)
-  uri = URI("#{base}/v2/workbooks/#{wb_id}/spec")
+  live_path = CODE_REP_LOADED ? Sigma::CodeRep.read_path(wb_id) : "/v2/workbooks/#{wb_id}?includeContents=true"
+  uri = URI("#{base}#{live_path}")
   req = Net::HTTP::Get.new(uri)
   req['Authorization'] = "Bearer #{tok}"
   req['Accept'] = 'application/json'
@@ -1649,7 +1675,7 @@ fetch_live_spec = lambda do |wb_id, base, tok|
           require 'date'
           YAML.safe_load(body, permitted_classes: [Date, Time]) || {}
         end
-      live_ver = spec.is_a?(Hash) ? (spec['latestDocumentVersion'] || spec['latestVersion']) : nil
+      live_ver = spec.is_a?(Hash) ? (spec['latestVersion'] || spec['latestDocumentVersion']) : nil
       if live_ver && !live_ver.to_s.empty?
         if ev_identity['ver'] && ev_identity['ver'] != live_ver.to_s
           warn "[WARN] wb-readback.json is STALE — readback doc v#{ev_identity['ver']}, live doc v#{live_ver}." \
@@ -1660,7 +1686,7 @@ fetch_live_spec = lambda do |wb_id, base, tok|
       end
       # Unwrap ONCE here so every downstream gate (4/6/7/7b, all read through
       # this memo) inherits the fix: the live GET nests pages/layout under
-      # `document` (see CODE_REP_LOADED above) — without this, gate 4's
+      # `contents` (see CODE_REP_LOADED above) — without this, gate 4's
       # spec['layout'] read is always nil and hard-FAILs exit 6 on every
       # workbook, the regression this memo fixes. A stale checkout without
       # lib/code_rep.rb keeps the old flat spec (WARNed once, not silent).
@@ -1777,7 +1803,7 @@ unless opts[:skip_layout]
           puts "[OK] gate 4/7: layout XML applied with #{elem_count} positioned element(s)"
         end
       else
-        warn "[SKIP] gate 4/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{fetched['code']} — cannot verify"
+        warn "[SKIP] gate 4/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{fetched['code']} — cannot verify"
       end
     end
   end
@@ -1888,7 +1914,7 @@ else
         puts '[OK] gate 6/7: layout lint clean (no raw-id names, no orphan controls, no dead zones, ' \
              'no generic header title, no under-filled bands)'
       else
-        warn "[SKIP] gate 6/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{fetched['code']} — cannot lint"
+        warn "[SKIP] gate 6/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{fetched['code']} — cannot lint"
       end
     end
   end
@@ -1953,7 +1979,7 @@ else
         puts "[OK] gate 7/7: control lint clean (#{n_controls} control(s); no dead controls, no ghost " \
              "targets, full same-page reach#{scope ? ', source scope honored' : ''})"
       else
-        warn "[SKIP] gate 7/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{fetched['code']} — cannot lint"
+        warn "[SKIP] gate 7/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{fetched['code']} — cannot lint"
       end
     end
   end
@@ -2154,7 +2180,7 @@ else
       if fetched['spec']
         n_controls = ControlLint.controls_report(fetched['spec']).length
       else
-        warn "[WARN] gate 7b: GET /v2/workbooks/#{flip_wb}/spec returned HTTP #{fetched['code']} — cannot count controls"
+        warn "[WARN] gate 7b: GET /v2/workbooks/#{flip_wb}?includeContents=true returned HTTP #{fetched['code']} — cannot count controls"
       end
     end
     if n_controls == 0
@@ -2173,7 +2199,7 @@ else
       # control (a full serial export cycle per control, 2–3x per migration:
       # builder → finalize → verifier). Accept the PRIOR probe's RAW results
       # instead when — and only when — the ledger-recorded evidence is still
-      # identity-bound: same workbook, same latestDocumentVersion (any control
+      # identity-bound: same workbook, same latestVersion (any control
       # fix means a PUT means a new version), younger than 30 min, and the
       # probe-results.json bytes still hash to the recorded sha. The verdict
       # is then RECOMPUTED from those raw rows through the same FlipGate
@@ -3988,7 +4014,11 @@ if budget_flags.length > effective_waiver_budget
        "(budget #{effective_waiver_budget}#{effective_waiver_budget < WAIVER_BUDGET ? ", Tier-#{run_tier} scaled from #{WAIVER_BUDGET}" : ''})."
   warn '       GREEN unavailable — too many waivers; the highest achievable result is YELLOW.'
   warn '       Each waiver hid a verification:'
-  budget_flags.each { |f| warn "         - #{f}: #{WAIVER_HIDES[f] || 'a verification gate did not run'}" }
+  budget_flags.each do |f|
+    hides = WAIVER_HIDES[f] ||
+            (trail_skip_reasons.key?(f) || f == 'skip-flag-waived' ? 'run: a --skip-* escape honored mid-run (skip-flag-waived off-ramp)' : 'a verification gate did not run')
+    warn "         - #{f}: #{hides}"
+  end
   warn '       Waivers are for impossibilities, not obstacles. Fix the underlying issues until'
   warn "       <= #{effective_waiver_budget} remain, or report this migration as YELLOW (never GREEN) and name"
   warn '       every waiver in the report. There is no escape flag for this cap.'

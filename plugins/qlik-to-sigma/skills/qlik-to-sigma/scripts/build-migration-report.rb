@@ -4,6 +4,7 @@
 # Build a deterministic, converter-neutral migration completion report from the
 # artifacts already present in a migration workdir.
 
+require 'digest'
 require 'json'
 require 'optparse'
 require 'pathname'
@@ -595,8 +596,23 @@ class MigrationReport
     passed = first_numeric(doc, %w[charts_pass passed pass])
     total = first_numeric(doc, %w[charts_total total])
     errors << "charts_pass #{passed} != charts_total #{total}" if passed && total && passed != total
+    oracle = anchors_oracle_detail(doc) if total&.zero?
+    return check('parity', 'PASS', oracle) if oracle
     errors.empty? ? check('parity', 'PASS', state || 'pass') :
                     check('parity', 'FAIL', errors.join('; '))
+  end
+
+  # An empty chart pool (every worksheet hidden, no exportable view data) passes
+  # only through the hard gate's anchors-oracle substitution, which stamps
+  # parity_oracle bound to the anchors-verdict.json it accepted.
+  def anchors_oracle_detail(doc)
+    stamp = doc['parity_oracle']
+    return nil unless stamp.is_a?(Hash) && stamp['kind'] == 'anchors'
+    verdict = File.join(@workdir, 'anchors-verdict.json')
+    return nil unless File.file?(verdict) &&
+                      Digest::SHA256.file(verdict).hexdigest == stamp['anchors_verdict_sha256']
+    "no exportable chart data; anchors oracle stands in (#{stamp['anchors_matched']}/#{stamp['anchors_checked']} " \
+      "anchors matched, #{stamp['tiles_covered']}/#{stamp['tiles_displayed']} displayed tiles covered)"
   end
 
   def render_check

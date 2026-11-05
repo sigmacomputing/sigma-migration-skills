@@ -30,10 +30,10 @@ module ZipExtract
   end
 
   # Inflate/copy exactly ONE member by name; nil if absent.
-  def read(path, name)
+  def read(path, name, max_bytes: nil)
     buf = File.binread(path)
     e = central(buf).find { |x| x[:name] == name }
-    e && member_bytes(buf, e)
+    e && member_bytes(buf, e, max_bytes: max_bytes)
   end
 
   # Extract every member under dest (skips directory entries). Convenience for
@@ -120,15 +120,29 @@ module ZipExtract
   # Bytes of one member: re-derive the data start from the LOCAL header (its
   # name/extra lengths can differ from the central copy), then inflate (method 8)
   # or copy (method 0).
-  def member_bytes(buf, e)
+  def member_bytes(buf, e, max_bytes: nil)
     lho = e[:lho]
     raise "bad local header @#{lho}" unless buf[lho, 4] == "PK\x03\x04".b
     lnlen = buf[lho + 26, 2].unpack1('v')
     lelen = buf[lho + 28, 2].unpack1('v')
     data  = buf[lho + 30 + lnlen + lelen, e[:csize]]
     case e[:method]
-    when 0 then data                                    # stored
-    when 8 then Zlib::Inflate.new(-Zlib::MAX_WBITS).inflate(data)  # raw deflate
+    when 0
+      raise RangeError, 'ZIP member exceeds byte limit' if max_bytes && data.bytesize > max_bytes
+      data
+    when 8
+      inflater = Zlib::Inflate.new(-Zlib::MAX_WBITS)
+      begin
+        output = +''.b
+        inflater.inflate(data) do |chunk|
+          raise RangeError, 'ZIP member exceeds byte limit' if max_bytes && output.bytesize + chunk.bytesize > max_bytes
+          output << chunk
+        end
+        raise 'truncated deflate member' unless inflater.finished?
+        output
+      ensure
+        inflater.close
+      end
     else raise "unsupported zip compression method #{e[:method]}"
     end
   end

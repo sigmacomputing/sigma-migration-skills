@@ -2,14 +2,19 @@
 
 Verified spec-authorable and readback-stable (live-verified 2026-07-27): a `kpi-chart`
 element carrying **both** a `value` column and a `comparisonColumn` renders a number plus
-a Δ badge, and both survive `POST /v2/workbooks/spec` → `GET .../spec` unmodified. This
+a Δ badge, and both survive `POST /v2/workbooks` → `GET /v2/workbooks/{id}?includeContents=true` unmodified
+(first verified on the since-deprecated `/spec` endpoints). This
 supersedes any earlier "comparison is UI-only / stripped on readback" guidance for this
 exact shape — build comparative, don't retrofit later.
 
-> The `POST /v2/workbooks/spec` request body itself is `document`-wrapped, not flat
-> (verified live 2026-08-03, including on `/verify` 2026-08-04): the fragment below is
-> one entry in the flat `document.elements[]` collection. `document.pages[]` contains
-> metadata only, and the required `document.layout` assigns the element to a page.
+> The `POST /v2/workbooks` request body itself is `contents`-wrapped, not flat
+> (verified live 2026-11-03; the deprecated `/spec` endpoints used a `document` wrapper,
+> verified 2026-08-03, including on `/verify` 2026-08-04, and on-disk artifacts still do —
+> `Sigma::CodeRep.create_body` re-keys it): the fragment below is one entry in the flat
+> `contents.elements[]` collection. `contents.pages[]` contains metadata only, and the
+> required `contents.layout` assigns the element to a page. Validate without creating by
+> POSTing the same body with `"dryRun": true` (`Sigma::CodeRep.dry_run_result` normalizes
+> the response).
 > Data-model specs keep their separate nested `pages[].elements` contract.
 
 ## The shape

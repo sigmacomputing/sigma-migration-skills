@@ -37,15 +37,17 @@ end
 # Stub sigma_rest (same seam as test-bounded-exports.rb): loaded FIRST via
 # `ruby -I <stub> -r sigma_rest`; the real lib path is then marked required so
 # the scripts' own `require 'sigma_rest'` no-ops. Logs EVERY request to
-# STUB_LOG as {"m":method,"p":path}. STUB_SPEC serves both the live /spec GET
-# and the probe workbook POST reply.
+# STUB_LOG as {"m":method,"p":path}. STUB_SPEC serves both the live workbook GET
+# (?includeContents=true for the migrated shared scripts; the retired /spec path
+# for the not-yet-migrated plugin-local collect-parity-actuals.rb) and the probe
+# workbook POST reply.
 STUB = <<~'RUBY'
   require 'json'
   module Sigma
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['STUB_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
-      return File.read(ENV['STUB_SPEC']) if method == :get && path.end_with?('/spec')
+      return File.read(ENV['STUB_SPEC']) if method == :get && (path.end_with?('/spec') || path.include?('?includeContents=true'))
       if method == :post && path.include?('/export')
         req = JSON.parse(body)
         return { 'queryId' => req['elementId'] }
@@ -86,8 +88,8 @@ def write_spec(path, version)
       'columns' => [{ 'id' => 'c-r', 'name' => 'Region' }, { 'id' => 'c-v2', 'name' => 'Revenue' }] }
   ]
   File.write(path, JSON.pretty_generate(
-               'workbookId' => 'wb', 'latestDocumentVersion' => version,
-               'document' => {
+               'workbookId' => 'wb', 'latestVersion' => version,
+               'contents' => {
                  'schemaVersion' => 4,
                  'kind' => 'workbook',
                  'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],
@@ -353,7 +355,7 @@ ENV['TABLEAU_TO_SIGMA_HOME'] = POOL_HOME
 POOL_LOG = []
 def Sigma.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
   POOL_LOG << [method, path]
-  if method == :post && path == '/v2/workbooks/spec'
+  if method == :post && path == '/v2/workbooks'
     raise Sigma::Error, 'stub: 502 spec POST refused' if ENV['POOL_SPEC_FAIL'] == '1'
     return { 'workbookId' => 'wb-probe' }
   end
@@ -386,7 +388,7 @@ deadline = ExportPool::Deadline.new(30)
 res = ExportPool.pooled_sql_probe('conn-1', entries, deadline, pool: 2, row_limit: 500)
 check(res.length == 3 && res.all? { |st, rows| st == :ok && rows.length == 2 },
       'all three entries return parsed CSV rows', fails)
-check(POOL_LOG.count { |m, p| m == :post && p == '/v2/workbooks/spec' } == 1,
+check(POOL_LOG.count { |m, p| m == :post && p == '/v2/workbooks' } == 1,
       'exactly ONE probe workbook POST for the whole batch', fails)
 check(POOL_LOG.count { |m, p| m == :post && p.include?('/export') } == 3,
       'one export per entry (pooled)', fails)
@@ -510,14 +512,18 @@ GT_POOL_STUB = <<~'RUBY'
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['GTP_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
-      if method == :post && path == '/v2/workbooks/spec'
+      # pooled_sql_probe (shared export_pool.rb) POSTs /v2/workbooks; the
+      # not-yet-migrated run-ground-truth.rb SERIAL probe still POSTs the
+      # retired /v2/workbooks/spec — serve both.
+      if method == :post && ['/v2/workbooks', '/v2/workbooks/spec'].include?(path)
         posted = JSON.parse(body)
-        # Task 3.2: pooled_sql_probe now nests the workbook document under a
-        # top-level `document` key (the live surface 400s on the old flat
+        # Task 3.2: pooled_sql_probe nests the workbook document under a
+        # top-level `contents` key (the live surface 400s on the old flat
         # body), with current writes flattening elements into
-        # document.elements. run-ground-truth.rb's own SERIAL per-entry probe
-        # POST can still use the legacy nested-page shape, so tolerate both.
-        doc = posted['document'] || posted
+        # contents.elements. run-ground-truth.rb's own SERIAL per-entry probe
+        # POST can still use the legacy `document` / nested-page shape, so
+        # tolerate all of them.
+        doc = posted['contents'] || posted['document'] || posted
         n_els = (doc['elements'] || (doc['pages'] || []).flat_map { |page| page['elements'] || [] }).length
         raise Error, 'stub: HTTP 502 pooled spec POST refused' if n_els > 1 && ENV['GTP_POOL_SPEC_FAIL'] == '1'
         n = File.exist?(ENV['GTP_SEQ']) ? File.read(ENV['GTP_SEQ']).to_i + 1 : 1
@@ -582,7 +588,7 @@ Dir.mktmpdir do |dir|
   out, _err, st = run_stubbed(stub_dir, env, GT_SCRIPT, '--workdir', dir, '--connection-id', 'conn-1')
   check(st.exitstatus.zero?, "pooled run exits 0 (got #{st.exitstatus})", fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks/spec' } == 1,
+  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 1,
         'exactly ONE probe-workbook POST for 3 warehouse-sql entries', fails)
   check(log.count { |r| r['m'] == 'post' && r['p'].include?('/export') } == 3,
         'one pooled export per entry', fails)
@@ -658,7 +664,7 @@ Dir.mktmpdir do |dir|
   check(st.exitstatus.zero?, "fallback run still completes → exit 0 (got #{st.exitstatus})", fails)
   check(err.include?('falling back to the serial'), 'fallback is LOUD on stderr', fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks/spec' } == 3,
+  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 3,
         '1 refused pooled POST + 2 serial probe POSTs', fails)
   check(log.count { |r| r['m'] == 'delete' } == 2, 'serial fallback deletes per-entry probes', fails)
   doc = JSON.parse(File.read(File.join(dir, 'ground-truth-actuals.json')))
@@ -680,7 +686,7 @@ Dir.mktmpdir do |dir|
                                '--no-pool')
   check(st.exitstatus.zero?, "--no-pool run exits 0 (got #{st.exitstatus})", fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks/spec' } == 2 &&
+  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 2 &&
         log.count { |r| r['m'] == 'delete' } == 2,
         '--no-pool: one probe workbook per entry (the serial seam, unchanged)', fails)
   doc = JSON.parse(File.read(File.join(dir, 'ground-truth-actuals.json')))
@@ -763,7 +769,7 @@ PC_STUB = <<~'RUBY'
       rec = { 'm' => method.to_s, 'p' => path }
       rec['body'] = body if body
       File.open(ENV['PC_LOG'], 'a') { |f| f.puts(JSON.generate(rec)) }
-      return File.read(ENV['PC_SPEC']) if method == :get && path.end_with?('/spec')
+      return File.read(ENV['PC_SPEC']) if method == :get && path.include?('?includeContents=true')
       if method == :get && path.split('?').first.end_with?('/columns')
         return { 'entries' => [{ 'elementId' => 'el-data', 'columnId' => 'c-reg', 'label' => 'Region' }] }
       end
@@ -816,8 +822,8 @@ def pc_spec(path, with_unlabeled: false)
     ]
   end
   File.write(path, JSON.pretty_generate(
-               'workbookId' => 'wb', 'latestDocumentVersion' => 5,
-               'document' => {
+               'workbookId' => 'wb', 'latestVersion' => 5,
+               'contents' => {
                  'schemaVersion' => 4,
                  'kind' => 'workbook',
                  'pages' => [{ 'id' => 'p1', 'name' => 'p1' }],

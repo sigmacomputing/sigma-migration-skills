@@ -293,8 +293,10 @@ function Test-SigmaCliSession([string]$file) {
     return @{ Ok = $false; Base = ''; Why = 'the Sigma CLI profile is not signed in (Auth: is not OK)' }
   }
   $base = ''
-  $m = [regex]::Match($status.Output, '(?m)^\s*Base URL:\s*(\S+)\s*$')
+  $m = [regex]::Match($status.Output, '(?m)^\s*(?:Base URL|API host):\s*(\S+)\s*$')
   if ($m.Success) { $base = $m.Groups[1].Value.TrimEnd('/') }
+  # CLI v1.2.5+ prints `API host:` with a bare host; older CLIs print a full `Base URL:`.
+  if ($base -and ($base -notmatch '://')) { $base = "https://$base" }
   if ((-not $base) -or (-not (Test-SigmaPublishedBase $base))) {
     return @{ Ok = $false; Base = ''; Why = 'the Sigma CLI profile Base URL is missing or not a published Sigma API host' }
   }

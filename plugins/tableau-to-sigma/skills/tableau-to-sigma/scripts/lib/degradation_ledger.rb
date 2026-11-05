@@ -244,9 +244,11 @@ module DegradationLedger
       reasons[w['flag'].to_s] ||= w['reason'].to_s unless w['reason'].to_s.empty?
     end
     out = []
+    skip_flags = trail_skip_flags(wd)
     pf['waivers'].map(&:to_s).uniq.each do |flag|
       next if CENSUS_DERIVED_FLAGS.include?(flag)
       next if CENSUS_ESCAPE_FLAGS.include?(flag) # classed recorded-escape below
+      next if skip_flags.include?(flag)          # skip-flag-waived trail → recorded-escape below
       next if flag == '--skip-visual-comparison' && reasons[flag].to_s =~ /verifier/i
       reason = reasons[flag].to_s
       reason = 'budget-counted quality waiver (no reason recorded)' if reason.empty?
@@ -408,6 +410,15 @@ module DegradationLedger
     File.readlines(path).map { |l| JSON.parse(l) rescue nil }.compact
   rescue StandardError
     []
+  end
+
+  # The census names assert-phase6-ran gives skip-flag-waived records (detail
+  # flag, else the kind) — the same item recorded_escapes derives, so a flag
+  # the census mirrors from the trail is one degradation, never two.
+  def trail_skip_flags(wd)
+    trail(wd).select { |r| r.is_a?(Hash) && r['kind'].to_s == 'skip-flag-waived' }
+             .map { |r| r['detail'].to_s.strip.empty? ? 'skip-flag-waived' : r['detail'].to_s.strip }
+             .uniq
   end
 
   def read_json(wd, rel)

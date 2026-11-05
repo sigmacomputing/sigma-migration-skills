@@ -57,11 +57,22 @@ module Tableau
   # out (cloud default: 240 min idle, can be much shorter under strict policies).
   # Single-flight: concurrent callers all wait for one signin and share the result.
   def refresh_token!
-    @token_mutex.synchronize do
-      return @token_override if @refresh_inflight
-      @refresh_inflight = true
-    end
+    flight = nil
+    owner = false
     begin
+      @token_mutex.synchronize do
+        if @refresh_inflight
+          flight = @refresh_flight
+          raise AuthError, 'recursive token refresh' if flight[:owner] == Thread.current
+          flight[:condition].wait(@token_mutex) until flight[:done]
+          raise flight[:error] if flight[:error]
+          return flight[:token]
+        end
+        flight = { owner: Thread.current, condition: ConditionVariable.new, done: false }
+        owner = true
+        @refresh_flight = flight
+        @refresh_inflight = true
+      end
       name = ENV.fetch('TABLEAU_PAT_NAME')   { raise AuthError, 'TABLEAU_PAT_NAME not set — cannot refresh' }
       secret = ENV.fetch('TABLEAU_PAT_SECRET'){ raise AuthError, 'TABLEAU_PAT_SECRET not set — cannot refresh' }
       site_url = ENV.fetch('TABLEAU_SITE_CONTENT_URL') { raise AuthError, 'TABLEAU_SITE_CONTENT_URL not set' }
@@ -73,13 +84,31 @@ module Tableau
       res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 30) { |h| h.request(req) }
       raise AuthError, "signin -> #{res.code} #{res.body}" unless res.is_a?(Net::HTTPSuccess)
       j = JSON.parse(res.body)
-      @token_mutex.synchronize do
-        @token_override = j.dig('credentials', 'token')
-        @site_id_override = j.dig('credentials', 'site', 'id')
+      credentials = j.is_a?(Hash) && j['credentials']
+      token = credentials.is_a?(Hash) && credentials['token']
+      site = credentials.is_a?(Hash) && credentials['site']
+      id = site.is_a?(Hash) && site['id']
+      unless token.is_a?(String) && !token.strip.empty? && id.is_a?(String) && !id.strip.empty?
+        raise AuthError, 'Tableau signin response missing token or site id'
       end
-      @token_override
+      @token_mutex.synchronize do
+        @token_override = token
+        @site_id_override = id
+        flight[:token] = @token_override
+      end
+      flight[:token]
+    rescue Exception => error # Share failures and release waiters without swallowing exits.
+      flight[:error] = error if owner
+      raise
     ensure
-      @token_mutex.synchronize { @refresh_inflight = false }
+      if owner
+        @token_mutex.synchronize do
+          flight[:error] ||= AuthError.new('token refresh aborted') unless flight.key?(:token)
+          flight[:done] = true
+          @refresh_inflight = false
+          flight[:condition].broadcast
+        end
+      end
     end
   end
 

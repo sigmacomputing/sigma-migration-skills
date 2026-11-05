@@ -80,6 +80,12 @@ check(healthy_report['elements_checked'] == 4, 'chart, KPI, pivot, and table are
 check(healthy_report['blank_risk_count'].zero?, 'healthy wrapper has no blank risks')
 check(healthy_report['elements'].empty?, 'controls/text/images/containers are not reported')
 
+# A live GET /v2/workbooks/{id}?includeContents=true readback wraps the
+# document in `contents` instead of `document`.
+live_report = RenderIntegrity.lint({ 'workbookId' => 'w1', 'contents' => healthy['document'] },
+                                   spec_path: 'live.json')
+check(live_report['elements_checked'] == 4, 'a `contents` readback is unwrapped like `document`')
+
 puts '== flat children traversal and deterministic ordering =='
 unordered = {
   'children' => [

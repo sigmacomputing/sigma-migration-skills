@@ -58,9 +58,11 @@ SIGMA_STUB = <<~'RUBY'
         end
         File.open(ENV['SIGMA_STUB_LOG'], 'a') { |f| f.puts JSON.generate(rec) }
       end
-      if method == :post && path == '/v2/workbooks/spec'
+      # The scout POSTs to /v2/workbooks; the retired /v2/workbooks/spec is still
+      # accepted so a not-yet-migrated plugin-local validate-sigma-formula.rb keeps passing.
+      if method == :post && ['/v2/workbooks', '/v2/workbooks/spec'].include?(path)
         if ENV['SIGMA_STUB_POST_FAIL']
-          raise Error, "POST /v2/workbooks/spec -> 400 Bad Request\n{\"message\":\"invalid spec\"}"
+          raise Error, "POST #{path} -> 400 Bad Request\n{\"message\":\"invalid spec\"}"
         end
         return { 'workbookId' => 'wb-scout-1' }
       end

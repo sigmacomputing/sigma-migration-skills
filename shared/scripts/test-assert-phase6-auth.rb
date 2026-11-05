@@ -71,7 +71,7 @@ Dir.mktmpdir('phase6-auth') do |dir|
         if path.include?('/columns')
           JSON.generate('entries' => [])
         else
-          JSON.generate('document' => { 'layout' => '' })
+          JSON.generate('contents' => { 'layout' => '' })
         end
       client.write(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" \

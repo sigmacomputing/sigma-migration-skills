@@ -361,13 +361,14 @@ module ExportPool
     !row_limit.nil? && rows.is_a?(Array) && (rows.length - 1) >= row_limit
   end
 
-  # The workbook document version off a spec GET / readback hash — the strict
-  # cache-key half that changes on every POST/PUT. Accepts the documented
-  # spec-level spelling and the workbook-metadata spelling; nil when absent
-  # (callers treat nil as cache-disabling, never as "match anything").
+  # The workbook document version off a workbook GET / readback hash — the
+  # strict cache-key half that changes on every POST/PUT. Accepts the current
+  # spelling (latestVersion) and the retired /spec-era one
+  # (latestDocumentVersion); nil when absent (callers treat nil as
+  # cache-disabling, never as "match anything").
   def resolve_doc_version(spec)
     return nil unless spec.is_a?(Hash)
-    v = spec['latestDocumentVersion'] || spec['latestVersion']
+    v = spec['latestVersion'] || spec['latestDocumentVersion']
     v.nil? || v.to_s.empty? ? nil : v.to_s
   end
 
@@ -375,7 +376,7 @@ module ExportPool
   # Pooled ground-truth SQL probes (#7c). The established warehouse-SQL seam
   # (probe-join-keys.rb / run-ground-truth.rb) pays FOUR REST calls per entry —
   # POST probe workbook, POST export, poll download, DELETE — fully serially.
-  # This helper runs the same seam as ONE workbook: one spec POST carrying one
+  # This helper runs the same seam as ONE workbook: one workbook POST carrying one
   # Custom SQL 'table' element per entry, exports pooled `pool`-wide against
   # the shared deadline, then ONE DELETE in ensure — ~4T calls become T+2 and
   # the wall clock divides by the pool width. Wire flow per element is
@@ -441,12 +442,12 @@ module ExportPool
     meta = { 'name' => probe_name }
     meta['folderId'] = folder_id if folder_id # omitted key = My Documents (API default)
     # The workbook code-rep surface nests non-metadata fields under a
-    # top-level `document` key and rejects the old flat body with HTTP 400
+    # top-level `contents` key and rejects the old flat body with HTTP 400
     # (see code_rep.rb) — this pooled-probe POST is a second, independent
     # call site for that same surface (Task 3.2).
-    body = JSON.generate(Sigma::CodeRep.wrap(doc, extra: meta))
+    body = JSON.generate(Sigma::CodeRep.create_body(doc, extra: meta))
     begin
-      r = Sigma.request(:post, '/v2/workbooks/spec', body: body)
+      r = Sigma.request(:post, Sigma::CodeRep.create_path, body: body)
     rescue Sigma::Error => e
       raise "pooled probe workbook POST failed: #{e.message.to_s.gsub(/\s+/, ' ').strip[0, 240]}"
     end

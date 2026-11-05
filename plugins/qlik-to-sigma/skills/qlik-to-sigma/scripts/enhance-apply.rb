@@ -5,7 +5,7 @@
 #
 # CLONE-FIRST, ACCEPT-ONLY, PARITY-GATED application of enhancements.json
 # candidates produced by enhance-scan.rb:
-#   1. CLONE: GET the parity-verified workbook's spec and POST it as
+#   1. CLONE: GET the parity-verified workbook's contents and POST it as
 #      "<name> — Enhanced". The 1:1 parity artifact is NEVER written.
 #   2. ACCEPT: only candidates named in --accept (id list) or matching
 #      --accept all-low-risk are applied. Everything else is recorded as
@@ -25,7 +25,7 @@
 #   ruby scripts/enhance-apply.rb --workbook-id <parityWorkbookId> \
 #     --enhancements <enhancements.json> \
 #     --accept all-low-risk | --accept id1,id2,... \
-#     [--name '<clone name>'] [--out enhance-report.json] [--probes N]
+#     [--name '<clone name>'] [--folder-id <folderId>] [--out enhance-report.json] [--probes N]
 #
 # Every applied item lands in the CONTAINER SYSTEM (see the layout-placement
 # section): controls -> control band, KPIs -> KPI band, grain/drill switchers
@@ -58,6 +58,7 @@ OptionParser.new do |o|
   o.on('--enhancements P')   { |v| opts[:enh] = File.expand_path(v) }
   o.on('--accept LIST')      { |v| opts[:accept] = v }
   o.on('--name NAME')        { |v| opts[:name] = v }
+  o.on('--folder-id ID')     { |v| opts[:folder] = v }
   o.on('--out PATH')         { |v| opts[:out] = File.expand_path(v) }
   o.on('--probes N', Integer) { |v| opts[:probes] = v }
 end.parse!
@@ -91,17 +92,13 @@ if accepted.empty?
   exit 2
 end
 
-READONLY_KEYS = %w[workbookId url ownerId createdBy updatedBy createdAt updatedAt
-                   documentVersion latestDocumentVersion].freeze
-
 def clean(spec)
-  s = JSON.parse(JSON.generate(spec))
-  READONLY_KEYS.each { |k| s.delete(k) }
-  s
+  Sigma::CodeRep.strip_response_only(JSON.parse(JSON.generate(spec)))
 end
 
-# Workbook code-rep nests pages/elements/layout/schemaVersion/kind under a top-level
-# `document` key (live since 2026-08-03/04). Every helper below this point
+# The workbook code-rep keeps pages/elements/layout/schemaVersion/kind under one
+# top-level key — `contents` on GET /v2/workbooks/{id}?includeContents=true
+# (`document` on the retired /spec readbacks). Every helper below this point
 # (ensure_banded!, apply_patch!, find_element, etc.) was written against the
 # pre-nesting working shape and freely mixes document fields (spec['pages'],
 # spec['layout']) with metadata (spec['name']) on the SAME hash — so rather
@@ -109,20 +106,36 @@ end
 # onto one hash and keep that as the single working `current` spec throughout.
 # Sigma::CodeRep.metadata/.document partition any hash with no risk of
 # collision (metadata explicitly excludes the document keys), so this round-
-# trips losslessly. Pair with wrap_spec below at every PUT boundary.
+# trips losslessly. Pair with create_spec_body/update_spec_body below at every
+# write boundary.
 def flatten_spec(raw)
   Sigma::CodeRep.metadata(raw).merge(Sigma::CodeRep.document(raw))
 end
 
-# Inverse of flatten_spec — re-nest a flattened working spec for the wire.
-def wrap_spec(flat)
-  Sigma::CodeRep.wrap(Sigma::CodeRep.document(flat), extra: Sigma::CodeRep.metadata(flat))
+# Inverse of flatten_spec — re-nest a flattened working spec for the wire:
+# POST /v2/workbooks body (name/folderId/description + `contents`) ...
+def create_spec_body(flat)
+  Sigma::CodeRep.create_body(flat)
 end
 
-# Sigma's workbook POST/PUT responses can come back as YAML — parse leniently.
+# ... and PUT /v2/workbooks/{id}/contents body (`contents` only).
+def update_spec_body(flat)
+  Sigma::CodeRep.update_body(flat)
+end
+
+# Workbook POST/PUT responses may come back as YAML — parse leniently.
 def lenient(body)
   return body if body.is_a?(Hash)
   YAML.safe_load(body.to_s, permitted_classes: [Date, Time]) rescue nil
+end
+
+# The original's containing folder: GET /v2/files/{id} returns the file record
+# with `parentId` = folder id. nil on any failure (caller warns and falls back).
+def original_folder_id(wb_id)
+  rec = Sigma.request(:get, "/v2/files/#{wb_id}")
+  rec['parentId'] if rec.is_a?(Hash) && !rec['parentId'].to_s.empty?
+rescue StandardError
+  nil
 end
 
 def export_rows(wb, element_id, timeout: 75)
@@ -788,9 +801,9 @@ end
 # 1. CLONE — the 1:1 parity artifact is never touched.
 # ---------------------------------------------------------------------------
 orig_meta_before = Sigma.request(:get, "/v2/workbooks/#{ORIG_WB}")
-orig_spec = Sigma.request(:get, "/v2/workbooks/#{ORIG_WB}/spec")
+orig_spec = Sigma.request(:get, Sigma::CodeRep.read_path(ORIG_WB))
 # Keep the raw GET for metadata/document partitioning. The clone POST passes
-# through wrap_spec so legacy layout aliases can never be re-emitted.
+# through create_spec_body so legacy layout aliases can never be re-emitted.
 orig_doc = Sigma::CodeRep.document(orig_spec)
 abort "FATAL: cannot read complete spec of #{ORIG_WB}" unless orig_spec.is_a?(Hash) &&
                                                            orig_doc['pages'].is_a?(Array) &&
@@ -800,8 +813,17 @@ clone_name = opts[:name] || "#{orig_spec['name']} — Enhanced"
 
 clone_spec = flatten_spec(clean(orig_spec))
 clone_spec['name'] = clone_name
-post = lenient(Sigma.request(:post, '/v2/workbooks/spec',
-                             body: JSON.generate(wrap_spec(clone_spec)), binary: true))
+# The workbook readback carries no folderId (it has `path` instead). Precedence:
+# --folder-id, a folderId the readback does return, then the original's
+# containing folder from its file record (GET /v2/files/{id} -> parentId,
+# live-verified 2026-11-03) so the clone lands next to the original. Only if
+# all of those fail does it land in My Documents (the API default).
+clone_folder = opts[:folder] || orig_spec['folderId'] || orig_meta_before['folderId'] ||
+               original_folder_id(ORIG_WB)
+warn "enhance-apply: could not resolve #{ORIG_WB}'s folder — clone will land in My Documents (pass --folder-id)" unless clone_folder
+clone_spec['folderId'] = clone_folder if clone_folder
+post = lenient(Sigma.request(:post, Sigma::CodeRep.create_path,
+                             body: JSON.generate(create_spec_body(clone_spec)), binary: true))
 clone_id = post.is_a?(Hash) && (post['workbookId'] || post['id'])
 abort "FATAL: clone POST returned no workbookId: #{post.inspect[0, 300]}" unless clone_id
 puts "enhance-apply: clone '#{clone_name}' = #{clone_id} (original #{ORIG_WB} untouched)"
@@ -846,11 +868,11 @@ puts "   baseline: clone == original on #{probes.size}/#{probes.size} probe(s)"
 # reading/writing metadata-only pages, flat elements, layout, and name on one
 # working hash.
 def put_spec(wb, spec)
-  lenient(Sigma.request(:put, "/v2/workbooks/#{wb}/spec",
-                        body: JSON.generate(wrap_spec(spec)), binary: true))
+  lenient(Sigma.request(:put, Sigma::CodeRep.update_path(wb),
+                        body: JSON.generate(update_spec_body(spec)), binary: true))
 end
 
-current = flatten_spec(clean(Sigma.request(:get, "/v2/workbooks/#{clone_id}/spec")))
+current = flatten_spec(clean(Sigma.request(:get, Sigma::CodeRep.read_path(clone_id))))
 
 # Pre-container clone? (parity workbook built before banded layouts existed.)
 # Regenerate a banded layout FIRST so every applied item has a container
@@ -858,7 +880,7 @@ current = flatten_spec(clean(Sigma.request(:get, "/v2/workbooks/#{clone_id}/spec
 # parity probes are unaffected by construction.
 if ensure_banded!(current)
   put_spec(clone_id, current)
-  current = flatten_spec(clean(Sigma.request(:get, "/v2/workbooks/#{clone_id}/spec")))
+  current = flatten_spec(clean(Sigma.request(:get, Sigma::CodeRep.read_path(clone_id))))
   puts '   clone layout predates containers — regenerated banded layout (header + row bands)'
 end
 
@@ -924,7 +946,7 @@ require 'layout_lint'
 # document") — unwrap/flatten at this caller rather than teaching the libs
 # about the document wrapper (they're also fed local pre-POST specs
 # elsewhere, which never carry one).
-live_spec = flatten_spec(clean(Sigma.request(:get, "/v2/workbooks/#{clone_id}/spec")))
+live_spec = flatten_spec(clean(Sigma.request(:get, Sigma::CodeRep.read_path(clone_id))))
 lint_violations = LayoutLint.lint(live_spec)
 if lint_violations.any?
   warn "enhance-apply FINALIZE FAIL — layout lint: #{lint_violations.size} violation(s) on the clone:"

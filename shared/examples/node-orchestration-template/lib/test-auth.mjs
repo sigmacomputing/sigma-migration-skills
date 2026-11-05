@@ -232,7 +232,7 @@ test('a real fake CLI through the real provider reaches the derived host', async
       '#!/bin/bash',
       'if [ "$1 $2" = "auth --help" ]; then echo "Commands: login token status"; exit 0; fi',
       'if [ "$1 $2" = "auth status" ]; then',
-      '  { echo "Profile:   example-profile"; echo "Base URL:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2',
+      '  { echo "Profile:   example-profile"; echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2',
       '  exit 0',
       'fi',
       `if [ "$1 $2" = "auth token" ]; then printf '%s\\n' "\${FAKE_SIGMA_TOKEN}"; exit 0; fi`,

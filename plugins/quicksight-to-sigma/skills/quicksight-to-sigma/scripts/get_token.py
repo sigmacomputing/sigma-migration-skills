@@ -73,7 +73,9 @@ AUTH_MODES = ("auto", "browser", "sigma-cli", "client-credentials")
 SIGMA_CLI_TIMEOUT = 30
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 _CLI_PROFILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$")
-_CLI_BASE_RE = re.compile(r"^[ \t]*Base URL:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+_CLI_BASE_RE = re.compile(
+    r"^[ \t]*(?:Base URL|API host):[ \t]*(\S+)[ \t]*$", re.MULTILINE
+)
 _CLI_AUTH_RE = re.compile(r"^[ \t]*Auth:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 _BEARER_RE = re.compile(r"^[A-Za-z0-9._~+/=-]+$")
 _MINTED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -220,6 +222,21 @@ def _assert_sigma_url(url, label="OAuth endpoint", base_url=False):
     return url
 
 
+def _ssl_context():
+    """Use system trust when available; all fallbacks still verify TLS."""
+    import ssl
+    try:
+        import truststore
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except (ImportError, NotImplementedError, OSError):
+        pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError):
+        return ssl.create_default_context()
+
+
 def _https_opener():
     """An opener with proxy and HTTPS (plus error/redirect processing) handlers.
     urllib's default opener also installs file, FTP, data and plain-HTTP
@@ -227,7 +244,7 @@ def _https_opener():
     this one cannot open anything but https."""
     opener = urllib.request.OpenerDirector()
     for handler in (urllib.request.ProxyHandler(),
-                    urllib.request.HTTPSHandler(),
+                    urllib.request.HTTPSHandler(context=_ssl_context()),
                     urllib.request.HTTPDefaultErrorHandler(),
                     urllib.request.HTTPRedirectHandler(),
                     urllib.request.HTTPErrorProcessor()):
@@ -272,7 +289,7 @@ def _verify_token(result):
         },
         method="GET",
     )
-    opener = urllib.request.build_opener(_RejectRedirects())
+    opener = urllib.request.build_opener(_RejectRedirects(), urllib.request.HTTPSHandler(context=_ssl_context()))
     try:
         with opener.open(req, timeout=30) as resp:
             payload = json.load(resp)
@@ -590,9 +607,13 @@ def _mint_sigma_cli(configured_base=None, now=None):
             "refusing a token with no known host",
             warn=True,
         )
+    reported = base_line.group(1)
+    # CLI v1.2.5+ prints `API host:` with a bare host; older CLIs print a full `Base URL:`.
+    if "://" not in reported:
+        reported = "https://" + reported
     try:
         cli_base = _assert_sigma_url(
-            base_line.group(1), "Sigma CLI profile Base URL", base_url=True
+            reported, "Sigma CLI profile Base URL", base_url=True
         )
     except SecurityError as exc:
         raise SigmaCliUnavailable(

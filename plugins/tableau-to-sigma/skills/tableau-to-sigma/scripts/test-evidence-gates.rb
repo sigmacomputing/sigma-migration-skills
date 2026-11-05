@@ -71,8 +71,8 @@ def workbook_response(workbook_id:, version:, elements:)
   layout = "<Page id=\"pg1\">#{elements.map { |el| %(<Element elementId="#{el['id']}"/>) }.join}</Page>"
   {
     'workbookId' => workbook_id,
-    'latestDocumentVersion' => version,
-    'document' => {
+    'latestVersion' => version,
+    'contents' => {
       'schemaVersion' => 4,
       'kind' => 'workbook',
       'pages' => [{ 'id' => 'pg1', 'name' => 'Overview' }],
@@ -153,7 +153,7 @@ end
 Dir.mktmpdir do |dir|
   base_workdir(dir, per_tile: [{ 'position' => 'r1c1', 'source_family' => 'line', 'target_family' => 'line' }])
   rb = JSON.parse(JSON.generate(KP_READBACK_BAR))
-  rb['document']['elements'][0]['kind'] = 'line-chart'
+  rb['contents']['elements'][0]['kind'] = 'line-chart'
   File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(rb))
   File.write(File.join(dir, 'png-read.json'), JSON.pretty_generate(
                'verified' => true, 'tiles' => [{ 'title' => 'Trend', 'kind' => 'line-chart' }]))
@@ -216,10 +216,11 @@ def start_stub(counters)
           # paginated (limit=1000 + nextPage), so the request line arrives as
           # `/columns?limit=1000` — the query string must not defeat the match
           # and misclassify the read as an unexpected live call.
-          path = req.split(' ')[1].to_s.split('?').first.to_s
+          full_path = req.split(' ')[1].to_s
+          path = full_path.split('?').first.to_s
           while (h = c.gets) && h.strip != ''; end # drain headers
           body =
-            if path.end_with?('/spec')
+            if full_path.include?('?includeContents=true')
               counters[:spec] += 1
               JSON.generate(LIVE_SPEC)
             elsif path.end_with?('/columns')

@@ -402,7 +402,7 @@ _SIGMA_CLI_WHY=""
 sigma_cli_session_ok() {
   local bin profile="${SIGMA_CLI_PROFILE:-}" line base="" auth_ok=0 conf
   local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]'
-  local re_base='^[[:space:]]*Base URL:[[:space:]]*([^[:space:]]+)[[:space:]]*$'
+  local re_base='^[[:space:]]*(Base URL|API host):[[:space:]]*([^[:space:]]+)[[:space:]]*$'
   local re_prof='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
   local re_tok='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
   local -a pargs=()
@@ -427,13 +427,15 @@ sigma_cli_session_ok() {
     if [[ "$line" =~ $re_auth ]]; then
       auth_ok=1
     elif [ -z "$base" ] && [[ "$line" =~ $re_base ]]; then
-      base="${BASH_REMATCH[1]}"
+      base="${BASH_REMATCH[2]}"
     fi
   done <<<"$_SIGMA_OUT"
   if [ "$auth_ok" -ne 1 ]; then
     _SIGMA_CLI_WHY="the Sigma CLI profile is not signed in (Auth: is not OK)"; return 1
   fi
   base="${base%/}"
+  # CLI v1.2.5+ prints `API host:` with a bare host; older CLIs print a full `Base URL:`.
+  case "$base" in *://*|"") ;; *) base="https://$base" ;; esac
   if [ -z "$base" ] || ! sigma_published_base "$base"; then
     _SIGMA_CLI_WHY="the Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
   fi

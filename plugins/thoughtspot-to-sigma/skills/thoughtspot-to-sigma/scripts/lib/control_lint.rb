@@ -356,9 +356,11 @@ module ControlLint
     # wholesale controlId DRIFT (a from-scratch rewrite: none of the spec's
     # controls match ANY sidecar id) from genuine per-filter drops.
     orig_scope_cids = scope_by_cid.keys.dup
+    annotations_by_cid = scope_by_cid.dup
 
     rows.each do |r|
-      ann = scope_by_cid.delete(r[:control_id]) || {}
+      scope_by_cid.delete(r[:control_id])
+      ann = annotations_by_cid[r[:control_id]] || {}
       ann_scope = ann['scope'] || elems[r[:control_element_id]][:el]['controlScope']
       ctl_label = "control #{label(elems, r[:control_element_id])}#{r[:control_id] ? " [#{r[:control_id]}]" : ''} on page #{r[:page].inspect}"
 

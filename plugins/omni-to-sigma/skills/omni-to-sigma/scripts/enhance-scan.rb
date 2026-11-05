@@ -92,12 +92,13 @@ source ||= 'unknown'
 # ---------------------------------------------------------------------------
 # Load the live spec + export element data (read-only).
 # ---------------------------------------------------------------------------
-# Workbook code-rep nests pages/elements/layout/schemaVersion/kind under a top-level
-# `document` key (live since 2026-08-03/04); flatten metadata (name, etc.)
+# Workbook code-rep keeps pages/elements/layout/schemaVersion/kind under a
+# top-level `contents` key (GET /v2/workbooks/{id}?includeContents=true; the
+# retired /spec readbacks used `document`); flatten metadata (name, etc.)
 # and document content back onto one hash so every existing spec['...'] read
 # below (mixing both) keeps working unchanged. Read-only file — no PUT here,
 # so there is no wrap-back to worry about.
-raw_spec = Sigma.request(:get, "/v2/workbooks/#{WB}/spec")
+raw_spec = Sigma.request(:get, Sigma::CodeRep.read_path(WB))
 spec = Sigma::CodeRep.metadata(raw_spec).merge(Sigma::CodeRep.document(raw_spec))
 abort "FATAL: could not read spec for workbook #{WB}" unless raw_spec.is_a?(Hash) &&
                                                            spec['pages'].is_a?(Array) &&

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import {
+  createBody,
+  createPath,
   document,
+  dryRunResult,
   metadata,
+  readPath,
+  stripResponseOnly,
+  updateBody,
+  updatePath,
   workbookElements,
   workbookElementsWithPages,
   workbookPageElementIds,
@@ -106,5 +113,69 @@ assert.deepEqual(
 );
 assert.equal(legacyFields.elements[0].verticalAlign, 'middle');
 assert.equal(legacyFields.overlays[0].drawer.position, 'end');
+
+// ---- Endpoint helpers (the /spec endpoints are deprecated, OpenAPI 2.0.0+20261030)
+assert.equal(createPath(), '/v2/workbooks');
+assert.equal(readPath('w1'), '/v2/workbooks/w1?includeContents=true');
+assert.equal(
+  readPath('w1', 'workbook', { documentVersion: 3 }),
+  '/v2/workbooks/w1?includeContents=true&documentVersion=3',
+);
+assert.equal(updatePath('w1'), '/v2/workbooks/w1/contents');
+assert.equal(createPath('report'), '/v2/reports');
+assert.equal(readPath('r1', 'report'), '/v2/reports/r1?includeContents=true');
+assert.equal(updatePath('r1', 'report'), '/v2/reports/r1/contents');
+assert.throws(() => createPath('dataModel'), /unknown code-rep type/);
+
+const { document: liveDoc, ...liveEnvelope } = live;
+const liveContents = { ...liveEnvelope, contents: liveDoc, documentVersion: 2 };
+assert.deepEqual(document(liveContents), document(live));
+assert.deepEqual(Object.keys(metadata(liveContents)).sort(), ['documentVersion', 'name', 'workbookId']);
+
+const created = createBody({ ...live, folderId: 'f1' });
+assert.deepEqual(Object.keys(created).sort(), ['contents', 'folderId', 'name']);
+assert.deepEqual(created.contents.elements.map((element) => element.id), ['e1']);
+assert.equal('document' in created, false);
+assert.equal('dryRun' in created, false);
+
+const overridden = createBody(live.document, {
+  extra: { name: 'X', folderId: 'f2' },
+  dryRun: true,
+});
+assert.equal(overridden.name, 'X');
+assert.equal(overridden.folderId, 'f2');
+assert.equal(overridden.dryRun, true);
+
+const flatBody = createBody(nested, { extra: { name: 'N', folderId: 'f' } });
+assert.deepEqual(flatBody.contents.elements.map((element) => element.id), ['old']);
+assert.equal('elements' in flatBody.contents.pages[0], false);
+
+assert.deepEqual(updateBody(live), { contents: createBody(live).contents });
+assert.equal(updateBody(live, { documentVersion: 4 }).documentVersion, 4);
+
+const report = { contents: { schemaVersion: 1, pages: [{ id: 'p', elements: [{ id: 'x' }] }] } };
+assert.deepEqual(updateBody(report, { type: 'report' }).contents, report.contents);
+
+// Live-observed 2026-11-03 response shapes.
+assert.equal(dryRunResult(200, { dryRun: true, warnings: [] }).valid, true);
+const bad = dryRunResult(400, {
+  dryRun: true,
+  valid: false,
+  errors: [{ summary: 'contents.pages: Invalid array: undefined' }],
+});
+assert.equal(bad.valid, false);
+assert.deepEqual(bad.errors.map((e) => e.summary), ['contents.pages: Invalid array: undefined']);
+assert.deepEqual(
+  dryRunResult(403, { message: 'forbidden', code: 'forbidden' }).errors,
+  [{ summary: 'forbidden' }],
+);
+
+assert.deepEqual(
+  Object.keys(stripResponseOnly({
+    workbookId: 'w', workbookUrlId: 'u', path: 'p', latestVersion: 1,
+    latestDocumentVersion: 1, folderId: 'f', name: 'N', contents: {},
+  })).sort(),
+  ['contents', 'folderId', 'name'],
+);
 
 console.log('PASS — JavaScript workbook code representation');

@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ruby scripts/build-parity-plan.rb --workbook-id <wb> --out <wd>/parity-plan.json \
-#     [--workbook-spec <wd>/wb-readback.json]   # use this spec instead of GET /spec
+#     [--workbook-spec <wd>/wb-readback.json]   # use this spec instead of a live GET
 #     [--emit-spec <wd>/wb-readback.json]        # also write the spec here (unwrapped
 #                                                 # document: {schemaVersion, pages, elements, kind, layout})
 #
@@ -40,17 +40,18 @@ abort 'missing --out' unless opts[:out]
 abort 'missing --workbook-id (or --workbook-spec)' unless opts[:wb] || opts[:spec]
 
 # Load the spec: from a file if given, else from the live workbook. Either
-# source may be the live nested shape (POST/GET /v2/workbooks/.../spec nests
-# pages/layout/schemaVersion/kind under a top-level `document` key, verified
-# live 2026-08-03/04) or a legacy flat artifact (committed fixtures, older
-# wb-readback.json snapshots) — Sigma::CodeRep.document() accepts both and
-# always hands back the plain workbook document.
+# source may be the live nested shape (GET /v2/workbooks/{id}?includeContents=true
+# nests pages/layout/schemaVersion/kind under a top-level `contents` key; the
+# retired /spec readbacks and on-disk wb-readback.json files use `document`) or
+# a legacy flat artifact (committed fixtures, older wb-readback.json
+# snapshots) — Sigma::CodeRep.document() accepts all of them and always hands
+# back the plain workbook document.
 if opts[:spec] && File.exist?(opts[:spec])
   spec = Sigma::CodeRep.document(JSON.parse(File.read(opts[:spec])))
 else
   require 'sigma_rest'
-  resp = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec")
-  # /spec may wrap the spec under a key; accept either shape.
+  resp = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:wb]))
+  # The readback may wrap the spec under a key; accept either shape.
   raw = resp.is_a?(Hash) && resp['spec'] ? resp['spec'] : resp
   spec = Sigma::CodeRep.document(raw)
 end

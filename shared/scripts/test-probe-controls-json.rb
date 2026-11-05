@@ -18,15 +18,17 @@ class ProbeControlsJsonTest < Minitest::Test
       @queries = {}
       @reads = 0
       def self.list_entries(*)
-        []
+        input = JSON.parse(File.read(ENV.fetch('PROBE_FIXTURE')))
+        return [{ 'elementId' => 'choices', 'columnId' => 'choice', 'label' => 'Choice' }] if input['column_source']
+        input['date'] ? [{ 'elementId' => 'dates', 'columnId' => 'day', 'label' => 'Day' }] : []
       end
       def self.request(method, path, body: nil, **_options)
         input = JSON.parse(File.read(ENV.fetch('PROBE_FIXTURE')))
         @mutex.synchronize do
           File.open(ENV.fetch('PROBE_REQUESTS'), 'a') { |f| f.puts(JSON.generate(method: method, path: path, body: body && JSON.parse(body))) }
-          if method == :get && path.end_with?('/spec')
+          if method == :get && path.include?('?includeContents=true')
             @reads += 1
-            return {'latestDocumentVersion' => input['version_change'] && @reads > 1 ? 8 : 7, 'document' => input['spec']}
+            return {'latestVersion' => input['version_change'] && @reads > 1 ? 8 : 7, 'contents' => input['spec']}
           end
           if method == :post && path.end_with?('/export')
             query = JSON.parse(body)
@@ -36,7 +38,14 @@ class ProbeControlsJsonTest < Minitest::Test
           end
           if method == :get && path.start_with?('/v2/query/')
             query = @queries.fetch(path.split('/')[-2])
-            flip = query.dig('parameters', 'pick') == 'B'
+            flip = query.dig('parameters', 'pick') == 'B' || query.dig('parameters', 'pick') == 'min:2025-01-01,max:2025-01-01'
+            flip ||= input['fully_selected'] && !input['singleton'] && !input['null_selected'] && !input['stale_member'] && query.dig('parameters', 'pick') == 'A'
+            if query['elementId'] == 'choices'
+              return input['singleton'] || input['null_selected'] || input['stale_member'] ? "Choice\nA\n" : "Choice\nA\nB\n"
+            end
+            if query['elementId'] == 'dates'
+              return "Day\n2025-01-01\n2025-01-08\n2025-01-15\n2025-01-22\n"
+            end
             if query['elementId'] == 'pivot'
               raise Error, 'pivot CSV export is unavailable' unless query.dig('format', 'type') == 'json'
               return '{"error":"not rows"}' if input['malformed']
@@ -45,6 +54,7 @@ class ProbeControlsJsonTest < Minitest::Test
               return JSON.generate(rows)
             end
             value = flip && !input['inert'] ? 2 : 1
+            return "Area,Value\n" if input['exclude'] && !flip
             return "Area,Value\nNorth,#{value}\n"
           end
           raise Error, 'unexpected request; no live access allowed in this test'
@@ -72,6 +82,27 @@ class ProbeControlsJsonTest < Minitest::Test
          'totals' => {'showGrandTotals' => 'hidden'}}],
         'layout' => '<Page id="page"><Element elementId="selector"/><Element elementId="chart"/><Element elementId="pivot"/></Page>'}
       fixture = File.join(dir, 'fixture.json')
+      if scenario[:fully_selected]
+        selector = spec['elements'][0]
+        selector.delete('value')
+        selector.merge!('controlType' => 'list', 'selectionMode' => 'multiple', 'mode' => scenario[:exclude] ? 'exclude' : 'include',
+                        'values' => (scenario[:singleton] ? ['A'] : (scenario[:null_selected] ? [nil, 'A'] : %w[A B])))
+        selector['values'] = %w[A Z] if scenario[:stale_member]
+        selector['source']['values'] = selector['values']
+        selector['source']['values'] = ['A'] if scenario[:stale_member]
+        if scenario[:column_source]
+          selector['source'] = { 'kind' => 'source', 'source' => { 'kind' => 'table', 'elementId' => 'choices' }, 'columnId' => 'choice' }
+          spec['elements'] << { 'id' => 'choices', 'kind' => 'table', 'name' => 'Choices', 'columns' => [{ 'id' => 'choice', 'name' => 'Choice' }] }
+        end
+      end
+      if scenario[:date]
+        spec['elements'][0] = { 'id' => 'selector', 'kind' => 'control', 'controlId' => 'pick',
+                               'name' => 'Date Pick', 'controlType' => 'date-range',
+                               'filters' => [{ 'source' => { 'elementId' => 'dates' }, 'columnId' => 'day' }] }
+        spec['elements'][1]['source'] = { 'kind' => 'table', 'elementId' => 'dates' }
+        spec['elements'] << { 'id' => 'dates', 'kind' => 'table', 'name' => 'Dates',
+                              'columns' => [{ 'id' => 'day', 'name' => 'Day' }] }
+      end
       File.write(fixture, JSON.generate(scenario.transform_keys(&:to_s).merge('spec' => spec)))
       log = File.join(dir, 'requests.jsonl')
       out = File.join(dir, 'evidence')
@@ -93,10 +124,10 @@ class ProbeControlsJsonTest < Minitest::Test
       requests.select { |r| r.dig('body', 'elementId') == 'pivot' }.each do |r|
         assert_equal 'json', r.dig('body', 'format', 'type')
       end
-      if status.success? && !anchors
+      if !anchors && results
         evidence = JSON.parse(File.read(File.join(out, 'probe-evidence.json')))
         assert_equal '7', evidence['doc_version']
-        assert evidence['exports'].keys.any? { |name| name.end_with?('.json') }
+        assert evidence['exports'].keys.any? { |name| name.end_with?('.json') } if status.success?
         evidence['exports'].each do |name, sha|
           assert_equal Digest::SHA256.file(File.join(out, name)).hexdigest, sha
         end
@@ -123,6 +154,23 @@ class ProbeControlsJsonTest < Minitest::Test
     assert results.any? { |r| r['result'] == 'OK' && r['element'] == 'pivot' }
   end
 
+  def test_fully_selected_lists_choose_a_proper_subset
+    [{}, { no_pool: true }, { column_source: true }, { column_source: true, no_pool: true }, { exclude: true }].each do |options|
+      code, results, output = probe(fully_selected: true, **options)
+      assert_equal 0, code, output
+      assert results.any? { |result| result['result'] == 'PASS' && result['value'] == 'A' }
+    end
+    code, results, = probe(fully_selected: true, inert: true)
+    assert_equal 1, code
+    assert results.any? { |result| result['result'] == 'FAIL' }
+    [{ singleton: true }, { singleton: true, column_source: true }, { null_selected: true },
+     { null_selected: true, column_source: true }, { stale_member: true }, { stale_member: true, column_source: true }].each do |options|
+      code, results, = probe(fully_selected: true, **options)
+      assert_equal 2, code
+      refute results.any? { |result| result['result'] == 'PASS' }
+    end
+  end
+
   def test_serial_and_missing_pool_routes_are_equivalent
     expected = probe[1]
     assert_equal expected, probe(no_pool: true)[1]
@@ -133,6 +181,15 @@ class ProbeControlsJsonTest < Minitest::Test
     code, results, = probe(inert: true)
     assert_equal 1, code
     assert results.any? { |r| r['result'] == 'FAIL' && r['element'] == 'chart' }
+  end
+
+  def test_date_probe_uses_a_single_observed_day_not_an_unchanged_half
+    code, results, output = probe(date: true)
+    assert_equal 0, code, output
+    assert results.any? { |r| r['result'] == 'PASS' && r['value'] == 'min:2025-01-01,max:2025-01-01' }
+    code, results, = probe(date: true, inert: true)
+    assert_equal 1, code
+    assert results.any? { |r| r['result'] == 'FAIL' }
   end
 
   def test_leaking_control_still_fails

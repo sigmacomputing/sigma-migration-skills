@@ -400,6 +400,56 @@ Dir.mktmpdir do |dir|
         "other-run gate-waived records excluded from waivers_history (got #{pf['waivers_history'].inspect[0, 100]})")
 end
 
+# ---- skip-flag-waived off-ramps join the census (field 2026-11-03) ----------
+# A pass-1 escape (migrate-tableau.rb --skip-extract-landing "<reason>") is
+# logged as kind skip-flag-waived. The degradation ledger derives it as a
+# recorded-escape, so the census must count it too — otherwise the gate stamps
+# waiver_count 0 and verify-complete exits 6 ("claims 0 waivers") on a run that
+# took the skip honestly. Named by its detail flag, counted once per flag, and
+# derived ONCE in the ledger (recorded-escape, never also a quality-waiver).
+Dir.mktmpdir do |dir|
+  base_workdir(dir)
+  File.open(File.join(dir, 'offramps.jsonl'), 'a') do |f|
+    2.times do
+      f.puts(JSON.generate('kind' => 'skip-flag-waived', 'detail' => '--skip-extract-landing',
+                           'reason' => 'extract already landed by the customer'))
+    end
+  end
+  out, _err, st = run_gate(dir)
+  check(st.success?, "skip-flag-waived trail within budget exits 0 (got #{st.exitstatus})")
+  pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
+  check(pf['waivers'] == ['--skip-extract-landing'] && pf['waiver_count'] == 1,
+        "census names the skip-flag-waived detail flag once (got #{pf['waivers'].inspect} / #{pf['waiver_count'].inspect})")
+  check(pf['waiver_reasons']['--skip-extract-landing'] == 'extract already landed by the customer',
+        'the off-ramp reason rides into waiver_reasons')
+  check(out.include?('--skip-extract-landing'), 'the headline names the escape flag')
+  require_relative 'lib/degradation_ledger'
+  hits = DegradationLedger.derive(dir).select { |e| e['item'] == '--skip-extract-landing' }
+  check(hits.map { |e| e['class'] } == ['recorded-escape'],
+        "ledger derives the skip once, as recorded-escape (got #{hits.map { |e| e['class'] }.inspect})")
+  # Offline, gate 3 records skipped-no-workbook-id (its own quality-waiver);
+  # drop it to stand in for a live run whose column scan came back clean, then
+  # supply the source accounting verify-complete requires before its
+  # report-vs-ledger cross-check.
+  FileUtils.rm_f(File.join(dir, 'column-scan.json'))
+  DegradationLedger.write(dir, DegradationLedger.derive(dir))
+  obj = { 'type' => 'dashboard', 'id' => 'dashboard:Sales', 'name' => 'Sales', 'status' => 'migrated',
+          'evidence' => [{ 'artifact' => 'wb-readback.json', 'detail' => 'fixture' }] }
+  counts = %w[migrated approximated needs-review skipped not-applicable].to_h { |t| [t, t == 'migrated' ? 1 : 0] }
+  summary = { 'total' => 1, 'accounted' => 1, 'complete' => true, 'counts' => counts }
+  File.write(File.join(dir, 'source-object-census.json'), JSON.generate('summary' => summary, 'objects' => [obj]))
+  File.write(File.join(dir, 'migration-result.json'),
+             JSON.generate('verdict' => 'YELLOW', 'summary' => summary,
+                           'source_objects' => [obj.reject { |k, _| k == 'evidence' }]))
+  vc_out = IO.popen([RbConfig.ruby, File.join(__dir__, 'verify-complete.rb'), '--workdir', dir],
+                    err: %i[child out], &:read)
+  vc_code = $?.exitstatus
+  check(!vc_out.include?('0 waivers but the artifacts record'),
+        'verify-complete reports no zero-waiver contradiction')
+  check(vc_code.zero?,
+        "verify-complete exits 0 over the honest census (got #{vc_code}: #{vc_out.lines.grep(/•/).join.strip[0, 200]})")
+end
+
 # ---- gate 14: visual-similarity floor (via VISUAL_SIMILARITY_SCRIPT stub) -----
 def write_vsim_stub(dir, pass_value)
   stub = File.join(dir, 'vsim-stub.py')

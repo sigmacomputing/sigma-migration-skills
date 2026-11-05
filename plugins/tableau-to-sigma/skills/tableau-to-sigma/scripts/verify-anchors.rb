@@ -699,7 +699,7 @@ truncated_names = [] # live: elements whose bounded export came back FULL (may b
 deadline = nil       # live: whole-run wall-clock budget (ExportPool::Deadline)
 row_limit = nil
 export_cache = nil       # live: version-keyed RAW export cache (#7a; ExportPool::Cache)
-export_doc_version = nil # live: workbook latestDocumentVersion the payloads bind to
+export_doc_version = nil # live: workbook latestVersion the payloads bind to
 
 if opts[:exports]
   spec_path = opts[:spec] || File.join(opts[:dir], 'wb-readback.json')
@@ -748,7 +748,7 @@ else
     end
 
   read_spec = lambda do
-    body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'text/yaml')
+    body = Sigma.request(:get, Sigma::CodeRep.read_path(wb), accept: 'application/json', binary: true)
     begin
       JSON.parse(body)
     rescue JSON::ParserError, TypeError
@@ -759,17 +759,17 @@ else
   end
   raw_spec = read_spec.call
   # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
-  # `document` key (live since 2026-08-03/04). Flatten metadata (workbookId,
-  # latestDocumentVersion, ...) and document content onto one hash: this file
+  # `contents` key (`document` on the retired /spec readbacks). Flatten metadata
+  # (workbookId, latestVersion, ...) and document content onto one hash: this file
   # reads BOTH off `spec` below (flat document elements, the doc version
-  # from spec['latestDocumentVersion'] via ExportPool.resolve_doc_version, the
+  # from spec['latestVersion'] via ExportPool.resolve_doc_version, the
   # workbook id from spec['workbookId']). Verification is read-only: pivots use
   # JSON export rather than stripping and restoring their totals configuration.
   spec = Sigma::CodeRep.metadata(raw_spec).merge(Sigma::CodeRep.document(raw_spec))
   elements = Sigma::CodeRep.workbook_elements(spec)
   queryable = elements.reject { |el| %w[control text image container].include?(el['kind'].to_s) }
 
-  # RAW export cache (#7a/#7d): one export per (workbook, latestDocumentVersion,
+  # RAW export cache (#7a/#7d): one export per (workbook, latestVersion,
   # element) shared with collect-parity-actuals.rb and across gate re-runs.
   # RAW bodies only — every anchor/emptiness/truncation verdict below is still
   # recomputed from the bytes on every run (the reconciled #7 red line). The
@@ -782,7 +782,7 @@ else
     warn "  [cache] raw export cache active (wb #{wb} @ doc v#{export_doc_version}; " \
          'strict version keys, verdicts always recomputed)'
   else
-    warn '  [cache] raw export cache OFF — spec carries no latestDocumentVersion (cannot version-key payloads)'
+    warn '  [cache] raw export cache OFF — spec carries no latestVersion (cannot version-key payloads)'
   end
 
   # Export one element, bounded by row_limit and the shared deadline.

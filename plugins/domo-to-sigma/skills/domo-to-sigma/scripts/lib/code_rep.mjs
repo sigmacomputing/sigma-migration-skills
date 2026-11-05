@@ -1,6 +1,16 @@
 // Shape adapter for the Sigma WORKBOOK code representation.
-// Verified live 2026-08-03/04: nested `document` required on write (including
-// /v2/workbooks/spec/verify); flat bodies 400. The DATA-MODEL code-rep surface is
+//
+// ENDPOINTS (OpenAPI 2.0.0+20261030, live-verified 2026-11-03): the /spec
+// workbook and report endpoints are DEPRECATED. Their replacements carry the
+// same document under `contents` instead of `document` (byte-identical on a
+// live readback): POST /v2/workbooks, GET /v2/workbooks/{id}?includeContents=true,
+// PUT /v2/workbooks/{id}/contents; dry-run = POST /v2/workbooks with dryRun: true.
+// Build paths and bodies with the endpoint helpers below rather than
+// hand-writing them. On-disk artifacts keep the `document` wrapper that wrap()
+// emits; createBody/updateBody re-key it at the API boundary.
+//
+// Verified live 2026-08-03/04: a nested wrapper key is required on write
+// (including dry-run); flat bodies 400. The DATA-MODEL code-rep surface is
 // NOT changing — do not use this on /v2/dataModels/.../spec payloads.
 
 // Workbook elements are flat document collections; `overlays` and `panels` live
@@ -9,8 +19,22 @@
 // where it is invalid and silently dropped on write.
 export const DOC_KEYS = [
   'schemaVersion', 'pages', 'elements', 'overlays', 'panels',
-  'kind', 'layout', 'settings', 'agents',
+  'kind', 'layout', 'settings', 'agents', 'automatedActions',
 ];
+
+// Envelope keys of the workbook/report responses that are never writable.
+// The /spec-era name (latestDocumentVersion) stays listed so old snapshots
+// strip the same way as live readbacks. folderId is writable, so it is kept.
+export const RESPONSE_ONLY_KEYS = [
+  'workbookId', 'workbookUrlId', 'reportId', 'reportUrlId', 'url', 'path',
+  'documentVersion', 'latestVersion', 'latestDocumentVersion', 'ownerId',
+  'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'isArchived', 'tags',
+  'taggedSourceUrlId', 'warnings', 'dryRun', 'valid', 'errors',
+];
+export const CREATE_METADATA_KEYS = ['name', 'folderId', 'description', 'ownerId'];
+
+const WORKBOOKS_PATH = '/v2/workbooks';
+const REPORTS_PATH = '/v2/reports';
 
 // REMOVED from the API. The workbook theme is now settings.theme.name /
 // settings.theme.overrides (published OpenAPI: createWorkbookSpec has zero
@@ -25,8 +49,9 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 export function document(response) {
   if (!isObj(response)) return {};
-  const doc = isObj(response.document)
-    ? response.document
+  const inner = isObj(response.contents) ? response.contents : response.document;
+  const doc = isObj(inner)
+    ? inner
     : Object.fromEntries(Object.entries(response).filter(([k]) => DOC_KEYS.includes(k)));
   return foldLegacyTheme(doc, response);
 }
@@ -77,8 +102,88 @@ export function metadata(response) {
   if (!isObj(response)) return {};
   return Object.fromEntries(
     Object.entries(response).filter(
-      ([k]) => k !== 'document' && !DOC_KEYS.includes(k) && !LEGACY_THEME_KEYS.includes(k),
+      ([k]) => !['document', 'contents'].includes(k)
+        && !DOC_KEYS.includes(k) && !LEGACY_THEME_KEYS.includes(k),
     ),
+  );
+}
+
+// ---- Endpoint helpers -----------------------------------------------------
+// `type` is 'workbook' or 'report'. Paths are relative to SIGMA_BASE_URL.
+
+function collectionPath(type) {
+  if (type === 'workbook') return WORKBOOKS_PATH;
+  if (type === 'report') return REPORTS_PATH;
+  throw new Error(`unknown code-rep type ${JSON.stringify(type)} (want 'workbook' or 'report')`);
+}
+
+// POST target for create and for dry-run validation.
+export function createPath(type = 'workbook') {
+  return collectionPath(type);
+}
+
+// GET that returns the envelope plus `contents` and `documentVersion`.
+export function readPath(id, type = 'workbook', { documentVersion = null } = {}) {
+  const path = `${collectionPath(type)}/${id}?includeContents=true`;
+  if (documentVersion === null || documentVersion === undefined) return path;
+  return `${path}&documentVersion=${Number.parseInt(documentVersion, 10)}`;
+}
+
+// PUT target that replaces an existing document.
+export function updatePath(id, type = 'workbook') {
+  return `${collectionPath(type)}/${id}/contents`;
+}
+
+function apiContents(spec, type) {
+  collectionPath(type); // validates type
+  return type === 'workbook'
+    ? canonicalizeDocument(flattenElements(document(spec)))
+    : document(spec);
+}
+
+// Create (or dry-run) body. `spec` may be a bare document, a `document`- or
+// `contents`-wrapped artifact, or a flat legacy artifact; its name / folderId /
+// description / ownerId are used unless overridden in `extra`. Workbook
+// contents are flattened/canonicalized like wrap(); report contents are a
+// different representation and pass through untouched.
+export function createBody(spec, { extra = {}, dryRun = false, type = 'workbook' } = {}) {
+  const meta = Object.fromEntries(
+    Object.entries(metadata(spec)).filter(([k]) => CREATE_METADATA_KEYS.includes(k)),
+  );
+  const body = { ...meta, ...extra, contents: apiContents(spec, type) };
+  if (dryRun) body.dryRun = true;
+  return body;
+}
+
+// Update body. Pass the documentVersion you read to make the PUT fail with
+// code stale_document_settings instead of overwriting newer edits.
+export function updateBody(spec, { documentVersion = null, type = 'workbook' } = {}) {
+  const body = { contents: apiContents(spec, type) };
+  if (documentVersion !== null && documentVersion !== undefined) {
+    body.documentVersion = documentVersion;
+  }
+  return body;
+}
+
+// Normalize a dry-run response to the /spec/verify-era shape callers check:
+// { valid, errors: [{ summary }], warnings }. Success is HTTP 200 with no
+// `valid` key; a schema failure is HTTP 400 with valid:false and errors;
+// other 4xx carry only `message`.
+export function dryRunResult(status, body) {
+  const code = Number(status) || 0;
+  const b = isObj(body) ? body : {};
+  const warnings = Array.isArray(b.warnings) ? b.warnings : [];
+  if (code >= 200 && code <= 299) return { valid: true, errors: [], warnings };
+  let errors = Array.isArray(b.errors) ? b.errors : [];
+  if (errors.length === 0) errors = [{ summary: b.message || `HTTP ${code}` }];
+  return { valid: false, errors, warnings };
+}
+
+// Strip non-writable envelope keys (live and /spec-era) from a readback.
+export function stripResponseOnly(spec) {
+  if (!isObj(spec)) return spec;
+  return Object.fromEntries(
+    Object.entries(spec).filter(([k]) => !RESPONSE_ONLY_KEYS.includes(k)),
   );
 }
 
@@ -196,18 +301,19 @@ function canonicalizeOverlay(overlay) {
   return { ...overlay, drawer };
 }
 
-export function wrap(doc, extra = {}) {
-  const flattened = flattenElements(doc);
-  let canonical = flattened;
-  if (isObj(flattened)) {
-    canonical = { ...flattened };
-    if (Array.isArray(flattened.elements)) {
-      canonical.elements = flattened.elements.map(canonicalizeElement);
-    }
-    if (Array.isArray(flattened.overlays)) {
-      canonical.overlays = flattened.overlays.map(canonicalizeOverlay);
-    }
-    if ('layout' in flattened) canonical.layout = canonicalizeLayout(flattened.layout);
+function canonicalizeDocument(flattened) {
+  if (!isObj(flattened)) return flattened;
+  const canonical = { ...flattened };
+  if (Array.isArray(flattened.elements)) {
+    canonical.elements = flattened.elements.map(canonicalizeElement);
   }
-  return { ...extra, document: canonical };
+  if (Array.isArray(flattened.overlays)) {
+    canonical.overlays = flattened.overlays.map(canonicalizeOverlay);
+  }
+  if ('layout' in flattened) canonical.layout = canonicalizeLayout(flattened.layout);
+  return canonical;
+}
+
+export function wrap(doc, extra = {}) {
+  return { ...extra, document: canonicalizeDocument(flattenElements(doc)) };
 }

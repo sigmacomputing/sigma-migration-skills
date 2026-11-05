@@ -3,6 +3,7 @@
 
 # Offline regression tests for build-migration-report.rb.
 
+require 'digest'
 require 'json'
 require 'open3'
 require 'rbconfig'
@@ -253,6 +254,52 @@ Dir.mktmpdir('migration-report-inconsistent') do |dir|
   ok('inconsistent report counts are RED', result['verdict'] == 'RED')
   ok('inconsistent report count is named', consistency['status'] == 'FAIL' &&
                                                 consistency['message'].include?('summary total 2 != 1'))
+end
+
+# Every worksheet hidden: no exportable view CSVs, so phase6-parity writes an
+# empty FAIL pool and the hard gate's anchors oracle stands in. The report
+# follows the gate's stamp only while the anchors verdict it accepted is intact.
+Dir.mktmpdir('migration-report-anchors-oracle') do |dir|
+  write_json(File.join(dir, 'inventory.json'),
+             'objects' => [
+               { 'type' => 'dashboard', 'id' => 'd1', 'name' => 'Sales', 'status' => 'migrated' }
+             ])
+  write_health_artifacts(dir)
+  verdict_path = File.join(dir, 'anchors-verdict.json')
+  write_json(verdict_path, 'pass' => true, 'checked' => 6, 'matched' => 6)
+  empty_pool = { 'status' => 'FAIL', 'charts_pass' => 0, 'charts_total' => 0,
+                 'visual_checked' => true, 'visual_verdict' => 'pass', 'waivers' => [] }
+  parity_check = lambda do
+    result = JSON.parse(File.read(File.join(dir, 'migration-result.json')))
+    [result, result['checks'].find { |check| check['name'] == 'parity' }]
+  end
+
+  write_json(File.join(dir, 'parity-final.json'), empty_pool)
+  run_builder(dir)
+  result, parity = parity_check.call
+  ok('empty parity pool without a gate stamp stays RED', result['verdict'] == 'RED' && parity['status'] == 'FAIL')
+
+  stamp = { 'kind' => 'anchors', 'anchors_matched' => 6, 'anchors_checked' => 6,
+            'tiles_covered' => 4, 'tiles_displayed' => 4,
+            'anchors_verdict_sha256' => Digest::SHA256.file(verdict_path).hexdigest }
+  write_json(File.join(dir, 'parity-final.json'), empty_pool.merge('parity_oracle' => stamp))
+  _stdout, _stderr, status = run_builder(dir)
+  result, parity = parity_check.call
+  ok('gate-stamped anchors oracle passes parity', status.exitstatus.zero? && parity['status'] == 'PASS')
+  ok('anchors-oracle parity names the stand-in', parity['message'].include?('anchors oracle'))
+  ok('anchors-oracle route can be GREEN', result['verdict'] == 'GREEN')
+
+  write_json(verdict_path, 'pass' => true, 'checked' => 6, 'matched' => 5)
+  run_builder(dir)
+  _result, parity = parity_check.call
+  ok('a changed anchors verdict invalidates the stamp', parity['status'] == 'FAIL')
+
+  write_json(verdict_path, 'pass' => true, 'checked' => 6, 'matched' => 6)
+  write_json(File.join(dir, 'parity-final.json'),
+             empty_pool.merge('charts_total' => 3, 'parity_oracle' => stamp))
+  run_builder(dir)
+  _result, parity = parity_check.call
+  ok('the stamp never covers a non-empty failing chart pool', parity['status'] == 'FAIL')
 end
 
 builder_source = File.read(BUILDER)

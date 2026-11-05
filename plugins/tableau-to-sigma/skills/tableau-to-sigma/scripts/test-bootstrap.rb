@@ -214,7 +214,7 @@ Dir.mktmpdir do |t|
         echo "Commands: login token status"; exit 0 ;;
       "auth status")
         { echo "Profile:   example-profile"; echo "Auth type: api_key"
-          [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "Base URL:  ${FAKE_SIGMA_BASE}"
+          [ -n "${FAKE_SIGMA_BASE:-}" ] && echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"
           echo "Auth:      ${FAKE_SIGMA_AUTH:-OK (token acquired)}"; } >&2
         exit 0 ;;
       "auth token") echo "SECRET-CLI-TOKEN"; exit 0 ;;
@@ -259,6 +259,12 @@ Dir.mktmpdir do |t|
   ok('a non-Sigma binary named sigma is not accepted', out.include?('Sigma authentication MISSING'))
   st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_BASE' => 'https://api.evil.test'))
   ok('a CLI profile on a non-Sigma host is not accepted', out.include?('Sigma authentication MISSING'))
+  # Sigma CLI v1.2.5+ reports `API host:  <host>` instead of `Base URL:  https://<host>`.
+  api_host_env = cli_env.merge('FAKE_SIGMA_BASE_LABEL' => 'API host', 'FAKE_SIGMA_BASE' => 'aws-api.sigmacomputing.com')
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: api_host_env)
+  ok('a CLI profile reporting a bare API host is accepted', out.include?('Sigma CLI profile signed in'))
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: api_host_env.merge('FAKE_SIGMA_BASE' => 'api.evil.test'))
+  ok('a CLI profile reporting a non-Sigma API host is not accepted', out.include?('Sigma authentication MISSING'))
   st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_BASE_URL' => 'https://api.sigmacomputing.com'))
   ok('a CLI profile whose host differs from SIGMA_BASE_URL is not accepted',
      out.include?('Sigma authentication MISSING'))

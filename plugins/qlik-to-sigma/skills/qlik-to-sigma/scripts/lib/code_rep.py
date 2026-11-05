@@ -1,8 +1,16 @@
 """Shape adapter for the Sigma WORKBOOK code representation
-(POST /v2/workbooks/spec, GET|PUT /v2/workbooks/{id}/spec, POST /v2/workbooks/spec/verify).
+(POST /v2/workbooks, GET /v2/workbooks/{id}?includeContents=true,
+PUT /v2/workbooks/{id}/contents; dry-run = POST /v2/workbooks with dryRun: true).
+
+ENDPOINTS (OpenAPI 2.0.0+20261030, live-verified 2026-11-03): the /spec
+workbook and report endpoints are DEPRECATED. Their replacements carry the
+same document under `contents` instead of `document` (byte-identical on a
+live readback). Build paths and bodies with the endpoint helpers below rather
+than hand-writing them. On-disk artifacts keep the `document` wrapper that
+wrap() emits; create_body/update_body re-key it at the API boundary.
 
 Verified live 2026-08-03/04: this surface nests non-metadata fields under a top-level
-`document` key and rejects the old flat body with HTTP 400 — including on /verify.
+wrapper key and rejects the old flat body with HTTP 400 — including on dry-run.
 Sigma engineering confirmed 2026-08-03 that the DATA-MODEL code-rep surface is NOT
 changing, so this adapter is workbook-only and always writes the nested shape.
 Do NOT use it on /v2/dataModels/.../spec payloads — that API ignores `document`.
@@ -17,8 +25,22 @@ on disk (committed workbook snapshots, fixtures).
 # where it is invalid and silently dropped on write.
 DOC_KEYS = (
     "schemaVersion", "pages", "elements", "overlays", "panels",
-    "kind", "layout", "settings", "agents",
+    "kind", "layout", "settings", "agents", "automatedActions",
 )
+
+# Envelope keys of the workbook/report responses that are never writable.
+# The /spec-era name (latestDocumentVersion) stays listed so old snapshots
+# strip the same way as live readbacks. folderId is writable, so it is kept.
+RESPONSE_ONLY_KEYS = (
+    "workbookId", "workbookUrlId", "reportId", "reportUrlId", "url", "path",
+    "documentVersion", "latestVersion", "latestDocumentVersion", "ownerId",
+    "createdBy", "updatedBy", "createdAt", "updatedAt", "isArchived", "tags",
+    "taggedSourceUrlId", "warnings", "dryRun", "valid", "errors",
+)
+CREATE_METADATA_KEYS = ("name", "folderId", "description", "ownerId")
+
+WORKBOOKS_PATH = "/v2/workbooks"
+REPORTS_PATH = "/v2/reports"
 
 # REMOVED from the API. The workbook theme is now settings.theme.name /
 # settings.theme.overrides (published OpenAPI: createWorkbookSpec has zero
@@ -77,10 +99,13 @@ def theme(spec):
 
 
 def document(response):
-    """Return the workbook document from either the nested or legacy flat shape."""
+    """Return the workbook document from the `contents` shape, the /spec-era
+    `document` shape, or a legacy flat artifact."""
     if not isinstance(response, dict):
         return {}
-    inner = response.get("document")
+    inner = response.get("contents")
+    if not isinstance(inner, dict):
+        inner = response.get("document")
     doc = inner if isinstance(inner, dict) else {
         k: v for k, v in response.items() if k in DOC_KEYS
     }
@@ -92,8 +117,94 @@ def metadata(response):
         return {}
     return {
         k: v for k, v in response.items()
-        if k != "document" and k not in DOC_KEYS and k not in LEGACY_THEME_KEYS
+        if k not in ("document", "contents") and k not in DOC_KEYS
+        and k not in LEGACY_THEME_KEYS
     }
+
+
+# ---- Endpoint helpers -----------------------------------------------------
+# `type_` is "workbook" or "report". Paths are relative to SIGMA_BASE_URL.
+
+def _collection_path(type_):
+    if type_ == "workbook":
+        return WORKBOOKS_PATH
+    if type_ == "report":
+        return REPORTS_PATH
+    raise ValueError(f"unknown code-rep type {type_!r} (want 'workbook' or 'report')")
+
+
+def create_path(type_="workbook"):
+    """POST target for create and for dry-run validation."""
+    return _collection_path(type_)
+
+
+def read_path(id_, type_="workbook", document_version=None):
+    """GET that returns the envelope plus `contents` and `documentVersion`."""
+    path = f"{_collection_path(type_)}/{id_}?includeContents=true"
+    if document_version is not None and document_version is not False:
+        return f"{path}&documentVersion={int(document_version)}"
+    return path
+
+
+def update_path(id_, type_="workbook"):
+    """PUT target that replaces an existing document."""
+    return f"{_collection_path(type_)}/{id_}/contents"
+
+
+def _api_contents(spec, type_):
+    _collection_path(type_)  # validates type_
+    if type_ == "workbook":
+        return _canonicalize_document(_flatten_elements(document(spec)))
+    return document(spec)
+
+
+def create_body(spec, extra=None, dry_run=False, type_="workbook"):
+    """Create (or dry-run) body. `spec` may be a bare document, a `document`-
+    or `contents`-wrapped artifact, or a flat legacy artifact; its name /
+    folderId / description / ownerId are used unless overridden in `extra`.
+    Workbook contents are flattened/canonicalized like wrap(); report
+    contents are a different representation and pass through untouched."""
+    meta = {k: v for k, v in metadata(spec).items() if k in CREATE_METADATA_KEYS}
+    body = {**meta, **{str(k): v for k, v in (extra or {}).items()},
+            "contents": _api_contents(spec, type_)}
+    if dry_run:
+        body["dryRun"] = True
+    return body
+
+
+def update_body(spec, document_version=None, type_="workbook"):
+    """Update body. Pass the documentVersion you read to make the PUT fail
+    with code stale_document_settings instead of overwriting newer edits."""
+    body = {"contents": _api_contents(spec, type_)}
+    if document_version is not None and document_version is not False:
+        body["documentVersion"] = document_version
+    return body
+
+
+def dry_run_result(status, body):
+    """Normalize a dry-run response to the /spec/verify-era shape callers
+    check: {"valid": bool, "errors": [{"summary": ...}], "warnings": [...]}.
+    Success is HTTP 200 with no `valid` key; a schema failure is HTTP 400
+    with valid:false and errors; other 4xx carry only `message`."""
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = 0
+    body = body if isinstance(body, dict) else {}
+    warnings = list(body.get("warnings") or [])
+    if 200 <= status <= 299:
+        return {"valid": True, "errors": [], "warnings": warnings}
+    errors = list(body.get("errors") or [])
+    if not errors:
+        errors = [{"summary": body.get("message") or f"HTTP {status}"}]
+    return {"valid": False, "errors": errors, "warnings": warnings}
+
+
+def strip_response_only(spec):
+    """Strip non-writable envelope keys (live and /spec-era) from a readback."""
+    if not isinstance(spec, dict):
+        return spec
+    return {k: v for k, v in spec.items() if k not in RESPONSE_ONLY_KEYS}
 
 
 def workbook_elements(spec):
@@ -234,22 +345,25 @@ def _canonicalize_overlay(overlay):
     }
 
 
+def _canonicalize_document(flattened):
+    if not isinstance(flattened, dict):
+        return flattened
+    canonical = dict(flattened)
+    if isinstance(flattened.get("elements"), list):
+        canonical["elements"] = [
+            _canonicalize_element(element) for element in flattened["elements"]
+        ]
+    if isinstance(flattened.get("overlays"), list):
+        canonical["overlays"] = [
+            _canonicalize_overlay(overlay) for overlay in flattened["overlays"]
+        ]
+    if "layout" in flattened:
+        canonical["layout"] = canonicalize_layout(flattened["layout"])
+    return canonical
+
+
 def wrap(doc, extra=None):
     """Build a current request body with canonical layout and element fields."""
     out = dict(extra or {})
-    flattened = _flatten_elements(doc)
-    if isinstance(flattened, dict):
-        canonical = dict(flattened)
-        if isinstance(flattened.get("elements"), list):
-            canonical["elements"] = [
-                _canonicalize_element(element) for element in flattened["elements"]
-            ]
-        if isinstance(flattened.get("overlays"), list):
-            canonical["overlays"] = [
-                _canonicalize_overlay(overlay) for overlay in flattened["overlays"]
-            ]
-        if "layout" in flattened:
-            canonical["layout"] = canonicalize_layout(flattened["layout"])
-        flattened = canonical
-    out["document"] = flattened
+    out["document"] = _canonicalize_document(_flatten_elements(doc))
     return out

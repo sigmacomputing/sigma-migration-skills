@@ -29,8 +29,10 @@
 #   back to the first filter target's columnId) is resolved to its display
 #   label via GET /v2/workbooks/{id}/columns, that element is exported once,
 #   and the first distinct value of that column NOT in the control's saved
-#   defaults (`values`) is used. switch controls flip true<->false. Controls
-#   whose value cannot be auto-picked (date ranges, numeric sliders, missing
+#   defaults (`values`) is used. Switch controls flip true<->false. Lists
+#   with multiple saved selections may instead narrow to one observed member:
+#   a different selection does not require a member outside the selected set.
+#   Controls whose value cannot be auto-picked (date ranges, numeric sliders, missing
 #   labels) are SKIPped with a NOTE — pass --value for those.
 #
 # MCP / export-API note (verified empirically 2026-06-12 on a live Sigma org):
@@ -91,9 +93,10 @@ end
 HAVE_POOL = defined?(ExportPool) ? true : false
 
 # Workbook code-rep document wrapper (#608) — same vendoring rule as
-# assert-phase6-ran.rb's gate 4/6/7/7b fix. GET /v2/workbooks/{id}/spec now
-# nests pages/layout/schemaVersion/kind under a top-level `document` key
-# (verified live 2026-08-03/04); without unwrapping, ControlLint.elements /
+# assert-phase6-ran.rb's gate 4/6/7/7b fix. GET /v2/workbooks/{id}?includeContents=true
+# nests pages/layout/schemaVersion/kind under a top-level `contents` key
+# (`document` on the retired /spec readback; verified live 2026-08-03/04
+# and 2026-11-03); without unwrapping, ControlLint.elements /
 # controls_report see no top-level `pages` and this probe aborts with "no
 # controls found" on every live workbook. This script's manifest targets are
 # currently a SUBSET of code_rep.rb's (see shared/manifest.json), so every
@@ -145,7 +148,8 @@ end
 # --- Sigma plumbing ---------------------------------------------------------
 
 def fetch_spec(wb)
-  body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
+  path = CODE_REP_LOADED ? Sigma::CodeRep.read_path(wb) : "/v2/workbooks/#{wb}?includeContents=true"
+  body = Sigma.request(:get, path, accept: 'application/json')
   return body if body.is_a?(Hash)
   require 'yaml'
   require 'date'
@@ -228,8 +232,8 @@ spec_raw = fetch_spec(WB)
 # Unwrap ONCE: ControlLint.elements/controls_report expect the plain document
 # shape (top-level `pages`) — spec_raw is kept as the full (unmodified)
 # response because it still carries the metadata fields (workbookId,
-# latestDocumentVersion, …) DOC_VERSION below needs, which live OUTSIDE
-# `document` and must not be read through the unwrapped `spec`.
+# latestVersion, …) DOC_VERSION below needs, which live OUTSIDE
+# `contents` and must not be read through the unwrapped `spec`.
 spec  = CODE_REP_LOADED ? Sigma::CodeRep.document(spec_raw) : spec_raw
 elems = ControlLint.elements(spec)
 export_format = lambda { |eid| elems.dig(eid, :kind) == 'pivot-table' ? 'json' : 'csv' }
@@ -257,7 +261,7 @@ end
 DOC_VERSION = if HAVE_POOL
                 ExportPool.resolve_doc_version(spec_raw)
               else # same resolution, inlined for twins without export_pool.rb
-                v = spec_raw.is_a?(Hash) ? spec_raw['latestDocumentVersion'] || spec_raw['latestVersion'] : nil
+                v = spec_raw.is_a?(Hash) ? spec_raw['latestVersion'] || spec_raw['latestDocumentVersion'] : nil
                 v.nil? || v.to_s.empty? ? nil : v.to_s
               end
 EVIDENCE = {}
@@ -297,9 +301,13 @@ pick_value = lambda do |r|
   when 'switch'
     return [(defaults.first.to_s.downcase == 'true' ? 'false' : 'true'), 'switch flip']
   when 'list', 'segmented', 'text'
+    choose = lambda do |choices|
+      choices.find { |value| !defaults.include?(value) } ||
+        (el['controlType'] == 'list' && defaults.uniq.size > 1 && choices.uniq.size > 1 ? choices.first : nil)
+    end
     if el.dig('source', 'kind') == 'manual'
-      choice = Array(el.dig('source', 'values')).compact.map(&:to_s).find { |v| !defaults.include?(v) }
-      return choice ? [choice, 'auto-picked non-default manual choice'] : [nil, 'no non-default manual choice']
+      choice = choose.call(Array(el.dig('source', 'values')).compact.map(&:to_s))
+      return choice ? [choice, 'auto-picked different manual selection'] : [nil, 'no non-default manual choice']
     end
     src = value_src.call(r)
     return [nil, 'no value-source column resolvable — pass --value'] unless src
@@ -308,7 +316,7 @@ pick_value = lambda do |r|
     headers, exported_rows = export_table(get_baseline.call(src['elementId']), export_format.call(src['elementId']))
     return [nil, "column #{label.inspect} not in export of #{src['elementId']} — pass --value"] unless headers.include?(label)
     distinct = exported_rows.map { |row| row[label] }.compact.map(&:to_s).reject(&:empty?).uniq
-    val = distinct.find { |v| !defaults.include?(v) }
+    val = choose.call(distinct)
     val ? [val, "auto-picked from #{label.inspect}"] : [nil, 'no non-default value found — pass --value']
   when 'date-range', 'date'
     # A Sigma date-range control's value MUST be encoded "min:<date>,max:<date>"
@@ -323,8 +331,8 @@ pick_value = lambda do |r|
     #   min:2025-01-01,max:2025-06-30                   -> PASS (export differs)
     #
     # So derive the range here instead of making the operator guess: read the
-    # target column's own values and flip to the EARLIER HALF (min..midpoint),
-    # which is a strict subset and therefore must change the export.
+    # target column's own values and select the earliest observed day. A broad
+    # half-range may retain every group in a downstream aggregate unchanged.
     src = (el['filters'] || []).map { |f| f.is_a?(Hash) ? (f['source'] || {}).merge('columnId' => f['columnId']) : nil }.compact.first
     src = el['source'].is_a?(Hash) && el['source']['kind'] == 'source' ? el['source']['source'].merge('columnId' => el['source']['columnId']) : src
     return [nil, 'date-range: no target column resolvable — pass --value "min:<YYYY-MM-DD>,max:<YYYY-MM-DD>"'] unless src.is_a?(Hash) && src['elementId'] && src['columnId']
@@ -335,10 +343,8 @@ pick_value = lambda do |r|
     days = exported_rows.map { |row| (Date.parse(row[label].to_s) rescue nil) }.compact.uniq.sort
     return [nil, "date-range: fewer than 2 distinct dates in #{label.inspect} — nothing to narrow; pass --value"] if days.size < 2
     lo = days.first
-    mid = days[(days.size - 1) / 2]
-    mid = days[-2] if mid >= days.last   # guarantee a STRICT subset
-    [format('min:%s,max:%s', lo.strftime('%Y-%m-%d'), mid.strftime('%Y-%m-%d')),
-     "auto-picked earlier-half date range from #{label.inspect} (min:…,max:… encoding)"]
+    [format('min:%s,max:%s', lo.strftime('%Y-%m-%d'), lo.strftime('%Y-%m-%d')),
+     "auto-picked earliest observed date from #{label.inspect} (min:…,max:… encoding)"]
   else
     [nil, "controlType=#{el['controlType'].inspect} has no auto flip value — pass --value " \
           '(date-range controls require the "min:<YYYY-MM-DD>,max:<YYYY-MM-DD>" encoding; ' \
@@ -465,7 +471,7 @@ rows.each do |r|
              ''
            end
     results << { control: cid, result: 'FAIL', element: in_el, value: val,
-                 note: "#{note}; in-closure export IDENTICAL with #{cid}=#{val.inspect} — control is wired but inert#{hint}" }
+                 note: "#{note}; in-closure export IDENTICAL with #{cid}=#{val.inspect} — no effect demonstrated for this value; control may be inert or this probe inconclusive#{hint}" }
   end
 
   next unless opts[:check_out]
@@ -490,7 +496,7 @@ end
 
 if DOC_VERSION
   final_spec = fetch_spec(WB)
-  final_version = HAVE_POOL ? ExportPool.resolve_doc_version(final_spec) : (final_spec['latestDocumentVersion'] || final_spec['latestVersion']).to_s
+  final_version = HAVE_POOL ? ExportPool.resolve_doc_version(final_spec) : (final_spec['latestVersion'] || final_spec['latestDocumentVersion']).to_s
   if final_version != DOC_VERSION
     failures += 1
     results << { result: 'FAIL', note: 'workbook document version changed during the control probe; recollect evidence against one version' }

@@ -294,8 +294,7 @@ end
 
 # ---------------------------------------------------------------------------
 # Step 3: POST a minimal workbook — custom-SQL table (known literals) + the
-# plugin element bound to it. POST/PUT /v2/workbooks/spec is documented to
-# return YAML — never JSON.parse it directly; scrape workbookId instead.
+# plugin element bound to it. POST /v2/workbooks / PUT /v2/workbooks/{id}/contents.
 # ---------------------------------------------------------------------------
 
 def home_folder_id
@@ -314,27 +313,24 @@ def reference_schema_version
   entries.each do |w|
     wid = w['workbookId'] || w['id']
     next unless wid
-    spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue nil)
+    spec = (Sigma.request(:get, Sigma::CodeRep.read_path(wid), accept: 'application/json') rescue nil)
     doc = Sigma::CodeRep.document(spec) if spec.is_a?(Hash)
     return doc['schemaVersion'] if doc && doc['schemaVersion']
   end
   raise 'could not discover schemaVersion from any existing workbook'
 end
 
-# POST/PUT /v2/workbooks/spec: response is documented as YAML. Never rely on
-# Sigma.request's accept:'application/json' auto-parse here (it would raise
-# on a YAML body) — request a non-JSON accept so the raw string always comes
-# back, then self-parse (JSON first in case the org actually returns JSON,
-# else scrape `workbookId:` out of the YAML text). A non-JSON response body
-# is NOT treated as a failure.
+# POST /v2/workbooks (create) / PUT /v2/workbooks/{id}/contents (replace).
+# The create response is the JSON workbook envelope (workbookId, workbookUrlId,
+# url, latestVersion, ...) — there is no `success` key. The PUT is addressed by
+# id, so its workbookId is taken from the path when the response omits it.
 def post_or_put_workbook_spec(method, path, spec_hash)
-  raw = Sigma.request(method, path, body: JSON.generate(spec_hash),
-                                     content_type: 'application/json', accept: 'application/yaml')
-  parsed = (JSON.parse(raw) rescue nil)
-  return parsed if parsed.is_a?(Hash) && parsed['workbookId']
-  m = raw.to_s.match(/^\s*workbookId:\s*"?'?([\w-]+)"?'?\s*$/)
-  raise "no workbookId in #{method.upcase} response: #{raw.to_s[0, 500]}" unless m
-  { 'workbookId' => m[1], 'raw' => raw }
+  body = method == :put ? Sigma::CodeRep.update_body(spec_hash) : Sigma::CodeRep.create_body(spec_hash)
+  resp = Sigma.request(method, path, body: JSON.generate(body))
+  resp = {} unless resp.is_a?(Hash)
+  resp['workbookId'] ||= path[%r{/workbooks/([^/?]+)/contents}, 1]
+  raise "no workbookId in #{method.upcase} response: #{resp.inspect[0, 500]}" unless resp['workbookId']
+  resp
 end
 
 # NOTE — the 82/100 test literals below are the SAME numbers GAUGE_HTML's
@@ -454,7 +450,7 @@ begin
     candidates.each_with_index do |(af, tf), i|
       spec = build_spec(home, schema_version, plugin_id, af, tf)
       method = wb.nil? ? :post : :put
-      path = wb.nil? ? '/v2/workbooks/spec' : "/v2/workbooks/#{wb}/spec"
+      path = wb.nil? ? Sigma::CodeRep.create_path : Sigma::CodeRep.update_path(wb)
       begin
         resp = post_or_put_workbook_spec(method, path, spec)
       rescue StandardError => e

@@ -28,14 +28,14 @@ export function makeClient(workdir, options = {}) {
     }
     const text = await res.text();
     let json = null;
-    try { json = JSON.parse(text); } catch { /* Sigma /spec POST can return YAML or empty */ }
+    try { json = JSON.parse(text); } catch { /* a workbook POST may return YAML or empty */ }
     return { status: res.status, ok: res.ok, text, json };
   }
 
   return { base: auth.base, api };
 }
 
-// Sigma POST /spec returns JSON ({"workbookId":...}) OR YAML (workbookId: ...). Pull either.
+// Sigma POST /v2/workbooks returns JSON ({"workbookId":...}) OR YAML (workbookId: ...). Pull either.
 export function extractId(r, field) {
   if (r.json && r.json[field]) return r.json[field];
   const m = r.text.match(new RegExp(`${field}:\\s*"?([0-9a-f-]{36})`, 'i'));

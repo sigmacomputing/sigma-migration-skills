@@ -47,9 +47,9 @@ Optional env: SIGMA_API_TOKEN (initial token), browser-login keychain state,
 SIGMA_CLIENT_ID / SIGMA_CLIENT_SECRET fallback, and SIGMA_AUTH_MODE.
 
 Usage:
-    import sigma_rest
+    import code_rep, sigma_rest
     wb = sigma_rest.request("get", f"/v2/workbooks/{id}")
-    sigma_rest.request("post", "/v2/workbooks/spec", body=json.dumps(spec))
+    sigma_rest.request("post", code_rep.create_path(), body=json.dumps(code_rep.create_body(spec)))
 
 All methods return parsed dict/list (or raw bytes for binary endpoints).
 """
@@ -90,6 +90,7 @@ _token_mutex = threading.Lock()
 _token_override = None
 _minted_at = None  # epoch seconds when THIS process minted the current token
 _refresh_inflight = False
+_refresh_flight = None
 
 
 def _iso_z(epoch):
@@ -414,12 +415,20 @@ def token_provider_result():
 
 def refresh_token():
     """Invoke the dual-mode provider and cache the new token.
-    Single-flight: a re-entrant call while a refresh is in progress returns the
-    current override rather than launching a second provider process."""
-    global _refresh_inflight, _token_override, _minted_at
+    Concurrent callers share one completed mint or its error, never a stale token."""
+    global _refresh_inflight, _refresh_flight, _token_override, _minted_at
     with _token_mutex:
         if _refresh_inflight:
-            return _token_override
+            flight = _refresh_flight
+            if flight["owner"] == threading.get_ident():
+                raise SigmaAuthError("recursive token refresh")
+            while not flight["done"]:
+                flight["condition"].wait()
+            if "error" in flight:
+                raise flight["error"]
+            return flight["token"]
+        flight = {"owner": threading.get_ident(), "condition": threading.Condition(_token_mutex), "done": False}
+        _refresh_flight = flight
         _refresh_inflight = True
     try:
         values = token_provider_result()
@@ -440,13 +449,20 @@ def refresh_token():
         with _token_mutex:
             _token_override = tok
             _minted_at = minted_at
-        if not minted_value:
-            os.environ.pop("SIGMA_TOKEN_MINTED_AT", None)
-        os.environ.update({k: v for k, v in values.items() if k != "SIGMA_BASE_URL"})
+            if not minted_value:
+                os.environ.pop("SIGMA_TOKEN_MINTED_AT", None)
+            os.environ.update({k: v for k, v in values.items() if k != "SIGMA_BASE_URL"})
+            flight["token"] = tok
         return tok
+    except BaseException as error:
+        # Propagate host-validation exits too, releasing all waiting callers.
+        flight["error"] = error
+        raise
     finally:
         with _token_mutex:
+            flight["done"] = True
             _refresh_inflight = False
+            flight["condition"].notify_all()
 
 
 def request(method, path, body=None, content_type="application/json",

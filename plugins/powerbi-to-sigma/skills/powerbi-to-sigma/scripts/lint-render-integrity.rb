@@ -129,10 +129,13 @@ module RenderIntegrity
   def unwrap_document(spec)
     raise InputError, 'workbook spec must be a JSON object' unless spec.is_a?(Hash)
 
-    return spec unless spec.key?('document')
+    # A live readback wraps the document in `contents`; on-disk specs and
+    # /spec-era readbacks use `document`.
+    key = %w[contents document].find { |k| spec.key?(k) }
+    return spec unless key
 
-    document = spec['document']
-    raise InputError, 'workbook spec document wrapper must contain a JSON object' unless document.is_a?(Hash)
+    document = spec[key]
+    raise InputError, "workbook spec #{key} wrapper must contain a JSON object" unless document.is_a?(Hash)
 
     document
   end

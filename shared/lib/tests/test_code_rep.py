@@ -251,6 +251,81 @@ class TestCodeRepSettingsAgents(unittest.TestCase):
         self.assertEqual(code_rep.theme(nested)['name'], 'Dark')
         self.assertEqual(code_rep.theme({'pages': []})['overrides'], {})
 
+    # ---- Endpoint helpers (the /spec endpoints are deprecated, OpenAPI 2.0.0+20261030)
+
+    LEGACY_NESTED = {
+        'schemaVersion': 1,
+        'pages': [
+            {'id': 'page-data', 'name': 'Data', 'elements': [{'id': 'source', 'kind': 'table'}]},
+            {'id': 'page-1', 'name': 'Overview', 'elements': [{'id': 'chart', 'kind': 'bar-chart'}]},
+        ],
+        'layout': '<Page id="page-data"><Element elementId="source"/></Page>'
+                  '<Page id="page-1"><Element elementId="chart"/></Page>',
+    }
+
+    def test_endpoint_paths(self):
+        self.assertEqual(code_rep.create_path(), '/v2/workbooks')
+        self.assertEqual(code_rep.read_path('w1'), '/v2/workbooks/w1?includeContents=true')
+        self.assertEqual(code_rep.read_path('w1', document_version=3),
+                         '/v2/workbooks/w1?includeContents=true&documentVersion=3')
+        self.assertEqual(code_rep.update_path('w1'), '/v2/workbooks/w1/contents')
+        self.assertEqual(code_rep.create_path('report'), '/v2/reports')
+        self.assertEqual(code_rep.read_path('r1', 'report'), '/v2/reports/r1?includeContents=true')
+        self.assertEqual(code_rep.update_path('r1', 'report'), '/v2/reports/r1/contents')
+        with self.assertRaises(ValueError):
+            code_rep.create_path('dataModel')
+
+    def test_reads_live_contents_shape(self):
+        live = {k: v for k, v in LIVE.items() if k != 'document'}
+        live.update({'contents': LIVE['document'], 'documentVersion': 2})
+        self.assertEqual(code_rep.document(live), code_rep.document(LIVE))
+        self.assertEqual(sorted(code_rep.metadata(live)), ['documentVersion', 'name', 'workbookId'])
+
+    def test_create_body_rekeys_document_to_contents(self):
+        body = code_rep.create_body({**LIVE, 'folderId': 'f1'})
+        self.assertEqual(sorted(body), ['contents', 'folderId', 'name'])
+        self.assertEqual([el['id'] for el in body['contents']['elements']], ['e1'])
+        self.assertNotIn('document', body)
+        self.assertNotIn('dryRun', body)
+
+    def test_create_body_extra_overrides_and_dry_run(self):
+        body = code_rep.create_body(LIVE['document'], extra={'name': 'X', 'folderId': 'f2'}, dry_run=True)
+        self.assertEqual(body['name'], 'X')
+        self.assertEqual(body['folderId'], 'f2')
+        self.assertIs(body['dryRun'], True)
+
+    def test_create_body_flattens_legacy_page_nested_elements(self):
+        body = code_rep.create_body(self.LEGACY_NESTED, extra={'name': 'N', 'folderId': 'f'})
+        self.assertEqual([el['id'] for el in body['contents']['elements']], ['source', 'chart'])
+        self.assertTrue(all('elements' not in pg for pg in body['contents']['pages']))
+
+    def test_update_body(self):
+        self.assertEqual(code_rep.update_body(LIVE),
+                         {'contents': code_rep.create_body(LIVE)['contents']})
+        self.assertEqual(code_rep.update_body(LIVE, document_version=4)['documentVersion'], 4)
+
+    def test_report_bodies_pass_contents_through(self):
+        rpt = {'contents': {'schemaVersion': 1, 'pages': [{'id': 'p', 'elements': [{'id': 'x'}]}]}}
+        self.assertEqual(code_rep.update_body(rpt, type_='report')['contents'], rpt['contents'])
+
+    # Live-observed 2026-11-03 response shapes.
+    def test_dry_run_result_normalizes_live_shapes(self):
+        ok = code_rep.dry_run_result(200, {'dryRun': True, 'warnings': []})
+        self.assertIs(ok['valid'], True)
+        bad = code_rep.dry_run_result(400, {
+            'dryRun': True, 'valid': False,
+            'errors': [{'summary': 'contents.pages: Invalid array: undefined'}]})
+        self.assertIs(bad['valid'], False)
+        self.assertEqual([e['summary'] for e in bad['errors']],
+                         ['contents.pages: Invalid array: undefined'])
+        other = code_rep.dry_run_result(403, {'message': 'forbidden', 'code': 'forbidden'})
+        self.assertEqual(other['errors'], [{'summary': 'forbidden'}])
+
+    def test_strip_response_only_covers_both_eras(self):
+        rb = {'workbookId': 'w', 'workbookUrlId': 'u', 'path': 'p', 'latestVersion': 1,
+              'latestDocumentVersion': 1, 'folderId': 'f', 'name': 'N', 'contents': {}}
+        self.assertEqual(sorted(code_rep.strip_response_only(rb)), ['contents', 'folderId', 'name'])
+
 
 if __name__ == '__main__':
     unittest.main()

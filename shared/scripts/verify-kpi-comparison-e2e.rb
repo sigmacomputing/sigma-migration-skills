@@ -13,7 +13,7 @@ tbl_id, kpi_id = 'tbl-kpiproof', 'kpi-proof'
 # Single-row synthetic source: two known numeric columns (ground truth = literals).
 sql = 'SELECT 100 AS current_rev, 60 AS prior_rev'
 
-# POST /v2/workbooks/spec requires name/folderId plus a complete document
+# POST /v2/workbooks requires name/folderId plus complete contents
 # (schemaVersion, metadata-only pages, flat elements, and layout; see
 # reference/workflows/crud.md). folderId + schemaVersion are NOT part of the
 # comparative-KPI shape under test — fetch them live rather than hardcode, per
@@ -25,7 +25,7 @@ ref_wbs = Sigma.request(:get, '/v2/workbooks?limit=1')
 ref_id = ref_wbs['entries']&.first && ref_wbs['entries'].first['workbookId']
 schema_version = if ref_id
                    Sigma::CodeRep.document(
-                     Sigma.request(:get, "/v2/workbooks/#{ref_id}/spec", accept: 'application/json')
+                     Sigma.request(:get, Sigma::CodeRep.read_path(ref_id), accept: 'application/json')
                    )['schemaVersion']
                  end
 schema_version ||= 1
@@ -62,11 +62,10 @@ doc = {
 spec = Sigma::CodeRep.wrap(doc, extra: { 'name' => 'KPI comparison E2E proof',
                                          'folderId' => folder_id })
 
-resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec), accept: 'application/yaml')
-raw = resp.is_a?(String) ? resp : resp.to_s
-# POST /v2/workbooks/spec returns YAML, not JSON — scrape workbookId out of the text.
-wb = raw[/workbookId:\s*([A-Za-z0-9_-]+)/, 1]
-abort "NO-GO: no workbookId in response (comparison shape may be rejected):\n#{raw}" unless wb
+resp = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(spec)))
+# POST /v2/workbooks returns the JSON workbook envelope (no `success` key).
+wb = resp['workbookId'] if resp.is_a?(Hash)
+abort "NO-GO: no workbookId in response (comparison shape may be rejected):\n#{resp.inspect}" unless wb
 puts "posted workbook #{wb}"
 
 # Export the SOURCE TABLE (kpi sub-elements 404 on export); assert the bound numbers.
@@ -93,7 +92,7 @@ abort 'NO-GO: bound values did not survive round-trip' unless ok
 # would false-positive on a key that survives but is emptied/nulled — parse the
 # JSON, find the actual kpi-chart element by id, and assert its comparisonColumn
 # still points at prior_rev.
-back = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
+back = Sigma.request(:get, Sigma::CodeRep.read_path(wb), accept: 'application/json')
 back = JSON.parse(back) if back.is_a?(String) # defensive: accept:'application/json' already parses, but don't assume
 abort "NO-GO: readback spec was not a Hash (got #{back.class}): #{back.inspect}" unless back.is_a?(Hash)
 back_doc = Sigma::CodeRep.document(back)

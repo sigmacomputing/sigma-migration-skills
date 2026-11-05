@@ -3,6 +3,7 @@
 
 require 'minitest/autorun'
 require 'net/http'
+require 'timeout'
 require_relative 'sigma_rest'
 
 class SigmaRestDualAuthTest < Minitest::Test
@@ -145,6 +146,93 @@ class SigmaRestDualAuthTest < Minitest::Test
     end
     assert_equal 2, http.authorization.length
   end
+
+  def test_killed_refresh_releases_waiter_with_auth_error_and_allows_retry
+    entered, release = Queue.new, Queue.new
+    threads = []
+    Sigma.stub(:token_provider_result, -> { entered << true; release.pop; PROVIDER }) do
+      begin
+        owner = Thread.new { Sigma.refresh_token! }
+        threads << owner
+        Timeout.timeout(3) { entered.pop }
+        waiter = Thread.new { Sigma.refresh_token! rescue $! }
+        threads << waiter
+        Timeout.timeout(3) { Thread.pass until waiter.status != 'run' }
+        owner.kill
+        owner.join
+        error = Timeout.timeout(3) { waiter.value }
+        assert_kind_of Sigma::AuthError, error
+        assert_match(/aborted/, error.message)
+      ensure
+        release << true
+        threads.each { |thread| thread.kill if thread.alive? }
+        threads.each(&:join)
+      end
+    end
+    assert_equal 'browser-refreshed-token', Sigma.stub(:token_provider_result, PROVIDER) { Sigma.refresh_token! }
+  end
+
+  def test_recursive_refresh_and_invalid_mint_time_fail_as_auth_errors
+    assert_raises(Sigma::AuthError) do
+      Sigma.stub(:token_provider_result, -> { Sigma.refresh_token! }) { Sigma.refresh_token! }
+    end
+    assert_raises(Sigma::AuthError) do
+      Sigma.stub(:token_provider_result, PROVIDER.merge('SIGMA_TOKEN_MINTED_AT' => 'invalid')) { Sigma.refresh_token! }
+    end
+    assert_equal 'browser-refreshed-token', Sigma.stub(:token_provider_result, PROVIDER) { Sigma.refresh_token! }
+  end
+
+  def test_concurrent_refresh_waits_for_one_successful_mint
+    Sigma.instance_variable_set(:@token_override, 'expired-token')
+    entered, release = Queue.new, Queue.new
+    calls = 0
+    provider = lambda { calls += 1; entered << true; release.pop; PROVIDER }
+    threads = []
+    Sigma.stub(:token_provider_result, provider) do
+      begin
+        threads << Thread.new { Sigma.refresh_token! }
+        Timeout.timeout(3) { entered.pop }
+        waiters = 3.times.map { Thread.new { Sigma.refresh_token! } }
+        threads.concat(waiters)
+        Timeout.timeout(3) { Thread.pass until waiters.all? { |thread| thread.status != 'run' } }
+        release << true
+        values = Timeout.timeout(3) { threads.map(&:value) }
+        assert_equal ['browser-refreshed-token'] * 4, values
+        assert_equal 1, calls
+      ensure
+        release << true
+        threads.each { |thread| thread.kill if thread.alive? }
+        threads.each(&:join)
+      end
+    end
+  end
+
+  def test_concurrent_refresh_shares_failure_and_allows_later_retry
+    Sigma.instance_variable_set(:@token_override, 'expired-token')
+    entered, release = Queue.new, Queue.new
+    calls = 0
+    provider = lambda { calls += 1; entered << true; release.pop; raise Sigma::AuthError, 'synthetic mint failure' }
+    attempt = -> { Sigma.refresh_token! rescue $! }
+    threads = []
+    Sigma.stub(:token_provider_result, provider) do
+      begin
+        threads << Thread.new(&attempt)
+        Timeout.timeout(3) { entered.pop }
+        waiters = 3.times.map { Thread.new(&attempt) }
+        threads.concat(waiters)
+        Timeout.timeout(3) { Thread.pass until waiters.all? { |thread| thread.status != 'run' } }
+        release << true
+        errors = Timeout.timeout(3) { threads.map(&:value) }
+        assert errors.all? { |error| error.is_a?(Sigma::AuthError) }, errors.inspect
+        assert_equal 1, calls
+      ensure
+        release << true
+        threads.each { |thread| thread.kill if thread.alive? }
+        threads.each(&:join)
+      end
+    end
+    assert_equal 'browser-refreshed-token', Sigma.stub(:token_provider_result, PROVIDER) { Sigma.refresh_token! }
+  end
 end
 
 # CLI-only user: SIGMA_BASE_URL unset, the provider supplies the host.
@@ -167,7 +255,7 @@ class SigmaRestDerivedBaseTest < Minitest::Test
     # Synthetic stand-in for the Sigma CLI.
     if [ "$1 $2" = "auth --help" ]; then echo "Commands: login token status"; exit 0; fi
     if [ "$1 $2" = "auth status" ]; then
-      { echo "Profile:   example-profile"; echo "Base URL:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2
+      { echo "Profile:   example-profile"; echo "${FAKE_SIGMA_BASE_LABEL:-Base URL}:  ${FAKE_SIGMA_BASE}"; echo "Auth:      OK (token acquired)"; } >&2
       exit 0
     fi
     if [ "$1 $2" = "auth token" ]; then printf '%s\n' "${FAKE_SIGMA_TOKEN}"; exit 0; fi
