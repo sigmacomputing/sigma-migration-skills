@@ -157,18 +157,17 @@ class MigrateSpotfireTests(unittest.TestCase):
                     )
                 ):
                     return {"entries": []}
-                if (
-                    method == "post"
-                    and path == "/v2/workbooks/spec/verify"
-                ):
+                if method == "post" and path == "/v2/workbooks":
                     self.assertEqual("folder-1", parsed["folderId"])
-                    return {"valid": True}
-                if method == "post" and path == "/v2/workbooks/spec":
+                    if parsed.get("dryRun"):
+                        return {"dryRun": True, "warnings": []}
                     self.workbook_readback = copy.deepcopy(parsed)
                     return {"workbookId": "server-workbook"}
                 if (
                     method == "get"
-                    and path == "/v2/workbooks/server-workbook/spec"
+                    and path == (
+                        "/v2/workbooks/server-workbook?includeContents=true"
+                    )
                 ):
                     return copy.deepcopy(self.workbook_readback)
                 if (
@@ -330,9 +329,9 @@ class MigrateSpotfireTests(unittest.TestCase):
                     "/v2/dataModels/spec",
                     "/v2/dataModels/server-dm/spec",
                     "/v2/dataModels/server-dm/columns?limit=1000",
-                    "/v2/workbooks/spec/verify",
-                    "/v2/workbooks/spec",
-                    "/v2/workbooks/server-workbook/spec",
+                    "/v2/workbooks",
+                    "/v2/workbooks",
+                    "/v2/workbooks/server-workbook?includeContents=true",
                     (
                         "/v2/workbooks/server-workbook/columns"
                         "?limit=1000"
