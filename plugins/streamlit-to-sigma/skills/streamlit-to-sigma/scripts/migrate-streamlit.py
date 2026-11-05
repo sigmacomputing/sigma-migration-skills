@@ -17,6 +17,7 @@ sys.path.insert(0, str(SKILL))
 sys.path.insert(0, str(SCRIPTS / "lib"))
 
 from converter import analyze_project, build_data_model, build_workbook  # noqa: E402
+import code_rep  # noqa: E402
 import sigma_rest  # noqa: E402
 
 
@@ -146,7 +147,7 @@ def data_model_bindings(
 
 
 def validate_layout(workbook: dict[str, Any]) -> None:
-    document = workbook["document"]
+    document = code_rep.document(workbook)
     element_ids = {item["id"] for item in document.get("elements", [])}
     placed = re.findall(r'\belementId="([^"]+)"', document.get("layout", ""))
     placed_ids = set(placed)
@@ -321,10 +322,16 @@ def main() -> int:
     workbook_id = None
     workbook_url = None
     if args.post:
-        api.request("POST", "/v2/workbooks/spec/verify", workbook)
-        created = api.request("POST", "/v2/workbooks/spec", workbook)
+        api.request(
+            "POST",
+            code_rep.create_path(),
+            code_rep.create_body(workbook, dry_run=True),
+        )
+        created = api.request(
+            "POST", code_rep.create_path(), code_rep.create_body(workbook)
+        )
         workbook_id = created["workbookId"]
-        readback = api.request("GET", f"/v2/workbooks/{workbook_id}/spec")
+        readback = api.request("GET", code_rep.read_path(workbook_id))
         validate_layout(readback)
         write_json(out / "wb-create-response.json", created)
         write_json(out / "wb-readback.json", readback)
