@@ -28,7 +28,7 @@ import flip_gate
 import layout_lint
 import qlik_design_manifest as design_manifest
 from lib import sigma_rest
-from lib.code_rep import document, metadata
+from lib.code_rep import document, metadata, read_path
 from lib.scout_gate import classify as classify_scouts
 from lib.scout_gate import record as record_scout
 
@@ -1341,10 +1341,10 @@ class Migration:
             shutil.rmtree(directory)
         directory.mkdir(parents=True, exist_ok=True)
         live = sigma_rest.request(
-            "get", f"/v2/workbooks/{workbook_id}/spec"
+            "get", read_path(workbook_id)
         ) or {}
-        document_version = live.get("latestDocumentVersion") or live.get(
-            "latestVersion"
+        document_version = live.get("latestVersion") or live.get(
+            "latestDocumentVersion"
         )
         if document_version in (None, ""):
             raise RuntimeError("live workbook spec has no document version before render")
@@ -1981,7 +1981,7 @@ class Migration:
                 check=False,
             )
         live = sigma_rest.request(
-            "get", f"/v2/workbooks/{workbook_id}/spec"
+            "get", read_path(workbook_id)
         ) or {}
         live_spec = {**metadata(live), **document(live)}
         (self.workdir / "wb-readback.json").write_text(

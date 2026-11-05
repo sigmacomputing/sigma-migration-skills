@@ -19,7 +19,7 @@ manual SIGMA_API_TOKEN mint is not required.
 """
 import json, os, sys, subprocess, re, argparse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped POST shape)
 import sigma_rest
 
 # Reuse an existing Sigma data model: set these to YOUR ids (from the data-model build
@@ -93,8 +93,8 @@ def build(app_name):
          "pages":[{"id":"pg-data","name":"Data","visibility":"hidden"},
                   {"id":"pg-ov","name":"Overview"}],
          "elements":[master]+elems+extra,"layout":full_xml}
-    post_body=code_rep.wrap(doc,{"name":f"{app_name} → Sigma","folderId":FOLDER})
-    res=post("/v2/workbooks/spec",post_body)
+    post_body=code_rep.create_body(doc,{"name":f"{app_name} → Sigma","folderId":FOLDER})
+    res=post(code_rep.create_path(),post_body)
     if not res: return None
     try:
         parsed=json.loads(res)

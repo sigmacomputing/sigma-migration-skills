@@ -111,7 +111,7 @@ LEFT JOIN), add an element filter (verified shape):
 ## Layout is a SEPARATE step — don't skip it
 Posting chart elements WITHOUT a layout makes Sigma auto-stack them full-width
 (formatting is fine, arrangement is not). Apply a 24-col grid as a single
-`document.layout` XML string (NOT per-page), via the vendored `scripts/vendor/put-layout.rb`:
+`contents.layout` XML string (NOT per-page), via the vendored `scripts/vendor/put-layout.rb`:
 ```
 <Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-overview">
   <Element elementId="<id>" gridColumn="1 / 9"  gridRow="1 / 4"/>   <!-- KPI -->
@@ -131,11 +131,12 @@ A Qlik sheet's cell grid (`columns`×`rows`, usually 24×N) maps 1:1 onto Sigma'
 (row+rowspan)*2+1` (row-scale ≥2; bump KPIs to ≥5 rows for the title).
 
 ## API quirks
-- `POST /v2/dataModels/spec` and `/v2/workbooks/spec` **return YAML, not JSON**
-  (`success: true\nworkbookId: ...`). Don't `json.loads` the response; parse YAML or grep.
+- `POST /v2/dataModels/spec` **returns YAML, not JSON** (`success: true\ndataModelId: ...`);
+  `POST /v2/workbooks` returns the workbook envelope as JSON (`workbookId`, `workbookUrlId`,
+  `url`, ... — no `success` key). Parse defensively: JSON first, then YAML.
 - POST body for DM (unaffected, stays flat): `{folderId, schemaVersion:1, name, pages:[...]}`.
-  **For workbook, the body is `document`-wrapped** (verified live 2026-08-03, including on
-  `/verify` 2026-08-04): `{name, folderId, document: {schemaVersion:1, pages:[...]}}` — the
+  **For workbook, the body is `contents`-wrapped** (`POST /v2/workbooks`, live-verified
+  2026-11-03): `{name, folderId, contents: {schemaVersion:1, pages:[...]}}` — the
   old flat `{name, folderId, schemaVersion:1, pages:[...]}` now 400s. Don't confuse the two
   surfaces; only the workbook one wraps.
 - Element/column ids are **reassigned on save** — always `describe(datamodel)` →
