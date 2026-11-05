@@ -122,7 +122,7 @@ if !opts[:finalize]
   warn "Parity PASS 1: reading workbook spec #{opts[:wb]}"
   # binary:true returns the raw body — the spec endpoint answers in YAML even
   # when asked for JSON, so parse both.
-  raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
+  raw = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:wb]), binary: true)
   # Keep the on-disk readback as the unwrapped document. Workbook elements are
   # flat; page membership is layout-authoritative.
   spec = Sigma::CodeRep.document(parse_spec(raw))

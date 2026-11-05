@@ -3,9 +3,9 @@
 # test_phase6_parity_shape.rb — regression test for phase6-parity-looker.rb's
 # workbook code-rep GET readback (Task 3.8).
 #
-# Live GET /v2/workbooks/{id}/spec now nests non-metadata fields under a
-# top-level `document` key (verified 2026-08-03/04). phase6-parity-looker.rb
-# GETs the live spec in PASS 1, reads spec['pages'] directly to enumerate
+# Live GET /v2/workbooks/{id}?includeContents=true nests non-metadata fields
+# under a top-level `contents` key (`document` on the retired /spec readback).
+# phase6-parity-looker.rb GETs the live workbook in PASS 1, reads spec['pages'] directly to enumerate
 # chart elements, and writes the spec to wb-readback.json — this checks both
 # reads route through the vendored Sigma::CodeRep.document() adapter rather
 # than the raw (now-nested) GET response.
@@ -22,9 +22,11 @@ class TestPhase6ParityShape < Minitest::Test
   # this alone would NOT fail pre-fix -- it documents the expected shape that
   # the real regression test below actually enforces against the script.
   def test_document_resolves_nested_readback
-    readback = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    readback = { 'workbookId' => 'w', 'contents' => { 'pages' => [{ 'id' => 'p1' }] } }
     assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(readback)['pages']
     assert_nil readback['pages'], 'proves the old flat read was nil'
+    legacy = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(legacy)['pages'], 'retired /spec readback still reads'
   end
 
   # Real regression signal: the script must route its GET readback through
@@ -34,5 +36,7 @@ class TestPhase6ParityShape < Minitest::Test
     src = File.read(File.join(__dir__, '..', SCRIPT_NAME))
     assert_match(/Sigma::CodeRep\.document\(/, src,
                  "#{SCRIPT_NAME} must unwrap the GET readback via Sigma::CodeRep.document(...)")
+    assert_match(/Sigma::CodeRep\.read_path\(/, src,
+                 "#{SCRIPT_NAME} must GET the workbook via Sigma::CodeRep.read_path(...), not /spec")
   end
 end

@@ -44,7 +44,7 @@ dashboards as the **same** `Dashboard` JSON. So the dashboard converter keys off
 | **0 — Assess** | Scope the Looker estate (inventory, complexity, shortlist). Defer to the `looker-assessment` sibling skill. | *(separate skill)* |
 | **1 — Discover** | List explores + dashboards; pull a dashboard into the normalized contract (UDD or LookML), or parse `.dashboard.lookml` offline | `looker_api.py`, `fetch_looker_dashboard.py`, `parse_lookml_dashboard.py` · **Looker REST API 4.0 / Looker MCP** |
 | **2 — Convert semantic model** | LookML views+model → Sigma DM spec; POST + register + verify | `convert_lookml_to_sigma` (MCP) · `convert_dm.mjs`, `post_dm.py` · **Sigma REST** (`/v2/dataModels/spec`) |
-| **3 — Convert dashboards** | Each Looker dashboard's tiles → Sigma elements, filters → controls, newspaper layout → 24-col grid | `fetch_looker_dashboard.py`, `build_workbook.py` · **Sigma REST** (`/v2/workbooks/spec`) |
+| **3 — Convert dashboards** | Each Looker dashboard's tiles → Sigma elements, filters → controls, newspaper layout → 24-col grid | `fetch_looker_dashboard.py`, `build_workbook.py` · **Sigma REST** (`POST /v2/workbooks`) |
 | **4 — Parity** | 3-way compare: Looker `run_inline_query` vs Sigma `query` vs warehouse | **Sigma MCP (sigma-mcp-v2)** + Looker API |
 | **5 — Enhance** | Wire UI-only features post-publish (cross-filtering, tooltips, 2nd-KPI comparisons) | *(judgment)* |
 
@@ -73,7 +73,7 @@ never run them against a customer's Looker.
   spec, resolving measure `${dim}`/`${measure}` refs and wiring snowflake (multi-hop) joins.
 - **Sigma REST API** (valid bearer → browser-keychain refresh → client fallback,
   with proactive aging and one 401 retry) — `/v2/dataModels/spec`,
-  `/v2/workbooks/spec`, `/v2/files`. Run `scripts/browser-login.sh` once for the
+  `/v2/workbooks`, `/v2/files`. Run `scripts/browser-login.sh` once for the
   preferred interactive setup; migration scripts self-authenticate afterward.
 - **Sigma MCP** (`sigma-mcp-v2`) — live parity queries in Phase 4.
 - **Warehouse** — reached through the Sigma connection (warehouse-agnostic). Looker needs its
