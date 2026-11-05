@@ -103,19 +103,27 @@ def test_reference_gate_catches_stale_snapshots_and_error_only_columns():
 
 def test_version_and_content_fingerprint_detect_remote_drift():
     base = {
-        "latestDocumentVersion": 10,
-        "document": {"elements": [{"id": "a", "name": "Before"}]},
+        "latestVersion": 10,
+        "contents": {"elements": [{"id": "a", "name": "Before"}]},
     }
     saved = fingerprint(base)
     assert not remote_drifted(saved, copy.deepcopy(base))
 
     version_changed = copy.deepcopy(base)
-    version_changed["latestDocumentVersion"] = 11
+    version_changed["latestVersion"] = 11
     assert remote_drifted(saved, version_changed)
 
     content_changed = copy.deepcopy(base)
-    content_changed["document"]["elements"][0]["name"] = "Human edit"
+    content_changed["contents"]["elements"][0]["name"] = "Human edit"
     assert remote_drifted(saved, content_changed)
+
+    # The retired /spec readback (`document` + latestDocumentVersion) hashes to the
+    # same fingerprint, so a base saved before the endpoint move still compares.
+    legacy = {
+        "latestDocumentVersion": 10,
+        "document": copy.deepcopy(base["contents"]),
+    }
+    assert not remote_drifted(saved, legacy)
 
 
 if __name__ == "__main__":

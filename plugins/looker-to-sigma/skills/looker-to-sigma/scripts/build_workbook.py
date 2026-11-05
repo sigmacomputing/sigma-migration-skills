@@ -3,7 +3,7 @@
 
 Consumes the normalized contract from parse_lookml_dashboard.py plus the
 explore's view .lkml files (to classify each view.field as a measure or a
-dimension and derive its Sigma formula). Emits a /v2/workbooks/spec body:
+dimension and derive its Sigma formula). Emits a workbook body for POST /v2/workbooks:
   - a hidden "Data" page with a master table sourced from a data-model element
   - a dashboard page with one element per Looker tile (kpi/bar/area/line/donut/table)
   - controls from dashboard filters
@@ -2123,7 +2123,7 @@ def main():
     # native trellis was actually emitted (a dashboard with no small-multiples tile
     # stays byte-identical: no file). Sigma silently STRIPS an unsupported trellis on
     # readback and renders flat with no error, so after the live POST the shared
-    # verify-trellis-survived.rb re-reads GET /v2/workbooks/{id}/spec and asserts
+    # verify-trellis-survived.rb re-reads GET /v2/workbooks/{id}?includeContents=true and asserts
     # each element below still carries its `trellis.<axis>` key.
     if trellis_records:
         nt_path = os.path.join(os.path.dirname(os.path.abspath(a.out)), "native-trellis-emitted.json")
