@@ -52,7 +52,7 @@ if [ "$fail" -eq 0 ]; then
   if [ "$v" = "1" ]; then
     note "ok: wb-spec.json carries document.schemaVersion: 1"
   else
-    note "FAIL: wb-spec.json document.schemaVersion is $v, expected 1 (POST /v2/workbooks/spec 400s without it)"
+    note "FAIL: wb-spec.json document.schemaVersion is $v, expected 1 (POST /v2/workbooks 400s without it)"
     fail=1
   fi
 
