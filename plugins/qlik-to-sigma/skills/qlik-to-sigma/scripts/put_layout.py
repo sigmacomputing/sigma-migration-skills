@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lib import sigma_rest
-from lib.code_rep import canonicalize_layout, document, metadata, wrap
+from lib.code_rep import (
+    canonicalize_layout, document, metadata, read_path, update_body, update_path,
+)
 
 
 def comparable_layout(xml: str) -> str:
@@ -55,7 +57,7 @@ def apply_layout(
                 spec["elements"].append(element)
                 existing.add(element_id)
                 count += 1
-    return wrap(spec), count
+    return update_body(spec), count
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         xml = layout_path.read_text(encoding="utf-8")
         raw_spec = sigma_rest.request(
-            "get", f"/v2/workbooks/{args.workbook}/spec"
+            "get", read_path(args.workbook)
         )
         sidecar = Path(args.elements) if args.elements else Path(str(layout_path) + ".elements.json")
         injected = (
@@ -84,14 +86,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         response = sigma_rest.request(
             "put",
-            f"/v2/workbooks/{args.workbook}/spec",
+            update_path(args.workbook),
             body=json.dumps(payload),
             accept="*/*",
         )
-        check = sigma_rest.request("get", f"/v2/workbooks/{args.workbook}/spec")
+        check = sigma_rest.request("get", read_path(args.workbook))
         expected_layout = comparable_layout(xml)
         if comparable_layout(document(check).get("layout") or "") != expected_layout:
-            raise ValueError("layout PUT did not survive workbook spec readback")
+            raise ValueError("layout PUT did not survive workbook readback")
     except (OSError, ValueError, json.JSONDecodeError, sigma_rest.SigmaError) as exc:
         print(f"put-layout: {exc}", file=sys.stderr)
         return 1

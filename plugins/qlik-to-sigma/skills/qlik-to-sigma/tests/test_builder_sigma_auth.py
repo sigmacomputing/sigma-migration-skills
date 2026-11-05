@@ -120,7 +120,7 @@ class BuilderSigmaAuthTest(unittest.TestCase):
         ):
             dm_result = DM.api("POST", "/v2/dataModels/spec", {"name": "DM"})
             workbook_result = WORKBOOK.api_post(
-                "/v2/workbooks/spec", {"name": "Workbook"}
+                "/v2/workbooks", {"name": "Workbook"}
             )
 
         self.assertEqual(dm_yaml, dm_result)
@@ -130,11 +130,11 @@ class BuilderSigmaAuthTest(unittest.TestCase):
         raw = '{"workbookId":"wb-1"}\n'
         self.queue = [(200, raw)]
         env = {"SIGMA_BASE_URL": self.BASE, "SIGMA_API_TOKEN": "caller-token"}
-        body = {"document": {"schemaVersion": 1}}
+        body = {"contents": {"schemaVersion": 1}}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(
             sigma_rest, "_send", side_effect=self.send
         ):
-            result = WORKBOOK.api_put("/v2/workbooks/wb-1/spec", body)
+            result = WORKBOOK.api_put("/v2/workbooks/wb-1/contents", body)
 
         self.assertEqual(raw, result)
         self.assertEqual("put", self.calls[0]["method"])
@@ -146,7 +146,7 @@ class BuilderSigmaAuthTest(unittest.TestCase):
             ("data-model", lambda: DM.api("GET", "/v2/whoami"), {"userId": "browser"}),
             (
                 "workbook",
-                lambda: WORKBOOK.api_post("/v2/workbooks/spec", {"name": "WB"}),
+                lambda: WORKBOOK.api_post("/v2/workbooks", {"name": "WB"}),
                 '{"workbookId":"wb-browser"}',
             ),
         )
@@ -178,7 +178,7 @@ class BuilderSigmaAuthTest(unittest.TestCase):
             ("data-model", lambda: DM.api("GET", "/v2/test"), {"ok": True}),
             (
                 "workbook",
-                lambda: WORKBOOK.api_post("/v2/workbooks/spec", {"name": "WB"}),
+                lambda: WORKBOOK.api_post("/v2/workbooks", {"name": "WB"}),
                 '{"ok":true}',
             ),
         )
@@ -217,7 +217,7 @@ class BuilderSigmaAuthTest(unittest.TestCase):
             sigma_rest, "_send", side_effect=self.send
         ):
             with self.assertRaisesRegex(sigma_rest.SigmaError, "401"):
-                WORKBOOK.api_put("/v2/workbooks/wb-1/spec", {"document": {}})
+                WORKBOOK.api_put("/v2/workbooks/wb-1/contents", {"contents": {}})
 
         self.assertEqual(2, len(self.calls))
         provider.assert_called_once()
