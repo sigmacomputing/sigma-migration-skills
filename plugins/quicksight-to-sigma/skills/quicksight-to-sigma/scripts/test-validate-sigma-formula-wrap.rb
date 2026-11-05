@@ -1,14 +1,14 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # test-validate-sigma-formula-wrap.rb — regression test for the workbook
-# code-rep `document` wrap in scripts/validate-sigma-formula.rb (the
+# code-rep `contents` wrap in scripts/validate-sigma-formula.rb (the
 # singleton probe POST — this plugin's copy has no --batch mode).
 #
 # This is a PLUGIN-LOCAL test (not the shared/scripts canonical
 # test-validate-sigma-formula-cleanup.rb, which this repo syncs byte-identical
 # across plugins per the shared-file manifest and which this fix does not
-# touch) — it exists specifically to prove the `document` envelope on the
-# `POST /v2/workbooks/spec` call site this fix wraps. Mirrors
+# touch) — it exists specifically to prove the `contents` envelope on the
+# `POST /v2/workbooks` call site this fix wraps. Mirrors
 # tableau-to-sigma's test-validate-sigma-formula-wrap.rb (bead task-3.9).
 #
 # Same offline seam convention as test-validate-sigma-formula-cleanup.rb:
@@ -34,7 +34,7 @@ SIGMA_STUB = <<~RUBY
         File.open(ENV['SIGMA_STUB_LOG'], 'a') { |f| f.puts JSON.generate('method' => method.to_s, 'path' => path, 'body' => body) }
       end
       case
-      when method == :post && path == '/v2/workbooks/spec'
+      when method == :post && path == '/v2/workbooks'
         { 'workbookId' => 'wb-scout-1' }
       when method == :get && path.include?('/dataModels/')
         { 'schemaVersion' => 1, 'pages' => [{ 'elements' => [
@@ -72,7 +72,7 @@ end
 def posts(log)
   return [] unless File.exist?(log)
   File.readlines(log).map { |l| JSON.parse(l) }
-      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks/spec' }
+      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks' }
 end
 
 fails = []
@@ -81,7 +81,7 @@ def check(cond, msg, fails)
   puts "  #{cond ? 'PASS' : 'FAIL'}  #{msg}"
 end
 
-puts '== validate-sigma-formula (singleton): probe POST must carry the `document` envelope =='
+puts '== validate-sigma-formula (singleton): probe POST must carry the `contents` envelope =='
 Dir.mktmpdir do |dir|
   log = File.join(dir, 'stub.log')
   _out, err, st = run_validate(dir, log, '--formula', 'Sum([Master/Gross Revenue])')
@@ -90,12 +90,12 @@ Dir.mktmpdir do |dir|
   check(p.size == 1, "exactly one probe POST (got #{p.size})", fails)
   if p.size == 1
     body = JSON.parse(p.first['body'])
-    check(body.key?('document') && body['document'].is_a?(Hash), 'POST body carries a top-level `document` key', fails)
+    check(body.key?('contents') && body['contents'].is_a?(Hash), 'POST body carries a top-level `contents` key', fails)
     check(!body.key?('pages') && !body.key?('schemaVersion'),
           'POST body has NO top-level pages/schemaVersion (must be nested)', fails)
-    doc = body['document'].is_a?(Hash) ? body['document'] : {}
-    check(doc['pages'].is_a?(Array) && !doc['pages'].empty?, 'wrapped document carries pages', fails)
-    check(body['name'].to_s.start_with?('[scout-test]'), 'name stays OUTSIDE document as metadata', fails)
+    doc = body['contents'].is_a?(Hash) ? body['contents'] : {}
+    check(doc['pages'].is_a?(Array) && !doc['pages'].empty?, 'wrapped contents carry pages', fails)
+    check(body['name'].to_s.start_with?('[scout-test]'), 'name stays OUTSIDE contents as metadata', fails)
   end
 end
 
