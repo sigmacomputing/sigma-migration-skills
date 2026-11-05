@@ -851,6 +851,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-fabric-resolve.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-model-pbix.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-report-classic.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-semantic-context.py
             shared/lib/test_plugin_embed.py
             shared/lib/test_composition.py
             shared/lib/tests/test_code_rep.py
