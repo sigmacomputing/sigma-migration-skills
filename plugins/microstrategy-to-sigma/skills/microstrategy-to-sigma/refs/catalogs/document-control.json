@@ -1,0 +1,170 @@
+{
+  "dimension": "document-control",
+  "source_tool": "microstrategy",
+  "authoritative_doc": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Create_a_sample_invoice_document.htm",
+  "sigma_target_doc": "refs/rs-document-reports.md",
+  "on_unmapped_default": "record a BLOCKING feature gap and emit nothing for that control — never a silent approximation",
+  "description": "MicroStrategy Report Services document construct -> Sigma Report (POST /v2/reports) construct, resolved by scripts/convert-rs-document.py. Keys are namespaced: `control:<type>` (layout control type), `section:<kind>` (document section), `line-style:<style>` (line/rectangle border style), `autotext:<code>` (auto text code inside a text field). sigma_verified y = the emitted shape passed a non-persistent POST /v2/reports dryRun on the given date; it is NOT evidence of PDF rendering, which still needs create + export + visual comparison.",
+  "rows": [
+    {
+      "source": "control:text",
+      "sigma": "text",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_static_text_to_the_document.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Static text keeps its literal; {Attribute} / {[Attribute]} / {Attribute@FORM} / {Metric} tokens become {{First([<dataset>/<col>])}} or {{<Agg>([<dataset>/<col>]) | fmt}} over the detail table (dryRun-verified 2026-10-29). Bold/italic/size/colour/background become the text element's Markdown/span subset; points convert at 96/72."
+    },
+    {
+      "source": "control:image",
+      "sigma": "image",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_the_logo_image_to_the_document.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Needs an HTTPS URL (source.kind url). An image control without a resolvable URL is recorded as a gap, never replaced with an invented asset."
+    },
+    {
+      "source": "control:line",
+      "sigma": "divider",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Horizontal divider; weight -> style.width px; Length mode 100% -> full content width."
+    },
+    {
+      "source": "control:rectangle",
+      "sigma": "divider | table header background",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_rectangle_to_the_document.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Sigma Reports have no rectangle element. A band behind the Detail Header becomes the detail table's column-header background; a band no taller than 0.1 in becomes a divider of that thickness; any other rectangle is a layout gap."
+    },
+    {
+      "source": "section:page-header",
+      "sigma": "panel type=header",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Repeats on every printed page in both tools; panel height = section height."
+    },
+    {
+      "source": "section:page-footer",
+      "sigma": "panel type=footer",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Same as page-header."
+    },
+    {
+      "source": "section:document-header",
+      "sigma": "page body (top)",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Absolute-positioned elements at the top of the body page."
+    },
+    {
+      "source": "section:document-footer",
+      "sigma": "page body (after the detail box)",
+      "doc_ref": "https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Fixed position below the detail box; content after a paginated table does not reflow in Sigma."
+    },
+    {
+      "source": "section:group-header",
+      "sigma": "invoice mode: positioned text over the selected group | banded mode: table grouping keys",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Grouping_the_document_by_customer.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Page break between groups -> invoice mode: one page template driven by a single-select list control on a hidden page; one PDF per group value via a Sigma schedule. report-repeated-container cannot carry it (2026-10-29 dryRun: row-bound text returns 'Dependency not found'; table/kpi children are not allowed)."
+    },
+    {
+      "source": "section:group-footer",
+      "sigma": "invoice mode: positioned text over the selected group | banded mode: grouping calculations",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Grouping_the_document_by_customer.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Metrics placed here are group subtotals."
+    },
+    {
+      "source": "section:detail-header",
+      "sigma": "detail table column headers",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Creating_the_column_headers_in_the_Detail_Header_s.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Each header text field names the detail column it is left-aligned with."
+    },
+    {
+      "source": "section:detail",
+      "sigma": "table (flow=paginated)",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Creating_the_item_detail_in_the_Detail_section.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "One column per data field, ordered by Left; static text inside the Detail section has no per-row equivalent and is a gap."
+    },
+    {
+      "source": "section:detail-footer",
+      "sigma": "invoice mode: positioned text | banded mode: grouping calculations",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_totals_to_a_document.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "A metric here is the subtotal of the Detail rows (the guide's documented semantics)."
+    },
+    {
+      "source": "line-style:solid",
+      "sigma": "solid",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": ""
+    },
+    {
+      "source": "line-style:dashed",
+      "sigma": "dashed",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "n/a",
+      "notes": ""
+    },
+    {
+      "source": "line-style:dotted",
+      "sigma": "dotted",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm",
+      "sigma_verified": {"status": "n"},
+      "on_unmapped": "n/a",
+      "notes": ""
+    },
+    {
+      "source": "line-style:double",
+      "sigma": "solid",
+      "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Sigma dividers have no double stroke; emitted solid at the same total weight and recorded as a layout gap."
+    },
+    {
+      "source": "autotext:&page",
+      "sigma": "{{CurrentPageNumber()}}",
+      "doc_ref": "https://www2.strategy.com/producthelp/Current/DocumentAuthoring/en-us/Content/auto_text_doc.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Sigma numbers pages across the whole report; MicroStrategy can restart numbering per group."
+    },
+    {
+      "source": "autotext:&npages",
+      "sigma": "{{TotalPageCount()}}",
+      "doc_ref": "https://www2.strategy.com/producthelp/Current/DocumentAuthoring/en-us/Content/auto_text_doc.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Some MicroStrategy versions spell this {&PAGES}; both resolve here."
+    },
+    {
+      "source": "autotext:&pages",
+      "sigma": "{{TotalPageCount()}}",
+      "doc_ref": "https://www2.strategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/auto_text_codes_documents.htm",
+      "sigma_verified": {"status": "y", "date": "2026-10-29"},
+      "on_unmapped": "n/a",
+      "notes": "Report Designer spelling of {&NPAGES}."
+    }
+  ]
+}

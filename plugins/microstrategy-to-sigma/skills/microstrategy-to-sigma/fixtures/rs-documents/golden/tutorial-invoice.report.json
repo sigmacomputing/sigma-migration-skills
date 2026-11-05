@@ -1,0 +1,353 @@
+{
+  "name": "Customer Invoice",
+  "folderId": "{{FOLDER_ID}}",
+  "description": "Converted from the MicroStrategy Report Services document 'Customer Invoice' (invoice mode) by microstrategy-to-sigma/convert-rs-document.py.",
+  "contents": {
+    "schemaVersion": 1,
+    "kind": "report",
+    "config": {
+      "pageWidth": 816,
+      "pageHeight": 1056,
+      "margin": 48
+    },
+    "elements": [
+      {
+        "id": "rs-detail",
+        "kind": "table",
+        "name": "Invoice Lines",
+        "source": {
+          "kind": "warehouse-table",
+          "connectionId": "00000000-0000-0000-0000-000000000000",
+          "path": [
+            "MSTR_TUTORIAL",
+            "PUBLIC",
+            "INVOICE_LINES"
+          ]
+        },
+        "columns": [
+          {
+            "id": "col-day",
+            "formula": "[INVOICE_LINES/Day Date]",
+            "name": "Date",
+            "format": {
+              "kind": "datetime",
+              "formatString": "%m/%d/%Y"
+            },
+            "hidden": false
+          },
+          {
+            "id": "col-item-id",
+            "formula": "[INVOICE_LINES/Item Id]",
+            "name": "Item #",
+            "hidden": false
+          },
+          {
+            "id": "col-item",
+            "formula": "[INVOICE_LINES/Item Name]",
+            "name": "Item Description",
+            "hidden": false
+          },
+          {
+            "id": "col-cost",
+            "formula": "[INVOICE_LINES/Cost]",
+            "name": "Amount",
+            "hidden": false,
+            "format": {
+              "kind": "number",
+              "formatString": "$,.2f"
+            }
+          },
+          {
+            "id": "col-customer",
+            "formula": "[INVOICE_LINES/Customer Name]",
+            "name": "Customer",
+            "hidden": true
+          },
+          {
+            "id": "col-customer-city",
+            "formula": "[INVOICE_LINES/Customer City]",
+            "name": "Customer City",
+            "hidden": true
+          },
+          {
+            "id": "col-customer-state",
+            "formula": "[INVOICE_LINES/Customer State]",
+            "name": "Customer State",
+            "hidden": true
+          },
+          {
+            "id": "col-customer-id",
+            "formula": "[INVOICE_LINES/Customer Id]",
+            "name": "Customer ID",
+            "hidden": true
+          },
+          {
+            "id": "col-ship-date",
+            "formula": "[INVOICE_LINES/Ship Date]",
+            "name": "Ship Date",
+            "format": {
+              "kind": "datetime",
+              "formatString": "%m/%d/%Y"
+            },
+            "hidden": true
+          }
+        ],
+        "order": [
+          "col-day",
+          "col-item-id",
+          "col-item",
+          "col-cost",
+          "col-customer",
+          "col-customer-city",
+          "col-customer-state",
+          "col-customer-id",
+          "col-ship-date"
+        ],
+        "filters": [
+          {
+            "id": "flt-day",
+            "columnId": "col-day",
+            "kind": "date-range",
+            "mode": "between",
+            "startDate": "2005-01-01T00:00:00Z",
+            "endDate": "2005-03-31T23:59:59Z"
+          },
+          {
+            "id": "flt-customer",
+            "columnId": "col-customer",
+            "kind": "list",
+            "mode": "include",
+            "values": [
+              "Aaronson Maxwell",
+              "Ballin Stephen"
+            ]
+          }
+        ],
+        "sort": [
+          {
+            "columnId": "col-customer",
+            "direction": "ascending"
+          },
+          {
+            "columnId": "col-day",
+            "direction": "ascending"
+          },
+          {
+            "columnId": "col-item-id",
+            "direction": "ascending"
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "gridLines": "none",
+          "banding": "hidden",
+          "outerBorder": "hidden",
+          "textStyles": {
+            "columnHeader": {
+              "backgroundColor": "#C0C0C0",
+              "fontWeight": "bold",
+              "fontSize": 13,
+              "font": "Arial"
+            },
+            "cell": {
+              "fontSize": 13,
+              "font": "Arial"
+            }
+          }
+        }
+      },
+      {
+        "id": "rs-title",
+        "kind": "text",
+        "body": "<span style=\"font-size: 24px; font-family: Arial\">***Customer Invoice***</span>"
+      },
+      {
+        "id": "rs-header-band",
+        "kind": "divider",
+        "direction": "horizontal",
+        "style": {
+          "width": 6,
+          "strokeStyle": "solid",
+          "color": "#808080"
+        }
+      },
+      {
+        "id": "rs-bill-to-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**Bill To:**</span>"
+      },
+      {
+        "id": "rs-customer-name",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">{{First([Invoice Lines/Customer])}}</span>"
+      },
+      {
+        "id": "rs-customer-city-state",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">{{First([Invoice Lines/Customer City])}}, {{First([Invoice Lines/Customer State])}}</span>"
+      },
+      {
+        "id": "rs-invoice-no-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**Invoice #**</span>"
+      },
+      {
+        "id": "rs-invoice-date-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**Invoice Date**</span>"
+      },
+      {
+        "id": "rs-due-date-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**Due Date**</span>"
+      },
+      {
+        "id": "rs-customer-id",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">{{First([Invoice Lines/Customer ID])}}</span>"
+      },
+      {
+        "id": "rs-invoice-date",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">{{First([Invoice Lines/Ship Date]) | %m/%d/%Y}}</span>"
+      },
+      {
+        "id": "rs-due-date",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">{{First([Invoice Lines/Ship Date]) | %m/%d/%Y}}</span>"
+      },
+      {
+        "id": "rs-remit-to-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">Remit To:</span>"
+      },
+      {
+        "id": "rs-remit-to-address",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">MicroStrategy, Inc.</span>\\\n<span style=\"font-size: 13px; font-family: Arial\">1861 International Drive</span>\\\n<span style=\"font-size: 13px; font-family: Arial\">McLean, VA 22102</span>"
+      },
+      {
+        "id": "rs-header-rule",
+        "kind": "divider",
+        "direction": "horizontal",
+        "style": {
+          "width": 3,
+          "strokeStyle": "solid",
+          "color": "#000000"
+        }
+      },
+      {
+        "id": "rs-footer-rule",
+        "kind": "divider",
+        "direction": "horizontal",
+        "style": {
+          "width": 3,
+          "strokeStyle": "solid",
+          "color": "#000000"
+        }
+      },
+      {
+        "id": "rs-total-charge-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">Total Charge</span>"
+      },
+      {
+        "id": "rs-total-charge",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**{{Sum([Invoice Lines/Amount]) | $,.2f}}**</span>"
+      },
+      {
+        "id": "rs-total-tax-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">Total Tax</span>"
+      },
+      {
+        "id": "rs-tax-rule",
+        "kind": "divider",
+        "direction": "horizontal",
+        "style": {
+          "width": 3,
+          "strokeStyle": "solid",
+          "color": "#000000"
+        }
+      },
+      {
+        "id": "rs-total-due-label",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">Total Due</span>"
+      },
+      {
+        "id": "rs-total-due",
+        "kind": "text",
+        "body": "<span style=\"font-size: 13px; font-family: Arial\">**{{Sum([Invoice Lines/Amount])}}**</span>"
+      },
+      {
+        "id": "rs-total-due-rule",
+        "kind": "divider",
+        "direction": "horizontal",
+        "style": {
+          "width": 1,
+          "strokeStyle": "solid",
+          "color": "#000000"
+        }
+      },
+      {
+        "id": "rs-terms",
+        "kind": "text",
+        "body": "<span style=\"font-size: 11px; font-family: Arial\">Terms: Net 30 Days, Plus 1.5% per month after 30 days</span>"
+      },
+      {
+        "id": "rs-ctl-customer",
+        "kind": "control",
+        "controlId": "rs-group-customer",
+        "name": "Customer",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "single",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "rs-detail"
+          },
+          "columnId": "col-customer"
+        },
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "rs-detail"
+            },
+            "columnId": "col-customer"
+          }
+        ],
+        "value": "Aaronson Maxwell"
+      }
+    ],
+    "pages": [
+      {
+        "id": "rs-page-tutorial-invoice",
+        "name": "Customer Invoice"
+      },
+      {
+        "id": "rs-page-parameters",
+        "name": "Parameters",
+        "visibility": "hidden"
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page id=\"rs-page-tutorial-invoice\">\n  <Element elementId=\"rs-bill-to-label\" x=\"81\" y=\"94\" width=\"96\" height=\"24\"/>\n  <Element elementId=\"rs-customer-name\" x=\"59\" y=\"127\" width=\"240\" height=\"24\"/>\n  <Element elementId=\"rs-customer-city-state\" x=\"59\" y=\"143\" width=\"240\" height=\"24\"/>\n  <Element elementId=\"rs-invoice-no-label\" x=\"300\" y=\"110\" width=\"91\" height=\"24\"/>\n  <Element elementId=\"rs-invoice-date-label\" x=\"300\" y=\"127\" width=\"91\" height=\"24\"/>\n  <Element elementId=\"rs-due-date-label\" x=\"300\" y=\"143\" width=\"91\" height=\"24\"/>\n  <Element elementId=\"rs-customer-id\" x=\"395\" y=\"110\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-invoice-date\" x=\"395\" y=\"127\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-due-date\" x=\"395\" y=\"143\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-remit-to-label\" x=\"559\" y=\"110\" width=\"158\" height=\"24\"/>\n  <Element elementId=\"rs-remit-to-address\" x=\"559\" y=\"127\" width=\"158\" height=\"72\"/>\n  <Element elementId=\"rs-header-rule\" x=\"48\" y=\"185\" width=\"720\" height=\"5\"/>\n  <Element elementId=\"rs-detail\" x=\"48\" y=\"192\" width=\"720\" height=\"264\" flow=\"paginated\"/>\n  <Element elementId=\"rs-footer-rule\" x=\"48\" y=\"457\" width=\"720\" height=\"5\"/>\n  <Element elementId=\"rs-total-charge-label\" x=\"385\" y=\"466\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-total-charge\" x=\"594\" y=\"466\" width=\"96\" height=\"24\"/>\n  <Element elementId=\"rs-total-tax-label\" x=\"385\" y=\"487\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-tax-rule\" x=\"584\" y=\"502\" width=\"136\" height=\"5\"/>\n  <Element elementId=\"rs-total-due-label\" x=\"385\" y=\"508\" width=\"115\" height=\"24\"/>\n  <Element elementId=\"rs-total-due\" x=\"594\" y=\"508\" width=\"96\" height=\"24\"/>\n  <Element elementId=\"rs-total-due-rule\" x=\"379\" y=\"522\" width=\"341\" height=\"4\"/>\n  <Element elementId=\"rs-terms\" x=\"246\" y=\"530\" width=\"288\" height=\"24\"/>\n</Page>\n<Page id=\"rs-page-parameters\">\n  <Element elementId=\"rs-ctl-customer\" x=\"48\" y=\"48\" width=\"320\" height=\"48\"/>\n</Page>\n<Panel id=\"rs-panel-header\" type=\"header\">\n  <Element elementId=\"rs-title\" x=\"465\" y=\"3\" width=\"230\" height=\"24\"/>\n  <Element elementId=\"rs-header-band\" x=\"48\" y=\"33\" width=\"720\" height=\"6\"/>\n</Panel>",
+    "panels": [
+      {
+        "id": "rs-panel-header",
+        "type": "header",
+        "title": "Customer Invoice header",
+        "pages": [
+          "rs-page-tutorial-invoice"
+        ],
+        "config": {
+          "height": 43
+        }
+      }
+    ]
+  }
+}

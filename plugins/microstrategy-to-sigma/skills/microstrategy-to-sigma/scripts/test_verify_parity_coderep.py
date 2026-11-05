@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """test_verify_parity_coderep.py — verify_parity.py's workbook code-rep
-`document` envelope handling (2026-08, task 3.9).
+`contents` envelope handling.
 
-Before this fix: the report-name -> element-id map built from the workbook
-spec readback read `spec["pages"]` straight off the raw response — the live
-workbook code-rep surface nests pages under a top-level `document` key, so
-this was always a KeyError, and every parity run died before comparing a
+Guards: the report-name -> element-id map built from the workbook readback
+(GET /v2/workbooks/{id}?includeContents=true) must unwrap the top-level
+`contents` key; reading `spec["pages"]` straight off the raw response is
+always a KeyError, and every parity run died before comparing a
 single row ("no workbook element named ...").
 
 Offline: monkeypatches api() and export_element() (the module's only network
@@ -44,11 +44,11 @@ def _load_module():
 
 VP = _load_module()
 
-# The LIVE shape: non-metadata fields (pages) nested under `document`.
+# The LIVE shape: non-metadata fields (pages) nested under `contents`.
 NESTED_SPEC = {
     "workbookId": "wb-test",
     "name": "Test WB",
-    "document": {
+    "contents": {
         "schemaVersion": 3,
         "kind": "workbook",
         "pages": [{"id": "pg1", "name": "Overview"}],
@@ -63,7 +63,7 @@ get_calls = {"n": 0}
 
 
 def fake_api(method, path, body=None, raw=False):
-    assert method == "GET" and path == "/v2/workbooks/wb-test/spec", (method, path)
+    assert method == "GET" and path == "/v2/workbooks/wb-test?includeContents=true", (method, path)
     get_calls["n"] += 1
     return 200, json.dumps(NESTED_SPEC)
 

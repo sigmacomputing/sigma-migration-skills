@@ -30,7 +30,7 @@ Usage:
       [--data-model-id <uuid>] [--orders-element-id <id>]
 
 Outputs sigma_dm_spec.json and sigma_workbook_spec.json. The workbook uses outer
-metadata plus document:{schemaVersion,kind,pages,elements,layout}; pages are
+metadata plus contents:{schemaVersion,kind,pages,elements,layout}; pages are
 metadata-only and elements are flat. The data-model spec keeps pages[].elements.
 Workbook data-model references use placeholders {{DATA_MODEL_ID}} /
 {{ORDERS_ELEMENT_ID}} unless the corresponding args are given.
@@ -52,9 +52,10 @@ import sys
 # the [bead] / -93ps contract: catalog = data, code = thin resolver.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import coverage_catalog as _cc  # noqa: E402
-import code_rep as _cr          # noqa: E402  workbook-only document envelope/flat elements
+import code_rep as _cr          # noqa: E402  workbook-only contents envelope/flat elements
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 import multifact as _mf         # noqa: E402  report/fact topology + conformed SQL contract
+import sql_dataset as _sd       # noqa: E402  read-only single-statement SQL guard (shared with convert-sql-datasets.py)
 _CAT_DIR = _cc.default_catalog_dir(__file__)
 AGG_CAT = _cc.load(_CAT_DIR, "aggregation")     # MSTR group function -> Sigma/SQL aggregate
 FMT_CAT = _cc.load(_CAT_DIR, "number-format")   # MSTR format category -> Sigma number format
@@ -110,8 +111,27 @@ def slug(s: str) -> str:
 
 
 # ---------------------------------------------------------------- bundle model
+def _refuse_sql_datasets(raw):
+    """extract.py parks hand-written (Freeform SQL) datasets in bundle["sqlDatasets"]
+    because they have no semantic model. The dossier converter cannot bind them yet,
+    so stop loudly instead of building a workbook that silently lacks their data."""
+    sql_datasets = raw.get("sqlDatasets")
+    if not sql_datasets:
+        return
+    named = "; ".join(
+        f"{d.get('name') or '<unnamed>'} ({d.get('reportId') or rid})"
+        + (f" [capture failed: {d['error']}]" if d.get("error") else "")
+        for rid, d in sql_datasets.items())
+    raise SystemExit(
+        "bundle carries hand-written (Freeform SQL) datasets that have no semantic "
+        f"model: {named}. Convert them with scripts/convert-sql-datasets.py "
+        "(see refs/sql-datasets.md). Binding them into a dossier workbook is not "
+        "wired yet, so convert.py will not build this dossier.")
+
+
 class Bundle:
     def __init__(self, raw, allow_multi_fact=False):
+        _refuse_sql_datasets(raw)
         self.raw = raw
         # LOUD-fallback sink: catalog resolvers append standardized warnings here
         # (aggregation / number-format) from deep in the emit recursion; main()
@@ -1912,10 +1932,11 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
                      "featureGaps": feature_warnings}
 
     # Workbook code-rep is distinct from the data-model surface above:
-    # metadata stays outside `document`; pages are metadata-only; elements are
-    # one flat document collection; and layout is required/authoritative for
-    # page membership. CodeRep.wrap is the sole write boundary so this cannot
-    # regress to the legacy page-nested body. Data-model nesting is deliberately
+    # metadata stays outside `contents`; pages are metadata-only; elements are
+    # one flat contents collection; and layout is required/authoritative for
+    # page membership. CodeRep.create_body is the sole write boundary so this
+    # cannot regress to the legacy page-nested body; its output is the exact
+    # `POST /v2/workbooks` body. Data-model nesting is deliberately
     # unchanged in build_dm_spec.
     document = {
         "schemaVersion": 1,
@@ -1932,7 +1953,7 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
         document["settings"] = {
             "navigation": {"pageTabsInViewMode": "shown"}
         }
-    workbook = _cr.wrap(
+    workbook = _cr.create_body(
         document,
         {"name": args.wb_name, "folderId": args.folder_id},
     )
@@ -1942,35 +1963,7 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
 def _load_conformed_sql(path):
     if not path:
         return None
-    statement = open(path, encoding="utf-8").read().strip()
-    if statement.endswith(";"):
-        statement = statement[:-1].rstrip()
-    if not statement:
-        raise SystemExit("--multi-fact-sql is empty")
-    if ";" in statement:
-        raise SystemExit(
-            "--multi-fact-sql must contain one SELECT/CTE statement; "
-            "multi-step or volatile-table plans are not accepted"
-        )
-    if not re.match(r"(?is)^(select|with)\b", statement):
-        raise SystemExit("--multi-fact-sql must start with SELECT or WITH")
-    forbidden = re.search(
-        r"(?is)\b(create\s+(?:or\s+replace\s+)?(?:volatile|temp(?:orary)?)"
-        r"|drop\s+table|insert\s+into|update\s+|delete\s+from|merge\s+into)\b",
-        statement)
-    if forbidden:
-        raise SystemExit(
-            "--multi-fact-sql must be a read-only single query; found "
-            f"{forbidden.group(1)!r}"
-        )
-    unresolved = re.search(r"\{\{|\}\}|\$\{|\%\([^)]+\)s", statement)
-    if unresolved:
-        raise SystemExit(
-            "--multi-fact-sql still contains an unresolved placeholder. "
-            "Resolve prompts/security substitutions from a live report "
-            "instance before conversion."
-        )
-    return statement
+    return _sd.guard_sql(open(path, encoding="utf-8").read(), "--multi-fact-sql")
 
 
 def main():

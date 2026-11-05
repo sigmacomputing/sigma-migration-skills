@@ -7,11 +7,31 @@ The bundle is the converter input: dossier definition (chapters/pages/vizzes),
 each dataset report's template, and the schema objects they reference —
 attributes (forms, expressions, lookup tables), facts, metrics (formula text),
 and logical tables (physical table + namespace + datasource).
+
+A dataset report with no schema objects (hand-written / Freeform SQL: the
+`/model/reports/{id}` call fails or has no attribute/metric units) cannot go
+through the semantic-model path. It is captured WITHOUT executing the report
+(lib/sql_dataset.py) and stored in `bundle['sqlDatasets'][reportId]` instead of
+`bundle['reports']`; convert.py refuses such a bundle and points at
+scripts/convert-sql-datasets.py.
 """
 import json
+import os
 import sys
 from datetime import datetime, timezone
 import mstr
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
+import sql_dataset  # noqa: E402  Freeform-SQL dataset capture (refs/sql-datasets.md)
+
+
+def _has_schema_units(report):
+    """True when the report template references attributes or metrics."""
+    units = (report.get('dataSource', {}).get('dataTemplate', {})
+             .get('units', []))
+    return any(u.get('type') == 'attribute'
+               or (u.get('type') == 'metrics' and u.get('elements'))
+               for u in units)
 
 
 def extract(s, dossier_id):
@@ -23,12 +43,27 @@ def extract(s, dossier_id):
         'dossier': s.get(f'/v2/dossiers/{dossier_id}/definition'),
     }
 
-    # datasets -> report definitions (template + data source)
+    # datasets -> report definitions (template + data source). A report without
+    # schema objects is a hand-written (Freeform SQL) dataset: capture its SQL
+    # instead (never executes the report; never fails the whole extract).
     reports = {}
+    bundle['sqlDatasets'] = {}
     for ds in bundle['dossier'].get('datasets', []):
         rid = ds['id']
-        reports[rid] = s.get(
-            f'/model/reports/{rid}?showExpressionAs=tokens')
+        report = None
+        try:
+            report = s.get(f'/model/reports/{rid}?showExpressionAs=tokens')
+        except RuntimeError:
+            pass
+        if report is not None and _has_schema_units(report):
+            reports[rid] = report
+            continue
+        try:
+            bundle['sqlDatasets'][rid] = sql_dataset.capture(
+                s, rid, allow_execute=False)
+        except Exception as e:  # noqa: BLE001 — record, keep extracting
+            bundle['sqlDatasets'][rid] = {
+                'reportId': rid, 'name': ds.get('name') or rid, 'error': str(e)}
     bundle['reports'] = reports
 
     # collect referenced attribute/metric ids from report templates
@@ -107,5 +142,6 @@ if __name__ == '__main__':
     b = extract(s, dossier_id)
     json.dump(b, open(out, 'w'), indent=1)
     print(f'wrote {out}: {len(b["reports"])} reports, '
+          f'{len(b["sqlDatasets"])} sqlDatasets, '
           f'{len(b["attributes"])} attributes, {len(b["metrics"])} metrics, '
           f'{len(b["facts"])} facts, {len(b["tables"])} tables')

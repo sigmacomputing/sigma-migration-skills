@@ -129,7 +129,7 @@ Duration: 3
   layout lint and the control-wiring lint (dossier selectors/chapter filters
   convert to Sigma controls wired to their declared viz targets).
 - The workbook artifact uses outer metadata plus
-  `document:{schemaVersion,kind,pages,elements,overlays,panels,layout,...}`:
+  `contents:{schemaVersion,kind,pages,elements,overlays,panels,layout,...}`:
   metadata-only pages, flat elements, explicit empty panel/overlay collections
   when none are grounded, and required authoritative layout. Data-model page
   nesting is unchanged.
