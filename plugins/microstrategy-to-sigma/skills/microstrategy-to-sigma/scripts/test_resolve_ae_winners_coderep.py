@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """test_resolve_ae_winners_coderep.py — resolve_ae_winners.py's workbook
-code-rep `document` envelope handling (2026-08, task 3.9).
+code-rep `contents` envelope handling.
 
-Before this fix: clean_groups_via_sigma() POSTed its throwaway probe workbook
-spec flat (a live 400) and, on GET readback, indexed the raw response with
-`["pages"][0]["elements"][0]["id"]` — the live workbook code-rep surface
-nests pages under a top-level `document` key, so that index was always a
-KeyError, and the probe's remapped element id was never recovered.
+Guards: clean_groups_via_sigma() must POST its throwaway probe workbook to
+/v2/workbooks wrapped under `contents` (a flat body is a live 400) and, on the
+GET ...?includeContents=true readback, unwrap the top-level `contents` key
+(indexing `["pages"][0]["elements"][0]["id"]` off the raw response is always a
+KeyError, so the probe's remapped element id would never be recovered).
 
 Offline: monkeypatches api() and export_element() (imported from
 verify_parity, the module's only network call sites) and runs the real
@@ -52,7 +52,7 @@ calls = {"post_body": None, "get_n": 0}
 NESTED_PROBE_READBACK = {
     "workbookId": "wb-probe-1",
     "name": "zz-ae-resolver-probe",
-    "document": {
+    "contents": {
         "schemaVersion": 1,
         "kind": "workbook",
         "pages": [{"id": "p1", "name": "P"}],
@@ -63,10 +63,10 @@ NESTED_PROBE_READBACK = {
 
 
 def fake_api(method, path, body=None, raw=False):
-    if method == "POST" and path == "/v2/workbooks/spec":
+    if method == "POST" and path == "/v2/workbooks":
         calls["post_body"] = body
         return 200, json.dumps({"workbookId": "wb-probe-1"})
-    if method == "GET" and path == "/v2/workbooks/wb-probe-1/spec":
+    if method == "GET" and path == "/v2/workbooks/wb-probe-1?includeContents=true":
         calls["get_n"] += 1
         return 200, json.dumps(NESTED_PROBE_READBACK)
     if method == "DELETE":
@@ -98,23 +98,23 @@ rows = RAW.clean_groups_via_sigma(FakeBundle(), args, {"id": "r1"}, "quirk-aid",
 check(rows == [{"key": "A", "val": "1"}], f"clean_groups_via_sigma returns the exported rows (got {rows})")
 post_body = calls["post_body"]
 check(post_body is not None, "a POST was issued")
-check(isinstance(post_body, dict) and isinstance(post_body.get("document"), dict),
-      "POST body carries a top-level `document` key (the wrap the bug omitted)")
+check(isinstance(post_body, dict) and isinstance(post_body.get("contents"), dict),
+      "POST body carries a top-level `contents` key (the wrap the bug omitted)")
 check(post_body is not None and "pages" not in post_body,
       "POST body has NO top-level `pages` (must be nested, not flat)")
-check(post_body is not None and isinstance(post_body["document"].get("pages"), list),
-      "wrapped document carries the probe's page")
-check(post_body is not None and post_body["document"]["pages"] == [{"id": "p1", "name": "P"}],
+check(post_body is not None and isinstance(post_body["contents"].get("pages"), list),
+      "wrapped contents carries the probe's page")
+check(post_body is not None and post_body["contents"]["pages"] == [{"id": "p1", "name": "P"}],
       "probe pages are metadata-only")
-check(post_body is not None and post_body["document"].get("elements", [{}])[0].get("id") == "t1",
-      "probe workbook elements are flat under document.elements")
-probe_layout = post_body["document"].get("layout", "") if post_body is not None else ""
+check(post_body is not None and post_body["contents"].get("elements", [{}])[0].get("id") == "t1",
+      "probe workbook elements are flat under contents.elements")
+probe_layout = post_body["contents"].get("layout", "") if post_body is not None else ""
 check('<Element elementId="t1"' in probe_layout,
       "probe carries required authoritative layout with the canonical Element tag")
 check("<LayoutElement" not in probe_layout and "<GridContainer" not in probe_layout,
       "probe layout does not emit rejected legacy tags")
 check(post_body is not None and post_body.get("name") == "zz-ae-resolver-probe",
-      "name stays OUTSIDE document as metadata")
+      "name stays OUTSIDE contents as metadata")
 check(calls["get_n"] == 1,
       f"exactly one readback GET issued to recover the remapped element id (got {calls['get_n']})")
 

@@ -1,0 +1,62 @@
+{
+  "name": "Desk Coverage P&L (MSTR SQL datasets)",
+  "folderId": "11111111-1111-1111-1111-111111111111",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Model",
+      "elements": [
+        {
+          "id": "sql-desk-coverage-p-l",
+          "kind": "table",
+          "name": "Desk Coverage P&L",
+          "source": {
+            "kind": "sql",
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "statement": "WITH cov AS (\n  SELECT d.desk_id, d.desk_name, c.cov_name, p.pnl_amt, p.notional_amt, p.trade_dt\n  FROM dbo.fact_pnl p\n  JOIN dbo.dim_desk d ON d.desk_id = p.desk_id\n  JOIN dbo.dim_coverage c ON c.cov_id = p.cov_id\n  WHERE p.trade_dt >= '2026-01-01' /* prompt answer, commas, in a comment */\n)\nSELECT TOP 1000\n  cov.desk_id AS [Desk ID],\n  cov.desk_name AS [Desk Name],\n  cov.cov_name [Coverage],\n  SUM(cov.pnl_amt) AS [Total PnL],\n  SUM(cov.notional_amt) AS [Notional, USD]\nFROM cov\nGROUP BY cov.desk_id, cov.desk_name, cov.cov_name"
+          },
+          "columns": [
+            {
+              "id": "c-desk-coverage-p-l-desk-id",
+              "name": "Desk ID",
+              "formula": "[Custom SQL/Desk ID]"
+            },
+            {
+              "id": "c-desk-coverage-p-l-desk",
+              "name": "Desk",
+              "formula": "[Custom SQL/Desk Name]"
+            },
+            {
+              "id": "c-desk-coverage-p-l-coverage",
+              "name": "Coverage",
+              "formula": "[Custom SQL/Coverage]"
+            },
+            {
+              "id": "c-desk-coverage-p-l-total-pnl-sql-column",
+              "name": "Total PnL (SQL column)",
+              "formula": "[Custom SQL/Total PnL]"
+            },
+            {
+              "id": "c-desk-coverage-p-l-notional-usd-sql-column",
+              "name": "Notional, USD (SQL column)",
+              "formula": "[Custom SQL/Notional, USD]"
+            }
+          ],
+          "metrics": [
+            {
+              "id": "m-desk-coverage-p-l-total-pnl",
+              "name": "Total PnL",
+              "formula": "Sum([Total PnL (SQL column)])"
+            },
+            {
+              "id": "m-desk-coverage-p-l-notional-usd",
+              "name": "Notional, USD",
+              "formula": "Sum([Notional, USD (SQL column)])"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

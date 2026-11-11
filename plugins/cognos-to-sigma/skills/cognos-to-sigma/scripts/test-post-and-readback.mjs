@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // test-post-and-readback.mjs — regression test for the workbook code-rep
-// document-wrapper fix (Task 3.1). Verifies the shared CodeRep adapter
+// document-wrapper fix (Task 3.1), updated for the /contents endpoints. Verifies the shared CodeRep adapter
 // (vendored at ./lib/code_rep.mjs) reads the LIVE nested workbook readback
 // shape and produces a properly-nested POST body, confirms the datamodel
 // surface's flat shape stays untouched (it is NOT changing — do not apply
@@ -23,17 +23,25 @@ const check = (cond, msg) => { if (!cond) fail++; console.log(`  ${cond ? 'PASS'
 
 // workbook readback pages found when nested
 {
-  const readback = { workbookId: 'w', document: { pages: [{ id: 'p1' }] } };
+  const readback = { workbookId: 'w', contents: { pages: [{ id: 'p1' }] } };
   check(JSON.stringify(CodeRep.document(readback).pages) === JSON.stringify([{ id: 'p1' }]),
-        'workbook readback: CodeRep.document() finds pages nested under `document`');
+        'workbook readback: CodeRep.document() finds pages nested under `contents`');
+  const legacy = { workbookId: 'w', document: { pages: [{ id: 'p1' }] } };
+  check(JSON.stringify(CodeRep.document(legacy).pages) === JSON.stringify([{ id: 'p1' }]),
+        'retired /spec readback: CodeRep.document() still finds pages nested under `document`');
 }
 
 // workbook post body is nested
 {
   const doc = { schemaVersion: 1, pages: [{ id: 'p1' }], elements: [{ id: 'e1', kind: 'text', body: 'x' }],
     layout: '<Page id="p1"><Element elementId="e1"/></Page>', kind: 'workbook' };
-  const body = CodeRep.wrap(doc, { name: 'n', folderId: 'f' });
-  check(JSON.stringify(body.document) === JSON.stringify(doc), 'workbook POST body: document key holds the doc verbatim');
+  const body = CodeRep.createBody(doc, { extra: { name: 'n', folderId: 'f' } });
+  check(JSON.stringify(body.contents) === JSON.stringify(doc), 'workbook POST body: contents key holds the doc verbatim');
+  check(body.name === 'n' && body.folderId === 'f' && Object.keys(body).length === 3,
+    'workbook POST body: only name/folderId/contents');
+  check(JSON.stringify(CodeRep.updateBody(doc)) === JSON.stringify({ contents: doc }), 'workbook PUT body: contents only');
+  check(CodeRep.createPath() === '/v2/workbooks' && CodeRep.readPath('w') === '/v2/workbooks/w?includeContents=true'
+    && CodeRep.updatePath('w') === '/v2/workbooks/w/contents', 'endpoint helpers build the non-/spec paths');
   check(!('pages' in body), 'workbook POST body: pages must not remain top-level');
   check(workbookContractErrors(body, { requireWrapper: true }).length === 0,
     'workbook POST body: flat elements + metadata-only pages + authoritative layout pass');
@@ -53,7 +61,7 @@ const check = (cond, msg) => { if (!cond) fail++; console.log(`  ${cond ? 'PASS'
 // workbook branch through CodeRep, not a flat `{ folderId, ...spec, name }`
 // spread — that's the actual bug this task fixes.
 const src = readFileSync(join(__dirname, 'post-and-readback.mjs'), 'utf8');
-check(/CodeRep\.(document|wrap|metadata)/.test(src),
+check(/CodeRep\.(document|createBody|updateBody)/.test(src),
       'post-and-readback.mjs must call CodeRep for its workbook branch');
 check(/assertWorkbookContract/.test(src),
       'post-and-readback.mjs must gate the required authoritative layout before and after POST');
@@ -94,9 +102,9 @@ check(/assertWorkbookContract/.test(src),
   if (qMark !== -1 && colonIdx !== -1 && semiIdx !== -1) {
     const workbookBranch = rest.slice(qMark + 1, colonIdx);
     const datamodelBranch = rest.slice(colonIdx + 1, semiIdx);
-    check(/CodeRep\.(document|wrap|metadata)/.test(workbookBranch),
+    check(/CodeRep\.(document|createBody|updateBody)/.test(workbookBranch),
           'ternary workbook branch must call CodeRep');
-    check(!/CodeRep\.(document|wrap|metadata)/.test(datamodelBranch),
+    check(!/CodeRep\.(document|createBody|updateBody|createPath|readPath|updatePath)/.test(datamodelBranch),
           'ternary datamodel (else) branch must NOT call CodeRep');
   }
 }

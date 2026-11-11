@@ -56,12 +56,18 @@ SIGNALS = {
                 ] }]
 }.freeze
 
-def headcount_formula(metrics)
+def headcount_formula(metrics, kpi: false)
   formula = nil
   Dir.mktmpdir do |d|
     mmap = { 'masters' => { 'EMP' => master(metrics) }, 'fields' => FIELDS }
     File.write(File.join(d, 'mmap.json'), JSON.generate(mmap))
-    File.write(File.join(d, 'sig.json'), JSON.generate(SIGNALS))
+    signals = JSON.parse(JSON.generate(SIGNALS))
+    if kpi
+      visual = signals['pages'][0]['visuals'][0]
+      visual.merge!('visual_id' => 'MixedCaseVisual', 'visual_type' => 'card', 'sigma_kind' => 'kpi',
+                    'bindings' => { 'Values' => ['EMP.Headcount'] })
+    end
+    File.write(File.join(d, 'sig.json'), JSON.generate(signals))
     wb = File.join(d, 'wb.json')
     _o, err, st = Open3.capture3(RUBY, BUILDER, '--signals', File.join(d, 'sig.json'),
                                  '--master-map', File.join(d, 'mmap.json'),
@@ -71,9 +77,16 @@ def headcount_formula(metrics)
     abort "builder failed:\n#{err}" unless st.success?
     spec = JSON.parse(File.read(wb))
     els = spec.dig('document', 'elements') || []
+    raise 'data-model-only visibleAsSource leaked into workbook' if els.any? { |e| e.key?('visibleAsSource') }
     # the bar-chart element (NOT the Data-page master 'table', which also carries a
     # plain "Headcount" column)
-    chart = els.find { |e| e['name'].to_s == 'HC by Dept' }
+    chart = els.find { |e| kpi ? e['kind'] == 'kpi-chart' : e['name'].to_s == 'HC by Dept' }
+    if kpi
+      raise 'mixed-case generated column id' unless chart['columns'].all? { |c| c['id'] == c['id'].downcase }
+      raise 'obsolete KPI alignment' unless chart.dig('layout', 'anchor') == 'center'
+      _out, lint_error, lint_status = Open3.capture3(RUBY, File.join(SCRIPTS, 'lib', 'preflight_lint.rb'), wb)
+      raise "KPI rejected by preflight: #{lint_error}" unless lint_status.success?
+    end
     hc = chart && (chart['columns'] || []).find { |c| c['name'].to_s == 'Headcount' }
     formula = hc && hc['formula'].to_s
   end
@@ -94,6 +107,10 @@ check(f1 == '[Metrics/Distinct Headcount]',
 f2 = headcount_formula([{ 'name' => 'Unrelated', 'formula' => 'Sum([Something Else])' }])
 check(f2 == 'CountDistinct([master-emp/Headcount])',
       "non-matching metric: measure stays inline (got #{f2.inspect})", fails)
+
+fk = headcount_formula([{ 'name' => 'Distinct Headcount', 'formula' => 'CountDistinct([Headcount])' }], kpi: true)
+check(fk == 'CountDistinct([master-emp/Headcount])',
+      'KPI uses a preflight-safe aggregate and lowercase generated column ids', fails)
 
 # 4) Shipped guidance must describe the same reference contract as the builder.
 skill = File.read(File.join(SKILL, 'SKILL.md'), encoding: 'UTF-8')

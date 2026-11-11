@@ -349,7 +349,7 @@ The Tableau pipeline assumes live API access for the same reasons (authoritative
 ### 7c. `convert_lookml_to_sigma` (medium-large)
 Takes the structured output of (a) or (b) and emits:
 - a Sigma data-model spec (one element per resolved view, joined per the explore graph), ready for `POST /v2/dataModels/spec`;
-- a Sigma workbook spec (one element per Looker tile, controls per filter, references via `[ElementName/Column]`), ready for `POST /v2/workbooks/spec`;
+- a Sigma workbook spec (one element per Looker tile, controls per filter, references via `[ElementName/Column]`), ready for `POST /v2/workbooks`;
 - a layout XML string usable directly in the Phase 3 PUT.
 
 This is the analogue of the manual `tableau-to-sigma` Phase 3–5 work, but driven entirely from the Looker JSON. Without it, every conversion is bespoke.

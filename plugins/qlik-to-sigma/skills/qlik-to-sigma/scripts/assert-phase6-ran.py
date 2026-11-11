@@ -179,8 +179,8 @@ def workbook_spec(
                     f"{name} belongs to {recorded_id or 'an unknown workbook'}, "
                     f"not {workbook_id}",
                 )
-            version = readback.get("latestDocumentVersion") or readback.get(
-                "latestVersion"
+            version = readback.get("latestVersion") or readback.get(
+                "latestDocumentVersion"
             )
             if version in (None, ""):
                 fail(6, "layout", f"{name} has no live document version")

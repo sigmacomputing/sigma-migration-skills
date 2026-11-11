@@ -68,7 +68,7 @@ import sigma_rest              # noqa: E402  browser-first auth + one-401 retry
 import coverage_catalog as _cc  # noqa: E402
 import trellis_emit as _te      # noqa: E402  shared native-trellis emitter (supported-kind gate + fallbacks)
 import metric_binding as _mb    # noqa: E402  shared DM-metric binder ([Metrics/<name>] over inline re-derive)
-import code_rep as _cr          # noqa: E402  workbook code-rep document-wrapper adapter (nested POST shape)
+import code_rep as _cr          # noqa: E402  workbook code-rep adapter (endpoint paths + contents-wrapped bodies)
 import qlik_design_manifest as _design  # noqa: E402  screenshot-reviewed build overrides
 
 # Native-trellis round-trip sidecar records (element_id/kind/name/axis/columnId).
@@ -1776,7 +1776,7 @@ def main():
     # native trellis was actually emitted (a non-trellis app stays byte-identical:
     # no file). Sigma silently STRIPS an unsupported trellis on readback, and this
     # build path does NOT re-read the posted spec, so the guard is external:
-    # verify-trellis-survived.rb re-reads GET /v2/workbooks/{id}/spec and asserts
+    # verify-trellis-survived.rb re-reads GET /v2/workbooks/{id}?includeContents=true and asserts
     # each element below still carries its `trellis.<axis>` key.
     if _TRELLIS_RECORDS:
         nt_path = os.path.join(os.path.dirname(os.path.abspath(a.spec_out)), "native-trellis-emitted.json")
@@ -1851,19 +1851,19 @@ def main():
     else:
         if a.workbook_id:
             # Visual iteration updates the already-created migration workbook;
-            # PUT accepts only the document wrapper, never name/folder metadata.
+            # PUT accepts only the contents wrapper, never name/folder metadata.
             api_put(
-                f"/v2/workbooks/{a.workbook_id}/spec",
-                _cr.wrap(_cr.document(spec)),
+                _cr.update_path(a.workbook_id),
+                _cr.update_body(spec),
             )
             wb = a.workbook_id
             result["updated"] = True
         else:
-            # Workbook code-rep POSTs require the nested `document` envelope
-            # (verified live 2026-08-03/04: a flat body 400s) — wrap the flat
-            # spec built above before sending it over the wire.
-            post_body = _cr.wrap(_cr.document(spec), _cr.metadata(spec))
-            res = api_post("/v2/workbooks/spec", post_body)
+            # Workbook POSTs require the nested `contents` envelope (a flat
+            # body 400s; the on-disk spec keeps its `document` wrapper and
+            # create_body re-keys it at the API boundary).
+            post_body = _cr.create_body(spec)
+            res = api_post(_cr.create_path(), post_body)
             try:
                 wb = json.loads(res).get("workbookId")
             except json.JSONDecodeError:
