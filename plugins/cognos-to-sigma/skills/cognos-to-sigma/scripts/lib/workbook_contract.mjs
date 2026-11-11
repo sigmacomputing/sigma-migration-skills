@@ -3,14 +3,18 @@
 import * as CodeRep from './code_rep.mjs';
 
 const count = (text, needle) => text.split(needle).length - 1;
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 export function workbookContractErrors(spec, { requireWrapper = false } = {}) {
   const errors = [];
-  if (requireWrapper && (!spec || typeof spec.document !== 'object' || Array.isArray(spec.document))) {
-    errors.push('top-level `document` wrapper is required');
+  // The wrapper is `contents` on the live endpoints (GET ?includeContents=true,
+  // POST /v2/workbooks) and `document` on the retired /spec readbacks and the
+  // on-disk artifacts; either satisfies the gate.
+  const wrapper = isObj(spec?.contents) ? spec.contents : (isObj(spec?.document) ? spec.document : null);
+  if (requireWrapper && !wrapper) {
+    errors.push('top-level `contents` (or legacy `document`) wrapper is required');
   }
-  const rawDoc = spec && typeof spec.document === 'object' && !Array.isArray(spec.document)
-    ? spec.document : spec;
+  const rawDoc = wrapper || spec;
   for (const page of (Array.isArray(rawDoc?.pages) ? rawDoc.pages : [])) {
     if (Array.isArray(page?.elements)) errors.push(`page ${page.id || '(missing id)'} is not metadata-only (remove page.elements)`);
   }

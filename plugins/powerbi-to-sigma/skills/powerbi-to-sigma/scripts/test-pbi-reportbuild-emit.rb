@@ -121,7 +121,8 @@ SIGNALS = {
     { 'page_id' => 'p1', 'page_title' => 'SALES OVERVIEW', 'page_w' => 1280, 'page_h' => 720,
       'interactions' => [], 'visuals' => [
         vis('s_region', 'slicer', 'control', { 'Values' => ['SALES_FACT.Region'] }, 'Region')
-          .merge('sync_group' => 'RegionSync'),
+          .merge('sync_group' => 'RegionSync', 'slicer_state' => { 'mode' => 'Dropdown',
+                  'selection' => { 'type' => 'list', 'mode' => 'include', 'values' => ['West'] } }),
         vis('s_active', 'slicer', 'control', { 'Values' => ['SALES_FACT.Is Active Ind'] }, 'IS Active IND'),
         vis('s_date',   'slicer', 'control', { 'Values' => ['DATE_DIM.Order Date'] }, 'Order Date'),
         vis('kpi_sales', 'card', 'kpi', { 'Values' => ['SALES_FACT.Sales Amount'] }, 'Total Sales'),
@@ -228,10 +229,10 @@ Dir.mktmpdir do |d|
      active_ctl && !(active_ctl['mode'] == 'include' && Array(active_ctl['values']).empty?))
   ok('3c) boolean control seeds the full boolean domain (unset = no filter)',
      active_ctl && active_ctl['values'] == [true, false])
-  # a STRING slicer still uses the empty-list default (there, empty include = all)
+  # A saved selection must not silently widen the report to all values.
   region_vals = region_ctl['values']
-  ok('3d) string slicer keeps the empty-list default (empty include = show all)',
-     region_ctl['controlType'] == 'list' && Array(region_vals).empty?)
+  ok('3d) string slicer preserves the source saved selection',
+      region_ctl['controlType'] == 'list' && region_vals == ['West'])
   synced_ctl = pages['page-p2']['elements'].find { |e| e['controlType'] == 'synced' }
   ok('3e) repeated PBIR sync-group slicer becomes a minimal Sigma synced control',
      synced_ctl &&

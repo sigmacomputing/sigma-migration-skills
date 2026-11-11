@@ -41,7 +41,7 @@ LAYOUT_LINT_OUTPUT = <<~OUT
          spans 6 grid row(s) (< 8 required for bar-chart) — Sigma renders sub-minimum
          tiles BLANK in the page and in PNG exports; grow the tile.
      Fix the spec/layout and re-PUT before continuing.
-     The workbook DID post — fix with PUT /v2/workbooks/<id>/spec
+     The workbook DID post — fix with PUT /v2/workbooks/<id>/contents
      ========================================
 OUT
 
@@ -51,7 +51,7 @@ VALIDATE_OUTPUT = <<~OUT
 OUT
 
 POST_OUTPUT = <<~OUT
-     POST /v2/workbooks/spec -> 400
+     POST /v2/workbooks -> 400
      {"message":"Invalid value: undefined at pages[0].elements[2].source"}
 OUT
 
@@ -65,7 +65,7 @@ check(r['message'] !~ /one or more fields/,
       'the message does NOT fall back to "one or more fields"', fails)
 check(r['posted'] == true, 'it records that the workbook DID post', fails)
 check(r['message'] =~ /PUT/,
-      'and points at PUT /v2/workbooks/<id>/spec rather than the agent path', fails)
+      'and points at PUT /v2/workbooks/<id>/contents rather than the agent path', fails)
 check(r['salient'].to_s =~ /tile below minimum height/,
       "it surfaces the actual violation line (got #{r['salient'].to_s[0, 60].inspect})", fails)
 

@@ -218,7 +218,7 @@ class SigmaBrowserAuthTest(unittest.TestCase):
         self.queue = [(401, b"expired"), (401, b"still unauthorized")]
         sigma_rest._send = self.send
 
-        status, payload = verify_parity.api("GET", "/v2/workbooks/wb/spec")
+        status, payload = verify_parity.api("GET", "/v2/workbooks/wb?includeContents=true")
 
         self.assertEqual(401, status)
         self.assertEqual("still unauthorized", payload)
@@ -232,7 +232,7 @@ class SigmaBrowserAuthTest(unittest.TestCase):
         sigma_rest._send = self.send
 
         payload = sigma_request.api(
-            "POST", "/v2/workbooks/spec", '{"name":"Workbook"}'
+            "POST", "/v2/workbooks", '{"name":"Workbook"}'
         )
 
         self.assertEqual(raw, payload)
@@ -246,7 +246,7 @@ class SigmaBrowserAuthTest(unittest.TestCase):
         sigma_rest._send = self.send
 
         payload = sigma_request.api(
-            "POST", "/v2/workbooks/spec", '{"name":"Workbook"}'
+            "POST", "/v2/workbooks", '{"name":"Workbook"}'
         )
 
         self.assertEqual(b"workbookId: wb-fresh\n", payload)
