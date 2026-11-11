@@ -1,12 +1,13 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # Guards the Phase 6b runtime control-flip control-count GET against the
-# workbook code-rep `document` wrapper (live since 2026-08).
+# workbook code-rep `contents` wrapper (live since 2026-08; the `document` key
+# belongs to the retired /spec endpoints).
 #
 # migrate-powerbi.rb GETs the live posted-workbook spec to count controls
 # (ControlLint.controls_report) before deciding whether the runtime
 # control-flip proof (probe-controls.rb) is even needed. That GET now nests
-# `pages`/`schemaVersion` under a top-level `document` key — a bare
+# `pages`/`schemaVersion` under a top-level `contents` key — a bare
 # `_spec['pages']`-shaped read (via ControlLint.controls_report) would always
 # see 0 controls, so Phase 6b's runtime-flip gate silently never runs even on
 # a workbook full of controls.
@@ -39,12 +40,12 @@ check(!block_m.nil?, 'the Phase 6b control-count block is present', fails)
 
 if block_m
   block = block_m[0]
-  get_idx    = block.index(/Sigma\.request\(:get,\s*"\/v2\/workbooks\/#\{wb_id\}\/spec"\)/)
+  get_idx    = block.index(/Sigma\.request\(:get,\s*Sigma::CodeRep\.read_path\(wb_id\)\)/)
   unwrap_idx = block.index(/Sigma::CodeRep\.metadata\(_spec\)\.merge\(Sigma::CodeRep\.document\(_spec\)\)/)
   report_idx = block.index(/ControlLint\.controls_report\(_spec\)\.length/)
 
   check(!get_idx.nil?, 'the live workbook spec GET is present', fails)
-  check(!unwrap_idx.nil?, 'the `document` unwrap (metadata+document merge) is present', fails)
+  check(!unwrap_idx.nil?, 'the `contents` unwrap (metadata+document merge) is present', fails)
   check(!report_idx.nil?, 'the ControlLint.controls_report(_spec) call is present', fails)
   if get_idx && unwrap_idx && report_idx
     check(get_idx < unwrap_idx && unwrap_idx < report_idx,

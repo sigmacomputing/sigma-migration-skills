@@ -13,6 +13,7 @@
 //
 // Run it as the last step of the build/verify phase.
 import { api, parseArgs } from './lib/sigma-rest.mjs';
+import { readPath } from './lib/code_rep.mjs';
 import { assertWorkbookContract } from './lib/workbook_contract.mjs';
 import { pythonArgv } from './lib/py_resolve.mjs';
 import { spawnSync } from 'node:child_process';
@@ -25,8 +26,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const a = parseArgs(process.argv.slice(2));
 if (!a.workbook) { console.error('need --workbook <workbookId>'); process.exit(2); }
 
-const got = await api('GET', `/v2/workbooks/${a.workbook}/spec`);
-if (!got.json) { console.error(`GET spec failed (HTTP ${got.status}): ${got.text.slice(0, 300)}`); process.exit(1); }
+const got = await api('GET', readPath(a.workbook));
+if (!got.json) { console.error(`GET workbook failed (HTTP ${got.status}): ${got.text.slice(0, 300)}`); process.exit(1); }
 let rbSpec;
 try { rbSpec = assertWorkbookContract(got.json, { requireWrapper: true }); }
 catch (error) { console.error(`FAIL: authoritative layout readback gate: ${error.message}`); process.exit(1); }

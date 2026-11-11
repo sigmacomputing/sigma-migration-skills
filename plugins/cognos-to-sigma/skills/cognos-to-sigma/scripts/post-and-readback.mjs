@@ -17,7 +17,9 @@ import { groundWarehouseRefs } from './lib/warehouse-column-refs.mjs';
 const a = parseArgs(process.argv.slice(2));
 if (!a.type || !a.spec || !a.folder) { console.error('need --type datamodel|workbook --spec <spec.json> --folder <folderId>'); process.exit(2); }
 const idField = a.type === 'datamodel' ? 'dataModelId' : 'workbookId';
-const postPath = a.type === 'datamodel' ? '/v2/dataModels/spec' : '/v2/workbooks/spec';
+// Workbooks use POST /v2/workbooks (the /v2/workbooks/spec endpoints are deprecated);
+// data models keep /v2/dataModels/spec.
+const postPath = a.type === 'datamodel' ? '/v2/dataModels/spec' : CodeRep.createPath();
 const colsPath = (id) => a.type === 'datamodel' ? `/v2/dataModels/${id}/columns` : `/v2/workbooks/${id}/columns`;
 
 const spec = JSON.parse(readFileSync(a.spec, 'utf8'));
@@ -30,19 +32,18 @@ if (a.type === 'datamodel') {
 }
 // name AFTER the spread — `{name, ...spec}` let spec.name silently override --name ([bead]).
 const name = a.name || spec.name || `cognos ${a.type} ${Date.now()}`;
-// Workbook code-rep nests non-metadata fields under `document` (verified live
-// 2026-08-03/04) and REJECTS the old flat body with HTTP 400. The datamodel
-// surface is confirmed NOT changing — it ignores `document` — so only the
-// workbook branch wraps; the datamodel body construction below is untouched
+// Workbook code-rep nests non-metadata fields under `contents` (`document` on
+// the retired /spec endpoints) and REJECTS the old flat body with HTTP 400. The
+// datamodel surface is confirmed NOT changing — it ignores `contents` — so only
+// the workbook branch re-keys; the datamodel body construction below is untouched
 // (still `{folderId, ...spec, name}`, name last so it can't be silently
 // overridden by a spec.name).
-let workbookDoc;
 if (a.type === 'workbook') {
-  try { workbookDoc = assertWorkbookContract(spec, { requireWrapper: true }); }
+  try { assertWorkbookContract(spec, { requireWrapper: true }); }
   catch (error) { console.error(`REFUSE POST: ${error.message}`); process.exit(1); }
 }
 const body = a.type === 'workbook'
-  ? CodeRep.wrap(workbookDoc, { folderId: a.folder, ...CodeRep.metadata(spec), name })
+  ? { folderId: a.folder, ...CodeRep.createBody(spec, { extra: { name } }) }
   : { folderId: a.folder, ...spec, name };
 const post = await api('POST', postPath, body);
 const id = extractId(post, idField);
@@ -60,9 +61,9 @@ for (const c of (Array.isArray(list) ? list : [])) {
 const elements = elementsOf((await api('GET', a.type === 'datamodel' ? `/v2/dataModels/${id}/elements` : `/v2/workbooks/${id}/elements`)).json);
 let layoutOnReadback;
 if (a.type === 'workbook') {
-  const readback = await api('GET', `/v2/workbooks/${id}/spec`);
+  const readback = await api('GET', CodeRep.readPath(id));
   if (!readback.ok || !readback.json) {
-    console.error(`FAIL: workbook spec readback failed (HTTP ${readback.status}): ${readback.text.slice(0, 500)}`);
+    console.error(`FAIL: workbook contents readback failed (HTTP ${readback.status}): ${readback.text.slice(0, 500)}`);
     process.exit(1);
   }
   try {

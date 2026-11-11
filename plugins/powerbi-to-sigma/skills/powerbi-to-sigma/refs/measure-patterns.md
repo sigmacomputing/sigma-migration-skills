@@ -66,7 +66,7 @@ A data-model **metric** (e.g. `Absence Hours Per Head`) flows through to a
 workbook master and shows up in the master's AVAILABLE METRICS (`describe`) and
 in the Sigma UI measure picker. Reference it in a workbook formula as
 `[Metrics/<metric name>]`, using the metric's display name rather than its ID.
-`[MasterName/Metric Name]` is a column lookup, so `POST/PUT /v2/workbooks/spec`
+`[MasterName/Metric Name]` is a column lookup, so `POST /v2/workbooks` / `PUT /v2/workbooks/{id}/contents`
 rejects that invalid form with `400 dependency not found` even when the metric
 exists. The error does not establish that the metric is unavailable.
 
@@ -388,7 +388,7 @@ family and **omit** it for the *Column* family. Sigma's `orientation` accepts
 binding stays the same either way — the flag just flips rendering. Sigma may
 *default* a single-series bar to horizontal, so emit it explicitly to match the
 source. (`extract-pbir.py` HBAR_TYPES + `build-workbook-from-pbir.rb` handle this;
-verified via `/v2/workbooks/{id}/spec` PUT round-trip 2026-06-02.)
+verified via a workbook PUT round-trip 2026-06-02.)
 
 ---
 

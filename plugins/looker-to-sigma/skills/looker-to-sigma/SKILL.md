@@ -255,7 +255,7 @@ python3 scripts/migrate-looker.py --lookml-dir /path/to/lookml \
 | `scripts/find-or-pick-dm.rb` | **Phase 2.5:** scan existing Sigma DMs and recommend reuse (score = 0.7·column + 0.2·table + 0.1·metric overlap; `--auto-pick` with tie-window safety). Shared vendor-neutral copy (canonical: tableau-to-sigma; needs `scripts/lib/sigma_rest.rb`). Non-destructive. |
 | `scripts/shape-preflight.rb` | **Phase 2.5 (reuse gate):** before wiring a workbook to a REUSED DM element, mechanically check the three things a spec POST won't: (1) the element is not `visibleAsSource:false` (hidden → unusable as a source), (2) needed columns resolve on it, (3) every relationship it reaches columns through is 1:1 (non-unique target key → silent fan-out). Visibility/coverage hard-fail (exit 2); fan-out is surfaced with the exact Sigma-MCP uniqueness query per relationship — run it and feed back via `--fanout-results` (or `--ack-fanout`). Non-destructive; needs `scripts/lib/sigma_rest.rb`. `migrate-looker.py` auto-runs it on `--reuse-dm`. |
 | `scripts/post_dm.py` | **Phase 2:** POST a DM spec to `/v2/dataModels/spec` (auto-finds a writable folder, swaps in the full connection UUID). Auth: valid bearer → browser keychain → client fallback through `scripts/lib/sigma_rest.py`; env also needs `SIGMA_BASE_URL` and `SIGMA_CONNECTION_ID`. Args: `<spec.json>`. |
-| `scripts/build_workbook.py` | **Phase 3:** dashboard contract + the explore's view `.lkml` files → a Sigma `/v2/workbooks/spec` body (hidden Data page + master table, one element per tile, controls from filters, newspaper→24-col layout XML). Generates locally; does **not** POST. Handles ratio measures, joined-col `Field (alias)` naming, table calcs, pivot-flatten + warn. Layout: a top control bar (row 0), a full-width strip of **tall** KPI tiles (height ≥ 6 so titles render), then the remaining tiles shifted down. |
+| `scripts/build_workbook.py` | **Phase 3:** dashboard contract + the explore's view `.lkml` files → a Sigma workbook body for `POST /v2/workbooks` (hidden Data page + master table, one element per tile, controls from filters, newspaper→24-col layout XML). Generates locally; does **not** POST. Handles ratio measures, joined-col `Field (alias)` naming, table calcs, pivot-flatten + warn. Layout: a top control bar (row 0), a full-width strip of **tall** KPI tiles (height ≥ 6 so titles render), then the remaining tiles shifted down. |
 | `scripts/looker-render-dashboard.py` | **Phase 4 (visual QA — SOURCE side):** render a LIVE Looker dashboard to PNG via the Looker render API (`POST /render_tasks/dashboards/{id}/png` → poll `GET /render_tasks/{task_id}` until `success` → `GET .../results`). Pairs with `sigma-export-png.py` for source-vs-migrated side-by-side. Reuses `looker_api.py` `~/.looker/looker.ini` auth. `python3 looker-render-dashboard.py <dashboard_id> [out.png] [--w 1200 --h 1600]`. |
 | `scripts/looker-render-look.py` | **Phase 4 (visual QA — SOURCE side, Looks):** render a LIVE Look to PNG via `GET /looks/{id}/run/png` (SYNCHRONOUS — no render-task poll). The Look analog of `looker-render-dashboard.py`; pairs with `sigma-export-png.py`. `python3 looker-render-look.py <look_id> [out.png] [--w 1200 --h 900]`. |
 | `scripts/sigma-export-png.py` | **Phase 4 (visual QA — MIGRATED side):** render a posted workbook page or element to PNG via `POST /v2/workbooks/{id}/export` → poll `GET /v2/query/{queryId}/download`. For side-by-side layout/render checks against the source Looker dashboard render (catches hidden KPI titles, orphaned filters, overlaps, bare-number vs `$`/`%` formats that a numeric parity check can't). **Read each migrated PNG and check it against `refs/layout-visual-qa.md` (mandatory gate — see Phase 4a).** Uses the browser-first shared Sigma client. `python3 sigma-export-png.py --workbook <id> --page <pageId> --out /tmp/x.png` (or `--element <id>`). |
@@ -710,7 +710,7 @@ SIGMA_CONNECTION_ID=<full-connection-uuid> \
   python3 scripts/post_dm.py /tmp/<name>/dm-spec.json
 ```
 
-- Endpoint is `POST /v2/dataModels/spec` (NOT `/v2/workbooks/spec`).
+- Endpoint is `POST /v2/dataModels/spec` (NOT the workbook endpoint `POST /v2/workbooks`).
 - **Use the FULL connection UUID** (e.g. `ab12cd34-5678-40ab-8def-1234567890ab`), not a short
   prefix — `convert_dm.mjs` writes a placeholder `connectionId`; `post_dm.py` swaps in
   `$SIGMA_CONNECTION_ID`.
@@ -769,7 +769,7 @@ ids before POSTing.)
 
 `build_workbook.py` consumes the contract + the explore's view `.lkml` files (to classify each
 `view.field` as a measure — agg + base col — or a dimension, and derive the Sigma formula) and
-emits a `/v2/workbooks/spec` body:
+emits a `POST /v2/workbooks` body:
 - a **hidden "Data" page** with a master table sourced from the DM element,
 - one metadata-only page per Looker dashboard tab (or one dashboard page),
 - a flat **`document.elements`** collection with one element per Looker tile,
@@ -777,9 +777,10 @@ emits a `/v2/workbooks/spec` body:
 - a required, authoritative **newspaper → 24-col grid layout** XML string that
   places every flat element exactly once.
 
-> **The body above is `document`-wrapped, not flat** (verified live 2026-08-03, including
-> on `POST /v2/workbooks/spec/verify` 2026-08-04): `schemaVersion`, `pages`, `kind`, and
-> `layout`, and flat `elements` all nest under a top-level `document` key; workbook
+> **The body above is `contents`-wrapped, not flat** (verified live 2026-08-03, including
+> on the dry run 2026-11-03; the retired `/v2/workbooks/spec` endpoints called the wrapper
+> `document`, which is still the on-disk artifact key): `schemaVersion`, `pages`, `kind`, and
+> `layout`, and flat `elements` all nest under a top-level `contents` key; workbook
 > metadata (`name`, `folderId`) stays outside it. Pages contain metadata only;
 > page membership comes from the required layout.
 > The Phase-2 DM POST (`/v2/dataModels/spec`) is a different surface and remains flat.
@@ -841,7 +842,7 @@ Newspaper layout math (a single arithmetic transform, no spatial heuristic):
 
 ### 3b. Workbook-spec gotchas (learned the hard way)
 
-- **`/v2/workbooks/spec` returns YAML** — don't `json.load` the response.
+- **Old orgs answered the workbook create in YAML** — pull `workbookId` with the regex in `migrate-looker.py` rather than assuming one format.
 - **control elements** live in flat `document.elements[]` with `kind: control` but REQUIRE an `id`
   (separate from `controlId`); a missing `id` → `Invalid kind: "control"`.
 - **KPI `value` uses `value.columnId`** on the live API. Donut/pie channel pointers
@@ -926,10 +927,10 @@ Newspaper layout math (a single arithmetic transform, no spatial heuristic):
 
 ### 3c. POST the workbook + verify
 
-POST the spec to `/v2/workbooks/spec` (returns YAML → record the `workbookId`). Then
+POST the spec to `/v2/workbooks` (returns the JSON envelope → record the `workbookId`). Then
 `mcp__sigma-mcp-v2__describe` each element (no `type=error` columns) and confirm the layout
 applied. **POST is create-only** — every subsequent spec edit MUST use `PUT
-/v2/workbooks/{id}/spec`; re-POSTing leaves orphan workbooks in My Documents (delete via `DELETE
+/v2/workbooks/{id}/contents`; re-POSTing leaves orphan workbooks in My Documents (delete via `DELETE
 /v2/files/{id}`).
 
 ---
