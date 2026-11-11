@@ -83,6 +83,11 @@ mechanics in; this doc is the why.
   directly; the `sqlView` endpoint on an instance exposes the generated
   warehouse SQL + the Analytical Engine steps (essential for parity debugging
   — see `ae-row-collapse.md`).
+- **Freeform-SQL reports** have no schema objects behind them, so
+  `GET /model/reports/{id}?showExpressionAs=tokens` is empty or fails. Their SQL
+  is read without executing via
+  `POST /model/reports/{id}/instances?executionStage=resolve_prompts` (look for
+  `sqlStatement`). All **unverified live**; see `sql-datasets.md`.
 
 ## Dossiers
 
