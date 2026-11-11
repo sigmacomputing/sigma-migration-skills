@@ -46,7 +46,10 @@ def folded(value):
 
 
 def document(value):
-    return value.get("document", value) if isinstance(value, dict) else {}
+    if not isinstance(value, dict):
+        return {}
+    # `contents` on live readbacks; `document` on /spec-era ones.
+    return value.get("contents") or value.get("document") or value
 
 
 def structural_elements(value):

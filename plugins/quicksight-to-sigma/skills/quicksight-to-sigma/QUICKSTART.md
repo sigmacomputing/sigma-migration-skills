@@ -113,7 +113,7 @@ Point the `quicksight-to-sigma` skill at an analysis. Phases:
    sql refs, `schemaVersion: 1`, folder) → validate → POST to `/v2/dataModels/spec`;
    verify every column has a concrete type (no `error` columns).
 4. **Build the workbook** — `build-workbook-from-quicksight.rb` recreates the QS
-   sheets/visuals as Sigma elements + a visualId→element map → POST `/v2/workbooks/spec`.
+   sheets/visuals as Sigma elements + a visualId→element map → POST `/v2/workbooks`.
 5. **Layout** — `build-quicksight-layout.rb` maps the QS 1-based grid to Sigma's
    24-col layout → `put-layout.rb`.
 6. **Verify parity** — query each element via `sigma-mcp-v2` and compare against the

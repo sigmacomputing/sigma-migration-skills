@@ -1,0 +1,78 @@
+{
+  "document": "Customer Invoice",
+  "mode": "invoice",
+  "blocking": 0,
+  "gaps": [
+    {
+      "control": "logo",
+      "section": "page-header",
+      "construct": "image without a URL",
+      "severity": "layout",
+      "detail": "no image URL in the definition; pass --image-url logo=https://... to place it"
+    },
+    {
+      "control": "invoice-date",
+      "section": "group-header",
+      "construct": "group-level attribute Ship Date",
+      "severity": "review",
+      "detail": "not declared functionally dependent on Customer; rendered as First() over the selected group's rows in the table sort order"
+    },
+    {
+      "control": "due-date",
+      "section": "group-header",
+      "construct": "group-level attribute Ship Date",
+      "severity": "review",
+      "detail": "not declared functionally dependent on Customer; rendered as First() over the selected group's rows in the table sort order"
+    },
+    {
+      "control": "remit-to-address",
+      "section": "group-header",
+      "construct": "text taller than its section",
+      "severity": "layout",
+      "detail": "grown to 72px for Sigma's 24px minimum line box, it runs 7px past the end of group-header; check the export for overlap"
+    },
+    {
+      "control": "header-rule",
+      "section": "group-header",
+      "construct": "double line",
+      "severity": "layout",
+      "detail": "Sigma dividers have no double stroke; emitted solid"
+    },
+    {
+      "control": null,
+      "section": "detail",
+      "construct": "fixed detail box",
+      "severity": "layout",
+      "detail": "the detail table gets a 10-row box (--detail-rows); content below it is pinned, it does not move with the row count as MicroStrategy sections do"
+    },
+    {
+      "control": "footer-rule",
+      "section": "detail-footer",
+      "construct": "double line",
+      "severity": "layout",
+      "detail": "Sigma dividers have no double stroke; emitted solid"
+    },
+    {
+      "control": "tax-rule",
+      "section": "detail-footer",
+      "construct": "double line",
+      "severity": "layout",
+      "detail": "Sigma dividers have no double stroke; emitted solid"
+    },
+    {
+      "control": "terms",
+      "section": "detail-footer",
+      "construct": "text taller than its section",
+      "severity": "layout",
+      "detail": "grown to 24px for Sigma's 24px minimum line box, it runs 7px past the end of detail-footer; check the export for overlap"
+    },
+    {
+      "control": null,
+      "section": "grouping",
+      "construct": "page break between groups",
+      "severity": "review",
+      "detail": "the report renders one Customer at a time (control 'rs-group-customer'); schedule one PDF per value to reproduce the per-group pages"
+    }
+  ],
+  "warnings": []
+}

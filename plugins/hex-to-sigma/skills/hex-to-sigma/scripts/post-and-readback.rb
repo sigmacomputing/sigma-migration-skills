@@ -42,8 +42,15 @@ require 'code_rep'
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 
-POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'    : '/v2/workbooks/spec'
-GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : '/v2/workbooks/%s/spec'
+# Workbooks use the /v2/workbooks code-rep endpoints (the /spec ones are
+# deprecated); the data-model surface is unchanged and keeps its /spec paths.
+POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec' : Sigma::CodeRep.create_path
+READ_PATH = lambda do |id|
+  opts[:type] == 'datamodel' ? "/v2/dataModels/#{id}/spec" : Sigma::CodeRep.read_path(id)
+end
+UPDATE_PATH = lambda do |id|
+  opts[:type] == 'datamodel' ? "/v2/dataModels/#{id}/spec" : Sigma::CodeRep.update_path(id)
+end
 ID_FIELD  = opts[:type] == 'datamodel' ? 'dataModelId'            : 'workbookId'
 
 # convert_dm.py / convert_workbook.py emit {"dataModel"|"workbook": <spec>, "warnings": [...], "stats": {...}}
@@ -51,15 +58,20 @@ ID_FIELD  = opts[:type] == 'datamodel' ? 'dataModelId'            : 'workbookId'
 raw = JSON.parse(File.read(opts[:spec]))
 spec = raw['dataModel'] || raw['workbook'] || raw
 
-# Workbook code-rep nests non-metadata fields under `document` (verified live
-# 2026-08-03/04) and REJECTS the old flat body with HTTP 400. The datamodel
-# surface is confirmed NOT changing — it ignores `document` — so only the
-# workbook branch wraps.
-spec_body = if opts[:type] == 'workbook'
-              JSON.generate(Sigma::CodeRep.wrap(Sigma::CodeRep.document(spec), extra: Sigma::CodeRep.metadata(spec)))
-            else
-              spec.to_json
-            end
+# Workbook code-rep nests the document under `contents` on POST /v2/workbooks
+# and PUT /v2/workbooks/{id}/contents and REJECTS the old flat body with HTTP
+# 400. The datamodel surface is confirmed NOT changing — it ignores `contents`
+# — so only the workbook branch goes through CodeRep.
+create_body = if opts[:type] == 'workbook'
+                JSON.generate(Sigma::CodeRep.create_body(spec))
+              else
+                spec.to_json
+              end
+update_body = if opts[:type] == 'workbook'
+                JSON.generate(Sigma::CodeRep.update_body(spec))
+              else
+                spec.to_json
+              end
 
 # Orphan-prevention: workbook POSTs are create-only. Track ids posted in this
 # conversion so a re-run PUTs (updates) instead of orphaning a prior attempt.
@@ -72,11 +84,11 @@ update_id = opts[:update_id] || (prior_ids.last if opts[:type] == 'workbook' && 
 
 if update_id
   warn "UPDATE mode: PUT #{opts[:type]} #{update_id} (no new #{opts[:type]} created)"
-  resp = Sigma.request(:put, format(GET_PATH, update_id), body: spec_body)
+  resp = Sigma.request(:put, UPDATE_PATH.call(update_id), body: update_body)
   oid = resp[ID_FIELD] || update_id
   warn "PUT ok: #{ID_FIELD}=#{oid}"
 else
-  resp = Sigma.request(:post, POST_PATH, body: spec_body)
+  resp = Sigma.request(:post, POST_PATH, body: create_body)
   oid = resp[ID_FIELD] or abort("POST failed: #{resp.inspect}")
   warn "POST ok: #{ID_FIELD}=#{oid}"
   if posted_log
@@ -85,9 +97,10 @@ else
 end
 
 # Read back the spec with server-assigned ids. Workbook code-rep responses
-# nest non-metadata fields (pages/layout/schemaVersion/kind) under `document`
-# (live since 2026-08); the DM readback is unchanged and stays flat.
-readback = Sigma.request(:get, format(GET_PATH, oid))
+# nest non-metadata fields (pages/layout/schemaVersion/kind) under `contents`
+# (`document` on the retired /spec readbacks); the DM readback is unchanged
+# and stays flat.
+readback = Sigma.request(:get, READ_PATH.call(oid))
 doc = opts[:type] == 'workbook' ? Sigma::CodeRep.document(readback) : readback
 
 if opts[:type] == 'workbook'
@@ -155,7 +168,7 @@ if opts[:type] == 'workbook' && !opts[:skip_lint]
     warn "\n========================================"
     warn "FAIL — layout lint: #{violations.size} violation(s):"
     violations.each { |v| warn "  - #{v}" }
-    warn 'The workbook DID post — fix with PUT /v2/workbooks/<id>/spec (re-POSTing orphans it).'
+    warn 'The workbook DID post — fix with PUT /v2/workbooks/<id>/contents (re-POSTing orphans it).'
     warn '========================================'
     exit(3)
   end

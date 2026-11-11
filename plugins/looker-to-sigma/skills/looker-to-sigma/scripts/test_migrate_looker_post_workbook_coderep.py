@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """test_migrate_looker_post_workbook_coderep.py — guards the workbook POST in
-migrate-looker.py's main() against the workbook code-rep `document` wrapper
-(live since 2026-08).
+migrate-looker.py's main() against the workbook code-rep wrapper (the nested
+`contents` envelope; `document` on the retired /spec endpoints).
 
-migrate-looker.py POSTs the build_workbook.py-produced flat spec to
-/v2/workbooks/spec. The live workbook code-rep surface requires the nested
-`document` envelope and 400s on a flat body.
+migrate-looker.py POSTs the build_workbook.py-produced spec to POST
+/v2/workbooks (replaces via PUT /v2/workbooks/{id}/contents). The live workbook
+code-rep surface requires the nested `contents` envelope and 400s on a flat body.
 
 migrate-looker.py's main() is a ~900-line monolithic orchestrator (this POST
 depends on ~500 lines of prior CLI/discovery/build state — Looker API calls,
@@ -37,29 +37,29 @@ def check(cond, msg):
 
 check("import code_rep" in SRC, "migrate-looker.py imports code_rep")
 
-# Isolate the workbook-POST block (a few lines around the `sigma("POST",
-# "/v2/workbooks/spec", ...)` call) so we prove THIS call site wraps, not
-# just that `code_rep` is mentioned somewhere in the ~1300-line file.
-post_idx = SRC.find('sigma("POST", "/v2/workbooks/spec"')
-check(post_idx >= 0, "the workbook-spec POST call is present")
+# Isolate the workbook-create block (the `sigma("POST", code_rep.create_path(),
+# ...)` call) so we prove THIS call site builds a `contents` body, not just that
+# `code_rep` is mentioned somewhere in the ~1300-line file.
+post_call = 'sigma("POST", code_rep.create_path(), code_rep.create_body(wspec))'
+post_idx = SRC.find(post_call)
+check(post_idx >= 0, "the workbook POST goes to code_rep.create_path() with a code_rep.create_body(wspec) body")
 
-if post_idx >= 0:
-    window = SRC[max(0, post_idx - 400):post_idx + 80]
-    wrap_m = re.search(
-        r"post_body\s*=\s*code_rep\.wrap\(\s*code_rep\.document\(wspec\)\s*,\s*code_rep\.metadata\(wspec\)\s*\)",
-        window)
-    check(wrap_m is not None, "post_body = code_rep.wrap(code_rep.document(wspec), code_rep.metadata(wspec)) precedes the POST")
-    check('sigma("POST", "/v2/workbooks/spec", post_body)' in window,
-          "the POST call passes `post_body` (the wrapped spec), not the raw flat `wspec`")
-    if wrap_m:
-        wrap_end = max(0, post_idx - 400) + wrap_m.end()
-        check(wrap_end <= post_idx, "the wrap assignment precedes the POST call (source order)")
+# The replace branch must PUT /contents through the same adapter, and the
+# readbacks must GET ?includeContents=true.
+check('sigma("PUT", code_rep.update_path(a.update_workbook),' in SRC
+      and "code_rep.update_body(wspec)" in SRC,
+      "the update branch PUTs code_rep.update_path(...) with a code_rep.update_body(wspec) body")
+check(len(re.findall(r'code_rep\.read_path\(', SRC)) >= 2,
+      "workbook readbacks (drift guard + post-write) use code_rep.read_path(...)")
 
-# No OTHER (unwrapped) workbook-spec POST call site should exist in the file —
-# a second, unguarded call would silently 400 while this test stays green.
-all_post_sites = [m.start() for m in re.finditer(r'sigma\("POST",\s*"/v2/workbooks/spec"', SRC)]
+# No OTHER workbook POST call site, and no deprecated /spec workbook endpoint,
+# should exist in the file -- a second, unguarded call would silently 400 while
+# this test stays green.
+all_post_sites = [m.start() for m in re.finditer(r'sigma\("POST",\s*code_rep\.create_path\(\)', SRC)]
 check(len(all_post_sites) == 1,
-      f"exactly one /v2/workbooks/spec POST call site in the file (got {len(all_post_sites)})")
+      f"exactly one workbook POST call site in the file (got {len(all_post_sites)})")
+check(not re.search(r"/v2/workbooks[^\"'\s]*/spec", SRC),
+      "no deprecated /v2/workbooks/**/spec endpoint remains in migrate-looker.py")
 
 # Readiness/accounting/report orchestration contract. These source-level checks
 # guard ordering in the monolithic main() without live Looker/Sigma credentials.

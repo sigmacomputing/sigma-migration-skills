@@ -3,8 +3,9 @@
 # test_phase6_parity_shape.rb — behaviour regression for phase6-parity-quicksight.rb
 # PASS 1/PASS 2 against the CURRENT workbook code-rep readback shape.
 #
-# Live GET /v2/workbooks/{id}/spec nests everything under `document`; workbook
-# elements are a FLAT `document.elements` collection, pages are metadata only and the
+# Live GET /v2/workbooks/{id}?includeContents=true nests everything under `contents`
+# (the retired /spec readback called it `document`; the adapter reads both); workbook
+# elements are a FLAT `contents.elements` collection, pages are metadata only and the
 # layout XML owns page membership (shared/lib/code_rep.rb). The script used to iterate
 # `spec['pages'][*]['elements']`, so PASS 1 aborted with "no plannable chart elements"
 # for every workbook the builder emits. The previous version of this file only grepped
@@ -68,7 +69,7 @@ class TestPhase6ParityShape < Minitest::Test
   end
 
   def readback(document)
-    { 'workbookId' => 'wb-test', 'name' => 'Synthetic (from QuickSight)', 'document' => document }
+    { 'workbookId' => 'wb-test', 'name' => 'Synthetic (from QuickSight)', 'contents' => document }
   end
 
   # ---- harness ----------------------------------------------------------------
@@ -104,9 +105,11 @@ class TestPhase6ParityShape < Minitest::Test
 
   # ---- adapter sanity (kept from the original file) -----------------------------
   def test_document_resolves_nested_readback
-    rb = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    rb = { 'workbookId' => 'w', 'contents' => { 'pages' => [{ 'id' => 'p1' }] } }
     assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(rb)['pages']
     assert_nil rb['pages'], 'proves the old flat read was nil'
+    legacy = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(legacy)['pages'], 'retired /spec readback still reads'
   end
 
   # ---- the regression: flat document.elements ----------------------------------

@@ -426,7 +426,7 @@ class WorkbookLintTests(unittest.TestCase):
                 ],
             },
         )
-        document = payload["document"]
+        document = payload["contents"]
         self.assertEqual(1, count)
         self.assertEqual(xml, document["layout"])
         self.assertEqual(

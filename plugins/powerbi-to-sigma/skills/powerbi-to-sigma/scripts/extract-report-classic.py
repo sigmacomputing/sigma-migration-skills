@@ -8,11 +8,10 @@ carrying a `config` JSON string) rather than the new exploded PBIR
 handles the new layout; this adapter normalizes the classic shape into the
 SAME signals.json schema so build-workbook-from-pbir.rb can consume it.
 
-The IDENTICAL classic shape also lives INSIDE a local `.pbix` file: a `.pbix`
-is a zip whose `Report/Layout` member is a single JSON document (top-level
-`sections[]`) encoded UTF-16LE — NOT the exploded PBIR. So this adapter is
-also the fully-LOCAL report front door: point it at a `.pbix` (or an already
-extracted `Report/Layout` file) with no Fabric/tenant involved.
+Classic `.pbix` files contain a UTF-16LE `Report/Layout` document. Modern
+files can instead contain exploded `Report/definition/` PBIR. This local
+front door detects either format and delegates PBIR to extract-pbir.py,
+without Fabric authentication or translating away report metadata.
 
 Classic report layout shape (report.json == .pbix Report/Layout):
   sections[] : { name, displayName, width, height, visualContainers[] }
@@ -29,7 +28,8 @@ Usage (any ONE of the three inputs):
   # from an already-extracted Report/Layout file (any of UTF-16LE/utf-8-sig/utf-8)
   python3 extract-report-classic.py --report-layout /path/Layout --out signals.json
 """
-import argparse, importlib.util, io, json, os, re, sys, zipfile
+import argparse, importlib.util, io, json, os, re, sys, tempfile, zipfile
+from pathlib import Path, PurePosixPath
 
 # visualType -> Sigma kind + ROLE CLASS resolves through the catalogs
 # (refs/catalogs/viz-kind.json + custom-visual.json) via lib/pbi_viz_kind.py — the
@@ -438,10 +438,47 @@ def main():
                     ".pbix Report/Layout) into signals.json.")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--report-json", help="UTF-8 classic report.json (Fabric getDefinition)")
-    src.add_argument("--pbix", help="local .pbix file — unzips its Report/Layout (UTF-16LE) member")
+    src.add_argument("--pbix", help="local .pbix file with classic Report/Layout or Report/definition PBIR")
     src.add_argument("--report-layout", help="an already-extracted Report/Layout file (UTF-16LE/utf-8)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    if a.pbix:
+        with zipfile.ZipFile(a.pbix) as archive:
+            members = [(info, info.filename.replace("\\", "/")) for info in archive.infolist()]
+            names = {name for _, name in members}
+            if "Report/definition/pages/pages.json" in names:
+                # Reuse the PBIR parser rather than flattening away filters,
+                # synced slicers and hierarchy metadata through classic JSON.
+                with tempfile.TemporaryDirectory(prefix="pbi-report-") as directory:
+                    seen = set()
+                    for info, name in members:
+                        if not name.startswith("Report/definition/") or info.is_dir():
+                            continue
+                        relative = PurePosixPath(name[len("Report/"):])
+                        if ".." in relative.parts or relative.is_absolute() or ":" in name:
+                            raise SystemExit("FATAL: unsafe PBIR archive member")
+                        if relative.as_posix() in seen:
+                            raise SystemExit("FATAL: duplicate PBIR archive member")
+                        seen.add(relative.as_posix())
+                        target = Path(directory).joinpath(*relative.parts)
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(archive.read(info))
+                    page_index = Path(directory, 'definition', 'pages', 'pages.json')
+                    for page_name in json.loads(page_index.read_text()).get('pageOrder', []):
+                        if not isinstance(page_name, str) or page_name in ('', '.', '..') or any(c in page_name for c in '/\\:'):
+                            raise SystemExit("FATAL: unsafe PBIR page name")
+                    path = Path(__file__).with_name("extract-pbir.py")
+                    spec = importlib.util.spec_from_file_location("pbi_report_extract", path)
+                    parser = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(parser)
+                    signals = parser.extract(directory)
+                signals.pop("pbir_dir", None)  # temporary extraction path no longer exists
+                signals["source"] = "pbix-pbir"
+                with open(a.out, "w") as output:
+                    json.dump(signals, output, indent=2)
+                nvis = sum(len(p["visuals"]) for p in signals["pages"])
+                print(f"[pbix-pbir] {len(signals['pages'])} page(s), {nvis} visual(s) -> {a.out}", file=sys.stderr)
+                return
     report = load_report(report_json=a.report_json, pbix=a.pbix, report_layout=a.report_layout)
     signals = extract(report)
     json.dump(signals, open(a.out, "w"), indent=2)

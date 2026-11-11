@@ -53,7 +53,7 @@ class MockSigma(BaseHTTPRequestHandler):
         self.__class__.posts.append((self.path, self.rfile.read(length)))
         if self.path == "/v2/dataModels/spec":
             body = b"dataModelId: dm-yaml\n"
-        elif self.path == "/v2/workbooks/spec":
+        elif self.path == "/v2/workbooks":
             body = b"workbookId: wb-yaml\n"
         else:
             self.send_error(404)
@@ -68,8 +68,8 @@ class MockSigma(BaseHTTPRequestHandler):
             body = {"name": "DM", "pages": [{"elements": [
                 {"id": "fact-live", "name": "Fact", "columns": [{"id": "c"}]}
             ]}]}
-        elif self.path == "/v2/workbooks/wb-yaml/spec":
-            body = {"name": "WB", "document": {"pages": [], "elements": []}}
+        elif self.path == "/v2/workbooks/wb-yaml?includeContents=true":
+            body = {"name": "WB", "contents": {"pages": [], "elements": []}}
         else:
             self.send_error(404)
             return
@@ -229,7 +229,7 @@ class UpliftContracts(unittest.TestCase):
                                    "--spec", wb_spec, "--workdir", td, env=env)
                 self.assertEqual(workbook.returncode, 0, workbook.stderr)
                 self.assertEqual([path for path, _body in MockSigma.posts],
-                                 ["/v2/dataModels/spec", "/v2/workbooks/spec"])
+                                 ["/v2/dataModels/spec", "/v2/workbooks"])
                 self.assertEqual(json.loads((Path(td) / "dm-ids.json").read_text())
                                  ["dataModelId"], "dm-yaml")
                 self.assertTrue((Path(td) / "dm-readback.json").is_file())
