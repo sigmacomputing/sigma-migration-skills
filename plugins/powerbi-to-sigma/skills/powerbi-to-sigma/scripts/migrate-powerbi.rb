@@ -486,10 +486,8 @@ hdr(1, TOTAL, 'Discover / Extract')
 
 signals_path = File.join(WORK, 'signals.json')
 if opts[:pbix]
-  # FULLY-LOCAL report: the .pbix zip's `Report/Layout` member is a SINGLE
-  # UTF-16LE classic report (top-level sections[]) — extract-report-classic.py
-  # unzips + decodes it and emits the SAME signals.json schema, no bundle.
-  puts '   local .pbix report — unzipping Report/Layout (UTF-16LE) via extract-report-classic.py'
+  # Both classic Report/Layout and modern PBIR emit the same signals schema.
+  puts '   local .pbix report — detecting classic Report/Layout or modern Report/definition PBIR'
   run!([*PY_ARGV, File.join(HERE, 'extract-report-classic.py'), '--pbix', opts[:pbix], '--out', signals_path])
 else
   # The raw-pbir/*.json files are a FLAT bundle: { "<part-path>": "<json text>", ... }.
@@ -1403,6 +1401,7 @@ conv_elements.each do |vcel|
   # masters whose columns the View subsumes: the fact + every dim reachable via
   # a "(DIM)" suffix in the View's columns.
   subsumed = [fact] + vcols.map { |c| c['name'][/\(([^)]*)\)\s*$/, 1] }.compact.uniq
+  subsumed = subsumed.map { |n| n.downcase }
   # Register the View resolution as an ALT, not the primary (grain fix, found
   # live during the control-targeting wave): making the View the PRIMARY routed
   # EVERY field of the subsumed tables onto the join element, so a SINGLE-table
@@ -1413,7 +1412,7 @@ conv_elements.each do |vcel|
   # master covering all their fields) while same-table visuals tie-break to the
   # field's own master and keep their source grain.
   field_map.each do |qr, fs|
-    next unless subsumed.include?(fs['master'])
+    next unless subsumed.include?(fs['master'].to_s.downcase)
     next if fs['master'] == vname
     old_mid = masters[fs['master']] ? masters[fs['master']]['id'] : nil
     ref_str = fs['ref'].to_s
@@ -1426,7 +1425,10 @@ conv_elements.each do |vcel|
     if is_plain_col
       # plain dimension/column ref: match its leaf to a View column.
       leaf = qr.split('.', 2).last.to_s.sub(/\s+\([^)]*\)\s*$/, '')
-      vcol = leaf_to_view[leaf] || leaf_to_view[qr.split('.', 2).last.to_s]
+      entity = fs['master'].to_s
+      # Prefer the entity-qualified dimension; a same-named fact column or
+      # inactive role-playing dimension is not interchangeable.
+      vcol = PbiMasterKey.view_column(vcols, entity, leaf, fact)
       next unless vcol
       add_alt.call("[#{vmid}/#{vcol}]")
     elsif old_mid
@@ -1443,6 +1445,11 @@ conv_elements.each do |vcel|
     end
   end
 end
+
+# Bind original source column spelling, including camelCase, to the unique
+# readback-confirmed field. Do not let punctuation/case normalization pick an
+# arbitrary column when two real fields normalize to the same name.
+PbiMasterKey.add_column_aliases!(field_map, tables)
 
 # Bug C: time-intel forwarding. The converter turns DAX SAMEPERIODLASTYEAR /
 # TOTALYTD measures into NEW DM elements (source.kind=='table' sourcing another
@@ -1715,7 +1722,7 @@ rescue WorkbookBuildError => e
     info['salient'].to_s.lines.each { |l| puts "     #{l.rstrip}" }
   end
   if info['posted']
-    puts '   NOTE: the workbook POSTED — fix and re-apply with PUT /v2/workbooks/<id>/spec.'
+    puts '   NOTE: the workbook POSTED — fix and re-apply with PUT /v2/workbooks/<id>/contents.'
     puts '   Do NOT re-POST (it creates an orphan) and do NOT rebuild via the agent path.'
   else
     puts "   Falling back to the agent path: rebuild the workbook via the skill's " \
@@ -1851,7 +1858,7 @@ require 'sigma_rest'
 # Phase 5b. NON-FATAL — a transient export failure must not sink a green
 # migration; the REVIEW (reading each PNG) is the actual gate. Page ids come
 # from the LOCAL spec the builder wrote (deterministic; POST preserves them) —
-# the live GET /spec readback has proven flaky mid-pipeline.
+# the live workbook readback has proven flaky mid-pipeline.
 # ---------------------------------------------------------------------------
 begin
   vqa = File.join(WORK, 'visual-qa')
@@ -2070,7 +2077,7 @@ else
   # Count controls on the live posted workbook (same source of truth as gate 7b).
   n_controls = nil
   begin
-    _spec = Sigma.request(:get, "/v2/workbooks/#{wb_id}/spec")
+    _spec = Sigma.request(:get, Sigma::CodeRep.read_path(wb_id))
     if _spec.is_a?(String)
       begin
         _spec = JSON.parse(_spec)
@@ -2081,7 +2088,7 @@ else
     end
     if _spec.is_a?(Hash)
       # Workbook code-rep GETs nest pages/schemaVersion under a top-level
-      # `document` key (live since 2026-08); ControlLint.controls_report
+      # `contents` key (`document` on the retired /spec GET); ControlLint.controls_report
       # expects a flat spec['pages'] (same "unwrap at the caller, not in the
       # lib" contract as the other ControlLint callers) — a bare _spec here
       # would always report 0 controls, silently skipping the runtime

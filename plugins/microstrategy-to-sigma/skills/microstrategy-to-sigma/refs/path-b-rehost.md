@@ -139,7 +139,7 @@ Dark`), not the default light canvas.
 ## 5. Fidelity recipes — MSTR viz → Sigma element (live-validated on Path B)
 
 These are the shapes that turn "right data, generic look" into a faithful
-rebuild. All authored via `/v2/workbooks/spec`; see the `sigma-workbooks` skill
+rebuild. All authored via `POST /v2/workbooks` (`contents`); see the `sigma-workbooks` skill
 for full field reference and always clone shapes from a recent GET-back / the
 compiled OpenAPI (`assets.sigmacomputing.com/openapi/public-rest-api/...`),
 which is ahead of any vendored copy.
