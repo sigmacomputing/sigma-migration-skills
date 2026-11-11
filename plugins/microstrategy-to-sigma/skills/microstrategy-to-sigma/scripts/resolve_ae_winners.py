@@ -36,7 +36,7 @@ from convert import Bundle, friendly
 from verify_parity import api, export_element
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import code_rep  # workbook code-rep document-wrapper adapter (nested GET/POST shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped GET/POST shape)
 
 
 def run_mstr_grid(s, report_id):
@@ -81,27 +81,27 @@ def clean_groups_via_sigma(b, args, report, quirk_aid, parent_aids):
                    '  <Element elementId="t1" gridColumn="1 / 25" '
                    'gridRow="1 / 13"/>\n</Page>'),
     }
-    # Workbook code-rep POSTs require the nested `document` envelope (verified
-    # live 2026-08-03/04: a flat body 400s) — wrap the throwaway probe spec.
-    post_body = code_rep.wrap(
+    # Workbook code-rep POSTs require the nested `contents` envelope (a flat
+    # body 400s) — wrap the throwaway probe spec.
+    post_body = code_rep.create_body(
         document,
         {"name": "zz-ae-resolver-probe", "folderId": args.folder_id},
     )
-    st, out = api("POST", "/v2/workbooks/spec", post_body)
+    st, out = api("POST", code_rep.create_path(), post_body)
     if st >= 300:
         raise SystemExit(f"probe workbook POST failed {st}: {out[:500]}")
     wb_id = json.loads(out)["workbookId"]
     try:
         # element id may be remapped — read back
         import yaml
-        st, out = api("GET", f"/v2/workbooks/{wb_id}/spec")
-        # Workbook code-rep GETs nest pages under a top-level `document` key
-        # (live since 2026-08); a bare ["pages"] index here was always a
+        st, out = api("GET", code_rep.read_path(wb_id))
+        # Workbook code-rep GETs nest pages under a top-level `contents` key
+        # (`document` on the retired /spec GET); a bare ["pages"] index here was always a
         # KeyError, so the probe's remapped element id was never recovered.
         raw_readback = yaml.safe_load(out)
         elements = code_rep.workbook_elements(raw_readback)
         if not elements:
-            raise SystemExit("probe workbook readback contains no flat document elements")
+            raise SystemExit("probe workbook readback contains no flat contents elements")
         eid = elements[0]["id"]
         csv_text = export_element(wb_id, eid)
     finally:

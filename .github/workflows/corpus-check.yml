@@ -889,6 +889,8 @@ jobs:
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_chart_mappings.py
             plugins/gooddata-to-sigma/skills/gooddata-to-sigma/tests/test_metric_reference.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_metric_reference.py
+            plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_rs_document_report.py
+            plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_sql_datasets.py
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/tests/test_metric_reference.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_jaql.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_convert.py
