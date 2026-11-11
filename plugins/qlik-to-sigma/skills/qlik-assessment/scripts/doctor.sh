@@ -728,12 +728,23 @@ if [ -z "${SIGMA_AGENT_VISION:-}" ] && [ -n "${sigma_agent_vision:-}" ]; then
        "The visual gates read only the uppercase name; a lowercase copy is a silent no-op. Honoring it this run — fix your export to: SIGMA_AGENT_VISION=${sigma_agent_vision}"
   SIGMA_AGENT_VISION="${sigma_agent_vision}"
 fi
+# agent_vision means ONE thing everywhere: the BUILDER's (driving agent's) own
+# ability to read images — the same claim record-visual-check.rb stamps into
+# parity-final.json from --agent-vision. Who produced the visual grade is a
+# separate field (parity-final.json visual_graded_by, stamped by the phase-6
+# gate). When neither SIGMA_AGENT_VISION nor SIGMA_MODEL_HINT says anything,
+# the doctor does NOT know: it records null (agent_vision_source "unknown")
+# instead of false. A false here used to contradict parity-final.json's true
+# on runs where a vision-capable builder never exported the flag (Stress 4,
+# 2026-11-09). doctor.json was never what the visual gates read.
+AGENT_VISION_SOURCE=env
 case "${SIGMA_AGENT_VISION:-}" in
   true|1|yes|TRUE|True) AGENT_VISION=true ;;
   '')
     case "$(printf '%s' "$MODEL_HINT" | tr '[:upper:]' '[:lower:]')" in
-      *opus*|*sonnet*|*haiku*|*fable*|claude-3*|claude-4*|claude-5*) AGENT_VISION=true ;;
-      *) AGENT_VISION=false ;;
+      '') AGENT_VISION=null; AGENT_VISION_SOURCE=unknown ;;
+      *opus*|*sonnet*|*haiku*|*fable*|claude-3*|claude-4*|claude-5*) AGENT_VISION=true; AGENT_VISION_SOURCE=model-hint ;;
+      *) AGENT_VISION=false; AGENT_VISION_SOURCE=model-hint ;;
     esac ;;
   *) AGENT_VISION=false ;;
 esac
@@ -802,6 +813,7 @@ write_doctor_json() {
     printf '"behind_count":%s,' "$BEHIND_COUNT"
     printf '"days_since_commit":%s,' "$DAYS_SINCE_COMMIT"
     printf '"agent_vision":%s,' "$AGENT_VISION"
+    printf '"agent_vision_source":"%s",' "$AGENT_VISION_SOURCE"
     printf '"model_hint":"%s",' "$(jstr "$MODEL_HINT")"
     printf '"generated_at":"%s",' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '"pass":%s,' "$PASS_BOOL"

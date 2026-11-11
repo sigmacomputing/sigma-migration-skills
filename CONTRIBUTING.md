@@ -49,6 +49,13 @@ ruby tools/sync-shared.rb                    # propagate to every plugin copy
 git add shared/ plugins/                     # commit canonical + the fan-out
 ```
 
+**Platform-difference catalog** (`shared/refs/sigma-platform-differences.json`):
+after any edit, also run `ruby tools/gen-catalog-history.rb` before the sync. It
+appends the new catalog to `sigma-platform-differences-history.json`, so a blind
+grade made against the previous catalog stays valid when you only ADD entries.
+Removing or rewording an entry still invalidates grades that named that catalog.
+CI runs it with `--check`.
+
 CI (`tools/check-shared.rb`) fails if any vendored copy drifts from canonical.
 Intentional per-tool forks are allowlisted in `shared/manifest.json` (`exception`
 + reason). **Shared-lib changes go in their own PR**, merged before dependent

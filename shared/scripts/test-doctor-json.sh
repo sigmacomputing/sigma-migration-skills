@@ -48,7 +48,8 @@ required = {
     "os", "shell", "runtimes", "versions", "runtime_profile",
     "sandbox_hint", "cred_smoke", "sigma_auth_method",
     "hyperapi_present", "skill_sha", "behind_count", "days_since_commit",
-    "agent_vision", "model_hint", "generated_at", "pass", "failures",
+    "agent_vision", "agent_vision_source", "model_hint", "generated_at",
+    "pass", "failures",
 }
 assert required <= set(d), required - set(d)
 assert set(d["cred_smoke"]) == {"sigma", "tableau", "looker"}
@@ -409,6 +410,29 @@ assert "ruby" not in rp["required_runtimes"], rp
 assert d["pass"] is True, d["failures"]
 PY
 check $? "doctor.json records Python selection without a Ruby requirement"
+
+echo "Part F — agent_vision is the builder's capability; unknown is null, not false"
+# Stress 4 (2026-11-09): doctor.json said agent_vision=false (no flag, no model
+# hint) while parity-final.json recorded the builder's --agent-vision true.
+vision_case() {  # $1 label, $2 SIGMA_AGENT_VISION, $3 SIGMA_MODEL_HINT, $4 want, $5 want_source
+  env HOME="$TMP/home-missing" "${COMMON[@]}" SIGMA_BASE_URL="$BASE" \
+    SIGMA_CLIENT_ID=client-id SIGMA_CLIENT_SECRET=client-secret \
+    SIGMA_AGENT_VISION="$2" sigma_agent_vision= SIGMA_MODEL_HINT="$3" \
+    bash "$HERE/doctor.sh" --workdir "$TMP/vision-$1" >"$TMP/vision-$1.out" 2>&1
+  python3 - "$TMP/vision-$1/doctor.json" "$4" "$5" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+want = {"true": True, "false": False, "null": None}[sys.argv[2]]
+assert d["agent_vision"] is want, d["agent_vision"]
+assert d["agent_vision_source"] == sys.argv[3], d["agent_vision_source"]
+PY
+  check $? "agent_vision $1 -> $4 (source $5)"
+}
+vision_case unset '' '' null unknown
+vision_case flag-true true '' true env
+vision_case flag-false false claude-opus-5-5 false env
+vision_case hint-claude '' claude-sonnet-5-5 true model-hint
+vision_case hint-other '' some-text-only-model false model-hint
 
 echo
 if [ "$fails" -gt 0 ]; then

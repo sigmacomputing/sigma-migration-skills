@@ -171,6 +171,57 @@ count_option['elements'].find { |el| el['id'] == 'ctl-primary' }['hideValueCount
 check(lint_warnings(count_option).any? { |v| v.include?('A4') && v.include?('hideValueCounts') },
       'preflight warns that list-control value-count visibility is not spec-authorable', fails)
 
+# --- legend / drill controls: `targets` count as wiring (no `filters`) --------
+
+def targets_control_spec(control_type, with_targets)
+  ctl = { 'id' => 'ctl-t', 'kind' => 'control', 'controlId' => 'Ctl', 'controlType' => control_type,
+          'source' => { 'kind' => 'source', 'source' => { 'kind' => 'table', 'elementId' => 'chart-t' },
+                        'columnId' => 'c-color' } }
+  ctl['targets'] = [{ 'source' => { 'kind' => 'table', 'elementId' => 'chart-t' }, 'columnId' => 'c-color' }] if with_targets
+  { 'pages' => [{ 'id' => 'p1', 'name' => 'P1',
+                  'elements' => [{ 'id' => 'chart-t', 'kind' => 'table', 'name' => 'Chart' }, ctl] }],
+    'layout' => '<Page id="p1"><Element elementId="chart-t"/><Element elementId="ctl-t"/></Page>' }
+end
+dead_t = ->(vs) { vs.any? { |v| v.include?('dead control') && v.include?('ctl-t') } }
+
+check(!dead_t.call(ControlLint.lint(targets_control_spec('legend', true))),
+      'legend control with source + targets and no filters is NOT a dead control', fails)
+check(dead_t.call(ControlLint.lint(targets_control_spec('legend', false))),
+      'legend control with no targets and no filters IS still a dead control', fails)
+check(!dead_t.call(ControlLint.lint(targets_control_spec('drill', true))),
+      'drill control with targets is still NOT a dead control (unchanged)', fails)
+check(dead_t.call(ControlLint.lint(targets_control_spec('list', true))),
+      'non-legend/drill control with targets only and no filters IS still dead', fails)
+
+# --- partial-reach: a legend recolours only the chart it names (no 'partial') --
+# Page has two queryable tables. The control reaches only `chart-t` (via targets
+# for legend, via filters for list), so `chart-u` is uncovered.
+def two_element_control_spec(control_type)
+  src = { 'kind' => 'table', 'elementId' => 'chart-t' }
+  ctl = { 'id' => 'ctl-t', 'kind' => 'control', 'controlId' => 'Ctl', 'controlType' => control_type,
+          'source' => { 'kind' => 'source', 'source' => src, 'columnId' => 'c-color' } }
+  if control_type == 'legend'
+    ctl['targets'] = [{ 'source' => src, 'columnId' => 'c-color' }]
+  else
+    ctl['filters'] = [{ 'source' => src, 'columnId' => 'c-color' }]
+  end
+  { 'pages' => [{ 'id' => 'p1', 'name' => 'P1',
+                  'elements' => [{ 'id' => 'chart-t', 'kind' => 'table', 'name' => 'Chart T',
+                                   'columns' => [{ 'id' => 'c-color', 'name' => 'Color', 'formula' => '[Color]' }] },
+                                 { 'id' => 'chart-u', 'kind' => 'table', 'name' => 'Chart U' },
+                                 ctl] }],
+    'layout' => '<Page id="p1"><Element elementId="chart-t"/><Element elementId="chart-u"/>' \
+                '<Element elementId="ctl-t"/></Page>' }
+end
+partial_t = ->(vs) { vs.any? { |v| v.include?('partial control') && v.include?('ctl-t') } }
+
+legend_partial = ControlLint.lint(two_element_control_spec('legend'))
+check(legend_partial.none? { |v| v.include?('partial control') },
+      'legend control naming only one of two queryable elements produces NO partial-control violation', fails)
+list_partial = ControlLint.lint(two_element_control_spec('list'))
+check(partial_t.call(list_partial),
+      'list control filtering only one of two queryable elements STILL produces a partial-control violation', fails)
+
 puts
 if fails.empty?
   puts 'ALL PASS — control_lint honors needs-wiring/needs-materialization coverage gaps'

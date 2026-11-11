@@ -178,10 +178,19 @@
 #      accepting an unverified render): --skip-visual-comparison "<reason>".
 #      A recorded `divergent` verdict passes this gate as RECORDED (the
 #      comparison happened; the gaps are acknowledged) but is INJECTED into
-#      the waiver census as `visual-divergent` and SPENDS waiver budget
-#      (exit 19) — GREEN requires the budget to hold, and the recorded
-#      divergence joins the degradation ledger as a fidelity-residual, so the
-#      final verdict is at most YELLOW (PR-14 verdict model below).
+#      NOT a waiver: it no longer counts toward the 2-waiver budget (exit 19).
+#      It still forfeits GREEN — the recorded divergence joins the degradation
+#      ledger as a fidelity-residual, so the final verdict is at most YELLOW
+#      (PR-14 verdict model below).
+#      A `blind-grade/v2` stamp is RE-VERIFIED here (exit 13 on any drift): the
+#      stamped catalog sha256 must equal the SHIPPED catalog's (a self-authored
+#      catalog is refused), every grade file is re-hashed and re-validated
+#      (blind_grade.path == grades[0].path; two grades must be different files and
+#      bytes, and grade 1 alone must be borderline; the kind-census cross-check runs
+#      on every grade), BlindGrade.faithful is re-run — its pass/divergent verdict
+#      must equal the recorded visual_verdict — and visual-residuals.json must exist
+#      and equal the re-computation (score, faithful, residuals, fixable_major,
+#      platform_differences, catalog sha).
 #  14  Layout fill / grid coverage failed (gate 8c; #259 item 1) — a page in
 #      layout-census.json dropped a tile (placed < zones) or ships under-filled
 #      (grid_fill_pct < --min-grid-fill, default 0.45), OR a dashboard layout was
@@ -233,9 +242,9 @@
 #      oracle replaces parity, never nothing.
 #  19  Waiver budget exceeded — more than 2 QUALITY waiver/escape flags were
 #      passed (--skip-*, --allow-extract, --allow-missing-tiles>0,
-#      --min-pass-rate<1, --accept-*; a recorded `divergent` visual verdict is
-#      injected as `visual-divergent` and counts, like the recorded no-vision
-#      waiver). Each waiver is an attestation that a
+#      --min-pass-rate<1, --accept-*; the recorded no-vision waiver counts too;
+#      a recorded `divergent` visual verdict does NOT — it forfeits GREEN via
+#      the degradation ledger instead). Each waiver is an attestation that a
 #      verification could not run; stacking them is how an unverified workbook
 #      ships GREEN. GREEN is unavailable on this run regardless of individual
 #      escapes — the highest achievable result is YELLOW. Every run stamps
@@ -482,12 +491,20 @@ require 'uri'
 require 'optparse'
 require 'rbconfig'
 require 'digest'
+require 'time'
 require_relative 'lint-render-integrity'
 
 # Resolve Sigma auth once at startup through the shared browser-first provider.
 # A browser/keychain-only session therefore surfaces a bearer into ENV for the
 # existing live gates and their child processes. If resolution fails, leave the
 # token absent: gates 3/4 retain their existing fail-closed exits.
+# lib/blind_grade.rb: vendored at scripts/lib/ in plugins, canonical at ../lib/
+# in shared/ (so the canonical copy of this script can be exercised in place).
+BLIND_GRADE_LIB = [
+  File.join(__dir__, 'lib', 'blind_grade.rb'),
+  File.join(__dir__, '..', 'lib', 'blind_grade.rb')
+].find { |path| File.file?(path) } || File.join(__dir__, 'lib', 'blind_grade.rb')
+
 _sigma_rest_path = [
   File.join(__dir__, 'lib', 'sigma_rest.rb'),
   File.join(__dir__, '..', 'lib', 'sigma_rest.rb')
@@ -905,7 +922,6 @@ WAIVER_HIDES = {
   '--skip-visual-gate'         => 'gate 8: no rendered PNG was required',
   '--skip-visual-comparison'   => 'gate 8b: no source-vs-target visual verdict was required',
   '--no-vision-waiver'         => 'gate 8b: the visual PASS was SELF-graded — no context-free blind grader ran (recorded by record-visual-check.rb --no-vision-waiver)',
-  'visual-divergent'           => 'gate 8b: the recorded visual verdict is DIVERGENT — acknowledged source-vs-target visual gaps ship in the render (joins the degradation ledger as a fidelity-residual; verdict at most YELLOW)',
   '--skip-layout-fill'         => 'gate 8c: dropped/under-filled pages were accepted',
   '--accept-residuals'         => 'gate 8d: named RCF deltas shipped unresolved',
   '--skip-fidelity-gate'       => 'gate 8d: the RCF fidelity loop was never required — compositional deltas (palette, chart kind, KPI format) were never iterated (--rcf-passes 0 records this waiver)',
@@ -994,20 +1010,15 @@ end
 # budget exactly like a gate flag — a self-graded visual pass is a quality
 # degradation, never a freebie.
 #
-# A RECORDED divergent visual verdict spends budget the same way: gate 8b
-# accepts it as RECORDED (the comparison happened; the gaps are acknowledged),
-# but acknowledged source-vs-target visual gaps riding to GREEN unqualified is
-# exactly the live-run failure this closes (blind grade FAIL 5/6, verdict
-# recorded divergent, final GREEN). Injected into the census as
-# `visual-divergent` so the budget line names it; the degradation ledger
-# (PR-14) additionally records it as a fidelity-residual, capping the verdict
-# at YELLOW even when the budget holds.
+# A RECORDED divergent visual verdict does NOT spend waiver budget (blind-grade
+# v2: the divergence is a recorded RESULT, not a skipped verification). Gate 8b
+# accepts it as RECORDED; the degradation ledger (PR-14) records it as a
+# fidelity-residual, so acknowledged source-vs-target visual gaps can never
+# ride to GREEN — the verdict is at most YELLOW.
 begin
   _pf_bgw = File.exist?(summary_path) ? JSON.parse(File.read(summary_path)) : nil
   waiver_flags << '--no-vision-waiver' if _pf_bgw.is_a?(Hash) && _pf_bgw['blind_grade_waiver'].is_a?(Hash) &&
                                           !waiver_flags.include?('--no-vision-waiver')
-  waiver_flags << 'visual-divergent' if _pf_bgw.is_a?(Hash) && _pf_bgw['visual_verdict'].to_s == 'divergent' &&
-                                        !waiver_flags.include?('visual-divergent')
 rescue StandardError
   nil
 end
@@ -2306,6 +2317,25 @@ end
 # Validated render PNG from gate 8 — reused by gate 14 (visual-similarity
 # floor). nil when gate 8 was waived or no render resolved.
 render_png = nil
+# visual_graded_by (2026-11-10): WHO produced the recorded visual verdict, kept
+# apart from agent_vision, which means only the BUILDER's own ability to read
+# images (record-visual-check.rb --agent-vision; doctor.json agent_vision is
+# the same claim, null when the doctor could not tell). A reviewer read
+# doctor.json agent_vision=false next to parity-final.json agent_vision=true
+# on a run graded by a separate blind grader and could not tell which was
+# meant. Stamped into parity-final.json on success and shown on gate 8b's line:
+#   blind-grader               — a context-free grader's grade is recorded (blind_grade)
+#   builder (no-vision waiver) — no grader could be spawned; the builder's own read
+#   builder                    — legacy record with neither (pre-PR-9)
+#   none                       — not-executable: nobody could read the render
+visual_graded_by_for = lambda do |pf|
+  next nil unless pf.is_a?(Hash) && pf['visual_verdict']
+  if pf['visual_verdict'].to_s == 'not-executable' then 'none'
+  elsif pf['blind_grade'].is_a?(Hash) then 'blind-grader'
+  elsif pf['blind_grade_waiver'].is_a?(Hash) then 'builder (no-vision waiver)'
+  else 'builder'
+  end
+end
 if opts[:skip_visual]
   # BISECT-EVIDENCE demand (field-caught, twice): both rounds of a live test
   # produced a "render outage / persistent 500" waiver that an evaluator's
@@ -2399,9 +2429,111 @@ else
   # degradation instead of passing on it.
   s = File.exist?(summary_path) ? (JSON.parse(File.read(summary_path)) rescue {}) : {}
   # A recorded `divergent` verdict IS a recorded comparison — gate 8b accepts
-  # it as RECORDED, but the acknowledged gaps are budget-counted (the
-  # `visual-divergent` census injection above; exit-19 doctrine).
+  # it as RECORDED; the acknowledged gaps forfeit GREEN via the degradation
+  # ledger's fidelity-residual (not via the waiver budget).
   recorded = s['visual_checked'] || s['screenshot_path'] || s['visual_verdict'].to_s == 'divergent'
+  # blind-grade/v2 RE-VERIFICATION (pass AND divergent): the stamp in
+  # parity-final.json is only as good as the files it names. Re-hash the
+  # catalog and every grade file against the stamped sha256s, re-validate each
+  # grade (image shas + the grade's own catalog_sha256 + catalog ids), and
+  # re-run BlindGrade.faithful — its verdict must equal the RECORDED
+  # visual_verdict, and no second grader may still be owed. Returns an error
+  # string naming the failing file/sha, or nil when everything re-verifies.
+  v2_reverify = lambda do |sf, bgs, workdir|
+    require BLIND_GRADE_LIB
+    # The ONLY valid catalog is the SHIPPED one (never a path the stamp names): a
+    # self-authored catalog would launder any gap into a "platform difference".
+    shipped_cat = File.expand_path('../refs/sigma-platform-differences.json', __dir__)
+    catalog = BlindGrade.load_catalog(shipped_cat)
+    next "shipped catalog #{shipped_cat} is unusable: #{catalog['errors'].join('; ')}" if catalog['errors'].any?
+    # Catalog-history ancestor rule (BlindGrade.catalog_compat): a stamp made
+    # against an earlier catalog whose entries all survive unchanged stays
+    # valid when the catalog only GAINED entries; removed/changed/unknown refuses.
+    stamp_compat = BlindGrade.catalog_compat(bgs['catalog_sha256'], catalog)
+    unless stamp_compat['ok']
+      next "catalog sha256 mismatch — the stamp recorded #{bgs['catalog_sha256'].inspect} but the shipped catalog #{shipped_cat} hashes to #{catalog['sha256']} " \
+           "(#{stamp_compat['reason']}). " \
+           'Only the shipped catalog or an unchanged ancestor of it is valid (a self-authored or edited catalog is refused) — re-grade against the shipped catalog and re-record'
+    end
+    stamped = bgs['grades']
+    next 'the v2 stamp carries no grades[] (need 1 or 2 {path, sha256} entries)' unless stamped.is_a?(Array) && [1, 2].include?(stamped.length)
+    gpaths = stamped.map { |g| BlindGrade.resolve(g.is_a?(Hash) ? g['path'] : nil, workdir) }
+    if bgs['path'].to_s.empty? || gpaths[0].nil? || File.expand_path(bgs['path'].to_s, workdir) != gpaths[0]
+      next "blind_grade.path (#{bgs['path'].inspect}) is not grades[0].path (#{stamped[0].is_a?(Hash) ? stamped[0]['path'].inspect : 'n/a'}) — the stamp must name the graded file first"
+    end
+    docs = []
+    grade_err = nil
+    stamped.each_with_index do |g, gi|
+      gpath = gpaths[gi]
+      next_err = nil
+      if gpath.nil? || !File.file?(gpath)
+        next_err = "grade file missing from disk (#{gpath.inspect}) — the hash-bound grade must stay on disk"
+      elsif BlindGrade.sha256(gpath) != g['sha256'].to_s.downcase
+        next_err = "grade file #{gpath} sha256 drift — hashes to #{BlindGrade.sha256(gpath)} but the stamp recorded #{g['sha256'].inspect} (grade edited after recording)"
+      else
+        res = BlindGrade.load_and_validate(gpath, workdir: workdir, catalog: catalog)
+        if res['errors'].any?
+          next_err = "grade #{gpath} no longer validates: #{res['errors'].join('; ')}"
+        elsif res['doc']['schema'].to_s != BlindGrade::SCHEMA_V2
+          next_err = "grade #{gpath} is not #{BlindGrade::SCHEMA_V2} (stamp says v2)"
+        else
+          docs << res['doc']
+        end
+      end
+      grade_err ||= next_err
+    end
+    next grade_err if grade_err
+    if docs.length == 2
+      if (File.realpath(gpaths[0]) rescue gpaths[0]) == (File.realpath(gpaths[1]) rescue gpaths[1]) ||
+         BlindGrade.sha256(gpaths[0]) == BlindGrade.sha256(gpaths[1])
+        next 'the two stamped grades are the same grade (same file or identical bytes) — a second grade must be an independent run of the brief'
+      end
+      %w[source_sha256 target_sha256].each do |k|
+        next if docs[0][k].to_s.downcase == docs[1][k].to_s.downcase
+        next_err = "the two grades disagree on #{k} — both graders must have graded the SAME image pair"
+        grade_err ||= next_err
+      end
+      next grade_err if grade_err
+      alone = BlindGrade.faithful([docs[0]], catalog)
+      unless alone['needs_second']
+        next "a second grade is stamped but grade 1 alone (score #{alone['score']}) is not borderline (within #{BlindGrade::BORDERLINE} of #{BlindGrade::PASS_SCORE}) — a second grade cannot rescue or sink a clear grade"
+      end
+    end
+    # Census cross-check on EVERY grade, both sides (target vs wb-readback.json,
+    # source vs png-read.json): a fabricated second grade is as invalid as a first.
+    { 'target' => BlindGrade.census_from_readback(File.join(workdir, 'wb-readback.json')),
+      'source' => BlindGrade.census_from_png_read(File.join(workdir, 'png-read.json')) }.each do |side, census|
+      next if census.nil? || census.empty?
+      docs.each_with_index do |d, di|
+        cc = BlindGrade.cross_check(d['per_tile'], census, side)
+        next unless cc['mismatches'] > BlindGrade::MAX_FAMILY_MISMATCHES
+        next_err = "grade #{stamped[di]['path']} INCONSISTENT with the mechanical kind census — its #{side}_family readings contradict " \
+                   "#{side == 'target' ? 'wb-readback.json' : 'png-read.json'} on #{cc['mismatches']} tile(s) (fabricated or stale grade)"
+        grade_err ||= next_err
+      end
+    end
+    next grade_err if grade_err
+    decision = BlindGrade.faithful(docs, catalog)
+    next "second blind grader required (score #{decision['score']} is within #{BlindGrade::BORDERLINE} of #{BlindGrade::PASS_SCORE}) but only one grade is stamped" if decision['needs_second']
+    computed = decision['faithful'] ? 'pass' : 'divergent'
+    if computed != sf['visual_verdict'].to_s
+      next "recorded visual_verdict #{sf['visual_verdict'].inspect} contradicts the re-computed blind-grade/v2 verdict #{computed.upcase} (score #{decision['score']}; #{decision['reasons'].join('; ')})"
+    end
+    # visual-residuals.json is what the degradation ledger reads to name every
+    # remaining gap and to keep GREEN honest: it must equal the re-computation.
+    vr_path = File.join(workdir, 'visual-residuals.json')
+    vr = File.file?(vr_path) ? (JSON.parse(File.read(vr_path)) rescue nil) : nil
+    next "visual-residuals.json missing/stale — #{vr_path} does not exist or is unreadable; it is written by record-visual-check.rb and must accompany a blind-grade/v2 stamp. Re-record" unless vr.is_a?(Hash)
+    norm = ->(x) { JSON.parse(JSON.generate([x]))[0] }
+    expected = { 'catalog_sha256' => stamp_compat['graded_sha256'], 'faithful' => decision['faithful'], 'score' => decision['score'],
+                 'residuals' => decision['residuals'], 'fixable_major' => decision['fixable_major'],
+                 'platform_differences' => decision['platform_differences'] }
+    stale = expected.reject { |k, v| norm.call(vr[k]) == norm.call(v) }.keys
+    if stale.any?
+      next "visual-residuals.json missing/stale — #{stale.join(', ')} differ from what the re-verified grade(s) compute. Re-run record-visual-check.rb"
+    end
+    nil
+  end
   vision_blocked = (s.key?('agent_vision') && s['agent_vision'] == false) ||
                    s['visual_verdict'].to_s == 'not-executable'
   if vision_blocked
@@ -2432,6 +2564,12 @@ else
       cl = s['style_checklist']
       cl_missing = cl.is_a?(Hash) ? (cl_keys - cl.keys) : cl_keys
       cl_fails = cl.is_a?(Hash) ? cl.select { |k, v2| cl_keys.include?(k) && v2 == 'fail' }.keys : []
+      # blind-grade/v2: only chart_shapes_match + numbers_formatted are hard
+      # requirements on a pass (the v2 rule scores the other dimensions); the
+      # re-verification below owns the verdict. v1 keeps all six.
+      if s['blind_grade'].is_a?(Hash) && s['blind_grade']['schema'].to_s == 'blind-grade/v2'
+        cl_fails &= %w[chart_shapes_match numbers_formatted]
+      end
       unless cl_missing.empty? && cl_fails.empty?
         warn '[FAIL] gate 8b: visual PASS recorded WITHOUT a complete clean style checklist —'
         warn "       missing: #{cl_missing.join(', ')}" if cl_missing.any?
@@ -2470,7 +2608,8 @@ else
         _hex = /\A[0-9a-f]{64}\z/i
         if !bg.is_a?(Hash)
           bg_fail.call('parity-final.json carries NO blind_grade metadata (self-attested pass).')
-        elsif bg['verdict'].to_s != 'pass' || bg['source_sha256'].to_s !~ _hex || bg['target_sha256'].to_s !~ _hex
+        elsif bg['verdict'].to_s != 'pass' || bg['source_sha256'].to_s !~ _hex || bg['target_sha256'].to_s !~ _hex ||
+              (bg['schema'].to_s == 'blind-grade/v2' && bg['catalog_sha256'].to_s !~ _hex)
           bg_fail.call('the stamped blind_grade metadata is invalid (verdict must be pass, sha256s must be 64-hex).')
         else
           _bg_file = File.expand_path((bg['path'] || 'blind-grade.json').to_s, opts[:tab])
@@ -2479,13 +2618,17 @@ else
             bg_fail.call("the blind grade evidence file is missing/unreadable (#{_bg_file}) — the hash-bound grade must stay on disk.")
           elsif _bg_doc['source_sha256'].to_s.downcase != bg['source_sha256'].to_s.downcase ||
                 _bg_doc['target_sha256'].to_s.downcase != bg['target_sha256'].to_s.downcase ||
-                _bg_doc['verdict'].to_s != 'pass'
+                (bg['schema'].to_s != 'blind-grade/v2' && _bg_doc['verdict'].to_s != 'pass')
             bg_fail.call('blind-grade.json does not match the stamped metadata (sha/verdict drift — re-run the grader).')
           else
             _cl_keys2 = %w[element_titles_hidden palette_match composition_match
                            chart_shapes_match labels_legible numbers_formatted]
             _dims = _bg_doc['dimensions'].is_a?(Hash) ? _bg_doc['dimensions'] : {}
-            _bad_dims = _cl_keys2.reject { |k| _dims[k].is_a?(Hash) && _dims[k]['verdict'].to_s == 'pass' }
+            _bg_v2 = bg['schema'].to_s == 'blind-grade/v2'
+            # v1: all six dimensions must pass. v2: the computed rule (re-verified
+            # below via BlindGrade.faithful) owns the dimensions.
+            _bad_dims = _bg_v2 ? [] : _cl_keys2.reject { |k| _dims[k].is_a?(Hash) && _dims[k]['verdict'].to_s == 'pass' }
+            _v2_err = _bg_v2 ? v2_reverify.call(s, bg, opts[:tab]) : nil
             _src_img = _bg_doc['source_png'].to_s.empty? ? nil : File.expand_path(_bg_doc['source_png'].to_s, opts[:tab])
             _tgt_img = _bg_doc['target_png'].to_s.empty? ? nil : File.expand_path(_bg_doc['target_png'].to_s, opts[:tab])
             _fidelity_path = File.join(opts[:tab], 'fidelity-ledger.json')
@@ -2499,6 +2642,8 @@ else
             _fidelity_stamp = bg['fidelity_render']
             if _bad_dims.any?
               bg_fail.call("blind grade dimension(s) missing or not passing: #{_bad_dims.join(', ')}.")
+            elsif _v2_err
+              bg_fail.call("blind-grade/v2 re-verification failed — #{_v2_err}")
             elsif _src_img.nil? || _tgt_img.nil? || !File.file?(_src_img) || !File.file?(_tgt_img)
               bg_fail.call('the graded image files are missing from disk (blind-grade.json source_png/target_png) — the sha binding cannot be verified.')
             elsif Digest::SHA256.file(_src_img).hexdigest != bg['source_sha256'].to_s.downcase
@@ -2525,7 +2670,7 @@ else
               # One implementation of the census + family vocabulary
               # (lib/blind_grade.rb): excludes the Data page, hidden pages, and
               # DM-only visibleAsSource:false masters; returns nil on no readback.
-              require_relative 'lib/blind_grade'
+              require BLIND_GRADE_LIB
               _census = BlindGrade.census_from_readback(File.join(opts[:tab], 'wb-readback.json'))
               if _census.is_a?(Array) && _census.any?
                 _blind = Array(_bg_doc['per_tile']).map { |t| BlindGrade.family(t.is_a?(Hash) ? t['target_family'] : nil) }
@@ -2538,15 +2683,26 @@ else
                   bg_fail.call("blind grade INCONSISTENT with the mechanical kind census — target_family readings contradict wb-readback.json on #{_mm} tile(s) (blind: #{_bc.sort.map { |f, n| "#{n}x#{f}" }.join(', ')}; census: #{_cc.sort.map { |f, n| "#{n}x#{f}" }.join(', ')}) — fabricated or stale grade.")
                 end
               end
-              puts "[OK] gate 8b: blind grade verified — context-free PASS, sha-bound to the images on disk " \
+              puts "[OK] gate 8b: blind grade verified#{_bg_v2 ? " (blind-grade/v2: catalog + #{Array(bg['grades']).length} grade file(s) re-hashed, verdict re-computed)" : ''} — context-free PASS, sha-bound to the images on disk " \
                    "(src=#{bg['source_sha256'][0, 12]}…, tgt=#{bg['target_sha256'][0, 12]}…)."
             end
           end
         end
       end
     end
+    if s['visual_verdict'].to_s == 'divergent' && s['blind_grade'].is_a?(Hash) &&
+       s['blind_grade']['schema'].to_s == 'blind-grade/v2' && !opts[:skip_visual_cmp]
+      _dv_err = v2_reverify.call(s, s['blind_grade'], opts[:tab])
+      if _dv_err
+        warn "[FAIL] gate 8b: recorded DIVERGENT verdict carries a blind-grade/v2 stamp that no longer re-verifies — #{_dv_err}"
+        warn '       Re-run the context-free grader against the current images + catalog and re-record'
+        warn '       (record-visual-check.rb --blind-grade <grade.json>); the recorded verdict must be re-computable.'
+        exit 13
+      end
+    end
     v = s['visual_verdict'] ? " (#{s['visual_verdict']})" : ''
     av = s.key?('agent_vision') ? ", agent_vision=#{s['agent_vision']}" : ''
+    av += ", visual_graded_by=#{visual_graded_by_for.call(s)}" if visual_graded_by_for.call(s)
     cls = if s['style_checklist'].is_a?(Hash)
             counts = s['style_checklist'].values.each_with_object(Hash.new(0)) { |v2, h| h[v2] += 1 }
             ", style_checklist=#{counts.map { |k, n| "#{n}x#{k}" }.join('/')}"
@@ -2555,10 +2711,10 @@ else
           end
     if s['visual_verdict'].to_s == 'divergent'
       puts "[OK] gate 8b: source-vs-target visual comparison recorded (divergent)#{av}#{cls} — RECORDED, not clean:"
-      puts '     the acknowledged visual gaps are BUDGET-COUNTED (census: visual-divergent; exit-19 doctrine).'
-      puts '     GREEN requires the budget to hold — fix the gaps, re-render, re-record --verdict pass, or'
+      puts '     the acknowledged visual gaps forfeit GREEN (degradation ledger: fidelity-residual) but do NOT'
+      puts '     spend waiver budget. Fix the gaps, re-render, re-record --verdict pass, or'
       puts "     accept YELLOW#{s['visual_notes'] ? " (recorded gaps: #{s['visual_notes'].to_s[0, 160]})" : ''}."
-      puts '     (Full verdict-capping — divergent caps the run at PARTIAL — is PLAN-v3 PR-14, not built yet.)'
+      puts '     (Verdict model: PR-14 degradation ledger — a fidelity-residual caps the run at YELLOW.)'
     else
       puts "[OK] gate 8b: source-vs-target visual comparison recorded#{v}#{av}#{cls}."
     end
@@ -2739,6 +2895,36 @@ if File.exist?(fl_path)
     exit 15
   end
 end
+# RCF fix budget (inline mirror of tableau's scripts/fidelity-loop.rb +
+# lib/repair_state.rb RepairState.check_budget! — shared cannot require plugin
+# libs). Spent when <workdir>/rcf-exhausted.json exists AND parses with status
+# 'exhausted' (fidelity-loop.rb writes
+# it when the pass budget runs out), or pass >= max_passes (max_passes > 0), or
+# the wall-clock budget is gone: now - started_at >= max_seconds (started_at an
+# ISO8601 string, max_seconds a positive finite number). A missing/invalid key
+# means NOT spent — the conservative default keeps blocking.
+# rcf-exhausted.json counts only when it parses and carries status == 'exhausted'
+# (exactly what fidelity-loop.rb write_exhausted stamps): a forged/empty file never does.
+rcf_exhausted_file = lambda do |workdir|
+  f = File.join(workdir, 'rcf-exhausted.json')
+  doc = File.file?(f) ? (JSON.parse(File.read(f)) rescue nil) : nil
+  doc.is_a?(Hash) && doc['status'].to_s == 'exhausted'
+end
+budget_spent = lambda do |led, workdir|
+  next true if rcf_exhausted_file.call(workdir)
+  next false unless led.is_a?(Hash)
+  max_p = led['max_passes'].to_i
+  next true if led['max_passes'].is_a?(Numeric) && max_p.positive? && led['pass'].to_i >= max_p
+  ms = led['max_seconds']
+  if led['started_at'].is_a?(String) && ms.is_a?(Numeric) && ms.finite? && ms.positive?
+    begin
+      next true if Time.now - Time.iso8601(led['started_at']) >= ms
+    rescue ArgumentError
+      next false
+    end
+  end
+  false
+end
 if ledger
   entries = ledger['entries'] || []
   # DATA-CLASS residuals block GREEN whenever a ledger EXISTS — with or
@@ -2761,9 +2947,32 @@ if ledger
     exit 15
   end
   if opts[:require_fidelity] && !opts[:skip_fidelity]
-    blocking = entries.each_with_index.select do |e, i|
-      e['cls'] == 'spec-fixable' && !e['resolved'] &&
+    # Spec-fixable = cls spec-fixable, plus an unresolved sigma-capability /
+    # ui-only entry that cites NO catalog_id present in the shipped
+    # platform-difference catalog (an uncatalogued 'platform limit' is a claim,
+    # not evidence — it stays fixable). A valid catalog_id never blocks.
+    require BLIND_GRADE_LIB
+    _cat8d = BlindGrade.load_catalog(File.expand_path('../refs/sigma-platform-differences.json', __dir__))
+    _cat8d_ids = _cat8d['errors'].empty? ? Array(_cat8d['ids']) : []
+    specfix8d = lambda do |e|
+      next true if e['cls'] == 'spec-fixable'
+      %w[sigma-capability ui-only].include?(e['cls']) && !_cat8d_ids.include?(e['catalog_id'].to_s)
+    end
+    # Once the fix budget is spent, spec-fixable entries stop blocking: they
+    # are YELLOW residuals (degradation ledger: fidelity-residual 'RCF residual
+    # <id>'), never silently dropped. Data-class blocking above is unchanged.
+    _spent8d = budget_spent.call(ledger, opts[:tab])
+    blocking = _spent8d ? [] : entries.each_with_index.select do |e, i|
+      specfix8d.call(e) && !e['resolved'] &&
         !accepted.include?(i.to_s) && !accepted.include?(e['id'].to_s)
+    end
+    if _spent8d
+      _left8d = entries.select { |e| specfix8d.call(e) && !e['resolved'] }
+      if _left8d.any?
+        puts "[NOTE] gate 8d: RCF fix budget SPENT (#{ledger['pass']}/#{ledger['max_passes']} pass(es)#{rcf_exhausted_file.call(opts[:tab]) ? ', rcf-exhausted.json' : ''}) — " \
+             "#{_left8d.length} unresolved spec-fixable delta(s) no longer block; they ship as YELLOW fidelity-residuals: " \
+             "#{_left8d.map { |e| e['id'] }.join(', ')}"
+      end
     end
     if blocking.any?
       warn "[FAIL] gate 8d: #{blocking.length} unresolved spec-fixable RCF delta(s) in #{fl_path}:"
@@ -2775,10 +2984,13 @@ if ledger
       warn '       data-class ids are never accepted).'
       exit 15
     end
-    resid = entries.reject { |e| e['cls'] == 'spec-fixable' && !e['resolved'] }
-                   .select { |e| %w[ui-only sigma-capability data].include?(e['cls']) }
+    # Recorded residuals (the report names them): catalogued platform differences
+    # and data-class entries. An uncatalogued ui-only/sigma-capability entry is
+    # spec-fixable (counted above), never a recorded residual.
+    resid = entries.select { |e| %w[ui-only sigma-capability data].include?(e['cls']) && !specfix8d.call(e) }
+    _unres8d = entries.count { |e| specfix8d.call(e) && !e['resolved'] }
     puts "[OK] gate 8d: RCF fidelity ledger clean — #{entries.length} delta(s) over #{ledger['pass']} pass(es), " \
-         "0 unresolved spec-fixable, 0 unresolved data-class" \
+         "#{_spent8d ? "#{_unres8d} unresolved spec-fixable (fix budget spent → YELLOW residuals)" : '0 unresolved spec-fixable'}, 0 unresolved data-class" \
          "#{resid.any? ? " (#{resid.length} recorded residual(s) → report)" : ''}"
   end
 end
@@ -2976,6 +3188,44 @@ end
 # VISUAL_SIMILARITY_SCRIPT env overrides the script path (tests).
 # ---------------------------------------------------------------------------
 vsim_script = ENV['VISUAL_SIMILARITY_SCRIPT'] || File.join(__dir__, 'visual-similarity.py')
+# Platform-difference exemption (2026-11-09, Complex Pivot): a measured floor
+# COMPONENT shortfall that a catalogued Sigma platform difference explains is
+# not a render defect. Only the components listed per catalog id below can be
+# exempted, only when the RCF ledger records that difference (cls
+# sigma-capability / ui-only, a shipped composition_match catalog id), and only
+# when every OTHER part of the floor passes: the overall threshold, image
+# health and the per-tile blank detector are never exempted. Recorded in
+# visual-similarity-exemptions.json; the degradation ledger lists it as a
+# platform difference (not a waiver, not a degradation).
+VSIM_FLOOR_EXEMPT = { 'pivot-row-height-fixed' => %w[band_balance coverage] }.freeze
+VSIM_FLOORS = { 'coverage' => 0.40, 'band_balance' => 0.10 }.freeze # visual-similarity.py INK_FLOOR / BAL_FLOOR
+vsim_exempt_path = File.join(opts[:tab], 'visual-similarity-exemptions.json')
+File.delete(vsim_exempt_path) if File.exist?(vsim_exempt_path)
+vsim_exemptions = lambda do |vs|
+  comps = vs['components'].is_a?(Hash) ? vs['components'] : {}
+  thr = vs['threshold'].is_a?(Numeric) ? vs['threshold'] : nil
+  next nil unless thr && vs['score_overall'].is_a?(Numeric) && vs['score_overall'] >= thr
+  next nil unless %w[source_health render_health].all? { |k| vs[k].is_a?(Hash) && vs[k]['status'].to_s.upcase == 'PASS' }
+  measured = vs['tiles_measured'].to_i
+  next nil if measured >= 3 && 2 * Array(vs['tiles_blank']).length > measured
+  short = VSIM_FLOORS.select { |k, f| comps[k].is_a?(Numeric) && comps[k] < f }
+  next nil if short.empty?
+  require BLIND_GRADE_LIB
+  cat = BlindGrade.load_catalog(File.expand_path('../refs/sigma-platform-differences.json', __dir__))
+  next nil unless cat['errors'].empty?
+  dims = Array(cat['entries']).map { |e| [e['id'].to_s, e['dimension'].to_s] }.to_h
+  led = File.exist?(fl_path) ? (JSON.parse(File.read(fl_path)) rescue nil) : nil
+  recorded = Array(led.is_a?(Hash) ? led['entries'] : nil).select do |e|
+    e.is_a?(Hash) && %w[sigma-capability ui-only].include?(e['cls'].to_s) &&
+      VSIM_FLOOR_EXEMPT.key?(e['catalog_id'].to_s) && dims[e['catalog_id'].to_s] == 'composition_match'
+  end
+  out = short.map do |comp, floor|
+    e = recorded.find { |r| VSIM_FLOOR_EXEMPT[r['catalog_id'].to_s].include?(comp) }
+    e && { 'component' => comp, 'value' => comps[comp], 'floor' => floor,
+           'catalog_id' => e['catalog_id'].to_s, 'rcf_id' => e['id'].to_s }
+  end
+  out.all? ? out : nil
+end
 if opts[:skip_vsim]
   record_waiver.call('--skip-visual-similarity', 'gate 14 (visual-similarity floor)', opts[:skip_vsim])
 elsif File.exist?(vsim_script)
@@ -2994,16 +3244,120 @@ elsif File.exist?(vsim_script)
     # Without the file the invocation is byte-identical to the no-tiles contract.
     _vsim_cmd = [_vsim_py, vsim_script, '--source', source_png, '--render', render_png, '--json-out', vs_out]
     _vsim_tiles = File.join(opts[:tab], 'dashboard-layout.json')
-    _vsim_cmd += ['--tiles', _vsim_tiles] if File.exist?(_vsim_tiles)
+    # Multi-page (2026-11-10, Stress 4 measured "0 tile(s)" on 2 pages). When
+    # the render is one of the fidelity ledger's renders (rcf-pass-N.png):
+    #  - the layout goes over with ONLY the rendered page(s), in render order
+    #    (renders[].pages ids → names via wb-ids.json / wb-spec.json). A
+    #    composite follows dashboard-scope.json / workbook page order, not
+    #    necessarily the layout's, and a layout holds dashboards no render
+    #    shows. A single-page pass gets just its own dashboard.
+    #  - a composite also gets --composite-pages: the per-page render sizes
+    #    read from fidelity-loop's rcf-pass-N-pK-<page>.png headers (exact band
+    #    geometry), else the page count — so a layout that does not match the
+    #    composite is stated as tiles_unmapped, never spread over the stack.
+    # A name that does not resolve → the layout goes as-is (visual-similarity
+    # drops story / emit_page:false dashboards and maps by order, or states
+    # tiles_unmapped when the counts differ).
+    _vsim_tiles_arg = File.exist?(_vsim_tiles) ? _vsim_tiles : nil
+    _vsim_composite = nil
+    _vsim_ordered = File.join(opts[:tab], 'visual-similarity-tiles.json')
+    File.delete(_vsim_ordered) if File.exist?(_vsim_ordered)
+    begin
+      _rend = Array(ledger.is_a?(Hash) ? ledger['renders'] : nil).reverse.find do |r|
+        r.is_a?(Hash) && r['path'].to_s != '' &&
+          File.expand_path(r['path'].to_s, opts[:tab]) == File.expand_path(render_png)
+      end
+      _pids = Array(_rend && _rend['pages']).map(&:to_s).reject(&:empty?)
+      # Gate 8 can also land on one of fidelity-loop's per-page renders
+      # (rcf-pass-N-pK-<page>.png, kept beside the composite): that is page K
+      # of pass N's composite, measured as a single page.
+      if _rend.nil? && (m = File.basename(render_png).match(/\Arcf-pass-(\d+)-p(\d+)-.+\.png\z/))
+        _comp = Array(ledger.is_a?(Hash) ? ledger['renders'] : nil).reverse.find do |r|
+          r.is_a?(Hash) && r['pass'].to_s == m[1] && r['composite'] == true
+        end
+        _pid = _comp && Array(_comp['pages'])[m[2].to_i - 1]
+        if _pid
+          _rend = { 'pass' => _comp['pass'], 'path' => render_png, 'pages' => [_pid.to_s] }
+          _pids = [_pid.to_s]
+        end
+      end
+      if _rend && (_rend['composite'] == true || _pids.length > 1) && _pids.any?
+        _rdir = File.dirname(File.expand_path(_rend['path'].to_s, opts[:tab]))
+        _sizes = _pids.each_with_index.map do |pid, i|
+          pp = File.join(_rdir, "rcf-pass-#{_rend['pass']}-p#{i + 1}-#{pid.gsub(/[^\w-]/, '_')}.png")
+          hdr = File.file?(pp) ? File.binread(pp, 24) : nil
+          hdr && hdr.bytesize == 24 && hdr[0, 8] == "\x89PNG\r\n\x1a\n".b ? hdr[16, 8].unpack('NN') : nil
+        end
+        _vsim_composite = _sizes.all? ? _sizes.map { |w, h| "#{w}x#{h}" }.join(',') : _pids.length.to_s
+      end
+      _lay = _vsim_tiles_arg ? (JSON.parse(File.read(_vsim_tiles)) rescue nil) : nil
+      if _pids.any? && _lay.is_a?(Array)
+        _names = {}
+        %w[wb-ids.json wb-spec.json].each do |f|
+          d = (JSON.parse(File.read(File.join(opts[:tab], f))) rescue nil)
+          next unless d.is_a?(Hash)
+          [d['pages'], (d['contents'] || {})['pages'], (d['document'] || {})['pages']].each do |ps|
+            Array(ps).each { |p| _names[p['id'].to_s] ||= p['name'].to_s if p.is_a?(Hash) && p['id'] }
+          end
+        end
+        _by_name = _lay.select { |e| e.is_a?(Hash) && e['zones'].is_a?(Array) && !e['is_story'] && e['emit_page'] != false }
+                       .group_by { |e| e['dashboard'].to_s.strip.downcase }
+        _ordered = _pids.map do |pid|
+          nm = _names[pid].to_s.strip.downcase
+          hit = nm.empty? ? nil : _by_name[nm]
+          hit && hit.length == 1 ? hit.first : nil
+        end
+        if _ordered.all?
+          File.write(_vsim_ordered, JSON.pretty_generate(_ordered) + "\n")
+          _vsim_tiles_arg = _vsim_ordered
+        end
+      end
+    rescue StandardError
+      nil # best effort; the layout goes as-is
+    end
+    _vsim_cmd += ['--tiles', _vsim_tiles_arg] if _vsim_tiles_arg
+    _vsim_cmd += ['--composite-pages', _vsim_composite] if _vsim_tiles_arg && _vsim_composite
     system(*_vsim_cmd)
     vsim_status = $? ? $?.exitstatus : 'not-run'
     vs = File.exist?(vs_out) ? (JSON.parse(File.read(vs_out)) rescue nil) : nil
+    _warn_vsim_unarmed = lambda do
+      next unless _vsim_tiles_arg && vs.key?('tiles_measured') && vs['tiles_measured'].to_i.zero?
+      # Stated, never silent: either success path with 0 tiles measured means
+      # the per-tile detector did not run (global similarity alone passed).
+      _why = vs['tiles_unmapped'] ? "#{vs['tiles_unmapped']} tile box(es) could not be placed on the render " \
+                                    '(the layout\'s dashboard pages do not match the render\'s page(s); see visual-similarity.json notes)' \
+                                  : 'the layout has no measurable chart tiles'
+      warn "[WARN] gate 14: per-tile blank detector NOT armed — #{_why}. The floor passed on global similarity only."
+    end
+    if vs && _vsim_composite && vs['tiles_unmapped'].to_i.positive?
+      # Fail loud (2026-11-10): the ledger SAYS this render is a page stack, so
+      # its tiles must be measurable. Exact geometry missing or not matching
+      # (per-page renders deleted, layout pages ≠ composite pages) must never
+      # quietly become "0 tiles measured" again — that was the Stress 4 bug.
+      warn "[FAIL] gate 14: #{render_png} is a #{_vsim_composite.include?('x') ? _vsim_composite.split(',').length : _vsim_composite}-page " \
+           "composite but #{vs['tiles_unmapped']} tile box(es) could not be placed on it — the per-tile blank detector cannot run:"
+      Array(vs['notes']).grep(/NOT armed/).each { |n| warn "       #{n}" }
+      warn '       Re-render with fidelity-loop.rb render (it keeps the per-page rcf-pass-N-pK-<page>.png files that give'
+      warn '       the exact page geometry) and check that dashboard-layout.json names the rendered pages, then re-run.'
+      warn '       Escape hatch: --skip-visual-similarity "<reason>" (counted against the waiver budget).'
+      exit 20
+    end
     if vs.nil?
       warn "[WARN] gate 14: visual-similarity.py exited #{vsim_status} with no readable #{vs_out} — floor NOT" \
            ' measured (deps missing / unreadable input; NOT a pass — stated, never silent).'
     elsif vs['pass'] == true
       _tn = vs['tiles_measured'] ? " — #{vs['tiles_measured']} tile(s) measured, #{Array(vs['tiles_blank']).length} blank" : ''
       puts "[OK] gate 14: visual-similarity floor passed#{vs['score'] ? " (score=#{vs['score']})" : ''}#{_tn}"
+      _warn_vsim_unarmed.call
+    elsif (_vx = vsim_exemptions.call(vs))
+      File.write(vsim_exempt_path, JSON.pretty_generate('schema' => 'visual-similarity-exemptions/v1',
+                                                        'score_overall' => vs['score_overall'],
+                                                        'threshold' => vs['threshold'], 'exemptions' => _vx) + "\n")
+      puts "[OK] gate 14: visual-similarity floor passed with a platform-difference exemption (overall " \
+           "#{vs['score_overall']} >= #{vs['threshold']}): " +
+           _vx.map { |x| "#{x['component']} #{x['value']} < #{x['floor']} explained by #{x['catalog_id']} (RCF #{x['rcf_id']})" }.join('; ')
+      puts '       Recorded in visual-similarity-exemptions.json and reported as a platform difference — not a waiver.'
+      _warn_vsim_unarmed.call
     else
       warn "[FAIL] gate 14: measured visual similarity below the floor#{vs['score'] ? " (score=#{vs['score']})" : ''} —"
       warn "       the render does not look like the source (#{source_png} vs #{render_png})."
@@ -3834,23 +4188,12 @@ kp21_path = File.join(opts[:tab], 'png-read.json')
 kp21_rb_path = File.join(opts[:tab], 'wb-readback.json')
 if File.exist?(kp21_path)
   kp21 = JSON.parse(File.read(kp21_path)) rescue nil
-  # Family vocabulary (inline twin of lib/blind_grade.rb FAMILY_SYNONYMS —
-  # keep in lockstep, same as gate 8b's copy).
-  kp21_fam_map = { 'bar' => 'bar', 'bar-chart' => 'bar', 'column' => 'bar', 'column-chart' => 'bar',
-                   'line' => 'line', 'line-chart' => 'line', 'sparkline' => 'line',
-                   'area' => 'area', 'area-chart' => 'area',
-                   'combo' => 'combo', 'combo-chart' => 'combo', 'dual-axis' => 'combo',
-                   'scatter' => 'scatter', 'scatter-chart' => 'scatter', 'bubble' => 'scatter',
-                   'pie' => 'pie', 'pie-chart' => 'pie', 'donut' => 'pie', 'donut-chart' => 'pie',
-                   'kpi' => 'kpi', 'kpi-chart' => 'kpi', 'single-value' => 'kpi', 'big-number' => 'kpi',
-                   'map' => 'map', 'region-map' => 'map', 'point-map' => 'map',
-                   'table' => 'table', 'pivot-table' => 'table', 'pivot' => 'table',
-                   'crosstab' => 'table', 'text-table' => 'table', 'grid' => 'table' }
-  kp21_chartf = %w[bar line area combo scatter pie kpi map table].freeze
-  kp21_fam = lambda do |k|
-    k2 = k.to_s.strip.downcase
-    kp21_fam_map[k2] || (%w[text control image container divider missing].include?(k2) ? k2 : 'other')
-  end
+  # Family vocabulary: ONE implementation, lib/blind_grade.rb (FAMILY_SYNONYMS /
+  # NON_CHART_FAMILIES) — Sigma button/navigation/spacer/control elements are
+  # non-chart there, so a nav-button row no longer counts as chart 'other' here.
+  require BLIND_GRADE_LIB
+  kp21_chartf = BlindGrade::CHART_FAMILIES
+  kp21_fam = ->(k) { BlindGrade.family(k) }
   # Zone-census name normalization (inline twin of lib/zone_census.rb norm_name).
   kp21_norm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
   if !kp21.is_a?(Hash) || !kp21['tiles'].is_a?(Array)
@@ -4024,7 +4367,7 @@ if budget_flags.length > effective_waiver_budget
   warn '       every waiver in the report. There is no escape flag for this cap.'
   if deg_entries
     v19 = DegradationLedger.verdict(deg_entries, budget_exceeded: true)
-    warn "       VERDICT: #{v19} — degradation ledger (#{deg_entries.length} entr#{deg_entries.length == 1 ? 'y' : 'ies'}):"
+    warn "       gate verdict: #{v19} (not the final verdict) — degradation ledger (#{deg_entries.length} entr#{deg_entries.length == 1 ? 'y' : 'ies'}):"
     DegradationLedger.report_lines(deg_entries).each { |l| warn "       #{l}" }
   end
   exit 19
@@ -4104,6 +4447,11 @@ begin
       _pf['success_sentinel'] = true
       _pf['verdict'] = final_verdict if final_verdict
       _pf['verdict_by'] = verdict_by if final_verdict
+      if (_gb = visual_graded_by_for.call(_pf))
+        _pf['visual_graded_by'] = _gb
+      else
+        _pf.delete('visual_graded_by')
+      end
       File.write(File.join(_wd, 'parity-final.json'), JSON.pretty_generate(_pf))
     rescue StandardError
       nil
@@ -4120,21 +4468,41 @@ ev_append.call('phase6-gates', final_verdict || 'all-pass', 'gate-summary',
                { 'waivers' => waiver_flags.length, 'budget_waivers' => budget_flags.length,
                  'degradations' => (deg_entries ? deg_entries.length : nil) }.compact)
 
+# The gate runs BEFORE the source census and migration report exist (finalize
+# order), so its ledger verdict is an input, not the run's verdict: finalize
+# and verify-complete print the final VERDICT (the worse of this and
+# migration-result.json). Customers read an early "VERDICT: GREEN" line as the
+# final word (2026-11-09 RCC: gate GREEN, report YELLOW), so the gate's own
+# line says "gate verdict" and names where the final one comes from. The
+# verdict strings themselves (phase6-success.json / parity-final.json
+# 'verdict') are unchanged.
+GATE_VERDICT_NOT_FINAL = "     Gate verdict only — it does not count the source census or the migration report. The final\n" \
+                         '     VERDICT (the worse of this and migration-result.json) is what finalize / verify-complete print.'
 if final_verdict.nil?
   # Legacy checkout without lib/degradation_ledger.rb — stated, never silent.
   puts "[OK] all gates pass — conversion may declare GREEN" \
        "#{waiver_flags.any? ? " (#{budget_flags.length}/#{waiver_flags.length} waiver(s) within budget — name them in the report: #{waiver_flags.join(', ')})" : ''}"
   puts '     (lib/degradation_ledger.rb not vendored — no PR-14 verdict derived; re-vendor to enable.)'
 elsif factory_labeled
-  puts '[OK] all gates pass — VERDICT: GREEN (factory, self-attested) (degradation ledger empty; Tier-S'
+  puts '[OK] all gates pass — gate verdict: GREEN (factory, self-attested) (degradation ledger empty; Tier-S'
   puts '     factory run with no verifier countersignature — the label is part of the verdict string and'
   puts '     MUST ride every report headline verbatim (orchestration.md O3/O4 carve-out). Spawn the'
   puts '     verifier (scripts/verifier-brief.md) and re-run this gate for a countersigned bare GREEN.)'
+  puts GATE_VERDICT_NOT_FINAL
+  polish = DegradationLedger.respond_to?(:polish_notes) ? DegradationLedger.polish_notes(opts[:tab]) : []
+  puts "     Optional polish: #{polish.length} minor note(s) from the passing blind grade (not degradations)." if polish.any?
 elsif final_verdict == 'GREEN'
-  puts "[OK] all gates pass — VERDICT: GREEN (degradation ledger empty — no scope cuts, no waivers, no residuals)"
+  puts "[OK] all gates pass — gate verdict: GREEN (degradation ledger empty — no scope cuts, no waivers, no residuals)"
+  puts GATE_VERDICT_NOT_FINAL
+  polish = DegradationLedger.respond_to?(:polish_notes) ? DegradationLedger.polish_notes(opts[:tab]) : []
+  if polish.any?
+    puts "     GREEN, optional polish: #{polish.length} minor note(s) from the passing blind grade — list them in the"
+    puts '     report under "Minor polish notes"; they are not degradations and do not change the verdict.'
+  end
 else
-  puts "[OK] all gates pass — VERDICT: #{final_verdict}" \
+  puts "[OK] all gates pass — gate verdict: #{final_verdict}" \
        "#{waiver_flags.any? ? " (#{budget_flags.length}/#{waiver_flags.length} waiver(s) within budget)" : ''}"
+  puts GATE_VERDICT_NOT_FINAL
   puts "     GREEN requires an EMPTY degradation ledger; this run recorded #{deg_entries.length} degradation(s):"
   DegradationLedger.report_lines(deg_entries).each { |l| puts "     #{l}" }
   if final_verdict.start_with?('PARTIAL')

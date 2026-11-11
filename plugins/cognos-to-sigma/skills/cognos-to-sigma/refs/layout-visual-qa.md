@@ -41,6 +41,13 @@ migration done.
 
 ## 1. Source-fidelity parity (run BEFORE the quality rubrics)
 
+**The standard is the business user's:** would someone who uses the source dashboard recognise
+this as the same dashboard, find every number where they expect it, and trust it? Fail what that
+person would notice and care about. Differences that match an entry in
+`refs/sigma-platform-differences.json` (shipped by converters with the blind-grader handoff; these are things Sigma renders differently and a build cannot
+change) are **notes, not failures** — record them, don't fail or loop on them. Typeface, gutter
+widths and a few pixels of spacing are cosmetic noise, not gaps.
+
 Clean ≠ faithful. A workbook can be perfectly laid out and still look nothing like the dashboard
 it migrated. This check compares the render against the **source's own appearance**, captured as a
 full-page source export in discovery (Tableau dashboard image, Power BI page export, MicroStrategy
@@ -54,8 +61,8 @@ page-for-page:
 - [ ] **Controls / selector panels present** — source filter panels, attribute/metric selectors, and chapter filters have Sigma equivalents (controls or an inherited base filter). An interactive source page rebuilt as a static grid FAILS.
 - [ ] **Branding bands** — header strips, logos, greeting/title bands present, OR explicitly descoped *with the user* and recorded.
 
-A render that diverges on any unchecked box is a FAIL even when row parity is green — fix the spec
-and re-compare. **Known spec ceilings** (don't loop on them — note them as editor follow-ups): KPI
+A render that diverges on an unchecked box in a way that business user would notice is a FAIL even
+when row parity is green — fix the spec and re-compare. **Known spec ceilings** (don't loop on them — note them as editor follow-ups): KPI
 sparklines and comparison/delta badges are UI-only (`sigma-workbooks` `kpis.md`); source-tool
 chrome (theme toggles, native nav) has no spec equivalent. When the user scopes styling down
 ("layout + metrics, skip branding"), record exactly what was descoped in the final summary — never
@@ -66,14 +73,15 @@ drop it silently.
 
 `record-visual-check.rb --verdict pass` now REQUIRES `--checklist` covering six dimensions, each
 judged against the SOURCE image (not your intent, not your memory of the fix). Round 5 proved
-gestalt self-passes ship renders an exacting owner rejects — attest each dimension separately,
-and be harsh: a "mostly" is a `fail`.
+gestalt self-passes ship renders an owner rejects — attest each dimension separately, from the
+business user's point of view (see the standard above). Judge what you see; catalog-matched
+platform differences are noted, not counted against the dimension.
 
 - `element_titles_hidden` — no element-title chrome the source hides ("Area Ch…", "Student Bar
   Chart"); no truncated titles anywhere.
 - `palette_match` — pick 3-5 swatches off the source (series fill, background, accent) and eyeball
   them against the render; a teal source with navy/lavender output is a `fail`, as is a
-  categorical palette leaking onto a monochrome chart.
+  categorical palette leaking onto a monochrome chart. Near-identical shades are not a gap.
 - `composition_match` — same canvas grid and proportions (a wide 2-panel source must not become a
   portrait stack); section headers sit ADJACENT to their charts; no dead zones or overflow bands.
 - `chart_shapes_match` — every tile keeps its chart family AND encoding (dot strips stay dot
@@ -88,18 +96,20 @@ hand-edited verdicts). `na` is only for dimensions the page genuinely lacks (e.g
 
 **Blind countersignature (PR-9).** Your checklist is necessary but no longer sufficient: a `pass`
 also requires `--blind-grade <workdir>/blind-grade.json` — the verdict of a FRESH context-free
-subagent that received only the two image paths + the rubric (`refs/blind-grader-brief.md`). The
+subagent that received only the two image paths + the rubric (`refs/blind-grader-brief.md`, in converters that ship the blind-grader handoff). The
 grade is sha256-bound to the images and its per-tile chart-family readings are cross-checked
 against the mechanical kind census; gate 8b refuses a self-attested pass with the remedy named.
 
 **Recording `divergent` is not free.** A recorded `divergent` verdict passes gate 8b as RECORDED
-(the comparison happened and the gaps are acknowledged), but the divergence is **budget-counted**:
-`assert-phase6-ran.rb` injects `visual-divergent` into the waiver census, where it spends the same
-exit-19 waiver budget as any quality waiver — so a divergent-visual run can still complete, but it
-cannot ride to GREEN alongside 2 other waivers, and the budget line names it. GREEN requires the
-budget to hold: fix the gaps, re-render, re-record `pass` — or accept YELLOW with the divergence
-named in the report. Full verdict-capping (`divergent` caps the run at PARTIAL) is planned as
-PLAN-v3 PR-14 and is not built yet; until then the budget is the cap.
+(the comparison happened and the gaps are acknowledged). It is **not a waiver** — it does not
+spend the 2-waiver exit-19 budget — but it **forfeits GREEN**: the degradation ledger records it
+as a `fidelity-residual`, so the run is at most YELLOW. Fix the gaps, re-render, re-record `pass`
+— or accept YELLOW with the divergence named in the report. On a `pass`, the grade's minor
+fixable gaps are **polish notes**: the report lists them under "Minor polish notes" and they
+are not degradations, so they never forfeit GREEN (a `major` gap means the grade did not pass).
+A `blind-grade/v2` stamp is
+re-verified by gate 8b (catalog + grade files re-hashed, verdict re-computed) whether the
+recorded verdict is `pass` or `divergent`.
 
 ## 2. Structural rubric (read the PNG against every item)
 

@@ -524,6 +524,11 @@ jobs:
         # run tools/sync-shared.rb, commit the fan-out. Intentional forks are
         # allowlisted in shared/manifest.json. Creds-free, stdlib ruby only.
         run: ruby tools/check-shared.rb
+      - name: Assert the platform-difference catalog history is current
+        # A blind grade binds the catalog sha it was graded against; the history
+        # lets a grade on an earlier catalog that only GAINED entries stay valid.
+        # Fails when a catalog edit skipped tools/gen-catalog-history.rb.
+        run: ruby tools/gen-catalog-history.rb --check
 
   skill-lint:
     name: skill conformance (mandatory gates documented)
@@ -700,6 +705,9 @@ jobs:
             shared/scripts/test-assert-phase6-auth.rb
             shared/scripts/test-probe-controls-json.rb
             shared/scripts/test-cleanup-orphan-workbooks.rb
+            shared/scripts/test-build-migration-report.rb
+            shared/scripts/test-blind-grade.rb
+            shared/scripts/test-record-visual-check.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-triage.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-cleanup.rb
             plugins/quicksight-to-sigma/skills/quicksight-to-sigma/scripts/test-validate-sigma-formula-wrap.rb
@@ -842,7 +850,13 @@ jobs:
             shared/scripts/test_get_token.py
             shared/scripts/test_harvest_theme_registry.py
             shared/scripts/test_pick_destination.py
+            shared/scripts/test_png_health.py
             shared/scripts/test_sigma_export_png.py
+            # gate 14's floor + per-tile blank detector, including the real
+            # list-of-dashboards layout and --all-pages composites (2026-11-10:
+            # untested, it measured 0 tiles on every Tableau run)
+            shared/scripts/test_visual_similarity.py
+            shared/scripts/test_visual_similarity_tiles.py
             # powerbi-to-sigma uses HYPHENATED test-*.py names, which is why these were
             # never picked up by the test_*.py convention above. Listed explicitly.
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-viz-signals.py

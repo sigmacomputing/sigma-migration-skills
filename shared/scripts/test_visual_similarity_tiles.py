@@ -136,6 +136,50 @@ def layout_dict():
     return {"dashboard": "Test Dash", "zones": zones}
 
 
+def layout_array(*dashboards):
+    """Shape (c): parse-twb-layout's REAL dashboard-layout.json — a top-level
+    LIST of per-dashboard objects ({dashboard, canvas_px, zones, ...}). The
+    W1.7 tests used the inner dict, so the real file measured 0 tiles on every
+    run (Stress 4, 2026-11-09: "0 tile(s) measured" on a 2-page workbook)."""
+    out = []
+    for name in dashboards or ("Test Dash",):
+        dash = layout_dict()
+        dash["dashboard"] = name
+        dash["canvas_px"] = {"w": W, "h": H}
+        dash["zone_tree"] = []
+        out.append(dash)
+    return out
+
+
+STACK_GAP = 16                      # lib/png_stack.rb PngStack::GAP
+STACK_GAP_RGB = (229, 231, 235)     # PngStack::GAP_RGBA (opaque)
+
+
+def stack_pages(pages):
+    """Mirror tableau lib/png_stack.rb: pages stacked top to bottom, narrower
+    pages padded with white on the right, a 16px light-gray band between."""
+    width = max(p.size[0] for p in pages)
+    height = sum(p.size[1] for p in pages) + STACK_GAP * (len(pages) - 1)
+    out = Image.new("RGB", (width, height), (255, 255, 255))
+    y = 0
+    for i, page in enumerate(pages):
+        if i:
+            out.paste(STACK_GAP_RGB, (0, y, width, y + STACK_GAP))
+            y += STACK_GAP
+        out.paste(page, (0, y))
+        y += page.size[1]
+    return out
+
+
+def right_column_missing():
+    """A healthy page whose right tile column (and the page to its right
+    edge, header included) never rendered."""
+    im = make_tiled_dashboard()
+    x0, _ = tile_origin(0, 2)
+    im.paste((255, 255, 255), (x0 - 2, 0, W, H))
+    return im
+
+
 ALL_TILES = frozenset((r, c) for r in range(ROWS) for c in range(COLS))
 FOUR_TILES = frozenset(((0, 0), (0, 2), (1, 1), (2, 1)))
 FIVE_TILES = FOUR_TILES | {(2, 0)}
@@ -164,6 +208,9 @@ class FixtureMixin:
         save("oneblank", make_tiled_dashboard(blank=frozenset({(1, 1)})))
         save("fourblank", make_tiled_dashboard(blank=FOUR_TILES))
         save("fiveblank", make_tiled_dashboard(blank=FIVE_TILES))
+        gray_divider = make_tiled_dashboard()
+        gray_divider.paste(STACK_GAP_RGB, (0, H // 2, W, H // 2 + STACK_GAP))
+        save("gray_divider", gray_divider)
         # same all-blank page exported at half size (render dims differ from
         # source dims; pct boxes must scale onto the render's own pixels)
         halfsize = make_tiled_dashboard(blank=ALL_TILES).resize(
@@ -177,7 +224,33 @@ class FixtureMixin:
             cls.paths[name] = p
             return p
 
+        # 2-page composites (fidelity-loop --all-pages): page 1 healthy,
+        # page 2 all-blank; and both pages all-blank
+        save("composite_src", stack_pages([make_tiled_dashboard(),
+                                           make_tiled_dashboard()]))
+        save("composite_half_blank", stack_pages([
+            make_tiled_dashboard(), make_tiled_dashboard(blank=ALL_TILES)]))
+        save("composite_all_blank", stack_pages([
+            make_tiled_dashboard(blank=ALL_TILES),
+            make_tiled_dashboard(blank=ALL_TILES)]))
+        # page 2 rendered at half size: PngStack pads it with white on the
+        # right, so its tile boxes must scale onto its own band (known from
+        # --composite-pages sizes), not the full composite width
+        save("composite_narrow_p2", stack_pages([
+            make_tiled_dashboard(),
+            make_tiled_dashboard().resize((W // 2, H // 2), Image.BILINEAR)]))
+        # equal-width pages; page 2's whole right column never rendered (pure
+        # white to the page edge). Trailing white is NOT padding here: a width
+        # guessed from it hid these 3 blank tiles (review, 2026-11-10)
+        save("composite_right_col_missing", stack_pages([
+            make_tiled_dashboard(), right_column_missing()]))
+        # a page that rendered pure white (crashed the band crop before)
+        save("composite_white_p2", stack_pages([
+            make_tiled_dashboard(), Image.new("RGB", (W, H), (255, 255, 255))]))
+
         save_json("tiles_plain", plain_tiles_list())
+        save_json("tiles_layout_array", layout_array())
+        save_json("tiles_layout_2page", layout_array("Overview", "Detail"))
         save_json("tiles_layout", layout_dict())
         save_json("tiles_bad_shape", {"foo": 1})
         corrupt = os.path.join(cls.dir, "tiles_corrupt.json")
@@ -317,6 +390,184 @@ class TestTileScoring(FixtureMixin, unittest.TestCase):
         self.assertEqual(len(res["tiles_blank"]), 9,
                          "pct boxes must scale onto the render's own dims")
         self.assertFalse(res["pass"], res)
+
+
+class TestRealLayoutShape(FixtureMixin, unittest.TestCase):
+    """parse-twb-layout writes a LIST of dashboards; gate 14 passes that file
+    verbatim as --tiles. It must arm the detector, single- and multi-page."""
+
+    def test_single_dashboard_array_measures_tiles(self):
+        pages = VS.parse_tile_pages(layout_array())
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(len(pages[0]), 10)
+        res = VS.compare(self.paths["source"], self.paths["allblank"],
+                         tile_pages=pages)
+        self.assertEqual(res["tiles_measured"], 9)
+        self.assertEqual(len(res["tiles_blank"]), 9)
+        self.assertFalse(res["pass"], res)
+
+    def test_parse_tiles_flattens_single_dashboard_array(self):
+        self.assertEqual(VS.parse_tiles(layout_array()),
+                         VS.parse_tiles(layout_dict()))
+
+    def test_two_page_layout_on_composite_measures_every_page(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        self.assertEqual([len(p) for p in pages], [10, 10])
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_half_blank"], tile_pages=pages,
+                         composite=VS.parse_composite_spec(
+                             "%dx%d,%dx%d" % (W, H, W, H)))
+        self.assertEqual(res["tiles_measured"], 18, res.get("notes"))
+        blank = res["tiles_blank"]
+        self.assertEqual(len(blank), 9, res["per_tile_ink"])
+        self.assertTrue(all(n.startswith("Detail: ") for n in blank), blank)
+        # 9 of 18 is not MORE THAN HALF: one blank page of two must not fail
+        self.assertTrue(res["pass"], res)
+        self.assertNotIn("tiles_unmapped", res)
+
+    def test_two_page_composite_all_blank_fails(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_all_blank"], tile_pages=pages,
+                         composite=VS.parse_composite_spec(
+                             "%dx%d,%dx%d" % (W, H, W, H)))
+        self.assertEqual(res["tiles_measured"], 18)
+        self.assertEqual(len(res["tiles_blank"]), 18)
+        self.assertFalse(res["pass"], res)
+
+    def test_narrow_page_maps_onto_its_own_band(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_narrow_p2"], tile_pages=pages,
+                         composite=VS.parse_composite_spec(
+                             "%dx%d,%dx%d" % (W, H, W // 2, H // 2)))
+        self.assertEqual(res["tiles_measured"], 18, res.get("notes"))
+        self.assertEqual(res["tiles_blank"], [], res["per_tile_ink"])
+
+    def test_blank_right_column_is_not_mistaken_for_padding(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        want = ["Detail: Chart 0-2", "Detail: Chart 1-2", "Detail: Chart 2-2"]
+        spec = "%dx%d,%dx%d" % (W, H, W, H)
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_right_col_missing"],
+                         tile_pages=pages,
+                         composite=VS.parse_composite_spec(spec))
+        self.assertEqual(res["tiles_measured"], 18, res.get("notes"))
+        self.assertEqual(sorted(res["tiles_blank"]), want, res["per_tile_ink"])
+
+    def test_white_page_reports_blank_tiles_not_a_crash(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        spec = "%dx%d,%dx%d" % (W, H, W, H)
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_white_p2"], tile_pages=pages,
+                         composite=VS.parse_composite_spec(spec))
+        self.assertEqual(res["tiles_measured"], 18)
+        self.assertEqual(len(res["tiles_blank"]), 9)
+
+    def test_unknown_page_sizes_are_unmapped(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_half_blank"], tile_pages=pages,
+                         composite=VS.parse_composite_spec("2"))
+        self.assertEqual(res["tiles_measured"], 0)
+        self.assertEqual(res["tiles_unmapped"], 18)
+
+    def test_gap_colored_content_is_not_a_page_separator(self):
+        one_page = VS.parse_tile_pages(layout_array("Overview"))
+        res = VS.compare(self.paths["source"], self.paths["gray_divider"],
+                         tile_pages=one_page)
+        self.assertEqual(res["tiles_measured"], 9)
+
+        two_pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["source"], self.paths["gray_divider"],
+                         tile_pages=two_pages)
+        self.assertEqual(res["tiles_measured"], 0)
+        self.assertEqual(res["tiles_unmapped"], 18)
+
+    def test_non_page_dashboards_are_not_pages(self):
+        layout = layout_array("Main", "Params", "Story")
+        layout[1]["emit_page"] = False
+        layout[2]["is_story"] = True
+        pages = VS.parse_tile_pages(layout)
+        self.assertEqual(len(pages), 1, "hidden/story dashboards build no Sigma page")
+        res = VS.compare(self.paths["source"], self.paths["allblank"],
+                         tile_pages=pages)
+        self.assertEqual(res["tiles_measured"], 9)
+        self.assertFalse(res["pass"], res)
+
+    def test_one_dashboard_on_a_known_composite_is_unmapped(self):
+        pages = VS.parse_tile_pages(layout_array("Overview"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_all_blank"], tile_pages=pages,
+                         composite=VS.parse_composite_spec("2"))
+        self.assertEqual(res["tiles_measured"], 0)
+        self.assertEqual(res["tiles_unmapped"], 9)
+        self.assertIn("1 dashboard", " ".join(res["notes"]))
+
+    def test_unannounced_composite_is_treated_as_single_page(self):
+        # Without page metadata a stack is indistinguishable from page content,
+        # so a single layout is measured as a single page.
+        pages = VS.parse_tile_pages(layout_array("Overview"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_all_blank"], tile_pages=pages)
+        self.assertEqual(res["tiles_measured"], 9, res.get("notes"))
+
+    def test_page_sizes_that_do_not_fit_the_render_are_unmapped(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["composite_src"],
+                         self.paths["composite_half_blank"], tile_pages=pages,
+                         composite=VS.parse_composite_spec("%dx%d,%dx%d" % (W, H, W, H - 50)))
+        self.assertEqual(res["tiles_measured"], 0)
+        self.assertEqual(res["tiles_unmapped"], 18)
+
+    def test_composite_spec_parsing(self):
+        self.assertEqual(VS.parse_composite_spec("3"), (3, None))
+        self.assertEqual(VS.parse_composite_spec("10x20, 30x40"),
+                         (2, [(10, 20), (30, 40)]))
+        for bad in ("", "0", "x", "10x", "10x20,abc"):
+            with self.assertRaises(ValueError):
+                VS.parse_composite_spec(bad)
+
+    def test_cli_composite_pages_flag(self):
+        out = os.path.join(self.dir, "cp.json")
+        cmd = [sys.executable, SCRIPT, "--source", self.paths["composite_src"],
+               "--render", self.paths["composite_right_col_missing"],
+               "--json-out", out, "--tiles", self.paths["tiles_layout_2page"],
+               "--composite-pages", "%dx%d,%dx%d" % (W, H, W, H)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertIn(proc.returncode, (0, 1), proc.stderr)
+        with open(out) as fh:
+            self.assertEqual(len(json.load(fh)["tiles_blank"]), 3)
+        bad = subprocess.run(cmd[:-1] + ["nope"], capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+
+    def test_multi_page_layout_on_single_page_render_is_stated(self):
+        pages = VS.parse_tile_pages(layout_array("Overview", "Detail"))
+        res = VS.compare(self.paths["source"], self.paths["allblank"],
+                         tile_pages=pages)
+        self.assertEqual(res["tiles_measured"], 0)
+        self.assertEqual(res["tiles_unmapped"], 18)
+        self.assertIn("exact page sizes were not given", " ".join(res["notes"]))
+
+    def test_cli_two_page_layout(self):
+        out = os.path.join(self.dir, "cli-two-page.json")
+        cmd = [sys.executable, SCRIPT, "--source", self.paths["composite_src"],
+               "--render", self.paths["composite_all_blank"],
+               "--json-out", out, "--tiles", self.paths["tiles_layout_2page"],
+               "--composite-pages", "%dx%d,%dx%d" % (W, H, W, H)]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        with open(out) as fh:
+            data = json.load(fh)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertGreater(data["tiles_measured"], 0)
+        self.assertIn("tiles: 18 measured, 18 blank", proc.stdout)
+
+    def test_cli_single_dashboard_array(self):
+        proc, data = self.run_cli(self.paths["source"], self.paths["healthy"],
+                                  tiles=self.paths["tiles_layout_array"])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(data["tiles_measured"], 9)
+        self.assertEqual(set(data.keys()), LEGACY_KEYS | TILE_KEYS)
 
 
 class TestCLIContract(FixtureMixin, unittest.TestCase):

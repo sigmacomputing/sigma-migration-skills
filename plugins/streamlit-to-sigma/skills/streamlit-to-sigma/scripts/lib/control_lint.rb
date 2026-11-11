@@ -141,8 +141,13 @@ module ControlLint
     info[:kind].include?('control')
   end
 
+  # Controls whose `targets` are wiring even with no `filters`: drill swaps a
+  # chart's grouping column; legend recolors a chart by a column. Neither
+  # filters rows.
+  TARGET_WIRED_CONTROL_TYPES = %w[drill legend].freeze
+
   def control_wiring(el)
-    (el['filters'] || []) + (el['controlType'].to_s == 'drill' ? (el['targets'] || []) : [])
+    (el['filters'] || []) + (TARGET_WIRED_CONTROL_TYPES.include?(el['controlType'].to_s) ? (el['targets'] || []) : [])
   end
 
   # Transitive closure of elements sourcing (directly or via chains) from any
@@ -271,10 +276,11 @@ module ControlLint
   # control has a non-empty default AND a filter target that resolves to a real
   # in-spec element; a pair only violates when it spans two pages against the
   # same (element, column-alias) with DISJOINT defaults. Filter wiring only: a
-  # drill control's `targets` swap a chart's grouping column and never filter
-  # rows (its `value` is the selected level's column id), so it cannot compose
-  # into a zero-row filter — unlike controls_report, which counts drill
-  # targets (control_wiring) as wiring for the dead-control check.
+  # drill control's `targets` swap a chart's grouping column and a legend
+  # control's `targets` recolor a chart by a column; neither filters rows (a
+  # drill's `value` is the selected level's column id), so neither can compose
+  # into a zero-row filter — unlike controls_report, which counts drill and
+  # legend targets (control_wiring) as wiring for the dead-control check.
   def conflicting_default_violations(spec, elems)
     alias_groups = column_alias_groups(spec)
     entries = []
@@ -414,7 +420,8 @@ module ControlLint
             violations << "controlScope: #{ctl_label} does NOT reach its scoped element #{ref.inspect}"
           end
         end
-      elsif r[:uncovered].any?
+      elsif r[:uncovered].any? && r[:control_type] != 'legend'
+        # a legend control recolours the chart(s) it names and filters nothing: no "partial" reach
         names = r[:uncovered].map { |u| label(elems, u) }
         violations << "partial control: #{ctl_label} affects #{r[:page_queryable].length - r[:uncovered].length} " \
                       "of #{r[:page_queryable].length} same-page queryable element(s); NOT affected: " \

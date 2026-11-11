@@ -4,9 +4,12 @@
 model-judged visual verdict counts. Its job is narrow: make it **impossible to record a
 passing visual verdict over a render that is structurally nothing like the source**. It is
 NOT a match-scorer and it does not measure migration quality — the RCF loop
-(`refs/phase-5g-rcf.md`, `refs/fidelity-rubric.md`) and Phase 6 parity own that. A floor
+(`refs/phase-5g-rcf.md` and `refs/fidelity-rubric.md`, where the skill ships them) and Phase 6 parity own that. A floor
 pass means only "these two images are plausibly the same dashboard"; the real visual QA
-still happens on top of it.
+still happens on top of it, judged by the business-user standard (does this read as the same
+dashboard, with every number where the user expects it?). Differences that match the Sigma
+platform-difference catalog (`refs/sigma-platform-differences.json`, in converters that ship the blind-grader handoff) are notes, not failures —
+they never justify tuning this floor.
 
 ## Contract
 
@@ -52,6 +55,24 @@ Different fonts, colors, themes, padding, spacing, and margins; different aspect
 (verified-faithful migrations in the calibration set include a 2x3 grid re-flowed to 4x3
 and landscape→portrait re-stacks — all pass with margin). If a render passes the floor but
 looks off, that is exactly what the RCF rubric is for.
+
+## Platform-difference exemption (gate 14)
+
+A sub-floor shortfall (band balance, ink coverage) can be explained by a catalogued Sigma
+platform difference rather than a build defect. Example: `pivot-row-height-fixed`, where Sigma
+pivot rows can't stretch, so the lower band of the render stays empty. Gate 14 in
+`assert-phase6-ran.rb` then passes with an exemption, but only when **all** of these hold:
+
+- The overall score meets the threshold.
+- Both images are healthy.
+- The per-tile blank detector does not fire.
+- Every short component is listed for a catalog id in the gate's `VSIM_FLOOR_EXEMPT` (today
+  only `pivot-row-height-fixed`, covering `band_balance` and `coverage`).
+- The RCF ledger records that id (`sigma-capability`, a `composition_match` catalog entry).
+
+The exemption is written to `visual-similarity-exemptions.json` and reported as a platform
+difference. It is not a waiver. With no recorded catalog entry, or with the overall score below
+the threshold, the floor is unchanged.
 
 ## Threshold provenance — do not tune it
 

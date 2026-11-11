@@ -523,12 +523,22 @@ if ($here -and (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 
 # --- agent capability fingerprint (v3 §2.2) --------------------------------
-# Vision is asserted by the caller (a vision-capable session sets
-# SIGMA_AGENT_VISION=true); default false so the visual gate fails LOUDLY
-# rather than accepting a blind attestation.
-$agentVision = $false
-if ($env:SIGMA_AGENT_VISION -in @('true', '1', 'yes', 'TRUE', 'True')) { $agentVision = $true }
+# Same contract as doctor.sh: agent_vision is the BUILDER's own ability to read
+# images (what record-visual-check.rb stamps from --agent-vision); who graded
+# the visuals is parity-final.json visual_graded_by. SIGMA_AGENT_VISION wins;
+# unset → infer from SIGMA_MODEL_HINT (known vision-capable Claude → true,
+# any other hint → false); nothing at all → $null ("unknown"), never a false
+# that contradicts the recorded attestation.
 $modelHint = if ($env:SIGMA_MODEL_HINT) { $env:SIGMA_MODEL_HINT } else { "" }
+$agentVisionSource = "env"
+if ($env:SIGMA_AGENT_VISION) {
+  $agentVision = $env:SIGMA_AGENT_VISION -in @('true', '1', 'yes', 'TRUE', 'True')
+} elseif ($modelHint -eq "") {
+  $agentVision = $null; $agentVisionSource = "unknown"
+} else {
+  $agentVision = $modelHint.ToLower() -match '(opus|sonnet|haiku|fable|^claude-3|^claude-4|^claude-5)'
+  $agentVisionSource = "model-hint"
+}
 
 # --- machine-readable fingerprint (doctor.json) ----------------------------
 # Same contract as doctor.sh: lets the preflight GATE refuse to proceed on a
@@ -572,6 +582,7 @@ $doctor = [ordered]@{
   skill_sha    = "$skillSha"
   behind_count = $behindCount
   agent_vision = $agentVision
+  agent_vision_source = $agentVisionSource
   model_hint   = "$modelHint"
   generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   pass         = ($script:Fail -eq 0)

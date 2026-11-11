@@ -15,7 +15,7 @@ Contract (consumed by the Phase 6 gate):
 
     python3 scripts/visual-similarity.py \
         --source <src.png> --render <render.png> --json-out <out.json> \
-        [--tiles <tiles.json>]
+        [--tiles <tiles.json>] [--composite-pages N|WxH,WxH,...]
 
 Writes JSON: {"source_health": object, "render_health": object,
               "score_layout": float, "score_ink": float,
@@ -25,6 +25,8 @@ With --tiles, three keys are ADDED (absent otherwise — the no-tiles output
 is byte-identical to the pre-tiles contract):
               {"tiles_measured": int, "tiles_blank": [str, ...],
                "per_tile_ink": {name: float, ...}}
+plus "tiles_unmapped": int ONLY when a multi-dashboard layout could not be
+placed on the render (see --tiles (c) below) — the detector did not arm.
 Exit codes: 0 = pass, 1 = fail, 2 = deps missing or unreadable input.
 Exit 2 must NEVER be treated as a pass.
 
@@ -33,7 +35,25 @@ bounding boxes as PERCENTAGES (0-100) of the source canvas. Two shapes are
 accepted: (a) the skill's dashboard-layout.json (parse-twb-layout output) —
 a dict with "zones" (or a bare zone list) of {id/caption, kind, x_pct,
 y_pct, w_pct, h_pct}, where only chart-ish kinds (chart/table/pivot/viz)
-are measured; (b) a plain list of {name, x_pct, y_pct, w_pct, h_pct}.
+are measured; (b) a plain list of {name, x_pct, y_pct, w_pct, h_pct};
+(c) parse-twb-layout's REAL file shape — a top-level LIST of per-dashboard
+objects ({dashboard, zones, canvas_px, ...}); story and emit_page:false
+entries build no Sigma page and are dropped. One dashboard measures as (a).
+With N > 1 dashboards the render is expected to be fidelity-loop's
+--all-pages composite (lib/png_stack.rb: pages top to bottom, separated by a
+16px rgb(229,231,235) band, narrower pages padded with white on the right):
+dashboard k's boxes are measured inside page band k (layout order =
+composite page order; the gate reorders), at single-page resolution, and
+tile names are prefixed "<dashboard>: ". --composite-pages WxH,WxH,... (the
+gate passes the per-page render sizes) places each band exactly at its own
+width; without it bands come from the separators and every page is taken
+as full width (a width guessed from trailing white would hide a right-hand
+column that never rendered). --composite-pages N alone says the render is
+an N-page composite, so a layout with a different page count is never
+spread over the whole stack. Whenever tiles cannot be placed, none is
+measured and "tiles_unmapped" + a note say so — never a silent "0 tiles
+measured". (Until 2026-11-10 shape (c) was skipped entry by entry, so
+every Tableau run measured 0 tiles.)
 Each box is shrunk ~8% per side (drops tile borders/title chrome) and its
 interior edge-ink density is measured on the UNTRIMMED render. A tile is
 blank when its density < max(0.008, 12% of the median tile density). When
@@ -156,16 +176,27 @@ TILE_BLANK_REL = 0.12     # relative floor as a fraction of the median tile
                           # density — kept LOW so a healthy sparse tile (one
                           # KPI number) on an ink-rich dashboard never trips
 TILE_MIN_MEASURED = 3     # majority-blank sub-check arms at this many tiles
+STACK_GAP = 16            # lib/png_stack.rb PngStack::GAP (page separator rows)
 
 
-def _load_gray(path):
-    """Return (grayscale float array downsampled to <=WORK, aspect ratio)."""
+def _open_flat(path):
+    """Open an image with any alpha flattened onto white."""
     im = Image.open(path)
     im.load()
     if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
         rgba = im.convert("RGBA")
         flat = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
         im = Image.alpha_composite(flat, rgba)
+    return im
+
+
+def _load_gray(path):
+    """Return (grayscale float array downsampled to <=WORK, aspect ratio)."""
+    return _gray_of(_open_flat(path))
+
+
+def _gray_of(im):
+    """_load_gray on an already-open (flattened) PIL image."""
     im = im.convert("L")
     w, h = im.size
     if w < 4 or h < 4:
@@ -260,26 +291,12 @@ def _band_balance(src_map, ren_map):
     return worst
 
 
-def parse_tiles(data):
-    """Normalize a --tiles JSON payload to [(name, (x, y, w, h) pct), ...].
+def _is_dashboard_entry(entry):
+    return isinstance(entry, dict) and isinstance(entry.get("zones"), list)
 
-    Accepts (a) parse-twb-layout's dashboard-layout.json — a dict with
-    "zones" (or a bare zone list) where entries carry a "kind"; only
-    TILE_KINDS are chart tiles — and (b) a plain list of
-    {name, x_pct, y_pct, w_pct, h_pct} (no "kind" key -> measured as-is).
-    Entries without usable geometry are skipped (containers/rows in layout
-    trees legitimately lack boxes). Raises ValueError on a shape that is
-    not a tiles payload at all — the caller maps that to exit 2.
-    """
-    if isinstance(data, dict):
-        entries = data.get("zones")
-        if not isinstance(entries, list):
-            raise ValueError('tiles JSON dict carries no "zones" list')
-    elif isinstance(data, list):
-        entries = data
-    else:
-        raise ValueError('tiles JSON must be a dict with "zones" or a list')
 
+def _parse_zone_list(entries):
+    """[(name, (x, y, w, h) pct), ...] for one dashboard's zone list."""
     tiles = []
     used = {}
     for i, entry in enumerate(entries):
@@ -304,6 +321,126 @@ def parse_tiles(data):
     return tiles
 
 
+def parse_tile_pages(data):
+    """Normalize a --tiles JSON payload to one tile list PER PAGE:
+    [[(name, (x, y, w, h) pct), ...], ...].
+
+    Accepts (a) a dashboard dict with "zones" (or a bare zone list) where
+    entries carry a "kind"; only TILE_KINDS are chart tiles — (b) a plain
+    list of {name, x_pct, y_pct, w_pct, h_pct} (no "kind" key -> measured
+    as-is) — and (c) parse-twb-layout's dashboard-layout.json, a LIST of
+    dashboard dicts: one page per dashboard that builds a Sigma page (story
+    and emit_page:false entries are dropped), names prefixed
+    "<dashboard>: " when there is more than one. (a) and (b) are a single page. Entries
+    without usable geometry are skipped (containers/rows in layout trees
+    legitimately lack boxes). Raises ValueError on a shape that is not a
+    tiles payload at all — the caller maps that to exit 2.
+    """
+    if isinstance(data, dict):
+        if not isinstance(data.get("zones"), list):
+            raise ValueError('tiles JSON dict carries no "zones" list')
+        return [_parse_zone_list(data["zones"])]
+    if not isinstance(data, list):
+        raise ValueError('tiles JSON must be a dict with "zones" or a list')
+    dashes = [e for e in data if _is_dashboard_entry(e)]
+    if not dashes:
+        return [_parse_zone_list(data)]
+    # Storyboards and emit_page:false (hidden parameter-host) dashboards build
+    # no ordinary Sigma page (build-charts-from-signals drops them), so they
+    # are never a page band of the render.
+    pages_only = [e for e in dashes if not e.get("is_story") and e.get("emit_page") is not False]
+    dashes = pages_only or dashes[:1]
+    if len(dashes) == 1:
+        return [_parse_zone_list(dashes[0]["zones"])]
+    pages, seen = [], set()
+    for k, dash in enumerate(dashes):
+        label = dash.get("dashboard") or dash.get("name") or "page-%d" % (k + 1)
+        page = []
+        for name, box in _parse_zone_list(dash["zones"]):
+            full = "%s: %s" % (label, name)
+            if full in seen:  # two dashboards with the same caption
+                full = "%s (page %d): %s" % (label, k + 1, name)
+            seen.add(full)
+            page.append((full, box))
+        pages.append(page)
+    return pages
+
+
+def parse_tiles(data):
+    """Flat [(name, (x, y, w, h) pct), ...] over every page of the payload
+    (see parse_tile_pages). Boxes stay page-relative; compare() needs the
+    per-page form (tile_pages=) to place a multi-page layout on a composite.
+    """
+    return [t for page in parse_tile_pages(data) for t in page]
+
+
+def _measurable(box):
+    """A page-relative box big enough to be a chart body (not a sliver)."""
+    _, _, tw, th = box
+    return tw > 0 and th > 0 and (tw * th) / 100.0 >= TILE_MIN_AREA_PCT
+
+
+def parse_composite_spec(spec):
+    """--composite-pages SPEC -> (n_pages, [(w, h), ...] or None).
+
+    SPEC is either a page count ("2") or the per-page render sizes in stack
+    order ("1200x900,600x450"), which the phase-6 gate reads from
+    fidelity-loop's per-page PNGs. Raises ValueError on anything else."""
+    text = str(spec or "").strip()
+    if text.isdigit() and int(text) >= 1:
+        return int(text), None
+    sizes = []
+    for part in text.split(","):
+        bits = part.strip().lower().split("x")
+        if len(bits) != 2 or not all(b.strip().isdigit() for b in bits):
+            raise ValueError("--composite-pages wants N or WxH,WxH,... (got %r)" % spec)
+        w, h = int(bits[0]), int(bits[1])
+        if w < 1 or h < 1:
+            raise ValueError("--composite-pages page size must be positive (got %r)" % part)
+        sizes.append((w, h))
+    if not sizes:
+        raise ValueError("--composite-pages is empty")
+    return len(sizes), sizes
+
+
+def _composite_bands(render_path, n_pages, sizes=None):
+    """Page bands of a PngStack composite: [(y0, y1, page_w), ...] in render
+    pixels, or None when the render does not hold exactly n_pages bands.
+
+    Per-page render dims are required: gap-colored content is indistinguishable
+    from a PngStack separator. The exact sizes must reproduce the render's own
+    dimensions; PngStack pads narrower pages with white on the right."""
+    im = _open_flat(render_path)
+    w, h = im.size
+    if sizes is None or len(sizes) != n_pages:
+        return None
+    if max(pw for pw, _ in sizes) != w or \
+            sum(ph for _, ph in sizes) + STACK_GAP * (n_pages - 1) != h:
+        return None
+    bands, y = [], 0
+    for pw, ph in sizes:
+        bands.append((y, y + ph, pw))
+        y += ph + STACK_GAP
+    return bands
+
+
+def _band_tile_ink(render_path, bands, tile_pages):
+    """Per-tile interior ink for a composite: each page band is cropped out
+    and measured exactly like a single-page render (its own <=WORK
+    downsample and ink maps), so a page's tiles keep single-page resolution
+    however many pages the composite stacks."""
+    im = _open_flat(render_path)
+    per = {}
+    for (y0, y1, pw), page in zip(bands, tile_pages):
+        if pw < 4 or y1 - y0 < 4:  # degenerate band: nothing drawn there
+            per.update({name: 0.0 for name, box in page if _measurable(box)})
+            continue
+        gray, _ = _gray_of(im.crop((0, y0, pw, y1)))
+        _, edge = _ink_maps(gray)
+        per.update(_tile_ink(edge, page))
+    return per
+
+
 def _tile_ink(edge_full, tiles):
     """Interior edge-ink density per tile, on the UNTRIMMED render map.
 
@@ -319,7 +456,7 @@ def _tile_ink(edge_full, tiles):
     h, w = edge_full.shape
     per = {}
     for name, (x, y, tw, th) in tiles:
-        if tw <= 0 or th <= 0 or (tw * th) / 100.0 < TILE_MIN_AREA_PCT:
+        if not _measurable((x, y, tw, th)):
             continue  # divider/sliver, not a chart body
         sx, sy = tw * TILE_SHRINK, th * TILE_SHRINK
         x0 = max(0, int(round((x + sx) / 100.0 * w)))
@@ -347,12 +484,19 @@ def _blank_tile_names(per_tile):
     return [name for name, dens in per_tile.items() if dens < floor]
 
 
-def compare(source_path, render_path, tiles=None):
+def compare(source_path, render_path, tiles=None, tile_pages=None, composite=None):
     """Compute the similarity-floor verdict for one source/render pair.
 
-    tiles: optional output of parse_tiles(); None omits only the tile-specific
-    verdict keys. Source/render health objects are always included.
+    tiles: optional single-page tile list (parse_tiles()); tile_pages:
+    optional per-page lists (parse_tile_pages()) — a multi-page layout is
+    placed on the render's composite page bands. composite: optional
+    parse_composite_spec() result — the render IS an N-page composite (and,
+    with sizes, exactly where each page sits). Both tile args None omits only
+    the tile-specific verdict keys. Source/render health objects are always
+    included.
     """
+    if tile_pages is None and tiles is not None:
+        tile_pages = [tiles]
     source_health = png_health.analyze_image(source_path)
     render_health = png_health.analyze_image(render_path)
     health_errors = [
@@ -428,9 +572,37 @@ def compare(source_path, render_path, tiles=None):
         )
 
     # -- per-tile blank detector (only when --tiles was supplied) -----------
-    per_tile = blank_tiles = None
-    if tiles is not None:
-        per_tile = _tile_ink(edge_r_full, tiles)
+    per_tile = blank_tiles = unmapped = None
+    if tile_pages is not None:
+        n_pages, sizes = composite if composite else (None, None)
+        n_tile_pages = len(tile_pages)
+        if n_pages is None and n_tile_pages <= 1:
+            per_tile = _tile_ink(edge_r_full, tile_pages[0] if tile_pages else [])
+        else:
+            n = n_pages or n_tile_pages
+            bands = None if n != n_tile_pages else (
+                [(0, gray_r.shape[0], gray_r.shape[1])] if n == 1 and not sizes
+                else _composite_bands(render_path, n, sizes))
+            if bands is None:
+                per_tile = {}
+                unmapped = sum(1 for p in tile_pages for _, b in p if _measurable(b))
+                if n != n_tile_pages:
+                    why = ("the layout has %d dashboard page(s) but the render "
+                           "is a %d-page composite" % (n_tile_pages, n))
+                elif sizes:
+                    why = ("the given page sizes do not reproduce the %d-page "
+                           "composite's dimensions" % n)
+                else:
+                    why = ("exact page sizes were not given for the %d-page "
+                           "composite (--composite-pages WxH,...)" % n)
+                notes.append(
+                    "per-tile blank detector NOT armed: %s, so %d tile box(es) "
+                    "could not be placed" % (why, unmapped)
+                )
+            elif n == 1 and not sizes:
+                per_tile = _tile_ink(edge_r_full, tile_pages[0])
+            else:
+                per_tile = _band_tile_ink(render_path, bands, tile_pages)
         blank_tiles = _blank_tile_names(per_tile)
         if (
             len(per_tile) >= TILE_MIN_MEASURED
@@ -481,12 +653,14 @@ def compare(source_path, render_path, tiles=None):
             "aspect_factor": round(asp, 4),
         },
     }
-    if tiles is not None:  # keys ADDED only with --tiles: no-tiles JSON is
-        result["tiles_measured"] = len(per_tile)      # byte-identical
+    if tile_pages is not None:  # keys ADDED only with --tiles: no-tiles JSON
+        result["tiles_measured"] = len(per_tile)      # is byte-identical
         result["tiles_blank"] = blank_tiles
         result["per_tile_ink"] = {
             name: round(dens, 4) for name, dens in per_tile.items()
         }
+        if unmapped is not None:
+            result["tiles_unmapped"] = unmapped
     return result
 
 
@@ -501,9 +675,18 @@ def main(argv=None):
         "--tiles",
         default=None,
         help="optional tile boxes JSON (pct of source canvas): the skill's "
-        "dashboard-layout.json (zones with kind/x_pct/y_pct/w_pct/h_pct) "
-        "or a plain [{name, x_pct, y_pct, w_pct, h_pct}] list — enables "
-        "the per-tile blank detector",
+        "dashboard-layout.json (a list of dashboards, or one dashboard's "
+        "zones with kind/x_pct/y_pct/w_pct/h_pct) or a plain "
+        "[{name, x_pct, y_pct, w_pct, h_pct}] list — enables the per-tile "
+        "blank detector; a multi-dashboard layout is placed on a "
+        "--all-pages composite render",
+    )
+    parser.add_argument(
+        "--composite-pages",
+        default=None,
+        help="the render is an N-page --all-pages composite: N, or the "
+        "per-page render sizes in stack order (WxH,WxH,...) so each page's "
+        "tiles land on its own band at its own width",
     )
     args = parser.parse_args(argv)
 
@@ -512,20 +695,29 @@ def main(argv=None):
             sys.stderr.write("%s image not found: %s\n" % (label, path))
             return 2
 
-    tiles = None
+    tile_pages = None
     if args.tiles:
         if not os.path.isfile(args.tiles):
             sys.stderr.write("tiles JSON not found: %s\n" % args.tiles)
             return 2
         try:
             with open(args.tiles) as fh:
-                tiles = parse_tiles(json.load(fh))
+                tile_pages = parse_tile_pages(json.load(fh))
         except ValueError as exc:  # covers json.JSONDecodeError
             sys.stderr.write("could not parse tiles JSON: %s\n" % exc)
             return 2
 
+    composite = None
+    if args.composite_pages is not None:
+        try:
+            composite = parse_composite_spec(args.composite_pages)
+        except ValueError as exc:
+            sys.stderr.write("%s\n" % exc)
+            return 2
+
     try:
-        result = compare(args.source, args.render, tiles=tiles)
+        result = compare(args.source, args.render, tile_pages=tile_pages,
+                         composite=composite)
     except Exception as exc:  # unreadable/corrupt input — never a pass
         sys.stderr.write("could not analyze images: %s\n" % exc)
         return 2
@@ -548,10 +740,12 @@ def main(argv=None):
             result["score_layout"],
         )
     )
-    if tiles is not None:
+    if tile_pages is not None:
         print(
-            "  tiles: %d measured, %d blank"
-            % (result["tiles_measured"], len(result["tiles_blank"]))
+            "  tiles: %d measured, %d blank%s"
+            % (result["tiles_measured"], len(result["tiles_blank"]),
+               ", %d unmapped" % result["tiles_unmapped"]
+               if "tiles_unmapped" in result else "")
         )
     for note in result["notes"]:
         print("  note: %s" % note)

@@ -119,6 +119,25 @@ class TestAnalysis(FixtureMixin, unittest.TestCase):
         self.assertIn("tiny ink", result["reasons"][0])
         self.assertEqual(result["ink_ratio"], 0.000025)
 
+    def test_chrome_with_blank_tile_interiors_passes(self):
+        # png_health only fails a whole image that is all white, one solid
+        # colour or near-zero ink. A page with a header bar plus outlined tile
+        # frames and titles but blank tile interiors still has enough ink, so
+        # it PASSes. This is why build-migration-report's render-health check
+        # must also fail a majority-blank tile set at any measured count
+        # (1-of-1 or 2-of-2), not only 3+.
+        page = Image.new("RGB", (1600, 1000), "white")
+        draw = ImageDraw.Draw(page)
+        draw.rectangle((0, 0, 1600, 80), fill=(40, 70, 130))
+        for x0 in (40, 820):
+            draw.rectangle((x0, 140, x0 + 740, 900), outline=(120, 120, 120), width=2)
+            draw.rectangle((x0 + 20, 155, x0 + 300, 175), fill=(60, 60, 60))
+        path = os.path.join(self.directory, "chrome-blank-tiles.png")
+        page.save(path, format="PNG")
+        result = PNG.analyze_image(path)
+        self.assertEqual(result["status"], "PASS")
+        self.assertGreater(result["ink_ratio"], 0.05)
+
     def test_transparency_is_flattened_onto_white(self):
         result = PNG.analyze_image(self.paths["transparent"])
         self.assertEqual(result["status"], "PASS")

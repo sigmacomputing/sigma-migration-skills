@@ -14,6 +14,8 @@
 #
 #   GREEN   — the ledger is EMPTY. No scope cuts, no quality waivers, no
 #             recorded escapes, no fidelity residuals, no waived resolutions.
+#             Minor visual gaps on a PASSING v2 blind grade are polish notes
+#             (polish_notes below), not entries — TJ 2026-11-09: "minor = notes".
 #   YELLOW  — quality degradations but no scope cut (any non-scope-cut entry;
 #             a budget-exceeded run — assert-phase6-ran exit 19, existing
 #             doctrine unchanged — is always at least YELLOW).
@@ -57,7 +59,10 @@
 #                       straggler now writes), plus the census' run off-ramp
 #                       flags (--force-new-workbook / --force-route-switch /
 #                       --allow-manual-spec).
-#   fidelity-residual — parity-final.json visual_verdict=divergent, unresolved
+#   fidelity-residual — parity-final.json visual_verdict=divergent,
+#                       visual-residuals.json fixable gaps (every gap on a
+#                       divergent grade; on a PASS grade only the non-minor
+#                       ones — minors become polish notes), unresolved
 #                       fidelity-ledger.json deltas (accepted residuals ride
 #                       to DONE unresolved), layout-arrangement.json
 #                       violations (advisory WARNs), png-read.json
@@ -90,7 +95,8 @@ module DegradationLedger
                          '--allow-manual-spec'].freeze
   # Census flags whose degradation is derived (better) from an artifact —
   # skipped in the census pass so one degradation never counts twice:
-  # visual-divergent is derived from parity-final's visual_verdict.
+  # visual-divergent is derived from parity-final's visual_verdict (it is a
+  # fidelity-residual, not a budget-counted waiver; older runs may still carry it in the census).
   CENSUS_DERIVED_FLAGS = ['visual-divergent'].freeze
 
   # offramps.jsonl kinds that are ESCAPES (a verification/protection turned
@@ -303,9 +309,33 @@ module DegradationLedger
                    'recorded source-vs-target visual gaps ship in the render',
                    'parity-final.json')
     end
+    vr = read_json(wd, 'visual-residuals.json')
+    ids = catalog_ids
+    vr_h = vr.is_a?(Hash) ? vr : {}
+    # fixable gaps (minor in `residuals`, major in `fixable_major` — the latter
+    # are why a run is divergent and must be named) plus any "platform difference"
+    # whose id is not in the SHIPPED catalog: an unproven claim stays a residual.
+    unproven = Array(vr_h['platform_differences']).select { |g| g.is_a?(Hash) && !ids.include?(g['class'].to_s) }
+    passed = visual_pass?(wd)
+    { 'residuals' => 'fixable gap recorded by the blind visual grade and left in the render',
+      'fixable_major' => 'major fixable gap recorded by the blind visual grade and left in the render (run is divergent)',
+      'unproven' => 'blind-grade gap cites a platform-difference id that is not in the shipped catalog (unproven — treated as fixable)' }
+      .each do |key, reason|
+      list = key == 'unproven' ? unproven : Array(vr_h[key])
+      list.each do |g|
+        next unless g.is_a?(Hash)
+        # PASS grade: a minor fixable gap is a polish note (polish_notes), not a
+        # degradation. Majors, unproven ids and every gap of a divergent grade stay.
+        next if passed && key == 'residuals' && minor_gap?(g)
+        out << entry('fidelity-residual',
+                     "visual residual (#{key == 'fixable_major' ? 'major' : g['severity']}): #{g['tile']}: #{g['description']}",
+                     reason, 'visual-residuals.json')
+      end
+    end
     fl = read_json(wd, 'fidelity-ledger.json')
     Array(fl.is_a?(Hash) ? fl['entries'] : nil).each do |e|
       next unless e.is_a?(Hash) && !e['resolved']
+      next if platform_difference_entry?(e, ids)
       out << entry('fidelity-residual',
                    "RCF residual #{e['id']} [#{e['dimension'] || e['cls']}]",
                    e['delta'].to_s.empty? ? "unresolved #{e['cls']} delta" : e['delta'].to_s,
@@ -327,6 +357,90 @@ module DegradationLedger
                    'png-read.json kind_waivers')
     end
     out
+  end
+
+  # The recorded v2 visual verdict is PASS — faithful by rule (mean overall_score
+  # >= 75, chart_shapes_match + numbers_formatted pass, no major fixable gap).
+  # Read from the two artifacts gate 8b re-verifies against the hashed grades:
+  # parity-final.json visual_verdict must be `pass` AND visual-residuals.json
+  # must say faithful with an empty fixable_major. A v1 run (no
+  # visual-residuals.json), a divergent / not-executable verdict, or any
+  # disagreement between the two files is NOT a pass.
+  def visual_pass?(wd)
+    pf = read_json(wd, 'parity-final.json')
+    vr = read_json(wd, 'visual-residuals.json')
+    pf.is_a?(Hash) && vr.is_a?(Hash) &&
+      pf['visual_verdict'].to_s.strip.downcase == 'pass' &&
+      vr['faithful'] == true && Array(vr['fixable_major']).empty?
+  end
+
+  def minor_gap?(g)
+    g['severity'].to_s.strip.downcase == 'minor'
+  end
+
+  # Minor polish notes: the minor fixable gaps a PASSING v2 blind grade
+  # recorded (visual-residuals.json residuals[], severity minor). Listed in the
+  # report next to platform differences; NOT degradations — they never force
+  # YELLOW. Empty unless visual_pass?. Entry: item ("tile: description"),
+  # dimension, source_artifact.
+  def polish_notes(wd)
+    return [] unless visual_pass?(wd)
+    vr = read_json(wd, 'visual-residuals.json')
+    Array(vr['residuals']).select { |g| g.is_a?(Hash) && minor_gap?(g) }.map do |g|
+      { 'item' => "#{g['tile']}: #{g['description']}",
+        'dimension' => g['dimension'].to_s,
+        'source_artifact' => 'visual-residuals.json' }
+    end.uniq
+  end
+
+  # Platform differences: places where Sigma cannot render what the source
+  # does (catalogued in refs/sigma-platform-differences.json). RECORDED, never
+  # degradations — they are not ledger entries and never change the verdict.
+  # Sources: visual-residuals.json platform_differences[] (blind grade) and
+  # unresolved RCF entries (sigma-capability / legacy ui-only) citing a catalog
+  # id that exists in the shipped catalog. An unknown/missing id is NOT a
+  # platform difference (it stays a spec-fixable fidelity-residual).
+  def platform_differences(wd)
+    out = []
+    vr = read_json(wd, 'visual-residuals.json')
+    shipped_ids = catalog_ids
+    Array(vr.is_a?(Hash) ? vr['platform_differences'] : nil).each do |g|
+      next unless g.is_a?(Hash) && shipped_ids.include?(g['class'].to_s)
+      out << { 'item' => "#{g['tile']}: #{g['description']}",
+               'catalog_id' => g['class'].to_s,
+               'source_artifact' => 'visual-residuals.json' }
+    end
+    # gate 14 floor components a catalogued difference explained (assert-phase6-ran)
+    vx = read_json(wd, 'visual-similarity-exemptions.json')
+    Array(vx.is_a?(Hash) ? vx['exemptions'] : nil).each do |x|
+      next unless x.is_a?(Hash) && shipped_ids.include?(x['catalog_id'].to_s)
+      out << { 'item' => "visual-similarity floor: #{x['component']} #{x['value']} below #{x['floor']} (RCF #{x['rcf_id']})",
+               'catalog_id' => x['catalog_id'].to_s,
+               'source_artifact' => 'visual-similarity-exemptions.json' }
+    end
+    ids = catalog_ids
+    fl = read_json(wd, 'fidelity-ledger.json')
+    Array(fl.is_a?(Hash) ? fl['entries'] : nil).each do |e|
+      next unless e.is_a?(Hash) && !e['resolved'] && platform_difference_entry?(e, ids)
+      desc = [e['delta'], e['description'], e['id']].map(&:to_s).find { |v| !v.empty? }
+      out << { 'item' => desc.to_s, 'catalog_id' => e['catalog_id'].to_s,
+               'source_artifact' => 'fidelity-ledger.json' }
+    end
+    out.uniq
+  end
+
+  def platform_difference_entry?(e, ids)
+    %w[sigma-capability ui-only].include?(e['cls'].to_s) && ids.include?(e['catalog_id'].to_s)
+  end
+
+  # Ids in the shipped catalog. Vendored layout: scripts/lib/ -> ../../refs;
+  # canonical shared/lib/ -> ../refs. Unreadable catalog -> [] (nothing valid).
+  def catalog_ids
+    path = [File.expand_path('../../refs/sigma-platform-differences.json', __dir__),
+            File.expand_path('../refs/sigma-platform-differences.json', __dir__)].find { |c| File.file?(c) }
+    return [] unless path
+    doc = read_json_path(path)
+    Array(doc.is_a?(Hash) ? doc['entries'] : nil).map { |c| c.is_a?(Hash) ? c['id'].to_s : nil }.compact
   end
 
   def resolution_waived(wd)

@@ -10,6 +10,12 @@ require 'optparse'
 require 'pathname'
 require 'time'
 
+# lib/degradation_ledger.rb: vendored at scripts/lib/ in plugins, canonical at
+# ../lib/ in shared/. Optional: without it the report lists no platform differences.
+_ledger_lib = [File.join(__dir__, 'lib', 'degradation_ledger.rb'),
+               File.join(__dir__, '..', 'lib', 'degradation_ledger.rb')].find { |f| File.file?(f) }
+require _ledger_lib if _ledger_lib
+
 class MigrationReportError < StandardError; end
 
 class MigrationReport
@@ -89,10 +95,12 @@ class MigrationReport
     checks << parity_check
     checks << render_check
     checks << blank_risk_check
+    gates = finalize_gates_check
+    checks << gates if gates
 
     hard_failure = checks.any? { |c| c['status'] == 'FAIL' }
     yellow = @objects.any? { |o| %w[approximated needs-review skipped].include?(o['status']) }
-    yellow ||= waiver_entries.any? || degradation_entries.any?
+    yellow ||= waiver_entries.any? || degradation_entries.any? || !visual_degradation.nil?
     verdict = hard_failure ? 'RED' : (yellow ? 'YELLOW' : 'GREEN')
 
     counts = TERMINAL.each_with_object({}) { |status, out| out[status] = 0 }
@@ -112,7 +120,9 @@ class MigrationReport
       'source_objects' => @objects,
       'checks' => checks,
       'artifacts' => @artifacts.sort_by { |a| [a['kind'], a['path']] },
-      'degradations' => degradation_entries,
+      'degradations' => document_degradations,
+      'platform_differences' => platform_difference_entries,
+      'polish_notes' => polish_note_entries,
       'waivers' => waiver_entries
     }
     add_generated_at
@@ -160,6 +170,8 @@ class MigrationReport
       lines << "| #{md(artifact['kind'])} | #{md(artifact['path'])} | #{artifact['present'] ? 'yes' : 'no'} |"
     end
     append_entries(lines, 'Degradations', doc['degradations'])
+    append_platform_differences(lines, doc['platform_differences'])
+    append_polish_notes(lines, doc['polish_notes'])
     append_entries(lines, 'Waivers', doc['waivers'])
     lines.join("\n") + "\n"
   end
@@ -203,6 +215,13 @@ class MigrationReport
                               ])
     add_artifact('blank-risk', File.join(@workdir, 'blank-risk.json'), false) if
       @artifacts.none? { |artifact| artifact['kind'] == 'blank-risk' }
+    # Machine render evidence written by the gates themselves (gate-14's
+    # visual-similarity floor and the anchors tile census). Recorded only when
+    # present, like the health artifacts above.
+    %w[visual-similarity anchors-verdict finalize-gates].each do |kind|
+      path = File.join(@workdir, "#{kind}.json")
+      load_artifact(kind, path) if File.file?(path)
+    end
   end
 
   def discover_health_artifacts(kind, globs)
@@ -615,9 +634,62 @@ class MigrationReport
       "anchors matched, #{stamp['tiles_covered']}/#{stamp['tiles_displayed']} displayed tiles covered)"
   end
 
+  # visual-similarity.json is render evidence only through its render_health
+  # record (written by png_health.py). Returns nil when there is nothing to
+  # vouch with, else [state, reason]; a recorded render image that no longer
+  # exists or a non-PASS health status is :fail. A majority of measured tiles
+  # being blank is also a render-health failure: the same majority rule as
+  # visual-similarity.py, but armed at any measured count (> 0) on purpose.
+  # png_health's whole-image check only catches all-white, solid or near-empty
+  # images, so a page with chrome but 1-of-1 or 2-of-2 blank tiles passes it;
+  # visual-similarity.py's TILE_MIN_MEASURED = 3 only guards the composite score
+  # against noise. Otherwise the artifact's composite pass flag is
+  # visual-fidelity evidence, not render-health evidence.
+  def visual_similarity_evidence
+    doc = @artifact_docs[File.join(@workdir, 'visual-similarity.json')]
+    return nil unless doc.is_a?(Hash) && doc['render_health'].is_a?(Hash)
+    health = doc['render_health']
+    image = health['path']
+    if image.is_a?(String) && !image.strip.empty? &&
+       !File.file?(File.expand_path(image, @workdir))
+      return [:fail, "render image missing: #{image}"]
+    end
+    blank = doc['tiles_blank']
+    raw_measured = doc['tiles_measured']
+    measured = if raw_measured.is_a?(Integer) then raw_measured
+               elsif raw_measured.is_a?(String) && raw_measured.match?(/\A\d+\z/) then raw_measured.to_i
+               else 0
+               end
+    if blank.is_a?(Array) && measured > 0 && 2 * blank.length > measured
+      return [:fail, "#{blank.length} of #{measured} tiles blank"]
+    end
+    status = fold(health['status'])
+    return [:fail, "render_health status #{health['status']}"] if !status.empty? && status != 'pass'
+    return nil if status.empty?
+    [:pass, nil]
+  end
+
+  # tiles_all_nonempty from the anchors tile census: true / false / nil.
+  def anchors_tile_census
+    doc = @artifact_docs[File.join(@workdir, 'anchors-verdict.json')]
+    return nil unless doc.is_a?(Hash)
+    value = doc['tiles_all_nonempty']
+    boolean?(value) ? value : nil
+  end
+
+  def empty_tiles_waived?
+    waiver_entries.any? do |entry|
+      entry['flag'] == '--allow-empty-tiles' || entry['reason'] == '--allow-empty-tiles'
+    end
+  end
+
   def render_check
     paths = paths_for_kind('render-health')
     results = paths.map { |path| [path, health_state(@artifact_docs[path], 'render')] }
+    similarity = visual_similarity_evidence
+    if similarity
+      results << [File.join(@workdir, 'visual-similarity.json'), similarity[0], similarity[1]]
+    end
     parity = @artifact_docs[File.join(@workdir, 'parity-final.json')]
     if parity.is_a?(Hash) &&
        (parity.key?('visual_checked') || parity.key?('visual_verdict'))
@@ -628,12 +700,35 @@ class MigrationReport
                     else
                       verdict == 'pass'
                     end
-      results << [File.join(@workdir, 'parity-final.json'), visual_pass ? :pass : :fail]
+      # Only a positive visual pass is render evidence. A divergent or
+      # not-executable verdict is a recorded fidelity residual (YELLOW via
+      # visual_degradation), never an unhealthy render.
+      results << [File.join(@workdir, 'parity-final.json'), :pass] if visual_pass
     end
     return check('render-health', 'FAIL', 'no healthy render evidence found') if results.empty?
     failed = results.select { |pair| pair[1] != :pass }
-    return check('render-health', 'FAIL', "unhealthy or indeterminate: #{failed.map { |p| display_path(p[0]) }.join(', ')}") unless failed.empty?
+    unless failed.empty?
+      labels = failed.map { |p| p[2] ? "#{display_path(p[0])} (#{p[2]})" : display_path(p[0]) }
+      return check('render-health', 'FAIL', "unhealthy or indeterminate: #{labels.join(', ')}")
+    end
     check('render-health', 'PASS', "#{results.length} render health record(s) healthy")
+  end
+
+  # finalize-gates.json: the converter's finalize battery records each gate's
+  # PASS/FAIL before building this report (tableau-to-sigma --finalize). A
+  # failed gate makes the report a FAIL check (RED): the report must never say
+  # GREEN while a hard gate failed (2026-11-09 Complex Pivot: gate 14 failed,
+  # finalize NOT GREEN, verify-complete NOT DONE, report GREEN). Absent file ->
+  # no check (other converters, standalone runs).
+  def finalize_gates_check
+    doc = @artifact_docs[File.join(@workdir, 'finalize-gates.json')]
+    return nil if doc.nil?
+    gates = doc.is_a?(Hash) ? doc['gates'] : nil
+    return check('finalize-gates', 'FAIL', 'finalize-gates.json is malformed (no gates object)') unless gates.is_a?(Hash) && !gates.empty?
+    failed = gates.reject { |_name, row| fold(row.is_a?(Hash) ? row['status'] : row) == 'pass' }
+    return check('finalize-gates', 'PASS', "#{gates.length} finalize gate(s) passed") if failed.empty?
+    names = failed.map { |name, row| row.is_a?(Hash) && row['exit'] ? "#{name} (exit #{row['exit']})" : name.to_s }
+    check('finalize-gates', 'FAIL', "finalize gate(s) failed: #{names.join(', ')}")
   end
 
   def blank_risk_check
@@ -643,14 +738,30 @@ class MigrationReport
     return check('blank-risk', 'FAIL', "blank risk detected: #{failed.map { |p| display_path(p[0]) }.join(', ')}") unless failed.empty?
     unknown = results.select { |pair| pair[1] == :unknown }
     return check('blank-risk', 'FAIL', "blank risk indeterminate: #{unknown.map { |p| display_path(p[0]) }.join(', ')}") unless unknown.empty?
+    # Any unwaived explicit FAIL signal wins, even over a clear blank-risk
+    # artifact: the tile census saw empty displayed tiles.
+    census = anchors_tile_census
+    if census == false
+      return check('blank-risk', 'PASS', 'empty displayed tiles accepted via --allow-empty-tiles') if empty_tiles_waived?
+      return check('blank-risk', 'FAIL', 'anchors tile census found empty displayed tiles')
+    end
+    similarity = visual_similarity_evidence
     if paths.empty?
       render = paths_for_kind('render-health')
       return check('blank-risk', 'PASS', 'covered by healthy render evidence') unless render.empty?
+      return check('blank-risk', 'PASS', 'covered by anchors tile census') if census == true
+      return check('blank-risk', 'PASS', 'covered by healthy render evidence') if similarity && similarity[0] == :pass
       parity = @artifact_docs[File.join(@workdir, 'parity-final.json')]
-      visual_pass = parity.is_a?(Hash) &&
-                    (parity['visual_checked'] == true || fold(parity['visual_verdict']) == 'pass')
-      return check('blank-risk', visual_pass ? 'PASS' : 'FAIL',
-                   visual_pass ? 'covered by parity visual pass' : 'no blank-risk evidence found')
+      # A recorded blind comparison (pass or divergent, with its screenshot)
+      # looked at the rendered page, so it covers blank risk.
+      shot = parity.is_a?(Hash) ? parity['screenshot_path'] : nil
+      has_shot = shot.is_a?(String) && !shot.strip.empty?
+      verdict = parity.is_a?(Hash) ? fold(parity['visual_verdict']) : ''
+      compared = parity.is_a?(Hash) &&
+                 (parity['visual_checked'] == true || verdict == 'pass' ||
+                  (verdict == 'divergent' && has_shot))
+      return check('blank-risk', compared ? 'PASS' : 'FAIL',
+                   compared ? 'covered by recorded visual comparison' : 'no blank-risk evidence found')
     end
     check('blank-risk', 'PASS', "#{paths.length} blank-risk record(s) clear")
   end
@@ -701,9 +812,78 @@ class MigrationReport
     end
   end
 
+  # A divergent / not-executable blind visual verdict is a fidelity residual:
+  # it caps the run at YELLOW (assert-phase6-ran.rb doctrine), it is not RED.
+  def visual_degradation
+    parity = @artifact_docs[File.join(@workdir, 'parity-final.json')]
+    return nil unless parity.is_a?(Hash)
+    verdict = fold(parity['visual_verdict'])
+    return nil unless %w[divergent not-executable].include?(verdict)
+    # Divergent mirrors DegradationLedger#fidelity_residuals exactly (so
+    # verify-complete's report['degradations'] == derived equality holds);
+    # not-executable is not ledger-derived, so its reason is the recorded notes.
+    notes = parity['visual_notes']
+    notes = notes.to_s.strip.empty? ? "blind visual verdict #{verdict} recorded in parity-final.json" : notes.to_s
+    notes = 'recorded source-vs-target visual gaps ship in the render' if verdict == 'divergent'
+    { 'class' => 'fidelity-residual', 'item' => "visual verdict: #{verdict}",
+      'reason' => notes, 'source_artifact' => 'parity-final.json' }
+  end
+
+  def document_degradations
+    entries = degradation_entries
+    visual = visual_degradation
+    ledger_absent = @artifact_docs[File.join(@workdir, 'degradation-ledger.json')].nil?
+    if visual && ledger_absent && entries.none? { |entry| entry['item'] == visual['item'] }
+      entries += [visual]
+    end
+    entries
+  end
+
   def degradation_entries
     doc = @artifact_docs[File.join(@workdir, 'degradation-ledger.json')]
     Array(doc.is_a?(Hash) ? doc['entries'] : nil).select { |entry| entry.is_a?(Hash) }
+  end
+
+  # Recorded, never degradations: Sigma cannot render these as the source does
+  # (refs/sigma-platform-differences.json). They never change the verdict.
+  def platform_difference_entries
+    return [] unless defined?(DegradationLedger) && DegradationLedger.respond_to?(:platform_differences)
+    DegradationLedger.platform_differences(@workdir)
+  end
+
+  def append_platform_differences(lines, entries)
+    return if entries.nil? || entries.empty?
+    lines << ''
+    lines << '## Platform differences'
+    lines << ''
+    lines << 'Recorded, not degradations: Sigma renders these differently from the source and a build cannot change it. They do not affect the verdict.'
+    lines << ''
+    entries.each do |entry|
+      lines << "- **#{md(entry['catalog_id'])}** — #{md(entry['item'])}"
+    end
+  end
+
+  # Minor polish notes: minor gaps a PASSING v2 blind grade recorded. Listed,
+  # never degradations — they do not affect the verdict (TJ 2026-11-09).
+  def polish_note_entries
+    return [] unless defined?(DegradationLedger) && DegradationLedger.respond_to?(:polish_notes)
+    # A ledger written before the polish rule still lists these minors as
+    # degradations; never show one gap in both sections (re-run the gate).
+    listed = degradation_entries.map { |e| e['item'] }
+    DegradationLedger.polish_notes(@workdir).reject { |n| listed.include?("visual residual (minor): #{n['item']}") }
+  end
+
+  def append_polish_notes(lines, entries)
+    return if entries.nil? || entries.empty?
+    lines << ''
+    lines << '## Minor polish notes'
+    lines << ''
+    lines << 'Not degradations: the blind visual grade passed, and these minor differences are optional polish. They do not affect the verdict.'
+    lines << ''
+    entries.each do |entry|
+      dim = entry['dimension'].to_s.empty? ? '' : " [#{md(entry['dimension'])}]"
+      lines << "- #{md(entry['item'])}#{dim}"
+    end
   end
 
   def waiver_entries
