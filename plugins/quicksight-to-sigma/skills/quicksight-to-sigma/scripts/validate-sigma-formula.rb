@@ -15,7 +15,7 @@
 #   1. Builds a tiny Sigma workbook spec with:
 #      - Data page: a master table pulling from the supplied DM element
 #      - Test page: a single chart that uses the candidate formula as a column
-#   2. POSTs to /v2/workbooks/spec
+#   2. POSTs to /v2/workbooks
 #   3. Reads /v2/workbooks/{id}/elements/{el}/columns and checks for
 #      type.type == "error"
 #   4. Emits a JSON result to stdout (machine-parseable):
@@ -139,10 +139,11 @@ spec['folderId'] = opts[:folder_id] if opts[:folder_id]
 
 # --- POST + readback -------------------------------------------------------
 parsed = begin
-  # Workbook code-rep POSTs require the nested `document` envelope (verified
-  # live 2026-08-03/04: a flat body 400s) — wrap the throwaway singleton probe spec.
-  post_body = Sigma::CodeRep.wrap(Sigma::CodeRep.document(spec), extra: Sigma::CodeRep.metadata(spec))
-  Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+  # Workbook code-rep POSTs require the nested `contents` envelope (a flat
+  # body 400s) — create_body re-keys the throwaway singleton probe spec and
+  # keeps name/folderId beside it.
+  post_body = Sigma::CodeRep.create_body(spec)
+  Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(post_body))
 rescue StandardError => e
   { 'raw' => e.message }
 end

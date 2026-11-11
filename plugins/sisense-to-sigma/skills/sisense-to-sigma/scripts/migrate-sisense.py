@@ -20,6 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SKILL = HERE.parent
 sys.path.insert(0, str(HERE / "lib"))
+import code_rep  # noqa: E402
 import sigma_rest  # noqa: E402
 
 
@@ -211,7 +212,7 @@ def run_accounting(workdir, gap, model, dashboards, provenance, parity=None):
 
 def tile_boxes(workbook, page_id, output):
     """Derive render-side tile boxes from the authoritative inline layout."""
-    root = workbook.get("document", workbook)
+    root = code_rep.document(workbook) or workbook
     elements = {
         str(row.get("id")): row
         for row in root.get("elements") or []

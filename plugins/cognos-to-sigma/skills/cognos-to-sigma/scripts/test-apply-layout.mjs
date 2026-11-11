@@ -25,8 +25,9 @@ const check = (cond, msg) => { console.error(`  ${cond ? 'PASS' : 'FAIL'}  ${msg
 const NESTED_DOC = {
   workbookId: 'wb-test',
   name: 'Test WB',
-  folderId: 'home-1',
-  document: {
+  path: 'My Documents',
+  latestVersion: 1,
+  contents: {
     schemaVersion: 3,
     pages: [{ id: 'pg1', name: 'Page 1' }],
     elements: [{ id: 'c1', kind: 'bar-chart' }],
@@ -41,7 +42,7 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
   const method = (init.method || 'GET').toUpperCase();
-  if (!u.endsWith('/v2/workbooks/wb-test/spec')) return new Response('not found', { status: 404 });
+  if (!u.endsWith('/v2/workbooks/wb-test?includeContents=true')) return new Response('not found', { status: 404 });
   if (method === 'GET') {
     getCount += 1;
     return new Response(JSON.stringify(NESTED_DOC), { status: 200, headers: { 'Content-Type': 'application/json' } });

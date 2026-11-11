@@ -1147,7 +1147,7 @@ layout.each do |dash|
         }
       end
     end
-    # Every element filter needs a unique `id` (the live /v2/workbooks/.../spec
+    # Every element filter needs a unique `id` (the live workbook
     # readback shows `id: flt-<element>-<n>`); the API rejects filters without it.
     el_filters.each_with_index { |nf, i| nf['id'] = "flt-#{el_id}-#{i}" }
     element['filters'] = el_filters unless el_filters.empty?

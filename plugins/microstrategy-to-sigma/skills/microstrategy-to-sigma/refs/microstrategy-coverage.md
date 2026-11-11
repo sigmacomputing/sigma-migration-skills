@@ -6,7 +6,7 @@ Every documented source construct maps to a real, current Sigma target or a loud
 
 **`sigma_verified` legend:** ✅ y = the mapped Sigma target resolved at **query time** in a live migration (no `type=error` column) on the date shown; 🟡 n = target is documented but not yet query-verified.
 
-**Coverage:** 39 documented constructs across 5 dimensions; 12 live-verified.
+**Coverage:** 59 documented constructs across 6 dimensions; 30 live-verified.
 
 ## Visualization / chart kind
 
@@ -90,6 +90,52 @@ Authoritative source: <https://www2.microstrategy.com/producthelp/Current/MSTRWe
 | | | | | _A list-control filter target on a NUMERIC column is silently stripped by Sigma (200 on POST/PUT, filters:null on readback) — numeric selectors bind through a hidden Text() cast column._ |
 | `text` | [doc](https://www2.microstrategy.com/producthelp/Current/MSTRWeb/WebHelp/Lang_1033/Content/getting_started_selector.htm) | `list` | 🟡 n | n/a |
 | | | | | _Categorical list control (documented default)._ |
+
+## document-control
+
+_MicroStrategy Report Services document construct -> Sigma Report (POST /v2/reports) construct, resolved by scripts/convert-rs-document.py. Keys are namespaced: `control:<type>` (layout control type), `section:<kind>` (document section), `line-style:<style>` (line/rectangle border style), `autotext:<code>` (auto text code inside a text field). sigma_verified y = the emitted shape passed a non-persistent POST /v2/reports dryRun on the given date; it is NOT evidence of PDF rendering, which still needs create + export + visual comparison._
+
+Authoritative source: <https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Create_a_sample_invoice_document.htm>
+
+| construct | doc ref | Sigma target | sigma_verified | on-unmapped |
+|---|---|---|---|---|
+| `control:text` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_static_text_to_the_document.htm) | `text` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Static text keeps its literal; {Attribute} / {[Attribute]} / {Attribute@FORM} / {Metric} tokens become {{First([<dataset>/<col>])}} or {{<Agg>([<dataset>/<col>]) \| fmt}} over the detail table (dryRun-verified 2026-10-29). Bold/italic/size/colour/background become the text element's Markdown/span subset; points convert at 96/72._ |
+| `control:image` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_the_logo_image_to_the_document.htm) | `image` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Needs an HTTPS URL (source.kind url). An image control without a resolvable URL is recorded as a gap, never replaced with an invented asset._ |
+| `control:line` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm) | `divider` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Horizontal divider; weight -> style.width px; Length mode 100% -> full content width._ |
+| `control:rectangle` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_rectangle_to_the_document.htm) | `divider \| table header background` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Sigma Reports have no rectangle element. A band behind the Detail Header becomes the detail table's column-header background; a band no taller than 0.1 in becomes a divider of that thickness; any other rectangle is a layout gap._ |
+| `section:page-header` | [doc](https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm) | `panel type=header` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Repeats on every printed page in both tools; panel height = section height._ |
+| `section:page-footer` | [doc](https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm) | `panel type=footer` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Same as page-header._ |
+| `section:document-header` | [doc](https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm) | `page body (top)` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Absolute-positioned elements at the top of the body page._ |
+| `section:document-footer` | [doc](https://www2.microstrategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/working_with_sections_in_documents.htm) | `page body (after the detail box)` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Fixed position below the detail box; content after a paginated table does not reflow in Sigma._ |
+| `section:group-header` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Grouping_the_document_by_customer.htm) | `invoice mode: positioned text over the selected group \| banded mode: table grouping keys` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Page break between groups -> invoice mode: one page template driven by a single-select list control on a hidden page; one PDF per group value via a Sigma schedule. report-repeated-container cannot carry it (2026-10-29 dryRun: row-bound text returns 'Dependency not found'; table/kpi children are not allowed)._ |
+| `section:group-footer` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Grouping_the_document_by_customer.htm) | `invoice mode: positioned text over the selected group \| banded mode: grouping calculations` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Metrics placed here are group subtotals._ |
+| `section:detail-header` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Creating_the_column_headers_in_the_Detail_Header_s.htm) | `detail table column headers` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Each header text field names the detail column it is left-aligned with._ |
+| `section:detail` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Creating_the_item_detail_in_the_Detail_section.htm) | `table (flow=paginated)` | ✅ y · 2026-10-29 | n/a |
+| | | | | _One column per data field, ordered by Left; static text inside the Detail section has no per-row equivalent and is a gap._ |
+| `section:detail-footer` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_totals_to_a_document.htm) | `invoice mode: positioned text \| banded mode: grouping calculations` | ✅ y · 2026-10-29 | n/a |
+| | | | | _A metric here is the subtotal of the Detail rows (the guide's documented semantics)._ |
+| `line-style:solid` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm) | `solid` | ✅ y · 2026-10-29 | n/a |
+| `line-style:dashed` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm) | `dashed` | 🟡 n | n/a |
+| `line-style:dotted` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm) | `dotted` | 🟡 n | n/a |
+| `line-style:double` | [doc](https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Adding_a_line_to_the_Customer_Header_section.htm) | `solid` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Sigma dividers have no double stroke; emitted solid at the same total weight and recorded as a layout gap._ |
+| `autotext:&page` | [doc](https://www2.strategy.com/producthelp/Current/DocumentAuthoring/en-us/Content/auto_text_doc.htm) | `{{CurrentPageNumber()}}` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Sigma numbers pages across the whole report; MicroStrategy can restart numbering per group._ |
+| `autotext:&npages` | [doc](https://www2.strategy.com/producthelp/Current/DocumentAuthoring/en-us/Content/auto_text_doc.htm) | `{{TotalPageCount()}}` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Some MicroStrategy versions spell this {&PAGES}; both resolve here._ |
+| `autotext:&pages` | [doc](https://www2.strategy.com/producthelp/Current/ReportDesigner/WebHelp/Lang_1033/Content/auto_text_codes_documents.htm) | `{{TotalPageCount()}}` | ✅ y · 2026-10-29 | n/a |
+| | | | | _Report Designer spelling of {&NPAGES}._ |
 
 ## workbook-feature
 

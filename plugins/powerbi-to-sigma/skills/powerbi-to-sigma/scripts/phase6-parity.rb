@@ -71,8 +71,8 @@ plan_path = File.join(opts[:tab], 'parity-plan.json')
 if !opts[:finalize]
   # PASS 1 — build plan + emit per-chart MCP instructions
   warn "Phase 6 PASS 1: reading workbook spec #{opts[:wb]}"
-  raw_spec = http_json("/v2/workbooks/#{opts[:wb]}/spec")
-  # Live GET now nests non-metadata fields under `document` (verified 2026-08-03/04);
+  raw_spec = http_json(Sigma::CodeRep.read_path(opts[:wb]))
+  # Live GET now nests non-metadata fields under `contents` (`document` on the retired /spec GET);
   # unwrap so wb-readback.json keeps the flat {pages:[...]} shape downstream
   # scripts (auto-parity-plan.rb, ...) already expect on disk.
   spec = Sigma::CodeRep.document(raw_spec)

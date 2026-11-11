@@ -15,7 +15,7 @@ A rough sizing ladder (starting points, not rules):
 - **A focused view** — "revenue over time with a region filter" → a few elements plus a control; light layout.
 - **A dashboard** — "a sales dashboard", "an exec overview" → the fuller pattern is appropriate: a KPI row up top, one or two charts, a supporting table, controls, explicit layout XML, and the base/source table on a hidden page (see `visibility: hidden` in `reference/specification/schema.md`, and the master-detail pattern below for a worked example). This is the tier where polish is the point.
 
-For concrete shapes at any tier, don't assemble from memory. Fetch a real workbook's spec (`GET /v2/workbooks/{id}/spec`, Steps 1–2) and read the relevant feature docs — a live spec shows current, valid, org-idiomatic structure, including the layout XML the OpenAPI doesn't model. Size up only when the request asks for it.
+For concrete shapes at any tier, don't assemble from memory. Fetch a real workbook's spec (`GET /v2/workbooks/{id}?includeContents=true`, Steps 1–2) and read the relevant feature docs — a live spec shows current, valid, org-idiomatic structure, including the layout XML the OpenAPI doesn't model. Size up only when the request asks for it.
 
 ## When to stop and ask the user
 
@@ -40,7 +40,7 @@ Example: *"Built a single-page dashboard with 4 KPIs across the top, a revenue-b
 
 ## Patterns
 
-Several layout patterns are wired into a shared composition engine
+Several grid-layout patterns are wired into a shared composition engine
 (`scripts/lib/composition.rb`). They take a flat array of elements — each
 `{ id:, role: }` or `{ id:, kind: }` — and emit the `<Element
 elementId="..." gridColumn="a / b" gridRow="c / d"/>` lines for a single
@@ -53,6 +53,12 @@ and this document-level placement. Elements are grouped into horizontal
 bands by `role`; a band with no elements is skipped and the next band simply
 starts where the last one left off, so array order doesn't matter — only the
 role tag does.
+
+Use a `type="stack"` `<Container>` instead when the children need responsive
+flow or a different desktop/mobile order. Stack children are ordered by their
+XML position and omit `gridColumn` / `gridRow`; use nested `type="grid"`
+containers for children that still need two-dimensional placement. The
+composition engine does not convert grid coordinates into stack settings.
 
 Role resolution: give an element an explicit `role:`, or let `kind:` infer one — `kpi-chart` → `:kpi`; `table` / `pivot-table` / `input-table` → `:table`; any other kind (every chart kind) defaults to `:supporting`. `:hero`, `:control`, `:insight`, `:master`, and `:detail` are **never** inferred — tag those explicitly. An untagged element infers to `:supporting` — `:exec` places that (merged into its final `:supporting`+`:table` band), but `:master_detail` does NOT: it only consumes `:control`, `:master`, and `:detail`, so an untagged (or explicitly `:kpi`/`:hero`/`:insight`/`:supporting`/`:table`) element passed to `:master_detail` is a role the pattern doesn't place.
 
