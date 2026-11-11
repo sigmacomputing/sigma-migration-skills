@@ -69,8 +69,12 @@ warn 'NOTE: --quarantine-on-failure only applies to --type datamodel; ignored.' 
 
 BASE = ENV.fetch('SIGMA_BASE_URL')
 
-POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'              : '/v2/workbooks/spec'
-GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec'           : '/v2/workbooks/%s/spec'
+# Workbooks use the code-rep endpoints (POST /v2/workbooks, GET
+# /v2/workbooks/{id}?includeContents=true, PUT /v2/workbooks/{id}/contents); the
+# retired /v2/workbooks/**/spec endpoints are deprecated. Data models keep /spec.
+POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'    : Sigma::CodeRep.create_path
+GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : Sigma::CodeRep.read_path('%s')
+PUT_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : Sigma::CodeRep.update_path('%s')
 ID_FIELD  = opts[:type] == 'datamodel' ? 'dataModelId'                      : 'workbookId'
 
 # Wraps a single Sigma REST call with automatic 401-retry-after-refresh
@@ -115,31 +119,42 @@ end
 # explicit --update-id (Phase 3 normally reuses a DM via the ref-dm path).
 update_id = opts[:update_id] || (prior_ids.last if opts[:type] == 'workbook' && prior_ids.any?)
 
-# Workbook code-rep nests non-metadata fields under `document`; data models
-# deliberately remain flat with pages[*].elements. Normalize the workbook body
-# once, before either POST or PUT, and require the authoritative layout the
-# released representation uses for page membership.
-spec_body =
+# Workbook code-rep nests non-metadata fields under `contents` (`document` on
+# the retired /spec endpoints); data models deliberately remain flat with
+# pages[*].elements. Normalize the workbook body once, before either POST or
+# PUT, and require the authoritative layout the released representation uses
+# for page membership. create_body keeps name/folderId/description beside
+# `contents`; update_body (PUT /contents) is `contents` only.
+create_body_json, update_body_json =
   if opts[:type] == 'workbook'
     posting_doc = JSON.parse(File.read(opts[:spec]))
     document = Sigma::CodeRep.document(posting_doc)
     abort('workbook spec missing required document.layout') if document['layout'].to_s.strip.empty?
     abort('workbook spec pages must be metadata-only') if Array(document['pages']).any? { |page| page.key?('elements') }
-    JSON.generate(Sigma::CodeRep.wrap(document, extra: Sigma::CodeRep.metadata(posting_doc)))
+    [JSON.generate(Sigma::CodeRep.create_body(posting_doc)), JSON.generate(Sigma::CodeRep.update_body(posting_doc))]
   else
-    File.read(opts[:spec])
+    flat_body = File.read(opts[:spec])
+    [flat_body, flat_body]
   end
+
+# POST/PUT responses are the JSON workbook envelope; data-model /spec responses
+# can still be YAML. JSON is tried first, YAML is the fallback.
+def parse_response(body)
+  JSON.parse(body.to_s)
+rescue JSON::ParserError
+  YAML.safe_load(body.to_s, permitted_classes: [Date, Time])
+end
 
 if update_id
   warn "UPDATE mode: PUT #{opts[:type]} #{update_id} (no new #{opts[:type]} created)"
-  resp = http(:put, format(GET_PATH, update_id), spec_body)
-  parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
-  oid = parsed[ID_FIELD] || update_id
+  resp = http(:put, format(PUT_PATH, update_id), update_body_json)
+  parsed = parse_response(resp.body)
+  oid = (parsed.is_a?(Hash) && parsed[ID_FIELD]) || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.is_a?(Net::HTTPSuccess)
   warn "PUT ok: #{ID_FIELD}=#{oid}"
 else
-  resp = http(:post, POST_PATH, spec_body)
-  parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
+  resp = http(:post, POST_PATH, create_body_json)
+  parsed = parse_response(resp.body)
   oid = parsed.is_a?(Hash) ? parsed[ID_FIELD] : nil
   # Rec5 quarantine (opt-in): a POST killed by ONE broken element must not lose
   # the other N-1. If the API error names attributable element(s), defer them
@@ -158,7 +173,7 @@ else
       warn "QUARANTINE: POST failed naming #{found[:ids].size} element(s) — deferred to #{DEFERRED_PATH}; re-POSTing ONCE without them (#{cleaned_path})"
       found[:ids].each { |id| warn "  - #{id}: #{found[:reasons][id]}" }
       resp = http(:post, POST_PATH, File.read(cleaned_path))
-      parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
+      parsed = parse_response(resp.body)
       oid = parsed.is_a?(Hash) ? parsed[ID_FIELD] : nil
       abort("POST failed AGAIN after quarantining #{found[:ids].size} element(s) — not a single-element failure. " \
             "Deferred file kept for forensics: #{DEFERRED_PATH}. Error: #{parsed.inspect}") if oid.nil?
@@ -189,9 +204,9 @@ columns_path = opts[:type] == 'datamodel' ?
   "/v2/dataModels/#{oid}/columns" :
   "/v2/workbooks/#{oid}/columns"
 readback = lambda do
-  # Workbook code-rep responses nest non-metadata fields (pages/layout/
-  # schemaVersion/kind) under `document` (live since 2026-08); the DM
-  # readback is unchanged and stays flat.
+  # The workbook readback (?includeContents=true) nests non-metadata fields
+  # (pages/layout/schemaVersion/kind) under `contents`; the DM readback is
+  # unchanged and stays flat.
   raw_spec = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).body)
   spec = opts[:type] == 'workbook' ? Sigma::CodeRep.document(raw_spec) : raw_spec
   cols_res = http(:get, columns_path, accept_json: true)
@@ -227,7 +242,7 @@ if QUARANTINE && $quarantined.nil? && cols_res.is_a?(Net::HTTPSuccess)
       warn "QUARANTINE: column census flagged #{found[:ids].size} element(s) — deferred to #{DEFERRED_PATH}; " \
            "re-PUTting the remaining spec to #{ID_FIELD}=#{oid} (#{cleaned_path})"
       found[:ids].each { |id| warn "  - #{id}: #{found[:reasons][id]}" }
-      put_res = http(:put, format(GET_PATH, oid), File.read(cleaned_path))
+      put_res = http(:put, format(PUT_PATH, oid), File.read(cleaned_path))
       abort("re-PUT after quarantine failed (HTTP #{put_res.code}): #{put_res.body.to_s[0, 500]} — " \
             "deferred file kept: #{DEFERRED_PATH}") unless put_res.is_a?(Net::HTTPSuccess)
       spec, cols_res, cols_json, labels_by_el = readback.call
@@ -397,7 +412,7 @@ if opts[:type] == 'workbook' && !opts[:skip_lint]
     violations.each { |v| warn "  - #{v}" }
     warn 'Fix the spec/layout and re-PUT before continuing: raw-id names -> derive human'
     warn 'titles; loose controls -> control band or the chart container; dead zones ->'
-    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/spec'
+    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/contents'
     warn '(re-POSTing creates an orphan).'
     warn '========================================'
     exit(3)
@@ -433,7 +448,7 @@ if opts[:type] == 'workbook' && !opts[:skip_control_lint]
     warn 'filters targets ({source:{elementId}, columnId}) or remove the control;'
     warn 'partial reach -> wire the uncovered elements or annotate controlScope in'
     warn 'control-scope.json (see scripts/lib/control_lint.rb CONTRACT). The workbook'
-    warn 'DID post — fix with PUT /v2/workbooks/<id>/spec (re-POSTing creates an orphan).'
+    warn 'DID post — fix with PUT /v2/workbooks/<id>/contents (re-POSTing creates an orphan).'
     warn '========================================'
     exit(4)
   end

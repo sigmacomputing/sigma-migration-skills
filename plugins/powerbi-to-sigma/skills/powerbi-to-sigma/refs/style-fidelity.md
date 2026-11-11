@@ -205,4 +205,4 @@ isn't in the migrated table, and the two non-mappable modes, are recorded to
   pins the abbreviation/anchor/presentation logic. Live-verified on the Retail
   Performance & Trends workbook (2026-07-10): KPIs render `$126k` / `$84.8k` centered,
   chart labels `$37k`/`$49k`, and the Region table in the presentation preset — matching
-  the PBI source (POST → `GET /spec` round-trip → PNG export compared to the source).
+  the PBI source (POST → `GET /v2/workbooks/{id}?includeContents=true` round-trip → PNG export compared to the source).

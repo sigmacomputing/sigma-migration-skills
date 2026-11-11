@@ -42,14 +42,13 @@ module PbiStyle
   end
 
   # PBI card callout alignment → Sigma kpi-chart layout.anchor.
-  # Default (no signal) = 'middle': stat cards read best centered, and it's the
+  # Default (no signal) = 'center': stat cards read best centered, and it's the
   # requested house default for PBI migrations. An explicit PBI alignment wins.
   def kpi_anchor(value_align = nil)
     case value_align.to_s.strip.downcase
-    when 'left'  then 'start'
-    when 'right' then 'end'
-    when 'center', 'middle' then 'middle'
-    else 'middle'
+    when 'left'  then 'left'
+    when 'right' then 'right'
+    else 'center'
     end
   end
 
