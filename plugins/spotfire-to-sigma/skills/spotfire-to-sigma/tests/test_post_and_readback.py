@@ -248,21 +248,25 @@ class PostAndReadbackTests(unittest.TestCase):
 
             def request(self, method, path, body=None):
                 self.calls.append((method, path, body))
-                if path == "/v2/workbooks/spec/verify":
-                    self.assert_document(body)
-                    return {"valid": True}
                 if method == "post":
+                    self.assert_contents(body)
+                    if json.loads(body).get("dryRun"):
+                        return {"dryRun": True, "warnings": []}
                     return {"workbookId": "server-workbook"}
-                if path == "/v2/workbooks/server-workbook/spec":
-                    return copy.deepcopy(workbook)
+                if path == (
+                    "/v2/workbooks/server-workbook?includeContents=true"
+                ):
+                    readback = copy.deepcopy(workbook)
+                    readback["contents"] = readback.pop("document")
+                    return readback
                 if path.startswith("/v2/workbooks/server-workbook/columns"):
                     return {"entries": []}
                 raise AssertionError((method, path))
 
             @staticmethod
-            def assert_document(body):
+            def assert_contents(body):
                 parsed = json.loads(body)
-                if "document" not in parsed:
+                if "contents" not in parsed or "document" in parsed:
                     raise AssertionError("workbook payload was not wrapped")
 
         api = FakeApi()
@@ -275,9 +279,9 @@ class PostAndReadbackTests(unittest.TestCase):
         self.assertTrue(verdict["pass"])
         self.assertEqual(
             [
-                "/v2/workbooks/spec/verify",
-                "/v2/workbooks/spec",
-                "/v2/workbooks/server-workbook/spec",
+                "/v2/workbooks",
+                "/v2/workbooks",
+                "/v2/workbooks/server-workbook?includeContents=true",
                 "/v2/workbooks/server-workbook/columns?limit=1000",
             ],
             [path for _method, path, _body in api.calls],

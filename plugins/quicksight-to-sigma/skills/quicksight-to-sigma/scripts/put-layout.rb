@@ -47,11 +47,12 @@ end
 xml = File.read(opts[:layout], encoding: 'UTF-8')
 abort "FATAL: empty elementId in layout XML" if xml.match?(/elementId=""/)
 
-raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec"))
+raw_spec = JSON.parse(http(:get, Sigma::CodeRep.read_path(opts[:wb])))
 # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
-# `document` key (live since 2026-08) and REJECTS the old flat body on PUT
-# with a 400 — unwrap the GET before any spec['pages'] access below; this
-# endpoint is workbook-only (data-model code-rep is confirmed unchanged).
+# `contents` key (`document` on the retired /spec endpoints) and REJECTS the
+# old flat body on PUT with a 400 — unwrap the GET before any spec['pages']
+# access below; this endpoint is workbook-only (data-model code-rep is
+# confirmed unchanged).
 spec = Sigma::CodeRep.document(raw_spec)
 spec['pages'].each { |p| p.delete('layout') }
 spec['layout'] = xml
@@ -82,7 +83,7 @@ if File.exist?(elements_path)
   puts "injected #{injected} container/header element(s) from #{elements_path}"
 end
 # Read-only metadata (workbookId, url, ownerId, createdBy, updatedBy,
-# createdAt, updatedAt, latestDocumentVersion) never reaches `spec` in the
+# createdAt, updatedAt, latestVersion) never reaches `spec` in the
 # first place now — Sigma::CodeRep.document() above already unwraps to just
 # the document fields (schemaVersion/pages/kind/layout), so there is nothing
 # left here to strip before the PUT.
@@ -100,7 +101,7 @@ unless duplicate_elements.empty? && duplicate_placements.empty? && missing.empty
 end
 
 begin
-  resp_body = http(:put, "/v2/workbooks/#{opts[:wb]}/spec", JSON.pretty_generate(Sigma::CodeRep.wrap(spec)))
+  resp_body = http(:put, Sigma::CodeRep.update_path(opts[:wb]), JSON.pretty_generate(Sigma::CodeRep.update_body(spec)))
 rescue Sigma::Error => e
   puts "ERROR: #{e.message}"
   exit 1

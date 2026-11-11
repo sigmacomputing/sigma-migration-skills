@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """test_batch_migrate_coderep.py — batch-migrate.py's workbook code-rep
-`document` envelope handling (2026-08, task 3.9).
+`contents` envelope handling (2026-08, task 3.9; endpoint moved 2026-11).
 
-Before this fix: build() POSTed its flat workbook spec straight to
-/v2/workbooks/spec — the live workbook code-rep surface requires the nested
-`document` envelope and 400s on a flat body.
+Before this fix: build() POSTed its flat workbook spec straight to the
+workbook create endpoint (now POST /v2/workbooks) — the live workbook
+code-rep surface requires the nested `contents` envelope and 400s on a flat
+body.
 
 Offline: monkeypatches the module's post() (the only network call site in
 build()) and runs the real function unchanged.
@@ -45,7 +46,7 @@ calls = {"post_body": None}
 
 
 def fake_post(path, body):
-    assert path == "/v2/workbooks/spec", path
+    assert path == "/v2/workbooks", path
     calls["post_body"] = body
     return '{"workbookId":"11111111-1111-4111-8111-111111111111"}'
 
@@ -60,26 +61,26 @@ wb = BM.build("Acme Retail")
 check(wb == "11111111-1111-4111-8111-111111111111", f"build() returns the posted workbookId (got {wb!r})")
 posted = calls["post_body"]
 check(posted is not None, "a POST was issued")
-check(isinstance(posted, dict) and isinstance(posted.get("document"), dict),
-      "POST body carries a top-level `document` key (the wrap the bug omitted)")
+check(isinstance(posted, dict) and isinstance(posted.get("contents"), dict),
+      "POST body carries a top-level `contents` key (the wrap the bug omitted)")
 check(posted is not None and "pages" not in posted,
       "POST body has NO top-level `pages` (must be nested, not flat)")
-check(posted is not None and isinstance(posted["document"].get("pages"), list)
-      and len(posted["document"]["pages"]) == 2,
-      "wrapped document carries both pages (Data + Overview)")
+check(posted is not None and isinstance(posted["contents"].get("pages"), list)
+      and len(posted["contents"]["pages"]) == 2,
+      "wrapped contents carry both pages (Data + Overview)")
 check(posted is not None and posted.get("name") == "Acme Retail → Sigma",
-      "name stays OUTSIDE document as metadata")
+      "name stays OUTSIDE contents as metadata")
 check(posted is not None and posted.get("schemaVersion") is None,
-      "schemaVersion is NOT left at the top level (moved into document)")
-check(posted is not None and posted["document"].get("schemaVersion") == 1,
-      "schemaVersion moved into document")
-check(posted is not None and all("elements" not in p for p in posted["document"]["pages"]),
+      "schemaVersion is NOT left at the top level (moved into contents)")
+check(posted is not None and posted["contents"].get("schemaVersion") == 1,
+      "schemaVersion moved into contents")
+check(posted is not None and all("elements" not in p for p in posted["contents"]["pages"]),
       "workbook pages are metadata-only")
-check(posted is not None and isinstance(posted["document"].get("elements"), list),
-      "workbook elements are flat under document")
-check(posted is not None and bool(posted["document"].get("layout")),
-      "the wrapped document carries required authoritative layout XML")
-layout = posted["document"]["layout"]
+check(posted is not None and isinstance(posted["contents"].get("elements"), list),
+      "workbook elements are flat under contents")
+check(posted is not None and bool(posted["contents"].get("layout")),
+      "the wrapped contents carry required authoritative layout XML")
+layout = posted["contents"]["layout"]
 check("<Element " in layout and "<Container " in layout,
       "layout uses canonical Element and Container tags")
 check("<LayoutElement" not in layout and "<GridContainer" not in layout,

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""test_compare_coderep.py — compare.py's workbook code-rep `document`
-envelope handling (2026-08, task 3.9).
+"""test_compare_coderep.py — compare.py's workbook code-rep `contents`
+envelope handling.
 
-Before this fix: the live `/v2/workbooks/{id}/spec` GET nests pages under a
-top-level `document` key, but compare.py read `wbspec.get("pages", [])`
-straight off the raw response — always empty on a real workbook, so every
-ThoughtSpot visualization silently reported as "(no match)"/"✗" in the HTML
-report even when the Sigma element existed.
+Guards: the live `GET /v2/workbooks/{id}?includeContents=true` nests pages
+under a top-level `contents` key (`document` on the retired /spec GET); a
+compare.py that read `wbspec.get("pages", [])` straight off the raw response
+sees it always empty on a real workbook, so every ThoughtSpot visualization
+silently reported as "(no match)"/"✗" in the HTML report even when the Sigma
+element existed.
 
 Offline: monkeypatches ts_lib.export_tml / sigma / ts_png / sigma_png (the
 module's only external call sites) and runs the real main() unchanged.
@@ -56,11 +57,11 @@ liveboard:
           type: COLUMN
 """
 
-# The LIVE shape: non-metadata fields (pages) nested under `document`.
+# The LIVE shape: non-metadata fields (pages) nested under `contents`.
 NESTED_WBSPEC = {
     "workbookId": "wb-test",
     "name": "Test WB",
-    "document": {
+    "contents": {
         "pages": [{"id": "pg1", "name": "Dashboard"}],
         "elements": [
             {"id": "c1", "kind": "bar-chart", "name": "Revenue by Region"},
@@ -70,7 +71,12 @@ NESTED_WBSPEC = {
 }
 
 CMP.ts_lib.export_tml = lambda identifier, mtype="LIVEBOARD": (LIVEBOARD_TML, None)
-CMP.sigma = lambda method, path, body=None, raw=False: (json.dumps(NESTED_WBSPEC), 200)
+def _fake_sigma(method, path, body=None, raw=False):
+    assert path == "/v2/workbooks/wb-test?includeContents=true", path
+    return (json.dumps(NESTED_WBSPEC), 200)
+
+
+CMP.sigma = _fake_sigma
 CMP.ts_png = lambda lb_id, viz_guid: None
 CMP.sigma_png = lambda wb, el: None
 
@@ -92,7 +98,7 @@ with tempfile.TemporaryDirectory() as d:
 joined = "\n".join(printed)
 check("Revenue by Region" in joined, "the per-viz match line was printed")
 check("(none)" not in joined,
-      f"the element resolves (not '(none)') — nested `document.pages` must be unwrapped (got: {joined!r})")
+      f"the element resolves (not '(none)') — nested `contents.pages` must be unwrapped (got: {joined!r})")
 check("✓" in joined, f"chart-kind matches (COLUMN -> bar-chart) => ✓ (got: {joined!r})")
 check("Revenue by Region" in report, "the HTML report contains the matched visualization row")
 check("(no match)" not in report, "the HTML report does NOT show '(no match)' for a resolvable element")

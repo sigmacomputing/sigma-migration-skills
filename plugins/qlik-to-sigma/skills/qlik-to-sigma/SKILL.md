@@ -428,11 +428,13 @@ combo/table elements translated from each object's hypercube (kinds, labels, num
 formats, sorts, null-suppression — see the script docstring for the full mapping).
 The Qlik cell grid maps 1:1 onto the 24-col Sigma grid. Element shapes + the
 `source.dataModelId` requirement in `refs/sigma-build-gotchas.md`.
-POST `/v2/workbooks/spec` — **`document`-wrapped, not flat** (verified live 2026-08-03,
-including on `/verify` 2026-08-04): `schemaVersion`/`pages`/`kind`/`layout` nest under a
-top-level `document` key, `folderId` stays outside it; the DM POST above is unaffected
-and stays flat — then `scripts/vendor/put-layout.rb` applies the layout XML
-(`document.layout`).
+POST `/v2/workbooks` — **`contents`-wrapped, not flat** (live-verified 2026-11-03; the
+`/v2/workbooks/spec` endpoints are deprecated): `schemaVersion`/`pages`/`kind`/`layout`
+nest under a top-level `contents` key, `folderId` stays outside it; dry-run with
+`dryRun: true`, read back with `GET /v2/workbooks/{id}?includeContents=true`, replace
+with `PUT /v2/workbooks/{id}/contents`. The DM POST above is unaffected (`/v2/dataModels/spec`
+is not deprecated) and stays flat — then `scripts/vendor/put-layout.rb` applies the layout XML
+(`contents.layout`).
 
 **Pre-write source-coverage gate.** The orchestrator dry-compiles the data model
 and workbook before either POST, runs `preflight_lint.rb`, and writes

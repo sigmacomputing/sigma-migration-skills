@@ -220,7 +220,7 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
 4. **Build workbooks** — per Liveboard, map each visualization
    (`answer.search_query` + `chart.type`) to a Sigma element off the master table.
    Workbook writes use outer metadata plus
-   `document:{schemaVersion,kind,pages,elements,layout}`: pages are metadata-only,
+   `contents:{schemaVersion,kind,pages,elements,layout}`: pages are metadata-only,
    elements are flat, and authoritative layout places every element exactly once
    with the live `<Element>` / `<Container>` tag vocabulary (data-model specs
    keep their existing page-nested shape).
@@ -267,7 +267,7 @@ python3 scripts/migrate.py --model-tml fixtures/retail-analytics-model.tml \
    The manifest persists every page's source tiles and element membership so a
    later `apply_layouts.py --workdir` pass preserves multi-tab geometry.
    Existing-workbook edits preserve the full document and PUT only
-   `{document:...}`. Falls back loudly to a clean auto grid when TML has no tiles.
+   `{contents:...}`. Falls back loudly to a clean auto grid when TML has no tiles.
 6. **Parity (HARD GATE)** — `phase6-parity-thoughtspot.rb` two-pass: PASS 1
    reads the workbook spec and emits per-chart fetch instructions (Sigma ACTUAL
    via `mcp__sigma-mcp-v2__query`; EXPECTED via `ts_lib.searchdata` ground

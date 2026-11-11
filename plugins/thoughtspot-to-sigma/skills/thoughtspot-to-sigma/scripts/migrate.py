@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import yaml, ts_common, ts_lib, apply_layouts, scout_gate
 from warehouse_column_refs import apply as ground_warehouse_refs
 import metric_binding as _mb    # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
-import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped POST shape)
 import sigma_rest
 yaml.SafeLoader.add_constructor("tag:yaml.org,2002:value", lambda l, n: l.construct_scalar(n))
 
@@ -242,19 +242,20 @@ def build_dm(conv, name, folder):
     return dm, denorm_id, denorm_name
 
 def post_workbook(spec, wd):
-    # The release contract requires outer metadata plus a complete document.
+    # The release contract requires outer metadata plus complete contents.
     # Layout is mandatory for non-empty elements, pages are metadata-only, and
-    # every element is flat. code_rep.wrap remains tolerant of legacy callers,
-    # but migration builders are expected to arrive here in the current shape.
-    post_body = code_rep.wrap(code_rep.document(spec), code_rep.metadata(spec))
-    doc = post_body.get("document") or {}
+    # every element is flat. code_rep.create_body remains tolerant of legacy
+    # callers, but migration builders are expected to arrive here in the
+    # current shape.
+    post_body = code_rep.create_body(spec)
+    doc = post_body.get("contents") or {}
     required = [k for k in ("schemaVersion", "kind", "pages", "elements", "layout")
                 if k not in doc]
     if required:
-        raise ValueError("workbook document missing required field(s): " + ", ".join(required))
+        raise ValueError("workbook contents missing required field(s): " + ", ".join(required))
     if any("elements" in page for page in doc.get("pages", [])):
-        raise ValueError("workbook pages must be metadata-only; use flat document.elements")
-    resp = sigma("POST", "/v2/workbooks/spec", post_body)
+        raise ValueError("workbook pages must be metadata-only; use flat contents.elements")
+    resp = sigma("POST", code_rep.create_path(), post_body)
     m = re.search(r'workbookId["\s:]+([0-9a-f-]{36})', resp)
     if not m:
         raise RuntimeError("workbook POST: " + resp[:300])
@@ -338,7 +339,7 @@ def render_page_png(wb, page_id, out, w=1800, h=1000):
 
 def visual_qa(wb, local_spec, wd, display):
     """Phase-5b-style visual-QA gate: render every CONTENT page (ids from the
-    LOCAL posted spec — deterministic; a live /spec readback proved flaky in the
+    LOCAL posted spec — deterministic; a live workbook readback proved flaky in the
     qlik pipeline) to a full-page PNG under <wd>/visual-qa/. Non-fatal; the
     human/agent REVIEW of the PNGs is the actual gate (refs/layout-visual-qa.md)."""
     vqa = os.path.join(wd, "visual-qa"); os.makedirs(vqa, exist_ok=True)
