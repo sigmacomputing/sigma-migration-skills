@@ -64,8 +64,8 @@ _VK = _vk.load(_vk.default_catalog_dir(__file__))
 # PBI bar families: *Bar* visuals render HORIZONTALLY; *Column* visuals render
 # vertically (Sigma's default). Sigma's bar-chart `orientation` field accepts
 # ONLY "horizontal" — vertical is expressed by omitting the field; sending
-# "vertical" is rejected (invalid_request). Verified via /v2/workbooks/{id}/spec
-# PUT round-trip 2026-06-02.
+# "vertical" is rejected (invalid_request). Verified via a workbook PUT
+# round-trip 2026-06-02.
 HBAR_TYPES = {"barChart", "clusteredBarChart", "stackedBarChart",
               "hundredPercentStackedBarChart"}
 
@@ -215,12 +215,17 @@ def _textbox_body(visual):
 def _visual_title(visual):
     """The PBI visual's title text (objects.title[].properties.text.expr.Literal.Value).
     Returns None when the title is hidden/unset so callers can fall back."""
-    for item in visual.get("objects", {}).get("title", []):
+    titles = visual.get("visualContainerObjects", {}).get("title")
+    if titles is None:
+        titles = visual.get("objects", {}).get("title", [])
+    for item in titles:
         props = item.get("properties", {})
         # respect an explicit show:false
         show = props.get("show", {}).get("expr", {}).get("Literal", {}).get("Value")
         t = props.get("text", {}).get("expr", {}).get("Literal", {}).get("Value")
-        if t and show != "false":
+        if show == "false":
+            return None
+        if t:
             return t.strip("'")
     return None
 
@@ -716,6 +721,25 @@ def _sync_group(visual):
     return str(group).strip() if group is not None and str(group).strip() else None
 
 
+def _slicer_state(visual, query_state):
+    if visual.get("visualType") != "slicer":
+        return None
+    objects = visual.get("objects") or {}
+    mode = next((item.get("properties", {}).get("mode", {}).get("expr", {}).get("Literal", {}).get("Value")
+                 for item in objects.get("data", [])), None)
+    projections = (query_state.get("Values") or {}).get("projections", [])
+    field = projections[0].get("field") if len(projections) == 1 else None
+    result = {"mode": mode.strip("'") if isinstance(mode, str) else None}
+    for item in objects.get("general", []):
+        predicate = item.get("properties", {}).get("filter", {}).get("filter")
+        if predicate:
+            result["has_saved_filter"] = True
+            if field:
+                result["selection"] = _filter_signal({"field": field, "type": "Categorical", "filter": predicate}, "slicer", numeric=True)
+            break
+    return result
+
+
 def extract(pbir_dir):
     defn = os.path.join(pbir_dir, "definition")
     if not os.path.isdir(defn):
@@ -771,6 +795,7 @@ def extract(pbir_dir):
                 # emits the first as the primary and later members as Sigma
                 # controlType:synced copies.
                 "sync_group": _sync_group(visual),
+                "slicer_state": _slicer_state(visual, qs),
                 # Full ordered hierarchy for native Sigma controlType:drill.
                 # bindings above intentionally keeps only the active level.
                 "drill": _drill_signal(qs),
@@ -862,7 +887,7 @@ def extract(pbir_dir):
 _REL_TIMEUNIT = {0: "day", 1: "week", 2: "month", 3: "year"}  # INTERNAL DateSpan/DateAdd enum
 
 
-def _filter_lit(node):
+def _filter_lit(node, numeric=False):
     """Typed literal decode for the FILTER path (bool/null preserved; text always
     from single-quotes; numeric type-suffix stripped). Separate from _lit_value so
     the conditional-formatting callers are unaffected."""
@@ -878,6 +903,8 @@ def _filter_lit(node):
     if low == "null":
         return None
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)[dlmf]?", s, re.I)
+    if m and numeric:
+        return float(m.group(1)) if "." in m.group(1) else int(m.group(1))
     return m.group(1) if m else s
 
 
@@ -893,12 +920,12 @@ def _filter_target(entry):
     return qr
 
 
-def _in_values(in_node):
+def _in_values(in_node, numeric=False):
     """In.Values rows-of-tuples -> flat value list (single-column filters)."""
     out = []
     for row in (in_node or {}).get("Values", []) or []:
         if isinstance(row, list) and row:
-            out.append(_filter_lit(row[0]))
+            out.append(_filter_lit(row[0], numeric=numeric))
     return out
 
 
@@ -946,7 +973,7 @@ def _is_auto_drill(entry):
     return hc == 2  # int: 2=Drill (3/4=Include/Exclude carry real predicates; 0 ambiguous->keep)
 
 
-def _filter_signal(entry, scope):
+def _filter_signal(entry, scope, numeric=False):
     """One filter entry -> a normalized signal, or None to skip (Auto/Drill)."""
     if not isinstance(entry, dict) or _is_auto_drill(entry):
         return None
@@ -985,7 +1012,7 @@ def _filter_signal(entry, scope):
             if len(exprs) > 1:
                 sig.update({"type": "list", "unsupported": "multi-column-key", "mode": "exclude"})
                 return sig
-            vals = _in_values(inner["In"])
+            vals = _in_values(inner["In"], numeric=numeric)
             sig.update({"type": "list", "mode": "exclude", "values": vals})
             return sig
         sig.update({"type": "condition", "unsupported": "not-expression", "mode": "exclude"})
@@ -996,7 +1023,7 @@ def _filter_signal(entry, scope):
         if len(exprs) > 1:
             sig.update({"type": "list", "unsupported": "multi-column-key"})
             return sig
-        vals = _in_values(cond["In"])
+        vals = _in_values(cond["In"], numeric=numeric)
         sig.update({"type": "list", "mode": "exclude" if inverted else "include", "values": vals})
         return sig
     # Contains / StartsWith text ops

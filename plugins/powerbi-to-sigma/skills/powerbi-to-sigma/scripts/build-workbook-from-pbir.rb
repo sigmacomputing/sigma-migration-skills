@@ -4,7 +4,7 @@
 # Power BI analog of tableau-to-sigma's build-charts-from-signals.rb. Input is
 # extract-pbir.py's signals.json (per-visual kind + role bindings + position).
 # Output is a complete Sigma workbook spec (Data page of hidden masters + a
-# page of chart elements) ready for POST /v2/workbooks/spec via
+# page of chart elements) ready for POST /v2/workbooks via
 # post-and-readback.rb, plus a 24-col grid layout string for put-layout.rb.
 #
 # It applies the measure-translation patterns documented in
@@ -877,7 +877,7 @@ def bind_metric_formula(f, fs)
   MetricBinding.metric_ref_or_inline(f, m['id'].to_s, mets)
 end
 
-def measure_formula(fs)
+def measure_formula(fs, bind_metric: true)
   # bead qb2i: an explicit `formula` wins — lets the master-map emit a verbatim
   # Sigma expression (e.g. a window calc "Lag(Sum([X/v]), 1)" / "Rank(Sum([X/v]),
   # \"desc\")" / percent-of-total "Sum([X/v]) / GrandTotal(Sum([X/v]))") the
@@ -902,7 +902,7 @@ def measure_formula(fs)
     else
       "#{agg}(#{fs['ref']})"
     end
-  bind_metric_formula(f, fs)
+  bind_metric ? bind_metric_formula(f, fs) : f
 end
 
 # bead (A) reference lines: PBI analytics-pane constant lines (rec['ref_lines'],
@@ -988,7 +988,7 @@ end
 # hash of the full id to guarantee uniqueness across visuals.
 require 'digest'
 def short(id)
-  clean = id.to_s.gsub(/[^a-zA-Z0-9]/, '')
+  clean = id.to_s.gsub(/[^a-zA-Z0-9]/, '').downcase
   h = Digest::SHA1.hexdigest(id.to_s)[0, 6]
   "#{clean[-6, 6] || clean}#{h}"
 end
@@ -1893,6 +1893,11 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       else
         el['values'] = []
       end
+      selection = rec.dig('slicer_state', 'selection')
+      if selection && selection['type'] == 'list' && !selection['unsupported'] && selection['predicate'] != 'none'
+        el['values'] = Array(selection['values'])
+        el['mode'] = selection['mode'] || 'include'
+      end
       el['source'] = { 'kind' => 'source', 'source' => { 'kind' => 'table', 'elementId' => src_master['id'] }, 'columnId' => src_col['id'] }
     end
     el['filters'] = filters
@@ -1937,7 +1942,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       return vals.each_with_index.map do |qr, i|
         fs = field_spec(qr, fields, master)
         kid = "#{eid}-k#{i}"
-        col = { 'id' => "#{kid}-v", 'formula' => measure_formula(fs), 'name' => qr_leaf(qr) }
+        col = { 'id' => "#{kid}-v", 'formula' => measure_formula(fs, bind_metric: false), 'name' => qr_leaf(qr) }
         apply_fmt(col, qr, fields, vfmts)
         e = { 'id' => kid, 'kind' => 'kpi-chart', 'name' => qr_leaf(qr),
               'columns' => [col], 'value' => { 'columnId' => "#{kid}-v" },
@@ -1951,7 +1956,8 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
     qr = vals.first
     fs = field_spec(qr, fields, master)
     cid = "#{eid}-v"
-    col = { 'id' => cid, 'formula' => measure_formula(fs), 'name' => qr_leaf(qr, 'Value') }
+    # KPI preflight requires the full aggregate, not a bare metric handle.
+    col = { 'id' => cid, 'formula' => measure_formula(fs, bind_metric: false), 'name' => qr_leaf(qr, 'Value') }
     apply_fmt(col, qr, fields, vfmts)
     cols << col
     # KPI value binds by `columnId` (the API rejects `{id}` -> "value.columnId:
@@ -2240,8 +2246,7 @@ def build_element(rec, fields, masters, extra_data = [], forced_master = nil)
       extra_data << { 'id' => src_id, 'kind' => 'table', 'name' => src_name,
                       'source' => { 'elementId' => master_id, 'kind' => 'table' },
                       'columns' => gcols,
-                      'groupings' => [{ 'id' => "#{src_id}-g", 'groupBy' => [gd], 'calculations' => calc_ids }],
-                      'visibleAsSource' => false }
+                      'groupings' => [{ 'id' => "#{src_id}-g", 'groupBy' => [gd], 'calculations' => calc_ids }] }
       el['source'] = { 'elementId' => src_id, 'kind' => 'table' }
       dcid = "#{eid}-d"; xcid = "#{eid}-x"; ycid = "#{eid}-y"
       cols << { 'id' => dcid, 'formula' => "[#{src_name}/#{dname}]", 'name' => dname }
@@ -2660,8 +2665,7 @@ data_elements = masters.map do |_name, m|
     'id' => m['id'], 'kind' => 'table', 'name' => m['id'].sub(/^master-/, '').upcase[0, 6],
     'source' => { 'dataModelId' => (m['data_model'] || opts[:dm]),
                   'elementId' => m['element_id'], 'kind' => 'data-model' },
-    'columns' => (m['columns'] || []),
-    'visibleAsSource' => false
+    'columns' => (m['columns'] || [])
   }
 end
 
@@ -2901,7 +2905,8 @@ end
 
 # ---- 24-col grid layout (research/powerbi-visual-layout.md §4) -------------
 # Built BEFORE the spec is assembled so the layout XML can be EMBEDDED into the
-# workbook spec's top-level `layout` (bead 16i): a bare POST/PUT /workbooks/spec
+# workbook spec's top-level `layout` (bead 16i): a bare POST /v2/workbooks / PUT
+# /v2/workbooks/{id}/contents
 # WITHOUT an embedded layout makes Sigma auto-generate a single-column stack
 # that wipes any grid. Embedding it on every write means the layout survives the
 # initial POST; put-layout.rb is still the authoritative FINAL write.

@@ -131,6 +131,25 @@ seventh = ELEMENTS + [ELEMENTS[1].merge('id' => 'e4')]
 m5 = PbiMasterKey.table_names(seventh, TABLES)
 check(m5[4].nil?, "a copy beyond the table count maps to nil (got #{m5[4].inspect}), never a duplicate claim", fails)
 
+puts "\n7. source spellings and joined dimensions resolve without name-only guesses"
+columns = ['Region', 'Region (Geography)', 'Region (Other Geography)', 'Year (Ship Date)'].map { |n| { 'name' => n } }
+check(PbiMasterKey.view_column(columns, 'GEOGRAPHY', 'Region', 'SALES') == 'Region (Geography)',
+      'mixed-case dimension chooses its qualified joined column over the fact column', fails)
+check(PbiMasterKey.view_column(columns, 'Sales', 'Region', 'SALES') == 'Region',
+      'fact field retains the bare column', fails)
+check(PbiMasterKey.view_column(columns, 'Order Date', 'Year', 'SALES').nil?,
+      'unresolved order-date field never falls through to the shipping-date column', fails)
+fields = { 'SALES.Sales Amount' => { 'master' => 'SALES', 'ref' => '[master/Sales Amount]', 'agg' => nil,
+                                   'alts' => [{ 'master' => 'SALES View', 'ref' => '[view/Sales Amount]' }] },
+           'SALES.Cost Code' => { 'master' => 'SALES', 'ref' => '[master/Cost Code]', 'agg' => nil },
+           'SALES.Cost_Code' => { 'master' => 'SALES', 'ref' => '[master/Other Cost]', 'agg' => nil },
+           'SALES.Total Revenue' => { 'master' => 'SALES', 'ref' => 'Sum([master/Sales Amount])', 'agg' => nil } }
+PbiMasterKey.add_column_aliases!(fields, [{ 'name' => 'Sales', 'columns' => %w[SalesAmount CostCode TotalRevenue].map { |n| { 'name' => n } } }])
+check(fields.dig('Sales.SalesAmount', 'ref') == '[master/Sales Amount]' && fields['Sales.SalesAmount']['alts'].size == 1,
+      'camelCase source alias preserves readback binding and joined alternatives', fails)
+check(!fields.key?('Sales.CostCode'), 'ambiguous normalized source column is not guessed', fails)
+check(!fields.key?('Sales.TotalRevenue'), 'column alias never fabricates a measure binding', fails)
+
 puts "\n#{fails.empty? ? 'ALL PASS' : "#{fails.size} FAILURE(S)"}"
 fails.each { |f| puts "  - #{f}" }
 exit(fails.empty? ? 0 : 1)
