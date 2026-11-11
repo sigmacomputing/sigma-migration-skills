@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         return stop(3, "success marker is stale or not bound to the current Python run.")
     readback = load_json(workdir / "wb-readback.json")
     readback_version = (
-        readback.get("latestDocumentVersion") or readback.get("latestVersion")
+        readback.get("latestVersion") or readback.get("latestDocumentVersion")
         if isinstance(readback, dict)
         else None
     )

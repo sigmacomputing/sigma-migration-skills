@@ -160,7 +160,7 @@ runs these phases (`scripts/*`):
    `remap-wb-to-dm-ids.mjs`) — lists→tables, crosstabs→pivots, charts→bar/line/pie/etc.,
    `tiledmap`→region-map/point-map, prompts→controls. `remap-wb-to-dm-ids.mjs` rewrites the
    workbook's `source.elementId` placeholders to the real posted element ids.
-5. **POST the workbook** (`post-and-readback.mjs --type workbook`) → `/v2/workbooks/spec`,
+5. **POST the workbook** (`post-and-readback.mjs --type workbook`) → `/v2/workbooks`,
    error-column gate re-run.
 6. **Verify parity** (`assert-parity.mjs`) — `--plan` emits per-element SQL; run it, then
    `--check` compares the actuals to the Cognos source. **GREEN only when `--check` passes.**

@@ -1,11 +1,12 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # Guards the gate-6/6e live-spec readback in migrate-qlik.rb against the
-# workbook code-rep `document` wrapper (live since 2026-08).
+# workbook code-rep `contents` wrapper (live since 2026-08; the `document` key
+# belongs to the retired /spec endpoints).
 #
 # migrate-qlik.rb GETs the live posted-workbook spec before running the
 # layout-quality lint (LayoutLint) and the control-wiring lint (ControlLint).
-# That GET now nests `pages`/`schemaVersion` under a top-level `document` key.
+# That GET now nests `pages`/`schemaVersion` under a top-level `contents` key.
 # The pre-existing `live['spec'] || live` fallback predates that shape (it
 # never matched a real envelope key — 'spec' was a guess, not an observed
 # shape) and always fell through to the bare (still-nested) `live` hash, so
@@ -29,13 +30,13 @@ check(mig.include?("require 'code_rep'"), "migrate-qlik.rb requires code_rep", f
 check(!mig.include?("live['spec'] || live"),
       "the old `live['spec'] || live` fallback (never matched a real envelope key) is gone", fails)
 
-get_idx    = mig.index(/live\s*=\s*Sigma\.request\(:get,\s*"\/v2\/workbooks\/#\{WB_ID\}\/spec"\)/)
+get_idx    = mig.index(/live\s*=\s*Sigma\.request\(:get,\s*Sigma::CodeRep\.read_path\(WB_ID\)\)/)
 unwrap_idx = mig.index(/live_spec\s*=\s*live\.is_a\?\(Hash\)\s*\?\s*Sigma::CodeRep\.metadata\(live\)\.merge\(Sigma::CodeRep\.document\(live\)\)\s*:\s*\{\}/)
 layout_idx = mig.index(/LayoutLint\.lint\(live_spec\)/)
 ctl_idx    = mig.index(/ControlLint\.lint\(live_spec,\s*scope:\s*ctl_scope\)/)
 
 check(!get_idx.nil?, 'the live workbook spec GET is present', fails)
-check(!unwrap_idx.nil?, 'the `document` unwrap (metadata+document merge) assigns live_spec', fails)
+check(!unwrap_idx.nil?, 'the `contents` unwrap (metadata+document merge) assigns live_spec', fails)
 check(!layout_idx.nil?, 'LayoutLint.lint(live_spec) is present', fails)
 check(!ctl_idx.nil?, 'ControlLint.lint(live_spec, scope: ctl_scope) is present', fails)
 

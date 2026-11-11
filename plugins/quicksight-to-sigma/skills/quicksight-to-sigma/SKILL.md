@@ -39,7 +39,7 @@ If a destination is already supplied, honor it silently — don't ask.
 2. DISCOVER  describe-analysis-definition + describe-data-set(s) + describe-data-source(s)  → quicksight-discover.py → signals.json
 3. CONVERT   local vendored converter (converter/quicksight.mjs via node) — analysis.json + dataset jsons + connectionId → Sigma DM JSON   [MCP only as manual fallback]
 4. POST DM   fixup (name elements + passthrough cols, rewrite sql refs, schemaVersion=1) → validate → POST /v2/dataModels/spec
-5. WORKBOOK  master tables per DM element + chart elements mirroring the QS visuals → POST /v2/workbooks/spec
+5. WORKBOOK  master tables per DM element + chart elements mirroring the QS visuals → POST /v2/workbooks
 6. LAYOUT    QS grid x,y,w,h → 24-col layout XML → put-layout.rb
 7. VERIFY    sigma-mcp-v2 query each element returns real rows; Phase 6 parity vs the QuickSight aggregation    [hard gate]
 ```
@@ -318,7 +318,7 @@ ruby scripts/assert-phase6-ran.rb --workdir /tmp/<name> --workbook-id <WORKBOOK_
 - **Window/table-calc functions are a known gap** — they degrade to a `/* TODO */` placeholder; verify the graceful degradation rather than treating it as a failure, and surface it in the migration warning manifest.
 
 ### Carried forward from the first live customer run (RCA `refs/rca-quicksight-2026-06-17.md`)
-- **`PUT /workbooks/{id}/spec` WIPES the applied layout.** Layout is applied separately by `put-layout.rb`, so **always re-run `put-layout` after every spec PUT**. Worse: a **failed** spec PUT (4xx) followed by a layout PUT leaves the workbook referencing layout elements that don't exist in the spec → the whole page renders **N/A / blank**. If metrics show N/A after an edit, check spec/layout consistency first — query the element (it usually still returns data).
+- **`PUT /v2/workbooks/{id}/contents` WIPES the applied layout.** Layout is applied separately by `put-layout.rb`, so **always re-run `put-layout` after every contents PUT**. Worse: a **failed** contents PUT (4xx) followed by a layout PUT leaves the workbook referencing layout elements that don't exist in the spec → the whole page renders **N/A / blank**. If metrics show N/A after an edit, check spec/layout consistency first — query the element (it usually still returns data).
 - **Text element `body` rejects a bare `<p>`** — `<p> carries no non-default block style or alignment`. Use `<p class="p-small">`, `<p style="text-align: …">`, or a `#` heading / plain paragraph.
 - **Dynamic text date format = strftime, UNQUOTED**: `{{Max([El/Col]) | %B %-d, %Y}}` → "June 17, 2026". Quoted formats leak the quotes; `DateFormat()` echoes the pattern literally; `Date()` doesn't strip the time.
 - **QS `*_FLAG` columns are often warehouse BOOLEAN even when QS types them INTEGER** — `[flag] = 1` throws `Argument 2 invalid for '='` at query time. Verify via `/v2/connections/tables/{inode}/columns` and emit a boolean-safe predicate.

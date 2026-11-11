@@ -110,10 +110,13 @@ repeater → repeated-container; each sourcing the migrated DM fact element; cha
 auto-aggregate by axis), recursively inlines metric MAQL into measure formulas,
 and resolves a related-dataset `view` attribute to a cross-element reference
 `[FACT/REL_NAME/Dim]` (exercises the migrated relationship). POST to
-`/v2/workbooks/spec` — **the body is `document`-wrapped, not flat** (verified live
-2026-08-03, including on `/verify` 2026-08-04): metadata (`name`, `folderId`)
-stays outside; `schemaVersion`/`kind`/metadata-only `pages`/flat `elements`/
-required `layout` nest under `document`. Layout is authoritative for page and
+`/v2/workbooks` (`/v2/workbooks/spec` is deprecated; validate first with the same
+body plus `dryRun: true`, and read back with `GET /v2/workbooks/{id}?includeContents=true`;
+replace with `PUT /v2/workbooks/{id}/contents`) — **the body is `contents`-wrapped, not
+flat** (verified live 2026-11-03; the retired `/spec` endpoints used `document`):
+metadata (`name`, `folderId`) stays outside; `schemaVersion`/`kind`/metadata-only
+`pages`/flat `elements`/required `layout` nest under `contents`
+(`scripts/lib/code_rep.{rb,py}` build the paths and bodies). Layout is authoritative for page and
 repeated-container membership and uses the live-verified `<Element>` /
 `<Container>` tags. `<LayoutElement>` / `<GridContainer>` are legacy read
 aliases only and must never be emitted. The DM POST above is a different surface

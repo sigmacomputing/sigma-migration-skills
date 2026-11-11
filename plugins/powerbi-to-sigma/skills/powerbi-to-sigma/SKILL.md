@@ -6,6 +6,10 @@ user-invocable: true
 
 ## Verifying a change locally
 
+Source-validated regression scope and remaining live gates:
+`refs/regression-validation.md`. A passing qualification subset is not a complete
+migration of the full report.
+
 Run **both** test directories — this plugin keeps suites in `scripts/` AND `tests/`:
 
 ```bash
@@ -64,14 +68,16 @@ directories is also registered in CI, so a new suite cannot be added and silentl
 >   - **Model:** `scripts/extract-model-pbix.py` reads the `.pbix`'s binary VertiPaq
 >     `DataModel` with **pbixray** and emits a TMSL `model.bim` (same shape `--tmsl`
 >     eats), including DAX calculated tables (`pbixray.dax_tables`) as calculated
->     partitions rather than fake warehouse tables. pbixray must be installed —
->     its `xpress9`/`xmhuffman` deps ship broken
->     sdists and must be **built from source**; one-time setup in `refs/local-pbix.md`.
+>     partitions rather than fake warehouse tables. Install pbixray into the selected
+>     interpreter; prefer compatible wheels, with a source-build fallback for
+>     platforms lacking them. One-time setup: `refs/local-pbix.md`.
 >     Without pbixray the model half exits with a clear install hint (the report half
 >     and the Fabric `--tmsl` path are unaffected).
 >   - **Report:** `scripts/extract-report-classic.py --pbix <file>` unzips the
->     `Report/Layout` member (a single **UTF-16LE** classic `sections[]` doc) — no
->     Fabric. It also accepts `--report-layout <file>` for an already-extracted Layout.
+>     classic `Report/Layout` member (**UTF-16LE**) or detects modern
+>     `Report/definition/` PBIR and delegates to the PBIR parser, preserving filters,
+>     sync groups and saved categorical slicer selections. No Fabric is needed.
+>     It also accepts `--report-layout <file>` for an already-extracted classic Layout.
 >   - Import-mode `.pbix` with no live warehouse to point at? Land the frozen data
 >     first (see the Import-mode → Snowflake data-landing skill), then pass that
 >     connection/db/schema here.
@@ -119,7 +125,7 @@ If a destination is already supplied, honor it silently — don't ask.
 2. EXTRACT   Fabric getDefinition?format=TMSL → model.bim   (+ .pbix Report/Layout for visuals)
 3. CONVERT   local vendored converter (converter/powerbi.mjs via node) — model.bim + connectionId + db/schema → Sigma DM JSON   [MCP only as manual fallback]
 4. POST DM   fix spec (schemaVersion + folderId/ownerId + element names) → POST /v2/dataModels/spec
-5. WORKBOOK  Data page (master tables per DM element) + chart elements → POST /v2/workbooks/spec
+5. WORKBOOK  Data page (master tables per DM element) + chart elements → POST /v2/workbooks
 6. LAYOUT    PBIX/PBIR visual x,y,w,h → 24-col grid XML → put-layout.rb
 7. VERIFY    sigma-mcp-v2 query each element returns real rows; Phase 6 = compare vs PBI executeQueries (DAX)
 ```
@@ -265,6 +271,19 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
 > an optional pre-workbook query-probe that runs one live query per DM element to surface these early.)
 
 ## Phase 5 — Build the workbook
+- **Opt-in context-preserving fallback:** if the normal builder cannot preserve
+  supported time-intelligence/CALCULATE semantics or a shared-dimension visual
+  spans facts, read `refs/semantic-context.md` and use
+  `scripts/build-semantic-workbook.py` with the real converted-DM master map.
+  This constrained Snowflake path fails on unsupported expressions, retains
+  native visuals, and still requires full source parity and the adoption gate.
+  It is not permission to hand-author an unverified shell or bypass security.
+- **Binding regression checks:** preserve source column spelling (including camelCase),
+  select joined dimension columns by entity rather than leaf name alone, and preserve
+  saved categorical slicer values. New workbook-generated column ids are lowercase;
+  existing data-model/server ids and control variable names are not rewritten.
+  KPI values retain the equivalent inline aggregate required by preflight; supported
+  chart consumers can continue using governed `[Metrics/<metric name>]` references.
 - **Data page**: one hidden `table` master per DM element used (`source: {kind:data-model, dataModelId, elementId}`, columns `[ElementName/Col]`).
 - **Chart elements** source from a master (`source:{kind:table, elementId:<master>}`), columns `[dim, meas]`:
   - bar/line: `xAxis:{columnId}`, `yAxis:{columnIds:[...]}`
@@ -277,7 +296,7 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
   - a proven chart hierarchy emits `controlType:drill`; a visible categorical legend on a supported chart emits `controlType:legend`. Emit neither unless every source/target column resolves.
   - text: `{kind:text, body:"## ..."}`
   - measure formula wraps the master col: `CountDistinct([Master/Col])`, `Sum([Master/Col])`, date dim `DateTrunc("month",[Master/Col])`.
-- `POST /v2/workbooks/spec` (post-and-readback `--type workbook`). Chart-element shapes mirror `tableau-to-sigma/scripts/build-charts-from-signals.rb`. **The body is an outer metadata envelope plus `document`** (verified live 2026-08-03, including on `/verify` 2026-08-04): `name`/`folderId` stay outside; `document` owns `schemaVersion`, `kind:"workbook"`, metadata-only `pages`, one flat `elements` collection, required authoritative `layout`, settings, panels, and overlays. Every element must occur exactly once in layout. Never put workbook elements back under a page (data-model specs are unchanged and remain nested). `post-and-readback.rb` preserves the complete workbook document on write. See `refs/spec-fixups.md` and `refs/workbook-code-release-gaps.md`.
+- `POST /v2/workbooks` (post-and-readback `--type workbook`; the `/v2/workbooks/spec` endpoints are deprecated). Chart-element shapes mirror `tableau-to-sigma/scripts/build-charts-from-signals.rb`. **The body is an outer metadata envelope plus `contents`** (live-verified 2026-11-03; dry-run with `dryRun: true`, read back with `GET /v2/workbooks/{id}?includeContents=true`, replace with `PUT /v2/workbooks/{id}/contents`): `name`/`folderId` stay outside; `contents` owns `schemaVersion`, `kind:"workbook"`, metadata-only `pages`, one flat `elements` collection, required authoritative `layout`, settings, panels, and overlays. Every element must occur exactly once in layout. Never put workbook elements back under a page (data-model specs are unchanged and remain nested). `post-and-readback.rb` preserves the complete workbook document on write. See `refs/spec-fixups.md` and `refs/workbook-code-release-gaps.md`.
 
 ## Phase 5c — Coverage report (NEVER silently drop a component)
 The build **never silently drops** what it can't resolve — every drop, downgrade,

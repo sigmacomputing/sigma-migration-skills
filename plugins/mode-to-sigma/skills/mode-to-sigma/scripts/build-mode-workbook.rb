@@ -215,7 +215,7 @@ if __FILE__ == $PROGRAM_NAME
   { report_json: '--report-json', dm_elements: '--dm-elements', out: '--out' }.each do |k, flag|
     abort "missing #{flag}" if opts[k].to_s.empty?
   end
-  warn '  ⚠ no --folder-id — POST /v2/workbooks/spec is likely to fail with "Expecting UUID at 0.folderId" once Task 8 posts this spec.' if opts[:folder_id].to_s.empty?
+  warn '  ⚠ no --folder-id — POST /v2/workbooks is likely to fail with "Expecting UUID at 0.folderId" once Task 8 posts this spec.' if opts[:folder_id].to_s.empty?
 
   data = JSON.parse(File.read(opts[:report_json]))
   dm_elements = JSON.parse(File.read(opts[:dm_elements]))
@@ -260,7 +260,7 @@ if __FILE__ == $PROGRAM_NAME
     'name'          => report.fetch('name'),
     # LIVE-VALIDATED FIX (see domo-to-sigma/scripts/build-workbook-spec.rb:244;
     # error shape confirmed in hex-to-sigma/SKILL.md:188): POST
-    # /v2/workbooks/spec 400s ("schemaVersion: Invalid 1: undefined") without
+    # POST /v2/workbooks 400s ("schemaVersion: Invalid 1: undefined") without
     # this on a fresh CREATE -- this converter has no workbook extend path, so
     # it is always the fresh-CREATE value.
     'schemaVersion' => 1,

@@ -154,6 +154,34 @@ Check what backs the dossier's dataset before extracting. `GET /objects/{dataset
 
   > **Derived metrics — recover, then VERIFY across every period:** a dossier's headline metrics (Revenue / Cost / margin %, or non-additive aggregations) are often *dossier-level derived* metrics that are **not** in the cube's `availableObjects`, so they do NOT reduce from the rehosted base columns. Recover them rather than guess: pull their ids from an **executed viz** (`definition.grid.columns[templateMetrics].elements`), reverse-engineer the definition from the statement structure (which base rows they aggregate), and **verify the formula against the executed viz values across EVERY period** — not one — before trusting it. Reproduce as a Sigma DM metric; otherwise (Workstation export / ODBC, or approximate) **label the approximation**. Never silently ship a guessed metric as exact. (`refs/path-b-rehost.md` §3.)
 
+### Report Services documents → Sigma Reports (print path — branch here)
+
+If the source is a **Report Services document** (banded/print layout: invoices,
+statements, form letters, where the printed PDF is the deliverable) rather than a
+dossier, don't force it into a workbook. Convert it to a fixed-layout **Sigma
+Report** with `scripts/convert-rs-document.py`. Its input is an
+`mstr-rs-document/1` definition (sections + controls in inches + a dataset bound
+to a warehouse table). Its output is the `POST /v2/reports` body (`/v2/reports/spec`
+is deprecated) plus `feature-gaps.json` and `control-map.json`. A grouping with a
+page break between groups becomes **invoice mode** (one group per render via a
+hidden-page list control; schedule one PDF per value). Without page breaks it
+becomes **banded mode** (table groupings + subtotals). **Read
+`refs/rs-document-reports.md` first**: the definition contract, the mapping, the
+2026-10-29 live dry-run evidence (including why `report-repeated-container` can't
+carry a banded invoice yet), and the limits. The MicroStrategy REST API doesn't
+expose RS layout, so the definition is hand-built today
+(`fixtures/rs-documents/tutorial-invoice.rs-document.json` is the worked example).
+A dry run is not parity. Create only with an approved destination, export the PDF,
+compare it page by page with the MicroStrategy PDF, and review every `layout` /
+`review` gap.
+
+```bash
+python3 scripts/convert-rs-document.py --document doc.rs-document.json \
+  --connection-id <conn> --folder-id <folder> \
+  --out report.json --gaps-out feature-gaps.json --map-out control-map.json
+python3 tests/test_rs_document_report.py      # offline golden + structure checks
+```
+
 ## Phase 1 — Extract the bundle
 
 ```bash
@@ -163,7 +191,13 @@ python3 scripts/extract.py <dossierId> bundle.json
 Walks dossier definition → dataset reports (`showExpressionAs=tokens`) →
 referenced attributes / metrics (compound bases included via a second pass) /
 facts / logical tables / hierarchy relationships. The bundle is the converter
-contract — `fixtures/bundle.json` is a real, validated example. New extracts
+contract — `fixtures/bundle.json` is a real, validated example. A dataset
+written as hand-written **Freeform SQL** has no schema objects: `extract.py`
+parks it in `bundle.sqlDatasets` (captured without executing the report) and
+`convert.py` refuses the bundle. Convert those with
+`scripts/extract-sql-dataset.py` → `scripts/convert-sql-datasets.py` (one
+Custom SQL element per dataset); read `refs/sql-datasets.md` (endpoints
+unverified live, not bound into a workbook yet). New extracts
 carry `_extraction.retrievedAtUtc`; do not silently reuse a stale stored bundle
 for a current migration.
 
@@ -309,7 +343,7 @@ Emits `sigma_dm_spec.json` (one table element per logical table, derived
 left-outer joins, a consumable join element, token-parsed metrics with derived
 display formats) + `sigma_workbook_spec.json` in the current workbook code
 representation: outer `name`/`folderId` metadata plus
-`document:{schemaVersion,kind,pages,elements,layout}`. Workbook pages are
+`contents:{schemaVersion,kind,pages,elements,layout}`. Workbook pages are
 metadata-only, elements are flat, and the required authoritative layout assigns
 every element to a page. The data-model spec deliberately retains its separate
 `pages[].elements[]` nesting. The workbook contains one page per dossier chapter,
@@ -413,16 +447,18 @@ formulas that don't resolve at query time). Do not proceed on errors —
 
 ## Phase 4 — Re-emit the workbook with real ids, POST it
 
-> **`sigma_workbook_spec.json` must be `document`-wrapped, not flat** (verified live
-> 2026-08-03, including on `/verify` 2026-08-04): `schemaVersion`/`pages`/`kind`/`layout`
-> nest under a top-level `document` key; `folderId` stays outside it. The old flat body
-> (these fields at the file's root) 400s. `scripts/convert.py` must emit the wrapped
-> shape here — the Phase 3 DM spec above is unaffected and stays flat.
+> **`sigma_workbook_spec.json` is the `POST /v2/workbooks` body and must be
+> `contents`-wrapped, not flat** (live-verified 2026-11-03, including `dryRun`):
+> `schemaVersion`/`pages`/`kind`/`layout` nest under a top-level `contents` key;
+> `name`/`folderId` stay outside it. A flat body (these fields at the file's root)
+> 400s, and `POST /v2/workbooks/spec` (`document`-wrapped) is deprecated.
+> `scripts/convert.py` emits the wrapped shape via `code_rep.create_body` — the
+> Phase 3 DM spec above is unaffected and stays flat.
 
 ```bash
 python3 scripts/convert.py ... --data-model-id <dataModelId> \
   --dm-element-ids dm_element_ids.json [--ae-winners ae_winners.json]
-python3 scripts/sigma-request.py POST /v2/workbooks/spec \
+python3 scripts/sigma-request.py POST /v2/workbooks \
   --body sigma_workbook_spec.json   # -> workbookId
 # MANDATORY run-each-time gap-scout gate (): the converter
 # passes metric function names through, so a function with no Sigma equivalent
@@ -430,16 +466,19 @@ python3 scripts/sigma-request.py POST /v2/workbooks/spec \
 # UNSCOUTED error column — spawn a gap-scout per the printed --gap-id (see
 # scripts/gap-scout.md), re-run the gate, and only proceed when it exits 0.
 python3 scripts/scout-gate-readback.py --workbook-id <workbookId> --workdir <out-dir>
-# Read back, validate, and confirm document.layout + flat document.elements survived.
-python3 scripts/sigma-request.py GET /v2/workbooks/<workbookId>/spec \
-  > <out-dir>/workbook-readback.yaml
-# Run from the companion sigma-workbooks skill directory:
-./scripts/validate-spec.sh <absolute-out-dir>/workbook-readback.yaml
+# Read back, validate, and confirm contents.layout + flat contents.elements survived.
+python3 scripts/sigma-request.py GET "/v2/workbooks/<workbookId>?includeContents=true" \
+  > <out-dir>/workbook-readback.json
+# Run from the companion sigma-workbooks skill directory (its validator still
+# expects the `document` wrapper, so re-key the readback's `contents` first):
+jq '{document: .contents}' <absolute-out-dir>/workbook-readback.json \
+  > <absolute-out-dir>/workbook-readback.validate.json
+./scripts/validate-spec.sh <absolute-out-dir>/workbook-readback.validate.json
 # put-layout.rb is now a repair/reapply tool, not the normal create path:
 # ruby scripts/put-layout.rb --workbook <workbookId> --layout layout.xml
 ```
 
-The create body already applies the banded `document.layout` (header band titled
+The create body already applies the banded `contents.layout` (header band titled
 from the chapter/dossier name, navigation/controls bands, full-width content).
 Layout is required and authoritative: without it flat elements have no reliable
 page membership and the workbook falls back to a broken stack. `put-layout.rb`
@@ -543,6 +582,13 @@ explicit-value progress gauges; allowlisted styling; and explicit repeaters.
 Every partial panel/repeater/style translation is recorded in
 `feature-gaps.json`. Box plots remain capability-gated and default to a loud
 table fallback.
+
+**Report Services documents → Sigma Reports (dry-run-verified, not yet
+PDF-parity-proven):** page header/footer panels; positioned text with
+attribute/metric/auto-text tokens; lines; header bands; a paginated detail table;
+dataset filters; invoice mode (page break per group) and banded mode (grouped
+subtotals). There's no definition extractor yet, and graphs/grids/panel stacks/
+selectors inside documents are blocking gaps. See `refs/rs-document-reports.md`.
 
 **Plugin tier:** viz types with **no native Sigma analog** (`heat_map` — a
 treemap — plus `sankey`, `network`, sunburst) are matched with a bespoke plugin

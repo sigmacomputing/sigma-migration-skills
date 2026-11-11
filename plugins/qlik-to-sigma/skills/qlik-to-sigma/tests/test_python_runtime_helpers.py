@@ -257,8 +257,8 @@ class RenderAndLayoutTest(unittest.TestCase):
             raw, xml, sidecars, warn=warnings.append
         )
 
-        self.assertEqual({"document"}, set(payload))
-        document = payload["document"]
+        self.assertEqual({"contents"}, set(payload))
+        document = payload["contents"]
         self.assertEqual(xml, document["layout"])
         self.assertEqual({"theme": {"name": "Neutral"}}, document["settings"])
         self.assertEqual([{"id": "panel-1"}], document["panels"])

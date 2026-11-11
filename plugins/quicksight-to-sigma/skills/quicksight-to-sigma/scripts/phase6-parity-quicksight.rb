@@ -163,10 +163,9 @@ if !opts[:finalize]
   require 'code_rep'
 
   warn "Phase 7 PASS 1: reading workbook spec #{opts[:wb]}"
-  # binary:true returns the raw body — the spec endpoint answers in YAML even
-  # when asked for JSON, so parse both.
-  raw = Sigma.request(:get, "/v2/workbooks/#{opts[:wb]}/spec", binary: true)
-  # Live GET nests non-metadata fields under `document` (verified 2026-08-03/04);
+  # binary:true returns the raw body; parse_spec accepts JSON or YAML.
+  raw = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:wb]), binary: true)
+  # Live GET (?includeContents=true) nests non-metadata fields under `contents`;
   # unwrap so the on-disk wb-readback.json stays the plain document (pages metadata,
   # flat elements, layout) every downstream reader expects.
   spec = Sigma::CodeRep.document(parse_spec(raw))

@@ -263,7 +263,7 @@ end
 
 # ---------------------------------------------------------------------------
 # Gate 4 — layout applied ([bead])
-# Fetches the live workbook spec and confirms a non-empty `document.layout`
+# Fetches the live workbook contents and confirms a non-empty `contents.layout`
 # XML is set, with at least --min-layout-elements canonical <Element> tags.
 # Catches the "agent forgot to PUT a layout" regression where elements
 # render as a single-column stack instead of the dashboard grid.
@@ -286,7 +286,7 @@ unless opts[:skip_layout]
     if base.nil? || base.empty? || tok.nil? || tok.empty?
       warn "[SKIP] gate 4/7: SIGMA_BASE_URL / SIGMA_API_TOKEN not set — cannot fetch spec"
     else
-      uri = URI("#{base}/v2/workbooks/#{wb_id}/spec")
+      uri = URI("#{base}#{Sigma::CodeRep.read_path(wb_id)}")
       req = Net::HTTP::Get.new(uri)
       req['Authorization'] = "Bearer #{tok}"
       req['Accept'] = 'application/json'
@@ -321,7 +321,7 @@ unless opts[:skip_layout]
           puts "[OK] gate 4/7: layout XML applied with #{elem_count} positioned element(s)"
         end
       else
-        warn "[SKIP] gate 4/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{res.code} — cannot verify"
+        warn "[SKIP] gate 4/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{res.code} — cannot verify"
       end
     end
   end
@@ -393,7 +393,7 @@ else
       warn "[SKIP] gate 6/7: scripts/lib/layout_lint.rb not vendored in this plugin — re-vendor (md5 discipline)"
     end
     if defined?(LayoutLint)
-      uri = URI("#{base}/v2/workbooks/#{wb_id}/spec")
+      uri = URI("#{base}#{Sigma::CodeRep.read_path(wb_id)}")
       req = Net::HTTP::Get.new(uri)
       req['Authorization'] = "Bearer #{tok}"
       req['Accept'] = 'application/json'
@@ -419,7 +419,7 @@ else
         puts '[OK] gate 6/7: layout lint clean (no raw-id names, no orphan controls, no dead zones, ' \
              'no generic header title, no under-filled bands)'
       else
-        warn "[SKIP] gate 6/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{res.code} — cannot lint"
+        warn "[SKIP] gate 6/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{res.code} — cannot lint"
       end
     end
   end
@@ -459,7 +459,7 @@ else
       warn "[SKIP] gate 7/7: scripts/lib/control_lint.rb not vendored in this plugin — re-vendor (md5 discipline)"
     end
     if defined?(ControlLint)
-      uri = URI("#{base}/v2/workbooks/#{wb_id}/spec")
+      uri = URI("#{base}#{Sigma::CodeRep.read_path(wb_id)}")
       req = Net::HTTP::Get.new(uri)
       req['Authorization'] = "Bearer #{tok}"
       req['Accept'] = 'application/json'
@@ -495,7 +495,7 @@ else
         puts "[OK] gate 7/7: control lint clean (#{n_controls} control(s); no dead controls, no ghost " \
              "targets, full same-page reach#{scope ? ', source scope honored' : ''})"
       else
-        warn "[SKIP] gate 7/7: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{res.code} — cannot lint"
+        warn "[SKIP] gate 7/7: GET /v2/workbooks/#{wb_id}?includeContents=true returned HTTP #{res.code} — cannot lint"
       end
     end
   end

@@ -545,7 +545,7 @@ class OrchestrationTests(unittest.TestCase):
                             "type": {"type": "number"},
                         }]
                     }
-                if path.endswith("/spec"):
+                if path.startswith("/v2/workbooks/") and "includeContents=true" in path:
                     return live
                 raise AssertionError(path)
 
@@ -649,7 +649,7 @@ class OrchestrationTests(unittest.TestCase):
                             "type": {"type": "number"},
                         }]
                     }
-                if path.endswith("/spec"):
+                if path.startswith("/v2/workbooks/") and "includeContents=true" in path:
                     return live
                 raise AssertionError(path)
 
@@ -760,7 +760,7 @@ class OrchestrationTests(unittest.TestCase):
                             "type": {"type": "number"},
                         }]
                     }
-                if path.endswith("/spec"):
+                if path.startswith("/v2/workbooks/") and "includeContents=true" in path:
                     return live
                 raise AssertionError(path)
 
