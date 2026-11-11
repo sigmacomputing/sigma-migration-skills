@@ -176,7 +176,7 @@ if [[ $START -le 6 ]]; then
   # bead 16i: layout is hard-ordered as the last spec write. The workbook spec
   # already EMBEDS the layout (build step) so the stage-5 POST never triggers
   # Sigma's single-column auto-layout; this PUT is the authoritative final write.
-  # NOTHING may bare-PUT /workbooks/spec after this point (parity is read-only).
+  # NOTHING may bare-PUT /v2/workbooks/{id}/contents after this point (parity is read-only).
   WB_ID=$(grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$WORK/wb-post.txt" | head -1 || true)
   if [[ -n "$WB_ID" && -f "$WORK/layout.xml" ]]; then
     ruby "$HERE/put-layout.rb" --workbook "$WB_ID" --layout "$WORK/layout.xml"

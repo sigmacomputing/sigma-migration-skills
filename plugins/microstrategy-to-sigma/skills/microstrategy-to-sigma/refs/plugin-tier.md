@@ -73,8 +73,8 @@ file, no build step, MIT).
   `Dependency not found`). To reproduce MSTR's `visualization_as_filter`, give
   the *target* viz its own source table and filter that. Filtering the shared
   source would filter the plugin too, which the source selector does not do.
-- 🚨 **`POST /v2/workbooks/spec/verify` returns `valid: true` for every one of
-  the above.** It is not a render gate. Only opening the workbook catches them.
+- 🚨 **`POST /v2/workbooks` with `dryRun: true` (the old `/spec/verify`) accepts every
+  one of the above.** It is not a render gate. Only opening the workbook catches them.
 - ⚠️ **A local harness that stubs the SDK tests your rendering and none of the
   integration.** The React trap survived a full "verified" local pass that way.
   Prove the data path against a real workbook.

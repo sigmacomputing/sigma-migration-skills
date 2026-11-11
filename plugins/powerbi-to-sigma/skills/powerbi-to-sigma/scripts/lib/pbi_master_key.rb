@@ -130,4 +130,30 @@ module PbiMasterKey
   def master_id(key)
     "master-#{Digest::SHA1.hexdigest(key.to_s)[0, 8]}"
   end
+
+  def view_column(columns, entity, leaf, fact)
+    matches = columns.select { |c| c['name'].to_s.casecmp("#{leaf} (#{entity})").zero? }
+    if matches.empty? && entity.casecmp(fact).zero?
+      matches = columns.select { |c| c['name'].to_s.casecmp(leaf).zero? }
+    end
+    matches.one? ? matches.first['name'] : nil
+  end
+
+  # Keep source spelling without guessing when normalized labels collide.
+  def add_column_aliases!(fields, tables)
+    tables.each do |table|
+      entity = table['name'].to_s
+      Array(table['columns']).each do |column|
+        key = "#{entity}.#{column['name']}"
+        next if fields.key?(key)
+        candidates = fields.select do |qr, fs|
+          ent, leaf = qr.split('.', 2)
+          ent.to_s.casecmp(entity).zero? &&
+            leaf.to_s.downcase.gsub(/[_\s]+/, '') == column['name'].to_s.downcase.gsub(/[_\s]+/, '') &&
+            fs['ref'].to_s.match?(/\A\[[^\]]+\]\z/) && fs['agg'].nil?
+        end.values.uniq
+        fields[key] = candidates.first if candidates.one?
+      end
+    end
+  end
 end
