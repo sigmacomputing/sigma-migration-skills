@@ -16,9 +16,21 @@ READ_ONLY_KEYS = {
 REF = re.compile(r"\[([^\]/]+)/([^\]]+)\]")
 
 
+def _document_wrapper(spec):
+    if not isinstance(spec, dict):
+        return None
+    for key in ("contents", "document"):
+        if isinstance(spec.get(key), dict):
+            return spec[key]
+    return None
+
+
 def canonical_document_hash(spec):
     """Stable content hash excluding server-owned envelope fields."""
-    document = spec.get("document") if isinstance(spec, dict) else None
+    # The workbook document sits under `contents` on the live endpoints and under
+    # `document` on the retired /spec readbacks and on-disk artifacts; the hash
+    # is over the document either way.
+    document = _document_wrapper(spec)
     payload = document if isinstance(document, dict) else spec
 
     def clean(value):
@@ -67,7 +79,7 @@ def list_entries(fetch_json, path, limit=500):
 def _elements(spec):
     if not isinstance(spec, dict):
         return []
-    document = spec.get("document") or spec
+    document = _document_wrapper(spec) or spec
     if isinstance(document.get("elements"), list):
         return document["elements"]
     return [
@@ -170,7 +182,7 @@ def validate_workbook_refs(workbook, dm_spec, live_columns):
 
 def fingerprint(spec):
     return {
-        "latestDocumentVersion": spec.get("latestDocumentVersion") or spec.get("latestVersion"),
+        "latestDocumentVersion": spec.get("latestVersion") or spec.get("latestDocumentVersion"),
         "sha256": canonical_document_hash(spec),
     }
 

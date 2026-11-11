@@ -2,8 +2,8 @@
 """Apply layout to migrated Sigma workbooks — from the Liveboard's OWN tile
 geometry when available, else a clean auto grid.
 
-The released workbook API requires flat document.elements and explicit
-document.layout placement. New workbooks assemble layout before POST; edits GET
+The released workbook API requires flat contents.elements and explicit
+contents.layout placement. New workbooks assemble layout before POST; edits GET
 and PUT the complete document because a partial PUT erases omitted fields.
 
 Geometry mapping (ThoughtSpot layout.tiles → Sigma grid):
@@ -20,7 +20,7 @@ Env: SIGMA_BASE_URL plus caller/browser/client auth; TS_WORKDIR (default for
 """
 import argparse, json, os, re, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import code_rep  # workbook code-rep document-wrapper adapter (nested GET/PUT shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped GET/PUT shape)
 import sigma_rest
 
 TS_GRID_COLS = 12                                   # ThoughtSpot Liveboard grid
@@ -356,16 +356,16 @@ def prepare_document(spec, *, tiles=None, controls=None, page_specs=None,
     return doc
 
 def apply(wb, tiles=None, controls=None, page_specs=None, data_element_ids=None):
-    # Preserve the complete live document. PUT accepts exactly {document: ...};
+    # Preserve the complete live document. PUT accepts exactly {contents: ...};
     # sending response metadata beside it is invalid, and rebuilding only pages
     # would erase settings, panels, overlays, agents, or unknown future fields.
-    raw = json.loads(req("GET", f"/v2/workbooks/{wb}/spec"))
+    raw = json.loads(req("GET", code_rep.read_path(wb)))
     doc = prepare_document(
         raw, tiles=tiles, controls=controls, page_specs=page_specs,
         data_element_ids=data_element_ids,
     )
-    put_body = {"document": doc}
-    resp = req("PUT", f"/v2/workbooks/{wb}/spec", json.dumps(put_body))
+    put_body = code_rep.update_body({"contents": doc})
+    resp = req("PUT", code_rep.update_path(wb), json.dumps(put_body))
     return "workbookId" in resp
 
 def main():

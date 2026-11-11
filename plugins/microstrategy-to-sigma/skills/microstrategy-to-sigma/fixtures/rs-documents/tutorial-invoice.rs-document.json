@@ -1,0 +1,178 @@
+{
+  "format": "mstr-rs-document/1",
+  "provenance": {
+    "kind": "hand-built",
+    "basis": "Strategy ONE Document Creation Guide, 'Create a sample invoice document' (MicroStrategy Tutorial project). Positions, sizes, fonts and section order are transcribed from the guide's step pages; every value the guide leaves unspecified is listed in the control's `assumed` array.",
+    "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Create_a_sample_invoice_document.htm",
+    "captured": "2026-10-29",
+    "note": "Hand-built because the public MicroStrategy REST API exposes Report Services document data and PDF exports, not the section/control layout. Replace with an extracted definition once an extractor exists."
+  },
+  "document": {
+    "id": "tutorial-invoice",
+    "name": "Customer Invoice"
+  },
+  "page": {
+    "width_in": 8.5,
+    "height_in": 11,
+    "orientation": "portrait",
+    "margin_in": {"top": 0.5, "bottom": 0.5, "left": 0.5, "right": 0.5},
+    "assumed": ["margin_in"]
+  },
+  "defaults": {
+    "font_family": "Arial",
+    "font_size_pt": 10,
+    "assumed": ["font_family", "font_size_pt"]
+  },
+  "dataset": {
+    "id": "invoice-dataset",
+    "name": "Invoice Lines",
+    "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Creating_the_report_to_use_as_the_dataset.htm",
+    "source": {"kind": "warehouse-table", "path": ["MSTR_TUTORIAL", "PUBLIC", "INVOICE_LINES"]},
+    "fields": {
+      "Customer": {"column": "CUSTOMER_NAME", "type": "text", "role": "attribute"},
+      "Customer@ID": {"column": "CUSTOMER_ID", "type": "number", "role": "attribute"},
+      "Customer City": {"column": "CUSTOMER_CITY", "type": "text", "role": "attribute"},
+      "Customer State": {"column": "CUSTOMER_STATE", "type": "text", "role": "attribute"},
+      "Ship Date": {"column": "SHIP_DATE", "type": "date", "role": "attribute", "date_format": "%m/%d/%Y"},
+      "Item": {"column": "ITEM_NAME", "type": "text", "role": "attribute"},
+      "Item@ID": {"column": "ITEM_ID", "type": "number", "role": "attribute"},
+      "Day": {"column": "DAY_DATE", "type": "date", "role": "attribute", "date_format": "%m/%d/%Y"},
+      "Cost": {"column": "COST", "type": "number", "role": "metric", "aggregation": "Sum"}
+    },
+    "filters": [
+      {"field": "Day", "kind": "date-range", "start": "2005-01-01", "end": "2005-03-31",
+       "source_expression": "Quarter In List (Q1 05)"},
+      {"field": "Customer", "kind": "list", "values": ["Aaronson Maxwell", "Ballin Stephen"],
+       "source_expression": "Customer In List (Aaronson Maxwell, Ballin Stephen)"}
+    ],
+    "sort": [{"field": "Day", "direction": "ascending"}, {"field": "Item@ID", "direction": "ascending"}],
+    "assumed": ["source", "fields.*.column", "sort"]
+  },
+  "grouping": [
+    {"field": "Customer", "page_break_between_groups": true, "sort": "ascending",
+     "sample_value": "Aaronson Maxwell",
+     "functionally_dependent": ["Customer@ID", "Customer City", "Customer State"],
+     "doc_ref": "https://www2.strategy.com/producthelp/current/DocCreationGuide/WebHelp/Lang_1033/Content/DocumentCreationGuide/Grouping_the_document_by_customer.htm"}
+  ],
+  "sections": [
+    {
+      "kind": "page-header",
+      "height_in": 0.45,
+      "assumed": ["height_in"],
+      "controls": [
+        {"id": "logo", "type": "image", "left_in": 0, "top_in": 0, "width_in": 1.0, "height_in": 0.32,
+         "image": {"url": null, "alt": "Company logo"},
+         "assumed": ["left_in", "top_in", "width_in", "height_in"],
+         "note": "The guide places the customer's own logo file; no URL ships with the tutorial."},
+        {"id": "title", "type": "text", "text": "Customer Invoice",
+         "left_in": 4.34, "top_in": 0.03, "width_in": 2.4, "height_in": 0.25,
+         "format": {"font_size_pt": 18, "bold": true, "italic": true}},
+        {"id": "header-band", "type": "rectangle", "left_in": 0, "top_in": 0.34, "width_mode": "100%", "height_in": 0.06,
+         "format": {"backcolor": "#808080"},
+         "assumed": ["left_in", "format.backcolor"]}
+      ]
+    },
+    {
+      "kind": "group-header",
+      "group": "Customer",
+      "name": "Customer Header",
+      "height_in": 1.05,
+      "assumed": ["height_in"],
+      "controls": [
+        {"id": "bill-to-label", "type": "text", "text": "Bill To:",
+         "left_in": 0.34, "top_in": 0.03, "width_in": 1.0, "height_in": 0.17,
+         "format": {"font_size_pt": 10, "bold": true}, "assumed": ["width_in", "height_in"]},
+        {"id": "customer-name", "type": "text", "text": "{Customer}",
+         "left_in": 0.11, "top_in": 0.37, "width_in": 2.5, "height_in": 0.17, "assumed": ["height_in"]},
+        {"id": "customer-city-state", "type": "text", "text": "{[Customer City]}, {[Customer State]}",
+         "left_in": 0.11, "top_in": 0.54, "width_in": 2.5, "height_in": 0.17, "assumed": ["height_in"]},
+        {"id": "invoice-no-label", "type": "text", "text": "Invoice #",
+         "left_in": 2.63, "top_in": 0.2, "width_in": 0.95, "height_in": 0.17,
+         "format": {"bold": true}, "assumed": ["width_in", "height_in"]},
+        {"id": "invoice-date-label", "type": "text", "text": "Invoice Date",
+         "left_in": 2.63, "top_in": 0.37, "width_in": 0.95, "height_in": 0.17,
+         "format": {"bold": true}, "assumed": ["width_in", "height_in"]},
+        {"id": "due-date-label", "type": "text", "text": "Due Date",
+         "left_in": 2.63, "top_in": 0.54, "width_in": 0.95, "height_in": 0.17,
+         "format": {"bold": true}, "assumed": ["width_in", "height_in"]},
+        {"id": "customer-id", "type": "text", "text": "{Customer@ID}",
+         "left_in": 3.61, "top_in": 0.2, "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "invoice-date", "type": "text", "text": "{[Ship Date]}",
+         "left_in": 3.61, "top_in": 0.37, "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "due-date", "type": "text", "text": "{[Ship Date]}",
+         "left_in": 3.61, "top_in": 0.54, "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"],
+         "note": "The guide substitutes Ship Date for both Invoice Date and Due Date (the Tutorial has no invoice dates)."},
+        {"id": "remit-to-label", "type": "text", "text": "Remit To:",
+         "left_in": 5.32, "top_in": 0.2, "width_in": 1.65, "height_in": 0.17, "assumed": ["height_in"]},
+        {"id": "remit-to-address", "type": "text",
+         "text": "MicroStrategy, Inc.\n1861 International Drive\nMcLean, VA 22102",
+         "left_in": 5.32, "top_in": 0.37, "width_in": 1.65, "height_in": 0.51, "assumed": ["height_in"]},
+        {"id": "header-rule", "type": "line", "left_in": 0, "top_in": 1.0, "width_mode": "100%",
+         "line": {"style": "double", "weight": 2}, "assumed": ["left_in"]}
+      ]
+    },
+    {
+      "kind": "detail-header",
+      "height_in": 0.25,
+      "controls": [
+        {"id": "detail-header-band", "type": "rectangle", "left_in": 0, "top_in": 0, "width_mode": "100%", "height_in": 0.25,
+         "format": {"backcolor": "#C0C0C0"}, "assumed": ["format.backcolor"]},
+        {"id": "col-date-label", "type": "text", "text": "Date", "left_in": 0.13, "top_in": 0.02,
+         "width_in": 1.0, "height_in": 0.2, "format": {"bold": true, "backcolor": "#C0C0C0"}, "assumed": ["width_in", "height_in"]},
+        {"id": "col-item-no-label", "type": "text", "text": "Item #", "left_in": 1.62, "top_in": 0.02,
+         "width_in": 1.0, "height_in": 0.2, "format": {"bold": true, "backcolor": "#C0C0C0"}, "assumed": ["width_in", "height_in"]},
+        {"id": "col-description-label", "type": "text", "text": "Item Description", "left_in": 3.05, "top_in": 0.02,
+         "width_in": 1.25, "height_in": 0.2, "format": {"bold": true, "backcolor": "#C0C0C0"}, "assumed": ["height_in"]},
+        {"id": "col-amount-label", "type": "text", "text": "Amount", "left_in": 5.69, "top_in": 0.02,
+         "width_in": 1.0, "height_in": 0.2, "format": {"bold": true, "backcolor": "#C0C0C0"}, "assumed": ["width_in", "height_in"]}
+      ]
+    },
+    {
+      "kind": "detail",
+      "height_in": 0.25,
+      "assumed": ["height_in"],
+      "controls": [
+        {"id": "line-day", "type": "text", "text": "{Day}", "left_in": 0.13, "top_in": 0.05,
+         "width_in": 1.0, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "line-item-id", "type": "text", "text": "{Item@ID}", "left_in": 1.62, "top_in": 0.05,
+         "width_in": 1.0, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "line-item", "type": "text", "text": "{Item}", "left_in": 3.05, "top_in": 0.05,
+         "width_in": 2.25, "height_in": 0.17, "assumed": ["height_in"]},
+        {"id": "line-cost", "type": "text", "text": "{Cost}", "left_in": 5.69, "top_in": 0.05,
+         "width_in": 1.0, "height_in": 0.17,
+         "format": {"number": {"category": "Currency", "decimals": 2}}, "assumed": ["width_in", "height_in"]}
+      ]
+    },
+    {
+      "kind": "detail-footer",
+      "height_in": 0.95,
+      "assumed": ["height_in"],
+      "controls": [
+        {"id": "footer-rule", "type": "line", "left_in": 0, "top_in": 0.03, "width_mode": "100%",
+         "line": {"style": "double", "weight": 2}, "assumed": ["left_in"]},
+        {"id": "total-charge-label", "type": "text", "text": "Total Charge", "left_in": 3.51, "top_in": 0.1,
+         "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "total-charge", "type": "text", "text": "{Cost}", "left_in": 5.69, "top_in": 0.1,
+         "width_in": 1.0, "height_in": 0.17,
+         "format": {"bold": true, "number": {"category": "Currency", "decimals": 2}}, "assumed": ["width_in", "height_in"],
+         "note": "Copied from the Detail control, so it keeps the currency format; in a footer the metric is the section subtotal."},
+        {"id": "total-tax-label", "type": "text", "text": "Total Tax", "left_in": 3.51, "top_in": 0.32,
+         "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"],
+         "note": "The guide adds no value control next to Total Tax."},
+        {"id": "tax-rule", "type": "line", "left_in": 5.58, "top_in": 0.5, "width_in": 1.42,
+         "line": {"style": "double", "weight": 2}},
+        {"id": "total-due-label", "type": "text", "text": "Total Due", "left_in": 3.51, "top_in": 0.54,
+         "width_in": 1.2, "height_in": 0.17, "assumed": ["width_in", "height_in"]},
+        {"id": "total-due", "type": "text", "text": "{Cost}", "left_in": 5.69, "top_in": 0.54,
+         "width_in": 1.0, "height_in": 0.17,
+         "format": {"bold": true}, "assumed": ["width_in", "height_in"],
+         "note": "Dragged from the Datasets pane, so it keeps control default (unformatted) number display, as the guide points out."},
+        {"id": "total-due-rule", "type": "line", "left_in": 3.45, "top_in": 0.71, "width_in": 3.55,
+         "line": {"style": "solid", "weight": 1}, "assumed": ["line.style", "line.weight"]},
+        {"id": "terms", "type": "text", "text": "Terms: Net 30 Days, Plus 1.5% per month after 30 days",
+         "left_in": 2.06, "top_in": 0.77, "width_in": 3.0, "height_in": 0.15,
+         "format": {"font_size_pt": 8}, "assumed": ["height_in"]}
+      ]
+    }
+  ]
+}

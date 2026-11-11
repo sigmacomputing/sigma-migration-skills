@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """test_migrate_post_workbook_coderep.py — migrate.py's post_workbook()
-workbook code-rep `document` envelope handling (2026-08, task 3.9).
+workbook code-rep `contents` envelope handling.
 
-Before this fix: post_workbook() POSTed the converter's flat workbook spec
-straight to /v2/workbooks/spec — the live workbook code-rep surface requires
-the nested `document` envelope and 400s on a flat body.
+Guards: post_workbook() must POST to /v2/workbooks with the workbook nested
+under `contents` — the live workbook code-rep surface 400s on a flat body.
+The local spec may still carry the on-disk `document` wrapper; it is
+converted to `contents` at the API boundary.
 
 Offline: monkeypatches the module's sigma() (the only network call site in
 post_workbook) and runs the real function unchanged.
@@ -42,7 +43,7 @@ calls = {"post_body": None}
 
 
 def fake_sigma(method, path, body=None):
-    assert method == "POST" and path == "/v2/workbooks/spec", (method, path)
+    assert method == "POST" and path == "/v2/workbooks", (method, path)
     calls["post_body"] = body
     return json.dumps({"workbookId": "11111111-1111-4111-8111-111111111111"})
 
@@ -73,21 +74,21 @@ with tempfile.TemporaryDirectory() as wd:
     check(wb == "11111111-1111-4111-8111-111111111111", f"post_workbook returns the posted workbookId (got {wb!r})")
     posted = calls["post_body"]
     check(posted is not None, "a POST was issued")
-    check(isinstance(posted, dict) and isinstance(posted.get("document"), dict),
-          "POST body carries a top-level `document` key (the wrap the bug omitted)")
+    check(isinstance(posted, dict) and isinstance(posted.get("contents"), dict),
+          "POST body carries a top-level `contents` key (the wrap the bug omitted)")
     check(posted is not None and "pages" not in posted,
           "POST body has NO top-level `pages` (must be nested, not flat)")
-    check(posted is not None and posted["document"].get("pages") == FLAT_SPEC["document"]["pages"],
-          "wrapped document carries metadata-only pages unchanged")
-    check(posted is not None and posted["document"].get("elements") == FLAT_SPEC["document"]["elements"],
-          "wrapped document carries the flat element collection")
-    check(posted is not None and posted["document"].get("kind") == "workbook"
-          and posted["document"].get("layout"),
-          "posted document includes required kind and authoritative layout")
+    check(posted is not None and posted["contents"].get("pages") == FLAT_SPEC["document"]["pages"],
+          "wrapped contents carries metadata-only pages unchanged")
+    check(posted is not None and posted["contents"].get("elements") == FLAT_SPEC["document"]["elements"],
+          "wrapped contents carries the flat element collection")
+    check(posted is not None and posted["contents"].get("kind") == "workbook"
+          and posted["contents"].get("layout"),
+          "posted contents includes required kind and authoritative layout")
     check(posted is not None and posted.get("name") == "Test WB",
-          "name stays OUTSIDE document as metadata")
+          "name stays OUTSIDE contents as metadata")
     check(posted is not None and posted.get("folderId") == "home-1",
-          "folderId stays OUTSIDE document as metadata")
+          "folderId stays OUTSIDE contents as metadata")
 
     ledger_path = os.path.join(wd, "posted-workbooks.jsonl")
     check(os.path.exists(ledger_path), "posted-workbooks.jsonl written")

@@ -35,8 +35,12 @@ require 'dm_column_index'
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 
-POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'              : '/v2/workbooks/spec'
-GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec'           : '/v2/workbooks/%s/spec'
+# Workbooks use the code-rep endpoints (POST /v2/workbooks, GET
+# /v2/workbooks/{id}?includeContents=true, PUT /v2/workbooks/{id}/contents); the
+# retired /v2/workbooks/**/spec endpoints are deprecated. Data models keep /spec.
+POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'    : Sigma::CodeRep.create_path
+GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : Sigma::CodeRep.read_path('%s')
+PUT_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec' : Sigma::CodeRep.update_path('%s')
 ID_FIELD  = opts[:type] == 'datamodel' ? 'dataModelId'                      : 'workbookId'
 
 # Preserve the script's response-oriented control flow while delegating host
@@ -77,28 +81,39 @@ end
 # explicit --update-id (Phase 3 normally reuses a DM via the ref-dm path).
 update_id = opts[:update_id] || (prior_ids.last if opts[:type] == 'workbook' && prior_ids.any?)
 
-# Workbook code-rep nests non-metadata fields under `document` (verified live
-# 2026-08-03/04) and REJECTS the old flat body with HTTP 400. The datamodel
-# surface is confirmed NOT changing — it ignores `document` — so only the
-# workbook branch wraps the outgoing body.
-spec_body = if opts[:type] == 'workbook'
-              posting_doc = JSON.parse(File.read(opts[:spec]))
-              JSON.generate(Sigma::CodeRep.wrap(Sigma::CodeRep.document(posting_doc), extra: Sigma::CodeRep.metadata(posting_doc)))
-            else
-              File.read(opts[:spec])
-            end
+# Workbook code-rep nests non-metadata fields under `contents` (the retired
+# /spec endpoints called it `document`) and REJECTS the old flat body with HTTP
+# 400. The datamodel surface is confirmed NOT changing — it ignores `contents` —
+# so only the workbook branch re-keys the outgoing body: create_body keeps
+# name/folderId/description beside `contents`; update_body is `contents` only.
+create_body_json, update_body_json =
+  if opts[:type] == 'workbook'
+    posting_doc = JSON.parse(File.read(opts[:spec]))
+    [JSON.generate(Sigma::CodeRep.create_body(posting_doc)), JSON.generate(Sigma::CodeRep.update_body(posting_doc))]
+  else
+    flat_body = File.read(opts[:spec])
+    [flat_body, flat_body]
+  end
+
+# POST/PUT responses are the JSON workbook envelope; data-model /spec responses
+# can still be YAML. JSON is tried first, YAML is the fallback.
+def parse_response(body)
+  JSON.parse(body.to_s)
+rescue JSON::ParserError
+  YAML.safe_load(body.to_s, permitted_classes: [Date, Time])
+end
 
 if update_id
   warn "UPDATE mode: PUT #{opts[:type]} #{update_id} (no new #{opts[:type]} created)"
-  resp = http(:put, format(GET_PATH, update_id), spec_body)
-  parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
-  oid = parsed[ID_FIELD] || update_id
+  resp = http(:put, format(PUT_PATH, update_id), update_body_json)
+  parsed = parse_response(resp.body)
+  oid = (parsed.is_a?(Hash) && parsed[ID_FIELD]) || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.success?
   warn "PUT ok: #{ID_FIELD}=#{oid}"
 else
-  resp = http(:post, POST_PATH, spec_body)
-  parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
-  oid = parsed[ID_FIELD] or abort("POST failed: #{parsed.inspect}")
+  resp = http(:post, POST_PATH, create_body_json)
+  parsed = parse_response(resp.body)
+  oid = (parsed.is_a?(Hash) && parsed[ID_FIELD]) or abort("POST failed: #{parsed.inspect}")
   warn "POST ok: #{ID_FIELD}=#{oid}"
 
   # Append the new ID to the per-conversion log. Newline-delimited JSON so
@@ -111,9 +126,9 @@ else
   end
 end
 
-# Read back. Workbook code-rep responses nest non-metadata fields (pages/
-# layout/schemaVersion/kind) under `document` (live since 2026-08); the DM
-# readback is unchanged and stays flat.
+# Read back. The workbook readback (?includeContents=true) nests non-metadata
+# fields (pages/layout/schemaVersion/kind) under `contents`; the DM readback is
+# unchanged and stays flat.
 raw_readback = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).body)
 spec = opts[:type] == 'workbook' ? Sigma::CodeRep.document(raw_readback) : raw_readback
 
@@ -219,7 +234,7 @@ if opts[:type] == 'workbook' && !opts[:skip_lint]
     violations.each { |v| warn "  - #{v}" }
     warn 'Fix the spec/layout and re-PUT before continuing: raw-id names -> derive human'
     warn 'titles; loose controls -> control band or the chart container; dead zones ->'
-    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/spec'
+    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/contents'
     warn '(re-POSTing creates an orphan).'
     warn '========================================'
     exit(3)
@@ -255,7 +270,7 @@ if opts[:type] == 'workbook' && !opts[:skip_control_lint]
     warn 'filters targets ({source:{elementId}, columnId}) or remove the control;'
     warn 'partial reach -> wire the uncovered elements or annotate controlScope in'
     warn 'control-scope.json (see scripts/lib/control_lint.rb CONTRACT). The workbook'
-    warn 'DID post — fix with PUT /v2/workbooks/<id>/spec (re-POSTing creates an orphan).'
+    warn 'DID post — fix with PUT /v2/workbooks/<id>/contents (re-POSTing creates an orphan).'
     warn '========================================'
     exit(4)
   end

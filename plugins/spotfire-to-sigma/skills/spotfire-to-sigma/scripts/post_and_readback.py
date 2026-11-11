@@ -46,7 +46,10 @@ def _write_json(path: str | Path, value: Any) -> None:
 
 def workbook_document(spec: dict[str, Any]) -> dict[str, Any]:
     candidate = spec.get("spec") if isinstance(spec.get("spec"), dict) else spec
-    document = candidate.get("document")
+    # Live readbacks carry `contents`; on-disk artifacts keep `document`.
+    document = candidate.get("contents")
+    if not isinstance(document, dict):
+        document = candidate.get("document")
     return document if isinstance(document, dict) else candidate
 
 
@@ -478,10 +481,23 @@ def _paths(kind: str, object_id: str | None = None) -> tuple[str, str]:
             "dataModelId",
         )
     return (
-        "/v2/workbooks/%s/spec" % object_id
-        if object_id else "/v2/workbooks/spec",
+        "/v2/workbooks/%s?includeContents=true" % object_id
+        if object_id else "/v2/workbooks",
         "workbookId",
     )
+
+
+def _create_body(outgoing: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
+    """Re-key the on-disk `document` wrapper to the API's `contents` key."""
+    body = {
+        key: outgoing[key]
+        for key in ("name", "folderId", "description", "ownerId")
+        if key in outgoing
+    }
+    body["contents"] = workbook_document(outgoing)
+    if dry_run:
+        body["dryRun"] = True
+    return body
 
 
 def read_existing(
@@ -526,12 +542,16 @@ def post_and_readback(
     if kind == "workbook":
         api.request(
             "post",
-            "/v2/workbooks/spec/verify",
-            body=json.dumps(outgoing),
+            _paths(kind)[0],
+            body=json.dumps(_create_body(outgoing, dry_run=True)),
         )
     path, id_field = _paths(kind)
     response = api.request(
-        "post", path, body=json.dumps(outgoing)
+        "post",
+        path,
+        body=json.dumps(
+            _create_body(outgoing) if kind == "workbook" else outgoing
+        ),
     ) or {}
     if not isinstance(response, dict):
         raise ReadbackError("POST %s returned no JSON object" % path)

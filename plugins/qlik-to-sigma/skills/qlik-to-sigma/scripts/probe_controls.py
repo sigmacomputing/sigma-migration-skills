@@ -15,7 +15,7 @@ from typing import Any
 
 import control_lint
 from lib import sigma_rest
-from lib.code_rep import document
+from lib.code_rep import document, read_path
 from preflight_warehouse import list_entries
 
 
@@ -180,7 +180,7 @@ def run_probe(
     output: Path,
     timeout: int,
 ) -> tuple[int, list[dict[str, Any]]]:
-    raw_spec = sigma_rest.request("get", f"/v2/workbooks/{workbook_id}/spec") or {}
+    raw_spec = sigma_rest.request("get", read_path(workbook_id)) or {}
     spec = document(raw_spec)
     element_map = control_lint.elements(spec)
     rows = control_lint.controls_report(spec)
@@ -333,7 +333,7 @@ def run_probe(
         json.dumps(results, indent=2) + "\n", encoding="utf-8"
     )
     doc_version = (
-        raw_spec.get("latestDocumentVersion") or raw_spec.get("latestVersion")
+        raw_spec.get("latestVersion") or raw_spec.get("latestDocumentVersion")
         if isinstance(raw_spec, dict)
         else None
     )

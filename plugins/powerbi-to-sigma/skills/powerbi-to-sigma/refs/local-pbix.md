@@ -16,7 +16,7 @@ does, then the normal convert → build → verify pipeline runs unchanged:
 | Half | Script | Source inside the `.pbix` |
 | --- | --- | --- |
 | Model (`model.bim`, TMSL) | `extract-model-pbix.py` | the binary VertiPaq `DataModel` blob (via **pbixray**) |
-| Report (`signals.json`) | `extract-report-classic.py --pbix` | the `Report/Layout` member (a single **UTF-16LE** classic `sections[]` doc) — **stdlib only** |
+| Report (`signals.json`) | `extract-report-classic.py --pbix` | classic **UTF-16LE** `Report/Layout` or modern `Report/definition/` PBIR; **stdlib only** |
 
 You can also run either extractor standalone:
 
@@ -61,10 +61,16 @@ Detection:
 
 ## pbixray install (the one fragile dependency)
 
+Try `python -m pip install pbixray` in the selected interpreter first. Compatible
+wheels are now available for some environments: CPython 3.14 on macOS arm64 was
+tested with pbixray 0.15.5, xpress9 0.3.9 and xmhuffman 0.3.2. A universal
+"must build from source" requirement is no longer accurate. The recipe below is
+the fallback when a platform lacks a working wheel.
+
 Only the **model** half needs pbixray. It is intentionally **not** in
 `scripts/requirements.txt` (so the default `run.sh` venv bootstrap stays CI-robust):
-pbixray depends on `xpress9` and `xmhuffman`, whose **PyPI sdists are broken** and
-must be built **from source**. Install once, into the interpreter you pass as
+Older `xpress9` and `xmhuffman` **PyPI sdists were broken** and required installation
+**from source**. Install once, into the interpreter you pass as
 `--python` (or the skill's `<work>/.venv`):
 
 ```

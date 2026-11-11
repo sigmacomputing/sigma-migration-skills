@@ -24,7 +24,7 @@ require_relative '../lib/code_rep'
 # DATAMODEL branch through the adapter too (e.g. by deleting the `else` or
 # copying the wrapped body into both branches).
 module CodeRepGuardCheck
-  CODE_REP_METHODS = %i[document wrap metadata].freeze
+  CODE_REP_METHODS = %i[document wrap metadata create_path read_path update_path create_body update_body].freeze
 
   module_function
 
@@ -112,6 +112,18 @@ class TestPostAndReadback < Minitest::Test
     refute body.key?('pages'), 'pages must not remain top-level'
   end
 
+  def test_workbook_create_and_update_bodies_use_contents
+    doc  = { 'schemaVersion' => 1, 'pages' => [], 'kind' => 'workbook' }
+    spec = { 'name' => 'n', 'folderId' => 'f', 'document' => doc }
+    create = Sigma::CodeRep.create_body(spec)
+    assert_equal %w[contents folderId name], create.keys.sort
+    assert_equal doc.merge('elements' => []), create['contents']
+    assert_equal ['contents'], Sigma::CodeRep.update_body(spec).keys
+    assert_equal '/v2/workbooks', Sigma::CodeRep.create_path
+    assert_equal '/v2/workbooks/w?includeContents=true', Sigma::CodeRep.read_path('w')
+    assert_equal '/v2/workbooks/w/contents', Sigma::CodeRep.update_path('w')
+  end
+
   # The DM branch must be left alone — that surface is not changing.
   def test_datamodel_branch_stays_flat
     readback = { 'dataModelId' => 'd', 'pages' => [{ 'id' => 'p1' }], 'schemaVersion' => 1 }
@@ -125,7 +137,7 @@ class TestPostAndReadback < Minitest::Test
   # spec.to_json body — that's the actual bug this task fixes.
   def test_script_uses_code_rep_adapter_for_workbook_branch
     src = File.read(File.join(__dir__, '..', 'post-and-readback.rb'))
-    assert_match(/Sigma::CodeRep\.(document|wrap|metadata)/, src,
+    assert_match(/Sigma::CodeRep\.(document|wrap|metadata|create_body|update_body)/, src,
                  'post-and-readback.rb must call Sigma::CodeRep for its workbook branch')
     assert_match(/Sigma::CodeRep\.workbook_elements_with_pages/, src,
                  'readback summary must join flat elements to metadata-only pages via layout')

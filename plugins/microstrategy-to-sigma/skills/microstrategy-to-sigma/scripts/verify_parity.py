@@ -23,7 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import code_rep  # workbook code-rep document-wrapper adapter (nested GET/POST shape)
+import code_rep  # workbook code-rep adapter (endpoint paths + contents-wrapped GET/POST shape)
 import sigma_rest
 
 # report name -> (element name, key column names, tolerance map)
@@ -40,9 +40,7 @@ def api(method, path, body=None, raw=False):
     """
     base = sigma_rest.base_url()
     sigma_rest._validate_once(base)
-    headers = {}
-    if not path.endswith("/spec") or body is not None:
-        headers["Accept"] = "application/json"
+    headers = {"Accept": "application/json"}
     data = json.dumps(body) if body is not None else None
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -109,16 +107,16 @@ def main():
         key_cols_by_report = json.load(open(args.keys))
 
     # map report name -> element id from the workbook spec readback
-    st, out = api("GET", f"/v2/workbooks/{args.workbook_id}/spec")
+    st, out = api("GET", code_rep.read_path(args.workbook_id))
     if st >= 300:
-        raise SystemExit(f"spec GET failed {st}: {out[:300]}")
+        raise SystemExit(f"workbook GET failed {st}: {out[:300]}")
     try:
         raw_spec = json.loads(out)
     except json.JSONDecodeError:
         import yaml
         raw_spec = yaml.safe_load(out)
     # Workbook code-rep GETs nest pages/schemaVersion under a top-level
-    # `document` key (live since 2026-08); a bare spec["pages"] read here was
+    # `contents` key (`document` on the retired /spec GET); a bare spec["pages"] read here was
     # always a KeyError, so the report-name -> element-id map below never
     # even ran.
     el_by_name = {}

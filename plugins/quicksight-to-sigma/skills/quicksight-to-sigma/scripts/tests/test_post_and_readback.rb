@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 #
 # test_post_and_readback.rb — regression test for the workbook code-rep
-# document-wrapper fix (Task 3.1). Verifies the shared Sigma::CodeRep adapter
+# document-wrapper fix (Task 3.1), updated for the /contents endpoints. Verifies the shared Sigma::CodeRep adapter
 # (vendored at ../lib/code_rep.rb) reads the LIVE nested workbook readback
 # shape and produces a properly-nested POST/PUT body, while confirming the
 # datamodel surface's flat shape is untouched (it is NOT changing — do not
@@ -24,7 +24,7 @@ require_relative '../lib/code_rep'
 # DATAMODEL branch through the adapter too (e.g. by deleting the `else` or
 # copying the wrapped body into both branches).
 module CodeRepGuardCheck
-  CODE_REP_METHODS = %i[document wrap metadata].freeze
+  CODE_REP_METHODS = %i[document wrap metadata create_body update_body create_path read_path update_path].freeze
 
   module_function
 
@@ -90,15 +90,22 @@ end
 
 class TestPostAndReadback < Minitest::Test
   def test_workbook_readback_pages_found_when_nested
-    readback = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    readback = { 'workbookId' => 'w', 'contents' => { 'pages' => [{ 'id' => 'p1' }] } }
     assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(readback)['pages']
+    legacy = { 'workbookId' => 'w', 'document' => { 'pages' => [{ 'id' => 'p1' }] } }
+    assert_equal [{ 'id' => 'p1' }], Sigma::CodeRep.document(legacy)['pages'], 'retired /spec readback still reads'
   end
 
   def test_workbook_post_body_is_nested
     doc  = { 'schemaVersion' => 1, 'pages' => [], 'kind' => 'workbook' }
-    body = Sigma::CodeRep.wrap(doc, extra: { 'name' => 'n', 'folderId' => 'f' })
-    assert_equal doc.merge('elements' => []), body['document']
+    body = Sigma::CodeRep.create_body(doc, extra: { 'name' => 'n', 'folderId' => 'f' })
+    assert_equal doc.merge('elements' => []), body['contents']
+    assert_equal %w[name folderId], body.keys - ['contents']
     refute body.key?('pages'), 'pages must not remain top-level'
+    assert_equal({ 'contents' => doc.merge('elements' => []) }, Sigma::CodeRep.update_body(doc))
+    assert_equal '/v2/workbooks', Sigma::CodeRep.create_path
+    assert_equal '/v2/workbooks/w/contents', Sigma::CodeRep.update_path('w')
+    assert_equal '/v2/workbooks/w?includeContents=true', Sigma::CodeRep.read_path('w')
   end
 
   def test_workbook_helpers_recover_page_membership_from_layout
@@ -128,7 +135,7 @@ class TestPostAndReadback < Minitest::Test
   # spec.to_json body — that's the actual bug this task fixes.
   def test_script_uses_code_rep_adapter_for_workbook_branch
     src = File.read(File.join(__dir__, '..', 'post-and-readback.rb'))
-    assert_match(/Sigma::CodeRep\.(document|wrap|metadata)/, src,
+    assert_match(/Sigma::CodeRep\.(document|create_body|update_body)/, src,
                  'post-and-readback.rb must call Sigma::CodeRep for its workbook branch')
   end
 

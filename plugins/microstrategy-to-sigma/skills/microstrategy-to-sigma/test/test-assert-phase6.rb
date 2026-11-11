@@ -7,7 +7,7 @@
 #
 # Scope, from reading the CURRENT script (2026-07, ~31 gates; header comments
 # lag the code and are NOT trusted):
-#   - Gates 3 (live /columns) and 4 (live /spec layout) hit the network and
+#   - Gates 3 (live /columns) and 4 (live workbook-contents layout) hit the network and
 #     FAIL CLOSED (exit 5 / exit 6) when SIGMA_BASE_URL/SIGMA_API_TOKEN are
 #     unset and a workbook id resolves — they do not silently pass. This
 #     fail-closed behavior itself is file+env driven and IS tested below;
@@ -104,7 +104,7 @@ end
 # the cap of 2, never over it).
 HAPPY_FLAGS = [
   '--skip-column-check', 'offline harness: no live Sigma creds (gate 3 needs GET /v2/workbooks/{id}/columns)',
-  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}/spec)',
+  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}?includeContents=true)',
   '--skip-visual-comparison', 'verifier: render pre-verified by a prior session (policy-excluded from the waiver budget)'
 ].freeze
 
@@ -141,7 +141,7 @@ puts '== gate 3 (live /columns, fail-closed without creds) =='
 # CLOSED rather than silently pass — proves a credential-less run cannot ship.
 scenario('workbook id resolvable, no creds, no waiver -> exit 5', 5, [])
 
-puts '== gate 4 (live /spec layout, fail-closed without creds) =='
+puts '== gate 4 (live workbook-contents layout, fail-closed without creds) =='
 scenario('gate 3 waived, gate 4 not waived, no creds -> exit 6', 6,
          ['--skip-column-check', 'reach gate 4'])
 

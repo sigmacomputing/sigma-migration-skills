@@ -3,7 +3,7 @@
 **Date:** 2026-06-06  ·  **Sigma org:** the demo org  ·  **QuickSight acct:** <aws-account-id> (us-east-1)
 **Scope:** all 20 migration test dashboards (D1–D20). Every QuickSight Sheet, Visual, and field-well
 was enumerated from `aws quicksight describe-analysis-definition` and compared against the produced
-Sigma workbook spec (`GET /v2/workbooks/{id}/spec`) and live element schemas/queries (sigma-mcp-v2).
+Sigma workbook spec (`GET /v2/workbooks/{id}?includeContents=true`) and live element schemas/queries (sigma-mcp-v2).
 
 This ledger is deliberately blunt. Each row is classified **MATCH**, **FIXED-this-pass**, or
 **DOCUMENTED-SIGMA-LIMITATION ((c)-tail)** with the specific reason. Parity = the headline metric was

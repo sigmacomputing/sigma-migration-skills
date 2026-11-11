@@ -25,7 +25,7 @@
 #                               (Phase 3 — star repointed via reconcile + denorm
 #                                SQL element + metrics, POST /v2/dataModels/spec)
 #   build-sigma-workbook.py     (Phase 4 — one Sigma page per Qlik sheet from
-#                                charts.json, POST /v2/workbooks/spec)
+#                                charts.json, POST /v2/workbooks)
 #   put-layout.rb               (Phase 5 — the Qlik cell grid mapped onto Sigma's
 #                                24-col grid, straight from discovery)
 #   Phase 6 — parity: column resolution + SOURCE-FRESHNESS banner (Qlik snapshot
@@ -948,7 +948,7 @@ render_png = nil
 unless opts[:dry_run]
   vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
   # Page ids come from the LOCAL spec the builder wrote — deterministic. (The
-  # live GET /spec readback proved flaky inside the pipeline, silently yielding
+  # live workbook readback proved flaky inside the pipeline, silently yielding
   # zero pages; POST preserves these ids so the local copy is authoritative.)
   wbspec = (JSON.parse(File.read(File.join(WORK, 'wb-spec.json'))) rescue {})
   wbdoc = Sigma::CodeRep.document(wbspec)
@@ -1212,8 +1212,8 @@ File.write(File.join(WORK, 'parity-final.json'), JSON.pretty_generate(parity_fin
 $LOAD_PATH.unshift File.expand_path('lib', HERE)
 require 'layout_lint'
 require 'control_lint'
-live = Sigma.request(:get, "/v2/workbooks/#{WB_ID}/spec") rescue {}
-# Workbook code-rep GETs nest the complete document under `document`.
+live = Sigma.request(:get, Sigma::CodeRep.read_path(WB_ID)) rescue {}
+# Workbook code-rep GETs nest the complete document under `contents`.
 # Preserve that document intact; both lints use CodeRep's flat-element/layout
 # helpers directly and no longer infer ownership from pages[].elements.
 live_spec = live.is_a?(Hash) ? Sigma::CodeRep.metadata(live).merge(Sigma::CodeRep.document(live)) : {}

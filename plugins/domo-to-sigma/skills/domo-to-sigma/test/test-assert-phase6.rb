@@ -104,7 +104,7 @@ end
 # the cap of 2, never over it).
 HAPPY_FLAGS = [
   '--skip-column-check', 'offline harness: no live Sigma creds (gate 3 needs GET /v2/workbooks/{id}/columns)',
-  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}/spec)',
+  '--skip-layout-check', 'offline harness: no live Sigma creds (gate 4 needs GET /v2/workbooks/{id}?includeContents=true)',
   '--skip-visual-comparison', 'verifier: render pre-verified by a prior session (policy-excluded from the waiver budget)'
 ].freeze
 

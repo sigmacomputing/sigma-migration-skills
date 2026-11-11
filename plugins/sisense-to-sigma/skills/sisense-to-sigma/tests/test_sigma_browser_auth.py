@@ -118,7 +118,7 @@ class SigmaBrowserAuthTest(unittest.TestCase):
         self.send_queue([(200, json.dumps({"workbookId": "wb-valid"}))])
 
         result = post_spec.Client(None, None).request(
-            "POST", "/v2/workbooks/spec", {"name": "WB"}
+            "POST", "/v2/workbooks", {"name": "WB"}
         )
 
         self.assertEqual({"workbookId": "wb-valid"}, result)
