@@ -57,11 +57,12 @@ end
 xml = File.read(opts[:layout], encoding: 'UTF-8')
 abort "FATAL: empty elementId in layout XML" if xml.match?(/elementId=""/)
 
-raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec").body)
+raw_spec = JSON.parse(http(:get, Sigma::CodeRep.read_path(opts[:wb])).body)
 # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
-# `document` key (live since 2026-08) and REJECTS the old flat body on PUT
-# with a 400 — unwrap the GET before any spec['pages'] access below; this
-# endpoint is workbook-only (data-model code-rep is confirmed unchanged).
+# `contents` key (`document` on the retired /spec endpoints) and REJECTS the
+# old flat body on PUT with a 400 — unwrap the GET before any spec['pages']
+# access below; this endpoint is workbook-only (data-model code-rep is
+# confirmed unchanged).
 spec = Sigma::CodeRep.document(raw_spec)
 spec['pages'].each { |p| p.delete('layout') }
 spec['layout'] = xml
@@ -108,7 +109,7 @@ unless duplicate_elements.empty? && duplicate_placements.empty? && unplaced.empt
         "unplaced=#{unplaced.inspect}; unknown=#{unknown.inspect}"
 end
 
-resp = http(:put, "/v2/workbooks/#{opts[:wb]}/spec", JSON.pretty_generate(Sigma::CodeRep.wrap(spec)))
+resp = http(:put, Sigma::CodeRep.update_path(opts[:wb]), JSON.pretty_generate(Sigma::CodeRep.update_body(spec)))
 parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
 puts parsed['workbookId'] ? "PUT ok: workbookId=#{parsed['workbookId']}" : "ERROR: #{parsed.inspect}"
 exit(parsed['workbookId'] ? 0 : 1)

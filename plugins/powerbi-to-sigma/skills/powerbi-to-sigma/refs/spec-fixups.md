@@ -17,10 +17,12 @@ Post with `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel --spec
 ### Gotcha: PUT reassigns element IDs
 `PUT /v2/dataModels/{id}/spec` (e.g. to add element names) **reassigns server element IDs**. Always GET the spec back after a PUT and use the *new* IDs for the workbook's masters.
 
-## Workbook — `POST /v2/workbooks/spec`
-- **`document`-wrapped, not flat** (verified live 2026-08-03, including on `/verify`
-  2026-08-04): `schemaVersion`, `pages`, `kind`, and `layout` nest under a top-level
-  `document` key; `name`/`folderId` stay outside it. Needs `document.schemaVersion: 1` +
+## Workbook — `POST /v2/workbooks`
+- **`contents`-wrapped, not flat** (live-verified 2026-11-03; the `/v2/workbooks/spec`
+  endpoints are deprecated — dry-run is `POST /v2/workbooks` with `dryRun: true`, readback is
+  `GET /v2/workbooks/{id}?includeContents=true`, replace is `PUT /v2/workbooks/{id}/contents`):
+  `schemaVersion`, `pages`, `kind`, and `layout` nest under a top-level
+  `contents` key; `name`/`folderId` stay outside it. Needs `contents.schemaVersion: 1` +
   `folderId`. (No `ownerId` required.) The DM POST above is a *different* surface and
   stays flat — don't wrap it.
 - **Data page**: hidden `table` masters, one per DM element used: `source:{kind:"data-model", dataModelId, elementId}`, columns `[{id,name,formula:"[ElementName/Col]"}]`, named (e.g. `EMP`, `ABS`).
@@ -33,7 +35,7 @@ Post with `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel --spec
 
 ## Layout — never leave charts stacked
 Charts post fine with no `layout` (they stack vertically) — but that's not done. Apply the
-24-col grid via a single `document.layout` XML string (see *Workbook* above) and
+24-col grid via a single `contents.layout` XML string (see *Workbook* above) and
 `put-layout.rb`. See `research/powerbi-visual-layout.md §4` for the px→grid math and
 `tableau-to-sigma/refs/workbook-layout.md` for the XML shape (`<Page>`/`<Element>`/`<Container>`).
 

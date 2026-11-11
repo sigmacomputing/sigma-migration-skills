@@ -1243,12 +1243,13 @@ console.error('stats:', JSON.stringify(res.stats));
 
     write_base_path = os.path.join(wd, "wb-write-base.json")
     try:
-        # Builder output is already a current workbook envelope. Re-wrapping via
-        # CodeRep is deliberate: it tolerates legacy local artifacts while
-        # preserving outer metadata and the full current document collections.
-        post_body = code_rep.wrap(code_rep.document(wspec), code_rep.metadata(wspec))
+        # Builder output is already a current workbook envelope (on disk the
+        # document sits under `document`). create_body/update_body re-key it to
+        # the wire `contents` shape: deliberate, because it tolerates legacy
+        # local artifacts while keeping the outer metadata (create) and the full
+        # current document collections.
         if a.update_workbook:
-            remote = json.loads(sigma("GET", f"/v2/workbooks/{a.update_workbook}/spec"))
+            remote = json.loads(sigma("GET", code_rep.read_path(a.update_workbook)))
             saved_base = (json.load(open(write_base_path))
                           if os.path.exists(write_base_path) else None)
             if remote_drifted(saved_base, remote) and not a.force_overwrite:
@@ -1265,14 +1266,16 @@ console.error('stats:', JSON.stringify(res.stats));
                         "resolution": "force-overwrite",
                     }) + "\n")
             json.dump(fingerprint(remote), open(write_base_path, "w"), indent=2)
-            resp = sigma("PUT", f"/v2/workbooks/{a.update_workbook}/spec", post_body)
+            resp = sigma("PUT", code_rep.update_path(a.update_workbook),
+                         code_rep.update_body(wspec))
             wb = a.update_workbook
         else:
-            # Keep the create payload wrapped immediately at the call site. The
+            # Keep the create payload re-keyed immediately at the call site. The
             # update branch above performs extra drift checks, but both writes
-            # must send the current document envelope.
-            post_body = code_rep.wrap(code_rep.document(wspec), code_rep.metadata(wspec))
-            resp = sigma("POST", "/v2/workbooks/spec", post_body)   # responds in YAML
+            # must send the current `contents` envelope.
+            resp = sigma("POST", code_rep.create_path(), code_rep.create_body(wspec))
+            # The response is the JSON workbook envelope (older orgs answered in
+            # YAML); the regex covers both.
             match = re.search(r"workbookId[\"'\s:]+([0-9a-f-]{36})", resp)
             if not match:
                 sys.exit("FATAL: workbook POST: " + resp[:300])
@@ -1299,7 +1302,7 @@ console.error('stats:', JSON.stringify(res.stats));
             "method": "PUT" if a.update_workbook else "POST",
         }) + "\n")
     json.dump({"workbookId": wb}, open(os.path.join(wd, "wb-ids.json"), "w"))
-    readback = json.loads(sigma("GET", f"/v2/workbooks/{wb}/spec"))
+    readback = json.loads(sigma("GET", code_rep.read_path(wb)))
     json.dump(readback, open(os.path.join(wd, "wb-readback.json"), "w"), indent=2)
     json.dump(fingerprint(readback), open(write_base_path, "w"), indent=2)
     entries = list_entries(

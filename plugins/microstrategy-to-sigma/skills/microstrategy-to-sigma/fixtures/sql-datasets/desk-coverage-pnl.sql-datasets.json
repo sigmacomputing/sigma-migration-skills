@@ -1,0 +1,78 @@
+{
+  "format": "mstr-sql-datasets/1",
+  "_extraction": {
+    "provenance": "synthetic: shaped from MicroStrategy REST docs, not captured live",
+    "retrievedAtUtc": "2026-10-30T00:00:00+00:00"
+  },
+  "datasets": [
+    {
+      "format": "mstr-sql-dataset/1",
+      "reportId": "AAAA1111BBBB2222CCCC3333DDDD4444",
+      "name": "Desk Coverage P&L",
+      "provenance": {
+        "sqlSource": "resolve_prompts",
+        "retrievedAtUtc": "2026-10-30T00:00:00+00:00"
+      },
+      "sql": "-- Desk coverage P&L: prompt answers already resolved by MicroStrategy\nWITH cov AS (\n  SELECT d.desk_id, d.desk_name, c.cov_name, p.pnl_amt, p.notional_amt, p.trade_dt\n  FROM dbo.fact_pnl p\n  JOIN dbo.dim_desk d ON d.desk_id = p.desk_id\n  JOIN dbo.dim_coverage c ON c.cov_id = p.cov_id\n  WHERE p.trade_dt >= '2026-01-01' /* prompt answer, commas, in a comment */\n)\nSELECT TOP 1000\n  cov.desk_id AS [Desk ID],\n  cov.desk_name AS [Desk Name],\n  cov.cov_name [Coverage],\n  SUM(cov.pnl_amt) AS [Total PnL],\n  SUM(cov.notional_amt) AS [Notional, USD]\nFROM cov\nGROUP BY cov.desk_id, cov.desk_name, cov.cov_name",
+      "objects": [
+        {
+          "kind": "attribute",
+          "id": "A0000000000000000000000000000001",
+          "name": "Desk",
+          "form": "ID",
+          "dataType": "numeric"
+        },
+        {
+          "kind": "attribute",
+          "id": "A0000000000000000000000000000001",
+          "name": "Desk",
+          "form": "DESC",
+          "dataType": "varchar"
+        },
+        {
+          "kind": "attribute",
+          "id": "A0000000000000000000000000000002",
+          "name": "Coverage",
+          "form": "DESC",
+          "dataType": "varchar"
+        },
+        {
+          "kind": "metric",
+          "id": "B0000000000000000000000000000001",
+          "name": "Total PnL",
+          "dataType": "numeric"
+        },
+        {
+          "kind": "metric",
+          "id": "B0000000000000000000000000000002",
+          "name": "Notional, USD",
+          "dataType": "numeric"
+        }
+      ],
+      "prompts": [
+        {
+          "id": "P0000000000000000000000000000001",
+          "name": "Trade Date From",
+          "type": "value",
+          "answer": "2026-01-01"
+        }
+      ],
+      "columnMap": [
+        {
+          "alias": "Desk Name",
+          "object": "Desk",
+          "form": "DESC"
+        }
+      ],
+      "raw": {
+        "definition": {
+          "synthetic": true
+        },
+        "prompts": [],
+        "sqlResponse": {
+          "synthetic": true
+        }
+      }
+    }
+  ]
+}

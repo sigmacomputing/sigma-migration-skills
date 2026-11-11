@@ -32,12 +32,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, extractId, parseArgs, elementsOf } from './lib/sigma-rest.mjs';
-import { document, metadata, workbookElements, wrap } from './lib/code_rep.mjs';
+import { createBody, createPath, readPath, workbookElements } from './lib/code_rep.mjs';
 
 const a = parseArgs(process.argv.slice(2));
 if (!a.type || !a.spec || !a.folder) { console.error('need --type datamodel|workbook --spec <spec.json> --folder <folderId>'); process.exit(2); }
 const idField = a.type === 'datamodel' ? 'dataModelId' : 'workbookId';
-const postPath = a.type === 'datamodel' ? '/v2/dataModels/spec' : '/v2/workbooks/spec';
+// Workbooks use POST /v2/workbooks (the /v2/workbooks/spec endpoints are deprecated);
+// data models keep /v2/dataModels/spec.
+const postPath = a.type === 'datamodel' ? '/v2/dataModels/spec' : createPath();
 const colsPath = (id) => a.type === 'datamodel' ? `/v2/dataModels/${id}/columns` : `/v2/workbooks/${id}/columns`;
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const WORKDIR = dirname(a.spec);
@@ -45,10 +47,11 @@ const scopePath = a['control-scope'] || join(WORKDIR, 'control-scope.json');
 
 const spec = JSON.parse(readFileSync(a.spec, 'utf8'));
 const name = a.name || spec.name || `metabase ${a.type} ${Date.now()}`;
-// Workbook writes require the released code-representation envelope. Data-model
-// writes deliberately remain flat; that API does not accept `document`.
+// Workbook writes require the released code-representation envelope
+// (name/folderId beside `contents`). Data-model writes deliberately remain flat;
+// that API does not accept `contents`.
 const body = a.type === 'workbook'
-  ? wrap(document(spec), { ...metadata(spec), folderId: a.folder, name })
+  ? createBody(spec, { extra: { folderId: a.folder, name } })
   : { folderId: a.folder, ...spec, name };
 let post = await api('POST', postPath, body);
 // Control→DM-parameter bindings (remap --dm-spec) can be rejected by orgs where
@@ -72,11 +75,11 @@ if (!post.ok && /Invalid parameter on control/.test(post.text)) {
   } else {
     for (const element of workbookElements(body)) if (bound(element)) dropped.push(element.controlId);
     const droppedElementIds = new Set(
-      (body.document.elements || []).filter((element) => bound(element)).map((element) => element.id),
+      (body.contents.elements || []).filter((element) => bound(element)).map((element) => element.id),
     );
-    body.document.elements = (body.document.elements || []).filter((element) => !bound(element));
-    if (droppedElementIds.size && typeof body.document.layout === 'string') {
-      body.document.layout = body.document.layout.replace(
+    body.contents.elements = (body.contents.elements || []).filter((element) => !bound(element));
+    if (droppedElementIds.size && typeof body.contents.layout === 'string') {
+      body.contents.layout = body.contents.layout.replace(
         /<Element\b[^>]*\belementId="([^"]*)"[^>]*\/>/g,
         (node, elementId) => droppedElementIds.has(elementId) ? '' : node,
       );
@@ -129,7 +132,7 @@ console.error(`readback clean: ${elements.length} element(s), 0 error columns`);
 
 // ── shared lint pass (workbooks): layout_lint + control_lint on the READBACK spec
 if (a.type === 'workbook') {
-  const rb = await api('GET', `/v2/workbooks/${id}/spec`);
+  const rb = await api('GET', readPath(id));
   const rbPath = join(WORKDIR, 'workbook-readback.spec.json');
   writeFileSync(rbPath, rb.json ? JSON.stringify(rb.json, null, 2) : rb.text);
   const run = (script, args) => spawnSync('ruby', [join(SCRIPTS, 'lib', script), ...args], { stdio: 'inherit' });

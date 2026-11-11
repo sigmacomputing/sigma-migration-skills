@@ -19,10 +19,10 @@ ok('abbreviates? thousands',              S.abbreviates?('thousands') == true)
 ok('abbreviates? none = full precision',  S.abbreviates?('none') == false)
 
 # --- kpi_anchor : center by default; explicit PBI alignment wins ---------------
-ok('kpi_anchor nil -> middle',   S.kpi_anchor(nil) == 'middle')
-ok('kpi_anchor left -> start',   S.kpi_anchor('left') == 'start')
-ok('kpi_anchor right -> end',    S.kpi_anchor('right') == 'end')
-ok('kpi_anchor center -> middle', S.kpi_anchor('center') == 'middle')
+ok('kpi_anchor nil -> center',   S.kpi_anchor(nil) == 'center')
+ok('kpi_anchor left -> left',   S.kpi_anchor('left') == 'left')
+ok('kpi_anchor right -> right',    S.kpi_anchor('right') == 'right')
+ok('kpi_anchor center -> center', S.kpi_anchor('center') == 'center')
 
 # --- compact_format : preserve $, skip %, classify unformatted by sibling ------
 ok('compact $ currency -> $,.3s', S.compact_format({ 'formatString' => '$,.0f' }, 3, false) == { 'kind' => 'number', 'formatString' => '$,.3s' })
