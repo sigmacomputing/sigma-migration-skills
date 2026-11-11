@@ -37,7 +37,7 @@ sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, os.path.join(SCRIPTS, "lib"))
 
 WIRED_DIMS = {"number-format", "aggregation", "control", "viz-kind",
-              "workbook-feature"}
+              "workbook-feature", "document-control"}
 
 
 def _new_bundle():
@@ -75,7 +75,8 @@ def test_catalogs_valid():
     # viz-kind is WIRED (bar/line validated; area wired but unverified).
     raw = json.load(open(os.path.join(CATDIR, "viz-kind.json")))
     assert raw.get("wired") is True, "viz-kind.json must be flagged wired:true"
-    print("[ok] catalogs: 5 dimensions load, cited, unique sources, valid sigma_verified")
+    print("[ok] catalogs: %d dimensions load, cited, unique sources, valid sigma_verified"
+          % len(WIRED_DIMS))
 
 
 def test_no_inline_maps():
@@ -216,8 +217,8 @@ def test_e2e_offline_fixture():
         assert "formatString" not in wb and "formatString" not in dm, \
             "a guessed number format survived the disease cure"
         wb_obj = json.loads(wb)
-        assert set(wb_obj) >= {"name", "folderId", "document"}, wb_obj.keys()
-        doc = wb_obj["document"]
+        assert set(wb_obj) >= {"name", "folderId", "contents"}, wb_obj.keys()
+        doc = wb_obj["contents"]
         assert doc.get("kind") == "workbook"
         assert doc.get("layout") and "<Page " in doc["layout"]
         assert "<Element " in doc["layout"] and "<Container " in doc["layout"]
@@ -252,7 +253,7 @@ def test_chart_emission():
         assert r.returncode == 0, r.stderr
         wb = json.load(open(os.path.join(d, "wb.json")))
         kinds = {}
-        for e in wb["document"]["elements"]:
+        for e in wb["contents"]["elements"]:
             if e.get("kind") in ("bar-chart", "line-chart", "area-chart", "table") and e.get("name"):
                 kinds[e["name"]] = e
         assert kinds.get("Channel Performance", {}).get("kind") == "bar-chart", kinds
@@ -326,7 +327,7 @@ def test_released_workbook_features():
             capture_output=True, text=True, cwd=d)
         assert r.returncode == 0, r.stderr
         wb = json.load(open(wb_path))
-        doc = wb["document"]
+        doc = wb["contents"]
         elements = doc["elements"]
         by_kind = {}
         for e in elements:
@@ -383,7 +384,7 @@ def test_released_workbook_features():
              "--folder-id", "fld-x", "--out-wb", wb_path],
             capture_output=True, text=True, cwd=d)
         assert r.returncode == 0, r.stderr
-        gauge_elements = json.load(open(wb_path))["document"]["elements"]
+        gauge_elements = json.load(open(wb_path))["contents"]["elements"]
         progress = next(e for e in gauge_elements if e.get("kind") == "progress")
         assert progress["value"] == "Sum([Orders/Total Net Revenue])"
         assert progress["min"] == "0" and progress["max"] == "100000"

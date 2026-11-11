@@ -1,0 +1,20 @@
+{
+  "blocking": 0,
+  "gaps": [
+    {
+      "dataset": "Desk Coverage P&L",
+      "reportId": "AAAA1111BBBB2222CCCC3333DDDD4444",
+      "construct": "metric aggregation",
+      "severity": "review",
+      "detail": "freeform-SQL metrics roll up by each metric's dynamic-aggregation setting, which the REST API does not expose; Sum is assumed (Sum([Total PnL (SQL column)]), Sum([Notional, USD (SQL column)])). Confirm against the source report and in parity."
+    },
+    {
+      "dataset": "Desk Coverage P&L",
+      "reportId": "AAAA1111BBBB2222CCCC3333DDDD4444",
+      "construct": "prompt: Trade Date From",
+      "severity": "review",
+      "detail": "answer \"2026-01-01\" is baked into the captured SQL; recreate as a Sigma control/parameter if users need to change it."
+    }
+  ],
+  "warnings": []
+}

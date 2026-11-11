@@ -22,7 +22,7 @@
 // Idempotent. Run it as the last step of the build/verify phase.
 import { readFileSync } from 'node:fs';
 import { api, parseArgs } from './lib/sigma-rest.mjs';
-import { document, workbookElements, workbookElementsWithPages, wrap } from './lib/code_rep.mjs';
+import { document, readPath, updateBody, updatePath, workbookElements, workbookElementsWithPages } from './lib/code_rep.mjs';
 
 const a = parseArgs(process.argv.slice(2));
 if (!a.workbook) { console.error('need --workbook <workbookId> [--hints hints.json]'); process.exit(2); }
@@ -131,8 +131,8 @@ function pageLayout(page, els) {
   return `<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="${page.id}">\n${lines.join('\n')}\n</Page>`;
 }
 
-const got = await api('GET', `/v2/workbooks/${a.workbook}/spec`);
-if (!got.json) { console.error(`GET spec failed (HTTP ${got.status}): ${got.text.slice(0, 300)}`); process.exit(1); }
+const got = await api('GET', readPath(a.workbook));
+if (!got.json) { console.error(`GET workbook failed (HTTP ${got.status}): ${got.text.slice(0, 300)}`); process.exit(1); }
 const spec = document(got.json);
 const elements = workbookElements(got.json);
 const elementsByPage = new Map((spec.pages || []).map((page) => [page.id, []]));
@@ -145,7 +145,7 @@ for (const [element, page] of workbookElementsWithPages(got.json)) {
 // assigning its elements to the first metadata page before generating layout.
 if (unplaced.length && spec.pages?.[0]) elementsByPage.get(spec.pages[0].id).push(...unplaced);
 
-// Layout is one `document.layout` XML string. Pages contain metadata only;
+// Layout is one `contents.layout` XML string. Pages contain metadata only;
 // element ownership comes from each <Page> block.
 const hintPageByName = new Map((hints?.pages || []).map((p) => [String(p.name || '').toLowerCase(), p.elements || []]));
 const pageBlocks = [];
@@ -162,12 +162,12 @@ if (hints) console.error(`exact-grid pages: ${exactPages}/${(spec.pages || []).l
 if (!pageBlocks.length || !elements.length) { console.log('no workbook elements — nothing to lay out'); process.exit(0); }
 spec.layout = `<?xml version="1.0" encoding="utf-8"?>\n${pageBlocks.join('\n')}`;
 
-// PUT replaces the entire workbook document and accepts only {document:{...}}.
-const put = await api('PUT', `/v2/workbooks/${a.workbook}/spec`, wrap(spec));
+// PUT /contents replaces the entire workbook document and accepts only {contents:{...}}.
+const put = await api('PUT', updatePath(a.workbook), updateBody(spec));
 if (!put.ok) { console.error(`PUT failed (HTTP ${put.status}): ${put.text.slice(0, 400)}`); process.exit(1); }
 
 // verify the layout survived readback
-const rb = await api('GET', `/v2/workbooks/${a.workbook}/spec`);
+const rb = await api('GET', readPath(a.workbook));
 const ok = /<Element\b/.test(document(rb.json).layout || '');
 console.log(JSON.stringify({ workbookId: a.workbook, pagesLaidOut: pageBlocks.length, layoutOnReadback: ok }, null, 2));
 if (!ok) { console.error('FAIL: layout did not survive readback (check elementId matches)'); process.exit(1); }

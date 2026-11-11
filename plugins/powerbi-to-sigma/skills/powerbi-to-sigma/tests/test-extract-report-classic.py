@@ -13,7 +13,7 @@ SALES_FACT / DATE_DIM names. No .pbix on disk, no pbixray, no network.
 
 Run: python3 tests/test-extract-report-classic.py   (exit 0 = pass)
 """
-import json, os, subprocess, sys, tempfile, zipfile
+import importlib.util, json, os, subprocess, sys, tempfile, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "scripts", "extract-report-classic.py")
@@ -132,6 +132,68 @@ def main():
                            capture_output=True, text=True)
         assert r.returncode != 0 and "Report/Layout" in r.stderr, f"expected clear no-Layout error, got {r.returncode}: {r.stderr}"
         print("  ok [no-layout]: missing Report/Layout member fails with a clear message")
+
+        modern = os.path.join(d, "Modern.pbix")
+        parts = {
+            "Report/definition/pages/pages.json": {"pageOrder": ["p1"]},
+            "Report/definition/pages/p1/page.json": {"name": "p1", "displayName": "Modern"},
+            "Report/definition/report.json": {},
+            "Report/definition/pages/p1/visuals/VUpper/visual.json": {
+                "name": "VUpper", "position": {"x": 0, "y": 0, "width": 200, "height": 100},
+                "visual": {"visualType": "slicer", "syncGroup": {"groupName": "SharedRegion"},
+                    "visualContainerObjects": {"title": [{"properties": {"text": {"expr": {"Literal": {"Value": "'Region picker'"}}}}}]},
+                    "query": {"queryState": {"Values": {"projections": [{"queryRef": "T.Region"}]}}}}}
+        }
+        for separator in ("/", "\\"):
+            with zipfile.ZipFile(modern, "w") as z:
+                for name, body in parts.items():
+                    z.writestr(name.replace("/", separator), json.dumps(body))
+                z.writestr(
+                    "Report/Layout".replace("/", separator),
+                    json.dumps(LAYOUT).encode("utf-16-le"),
+                )
+            signals = _run(["--pbix", modern], os.path.join(d, "modern.json"))
+            visual = signals["pages"][0]["visuals"][0]
+            assert signals["source"] == "pbix-pbir" and "pbir_dir" not in signals
+            assert visual["title"] == "Region picker" and visual["sync_group"] == "SharedRegion"
+            assert visual["bindings"] == {"Values": ["T.Region"]}
+        print("  ok [pbir]: hybrid PBIX prefers modern metadata with either separator")
+        with zipfile.ZipFile(modern, "a") as z:
+            z.writestr("Report/definition/../../../outside.json", "{}")
+        result = subprocess.run([sys.executable, SCRIPT, "--pbix", modern, "--out", os.path.join(d, "unsafe.json")], capture_output=True, text=True)
+        assert result.returncode != 0 and "unsafe PBIR archive" in result.stderr
+        assert not os.path.exists(os.path.join(d, "outside.json"))
+        print("  ok [unsafe]: archive traversal rejected")
+        with zipfile.ZipFile(modern, "w") as z:
+            for name, body in parts.items():
+                if name.endswith("pages/pages.json"):
+                    body = {"pageOrder": ["../../../outside"]}
+                z.writestr(name, json.dumps(body))
+        result = subprocess.run([sys.executable, SCRIPT, "--pbix", modern, "--out", os.path.join(d, "unsafe-page.json")], capture_output=True, text=True)
+        assert result.returncode != 0 and "unsafe PBIR page name" in result.stderr
+
+        spec = importlib.util.spec_from_file_location("pbir_titles", os.path.join(HERE, "..", "scripts", "extract-pbir.py"))
+        parser = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(parser)
+        title = {"properties": {"show": {"expr": {"Literal": {"Value": "false"}}},
+                  "text": {"expr": {"Literal": {"Value": "'Hidden'"}}}}}
+        assert parser._visual_title({"visualContainerObjects": {"title": [title]},
+                                     "objects": {"title": [{"properties": {"text": {"expr": {"Literal": {"Value": "'Old'"}}}}}]}}) is None
+        predicate = {"Version": 2, "Where": [{"Condition": {"In": {"Expressions": [], "Values": [[{"Literal": {"Value": "'West'"}}]]}}}]}
+        state = parser._slicer_state({"visualType": "slicer", "objects": {
+            "data": [{"properties": {"mode": {"expr": {"Literal": {"Value": "'Dropdown'"}}}}}],
+            "general": [{"properties": {"filter": {"filter": predicate}}}]}},
+            {"Values": {"projections": [{"field": {"Column": {"Expression": {"SourceRef": {"Entity": "T"}}, "Property": "Region"}}}]}})
+        assert state["mode"] == "Dropdown" and state["selection"]["values"] == ["West"]
+        hierarchy = parser._slicer_state({"visualType": "slicer", "objects": {
+            "general": [{"properties": {"filter": {"filter": predicate}}}]}},
+            {"Values": {"projections": [{"queryRef": "T.Region"}, {"queryRef": "T.City"}]}})
+        assert hierarchy["has_saved_filter"] and "selection" not in hierarchy
+        assert parser._in_values({"Values": [[{"Literal": {"Value": "2025L"}}], [{"Literal": {"Value": "'2025'"}}]]}, numeric=True) == [2025, "2025"]
+        excluded = parser._filter_signal({"type": "Categorical", "filter": {"Where": [{"Condition": {
+            "Not": {"Expression": {"In": {"Expressions": [{}], "Values": [[{"Literal": {"Value": "2025L"}}]]}}}}}]}}, "slicer", numeric=True)
+        assert excluded["mode"] == "exclude" and excluded["values"] == [2025]
+        print("  ok [slicer-state]: saved categorical selection survives extraction")
 
     print("PASS test-extract-report-classic.py")
 
