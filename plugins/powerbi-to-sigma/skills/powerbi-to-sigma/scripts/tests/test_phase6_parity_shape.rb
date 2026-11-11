@@ -3,9 +3,9 @@
 # test_phase6_parity_shape.rb — regression test for phase6-parity.rb's
 # workbook code-rep GET readback (Task 3.8).
 #
-# Live GET /v2/workbooks/{id}/spec now nests non-metadata fields under a
-# top-level `document` key (verified 2026-08-03/04). phase6-parity.rb GETs the
-# live spec in PASS 1 and writes it to wb-readback.json for every downstream
+# Live GET /v2/workbooks/{id}?includeContents=true nests non-metadata fields
+# under a top-level `contents` key (`document` on the retired /spec GET).
+# phase6-parity.rb GETs the live workbook in PASS 1 and writes it to wb-readback.json for every downstream
 # parity script (auto-parity-plan.rb, verify-anchors.rb, ...) to consume FLAT
 # ({pages:[...]}) — this checks the read routes through the vendored
 # Sigma::CodeRep.document() adapter rather than re-serializing the raw
@@ -13,9 +13,9 @@
 #
 # Note: this plugin also ships phase6-parity-pbi.rb (the DAX/executeQueries
 # adapter). It is intentionally NOT covered here -- it never calls GET
-# /v2/workbooks/.../spec (its `expected` values come entirely from Power BI
+# /v2/workbooks/... (its `expected` values come entirely from Power BI
 # executeQueries + agent-supplied Sigma actuals), so it isn't affected by the
-# workbook code-rep document-wrapper change. Confirmed via grep: no
+# workbook code-rep contents-wrapper change. Confirmed via grep: no
 # "workbooks", "wb-readback", or "document" reference in that file.
 #
 # Run: ruby scripts/tests/test_phase6_parity_shape.rb

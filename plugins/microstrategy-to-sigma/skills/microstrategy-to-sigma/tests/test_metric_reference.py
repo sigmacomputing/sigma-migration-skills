@@ -40,7 +40,7 @@ def _convert():
 
 
 def _cols(wb):
-    return [c for el in wb["document"]["elements"] for c in el.get("columns", [])]
+    return [c for el in wb["contents"]["elements"] for c in el.get("columns", [])]
 
 
 def _dm_metric_names(dm):
@@ -87,7 +87,7 @@ def test_no_false_positive():
 def test_workbook_formula_and_control_contract():
     """Workbook source refs stay qualified and selectable controls stay populated."""
     wb, _ = _convert()
-    elements = wb["document"]["elements"]
+    elements = wb["contents"]["elements"]
     for el in elements:
         for col in el.get("columns", []):
             refs = re.findall(r"\[([^\]]+)\]", str(col.get("formula") or ""))
