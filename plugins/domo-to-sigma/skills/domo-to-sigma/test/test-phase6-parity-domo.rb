@@ -27,6 +27,14 @@ require 'tmpdir'
 require 'open3'
 require 'fileutils'
 
+# Offline: a blank SIGMA_BASE_URL makes the shared client ask its token provider
+# for a host (a signed-in Sigma CLI or exported client credentials would answer),
+# so every credential-less run also pins a provider that reports no credentials.
+OFFLINE_PROVIDER_DIR = Dir.mktmpdir('offline-provider')
+at_exit { FileUtils.rm_rf(OFFLINE_PROVIDER_DIR) }
+OFFLINE_PROVIDER = File.join(OFFLINE_PROVIDER_DIR, 'provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
+
 FINALIZER = File.expand_path('../scripts/phase6-parity-domo.rb', __dir__)
 GATE      = File.expand_path('../scripts/assert-phase6-ran.rb', __dir__)
 
@@ -103,7 +111,8 @@ end
 # fixture workdir cannot satisfy — so the OK line, not the exit code, is the
 # signal for the accept case.
 def gate1(dir)
-  out, err, st = Open3.capture3('ruby', GATE, '--workdir', dir, '--workbook-id', 'wb-test')
+  out, err, st = Open3.capture3({ 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil, 'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER },
+                                 'ruby', GATE, '--workdir', dir, '--workbook-id', 'wb-test')
   combined = out + err
   { accepted: combined.include?('[OK] gate 1/7'),
     rejected: st.exitstatus == 2 && combined.include?('[FAIL] parity status='),

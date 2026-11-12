@@ -195,6 +195,77 @@ isn't in the migrated table, and the two non-mappable modes, are recorded to
 `scripts/test-conditional-formats.rb` (+ real fixtures under
 `fixtures/conditional_formats/`).
 
+## 6b. Theme palettes and matrix/table column fills
+
+### Theme palettes (`lib/pbi_theme.rb`)
+The palette is chosen in this order: (1) the theme's **own `dataColors`**, which
+`extract-pbir.py` reads from the base theme JSON
+(`StaticResources/SharedResources/BaseThemes/<name>.json`) and, when
+`themeCollection.customTheme` is set, from the custom theme under
+`StaticResources/RegisteredResources` (custom overrides base) and emits as
+`signals['theme_data_colors']` only when found; (2) the built-in table keyed by
+theme name; (3) the 2024 default. Legacy base themes often ship **no** `dataColors`
+in their JSON, which is why the table matters: `CY18SU07` is the classic ten-color
+sequence (`#01B8AA #374649 #FD625E #F2C80F #5F6B6D #8AD4EB #FE9666 #A66999 #3599B8
+#DFBFBF`). A **named theme with no built-in palette and no `dataColors`** silently
+recolors every chart with the 2024 palette, so the builder records an `approximated`
+coverage entry (`pbi_type: theme`, `role_class: decoration`, not recoverable, so it never
+gates) saying the default was assumed; add the palette to `PALETTES` to clear it.
+`PbiTheme.known?(name)` is the predicate. The `--pbir` and classic `Report/Layout` routes
+extract only `definition/` parts today, so on those routes the palette comes from the table.
+
+### Card value default
+An explicit callout color (hex, or a `ThemeDataColor` resolved against the palette) is used
+as is. When a card sets no callout color, the KPI value uses `PbiTheme.card_value_color(theme)`:
+dark gray `#333333` on the classic themes (`CY18SU07`, `classic`; sampled from a
+rendered report, not the teal accent) and the palette accent (`scheme[0]`) on every
+other theme, so `CY24SU10` / `CY23SU08` behave as before.
+A multi-row card becomes one KPI tile per measure (`<id>-k<i>`). Each tile takes the card's
+explicit callout color the same way; with none, a tile gets `#333333` on the classic themes and
+is otherwise left unset (Sigma's default dark text), because Power BI multi-row cards do not show
+their values in the accent. The post-build pass maps tiles back to their visual the same way.
+
+### Matrix/table column formatting (`objects.columnFormatting`)
+Static per-column fills live in `visual.objects.columnFormatting[]` as
+`{properties:{backColor, fontColor, styleHeader, styleValues, styleSubtotals,
+styleTotal}, selector:{metadata:"<queryRef>"}}`. The extractor emits them as
+`rec['column_formats']` (`target`, `back`, `font`, `header`, `values`, `subtotals`,
+`total`; only when non-empty). Colors are a literal hex or a `ThemeDataColor`.
+
+- **Defaults.** An *absent* `styleValues` means **true** (the value cells are colored);
+  an explicit `false` leaves them uncolored. Absent `styleHeader` / `styleTotal` are
+  treated as false and absent `styleSubtotals` as true.
+- **`ThemeDataColor{ColorId, Percent}`.** `ColorId` 0 = theme background (`#FFFFFF`),
+  1 = foreground (`#000000`), `n >= 2` = `dataColors[n-2]`. A positive `Percent` blends
+  toward white (`c + (255-c)*p`), a negative one toward black (`c*(1+p)`).
+  `PbiTheme.theme_color(id, percent, palette)` returns uppercase `#RRGGBB`.
+- **Emit.** Each value-cell fill becomes an element-level `conditionalFormats` entry
+  `{type: single, columnIds:[<value column>], condition: formula, formula: 'True',
+  style:{backgroundColor, color}}` (`PbiConditionalFormats.column_fill_formats`),
+  appended after any gradient/rules/data-bar entries. A font-only fill still sets
+  `backgroundColor` (`#FFFFFF`): without it Sigma paints a default green cell fill.
+  Entries that fill the same column (split back / font entries, or two spellings of one
+  field) merge into one rule. The selector's table prefix can differ from the bound
+  queryRef (a measure moved between display folders), so the target is matched
+  exact-then-leaf; a leaf that matches more than one bound column is skipped and reported
+  rather than guessed. Matrix row, column and value fields can all be filled.
+- **What Sigma cannot reproduce.** A `single` rule does not color the grand-total row,
+  and Sigma has no per-column header fill (`tableStyle.textStyles.columnHeader` is
+  element-wide); on a matrix, per-column subtotal fills are not reproduced either. Columns
+  whose fill applies only to those parts come back as one `approximated` coverage entry per
+  element listing the columns and colors, and a value-cell fill that also styled them gets a
+  second note. A colour that does not resolve (a `ColorId` past the palette, a malformed hex)
+  is reported, never replaced: an unresolved back colour emits no rule.
+- **Already-built specs.** `scripts/apply-pbi-column-formats.rb --spec WB.json --signals
+  SIGNALS.json [--theme-only]` applies the same fills and rewrites
+  `settings.theme.overrides.categoricalScheme` / `colors.highlight` to the resolved
+  palette without a rebuild. It ties each fill to its column through the visual's
+  bindings (the builder's column ids), falls back to the column name only when that name
+  is unique, and owns the always-true fill rules on every table / pivot it maps to a
+  signals visual: it replaces them per column (so a palette change converges) and removes
+  one whose fill left the signals or became header/total-only. Every other rule shape is
+  left alone. On a freshly built spec it is a no-op.
+
 ## Verification
 - `theme: CY24SU10`, card `value_color: #118DFF`, tableEx `show_totals: True` round-trip
   through `extract-pbir.py` (live-checked against the Retail Performance & Trends report).

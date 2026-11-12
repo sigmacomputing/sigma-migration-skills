@@ -48,10 +48,15 @@ author's local `.pbix`, so prefer `--pbix`.
 
 Detection:
 - **Fabric path (`--tmsl`):** the orchestrator scans the extracted TMSL for
-  DirectQuery partitions, `entity` partitions bound to a remote model, or M
-  expressions naming the AnalysisServices / Power BI dataset connector. On a hit it
+  `entity` partitions bound to a remote model, partitions whose `expressionSource`
+  names a shared expression connecting to a remote model, or M expressions
+  (partition or shared) naming the AnalysisServices / Power BI dataset connector
+  (`AnalysisServices.Database`, `PowerBI.Datasets`, `powerbi://`, …). On a hit it
   STOPS (exit 10) with an OPEN QUESTION asking for the local `.pbix` (override:
-  `--allow-incomplete-model`). Import-mode models never trip it.
+  `--allow-incomplete-model`). Storage mode is not a signal: Import models and
+  DirectQuery partitions over a warehouse connector (`Snowflake.Databases`,
+  `Sql.Database`, …) never trip it. Logic + tests: `scripts/lib/pbi_composite.rb`,
+  `scripts/test-composite-gate.rb`.
 - **Offline (`.pbix`):** `extract-model-pbix.py --detect-composite --pbix <file>`
   prints `{"composite":bool,"remoteArtifacts":[…]}` — the tell is the zip's
   `Connections` member listing `RemoteArtifacts` ([{DatasetId, ReportId}]) or a
@@ -102,6 +107,7 @@ Notes / caveats:
 | `dax_columns` (`TableName`,`ColumnName`,`Expression`) | `table.columns[]` marked `type:"calculated"` |
 | `dax_tables` (`TableName`,`Expression`) | `table.partitions[].source` marked `type:"calculated"`; output columns marked `type:"calculatedTableColumn"` |
 | `power_query` (`TableName`,`Expression`) | regular-table `partitions[].source` (M passthrough → warehouse FQN; tables with neither M nor calculated-table DAX get an honest placeholder partition) |
+| `m_parameters` (`ParameterName`,`Expression`,`Description`) | `model.expressions[]` (`kind:"m"`), as a Fabric `model.bim` carries them, so a NativeQuery's `{[Name=<parameter>]}` database resolves |
 | `relationships` (`From*`,`To*`,`IsActive`,`CrossFilteringBehavior`) | `model.relationships[].{name,fromTable,fromColumn,toTable,toColumn,crossFilteringBehavior,isActive}` |
 
 The assembly (`assemble_tmsl` / `build_model_from_pbixray`) is a pure function of

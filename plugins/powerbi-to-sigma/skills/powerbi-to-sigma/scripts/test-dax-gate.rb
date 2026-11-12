@@ -102,5 +102,15 @@ clean_calendar_dm = {
 ok 'queryable spine plus Sigma event formulas is complete',
    DaxGate.calculated_table_issues(clean_calendar_dm, []).empty?
 
+# review-fix A (compat-6): a measure/column the resolver nulled is NOT realized, so
+# the decision gate still asks about it.
+nulled_dm = { 'pages' => [{ 'elements' => [{ 'name' => 'T',
+  'metrics' => [{ 'name' => 'Lost Measure', 'formula' => 'Null' }, { 'name' => 'Kept Measure', 'formula' => 'Sum([A])' }],
+  'columns' => [{ 'name' => 'Lost Col', 'formula' => ' Null ' }] }] }] }
+nq = DaxGate.dax_questions(['⚠ "Lost Measure": CALCULATE ...', '⚠ "Kept Measure": TOTALYTD ...', '⚠ "Lost Col": LOOKUPVALUE ...'], nulled_dm)
+nm = nq.map { |q| DaxGate.measure_of(q['detail']) }
+ok 'Null-formula metric/column no longer counts as realized (gate fires)', nm.sort == ['Lost Col', 'Lost Measure']
+ok 'a live metric is still realized', !nm.include?('Kept Measure')
+
 puts(($fail.zero? ? "\nPASS" : "\n#{$fail} FAILED"))
 exit($fail.zero? ? 0 : 1)
