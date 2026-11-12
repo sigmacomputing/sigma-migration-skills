@@ -2049,6 +2049,9 @@ def build_element_raw(rec, fields, masters, extra_data = [], forced_master = nil
       # Legacy / fallback: the base doesn't carry the sliced column (or per-visual
       # mode) — wire every relationship-reachable master that carries it.
       masters.each do |mname, mrec|
+        # a page fact (master-map `page_fact`, integrate-page-fact.py) serves ONE page: a slicer on another
+        # page must never filter it (that page's charts would change with this page's slicer)
+        next if mrec['page_fact'] && !PbiReportBuild.same_page_title?(mrec['page_fact'], $current_page_title)
         ents = cov.select { |_e, ms| ms.include?(mname) }.keys
         real = MODEL_TABLES.any? ? (ents & MODEL_TABLES) : ents
         pseudo = MODEL_TABLES.any? && real.empty?      # derived/restructured element
@@ -3122,7 +3125,12 @@ end
 # bead ry0n: hidden helper elements (scatter grouped sources) accumulate here
 # and are appended to the Data page below.
 extra_data_elements = []
+# Page-scoped bindings (master-map `page_fields`, written by integrate-page-fact.py): a page fact
+# binds a queryRef to its own master on ONE page while every other page keeps the global binding.
+page_fields_all = mmap['page_fields'].is_a?(Hash) ? mmap['page_fields'] : {}
 content_pages = signals['pages'].map do |pg|
+  pfields = PbiReportBuild.page_scoped_fields(fields, page_fields_all, pg)
+  $current_page_title = pg['page_title']
   # build_element may return one element or an array (multiRowCard -> N KPIs),
   # or nil (unresolvable slicer -> control skipped loudly, never wired wrong).
   vis_elements = {}   # visual_id -> [built element ids] (feeds intended-scope)
@@ -3131,11 +3139,11 @@ content_pages = signals['pages'].map do |pg|
   # forced_master) and each page control targets its column — so a single filter
   # target propagates to every visual. nil (nothing resolves / per-visual mode)
   # -> legacy per-visual master selection.
-  page_base = $page_base_mode ? page_base_master(pg['visuals'], fields) : nil
+  page_base = $page_base_mode ? page_base_master(pg['visuals'], pfields) : nil
   warn "[build-workbook] page '#{pg['page_title']}': base table master = #{page_base.inspect} " \
        '(every visual sources it; controls target it and propagate).' if page_base
   els = pg['visuals'].flat_map do |v|
-    r = build_element(v, fields, masters, extra_data_elements, page_base)
+    r = build_element(v, pfields, masters, extra_data_elements, page_base)
     list = r.is_a?(Array) ? r : [r] # NB: not Array(r) — that explodes a Hash into pairs
     list = list.compact
     primary = list.dup

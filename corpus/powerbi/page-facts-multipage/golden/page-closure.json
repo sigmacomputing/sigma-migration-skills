@@ -1,0 +1,84 @@
+{
+ "generated_by": "scaffold-page-fact.py",
+ "pages": [
+  {
+   "page": "Sales Overview",
+   "page_id": "p1",
+   "classification": "per-visual",
+   "reasons": [],
+   "facts": [
+    "Sales"
+   ],
+   "visual_measures": 5,
+   "closure": 7,
+   "multi_fact_visuals": [],
+   "slicers": 3,
+   "scaffolded": true,
+   "dir": "sales-overview",
+   "components": 3,
+   "todo": 1,
+   "oracle_queries": 20,
+   "check_queries": 4,
+   "gated_slicers": [
+    "Year",
+    "Manager",
+    "Supplier"
+   ],
+   "ambiguous_paths": []
+  },
+  {
+   "page": "Stock Cover",
+   "page_id": "p2",
+   "classification": "page-fact",
+   "reasons": [
+    "several facts (Stock, Sales)"
+   ],
+   "facts": [
+    "Stock",
+    "Sales"
+   ],
+   "visual_measures": 5,
+   "closure": 5,
+   "multi_fact_visuals": [
+    "Cover by Category"
+   ],
+   "slicers": 2,
+   "scaffolded": true,
+   "dir": "stock-cover",
+   "components": 3,
+   "todo": 0,
+   "oracle_queries": 12,
+   "check_queries": 4,
+   "gated_slicers": [
+    "Region",
+    "Manager"
+   ],
+   "ambiguous_paths": []
+  },
+  {
+   "page": "Rollup",
+   "page_id": "p3",
+   "classification": "page-fact",
+   "reasons": [
+    "USERELATIONSHIP in Rollup Sales, Rollup Units"
+   ],
+   "facts": [
+    "Sales"
+   ],
+   "visual_measures": 3,
+   "closure": 5,
+   "multi_fact_visuals": [],
+   "slicers": 2,
+   "scaffolded": true,
+   "dir": "rollup",
+   "components": 2,
+   "todo": 1,
+   "oracle_queries": 12,
+   "check_queries": 2,
+   "gated_slicers": [
+    "Supplier"
+   ],
+   "ambiguous_paths": []
+  }
+ ]
+}

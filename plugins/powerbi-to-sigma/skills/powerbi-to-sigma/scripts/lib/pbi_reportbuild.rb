@@ -559,6 +559,32 @@ module PbiReportBuild
   end
 
   # ---------------------------------------------------------------------------
+  # Page-scoped field bindings (page facts)
+  # ---------------------------------------------------------------------------
+
+  # master-map `page_fields` = {"<page title or page id>" => {"<queryRef>" => {master, ref, agg}}}.
+  # integrate-page-fact.py writes it so a page fact binds its page's measures and grain columns to
+  # its own master while other pages keep the global `fields` binding (no signals overlay, no
+  # renamed queryRefs). Returns `fields` unchanged when the page has no entries, else a merged copy
+  # in which the page's entries win. Page titles match exactly, then case/space-insensitively.
+  # Page titles compared the way page_scoped_fields matches them (exact, then case/space-insensitive).
+  def same_page_title?(a, b)
+    a.to_s == b.to_s || a.to_s.downcase.gsub(/\s+/, '') == b.to_s.downcase.gsub(/\s+/, '')
+  end
+
+  def page_scoped_fields(fields, page_fields, page)
+    return fields unless page_fields.is_a?(Hash) && !page_fields.empty? && page.is_a?(Hash)
+    over = page_fields[page['page_title'].to_s] || page_fields[page['page_id'].to_s]
+    unless over
+      key = page['page_title'].to_s.downcase.gsub(/\s+/, '')
+      hit = page_fields.find { |k, _| k.to_s.downcase.gsub(/\s+/, '') == key }
+      over = hit && hit[1]
+    end
+    return fields unless over.is_a?(Hash) && !over.empty?
+    fields.merge(over)
+  end
+
+  # ---------------------------------------------------------------------------
   # Synced slicer groups (G31)
   # ---------------------------------------------------------------------------
 

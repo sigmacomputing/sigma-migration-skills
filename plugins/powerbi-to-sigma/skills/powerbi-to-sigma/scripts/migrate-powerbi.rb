@@ -257,6 +257,14 @@ OptionParser.new do |o|
   o.on('--probe-allow-missing', 'with --probe-sources: do not stop on a bound column missing from the SQL output (the resolver nulls it)') { opts[:probe_allow_missing] = true }
   o.on('--stop-before-post', 'run everything up to the validated DM spec (incl. --probe-sources), create nothing in Sigma, exit 0') { opts[:stop_before_post] = true }
   o.on('--skip-dm-resolver') { opts[:skip_dm_resolver] = true }
+  # Page facts (refs/large-pbix.md "Measures: classify the page, then build it"). --scaffold-page-facts
+  # drafts them (scaffold-page-fact.py -> <WORK>/page-facts-draft); --page-facts DIR folds COMPLETED
+  # ones into the DM spec + master-map (integrate-page-fact.py) and gates their slicers after the
+  # workbook build (wire-slicer-gate.py).
+  o.on('--scaffold-page-facts [PAGES]', 'draft page facts into <WORK>/page-facts-draft (PAGES: comma-separated titles; default: pages classified page-fact); with --stop-before-post it is a draft-only run that writes nothing to Sigma') { |v| opts[:scaffold_page_facts] = v || true }
+  o.on('--page-facts DIR', 'integrate the completed page facts under DIR (<page>/page-fact.json) and wire their slicers') { |v| opts[:page_facts] = File.expand_path(v) }
+  o.on('--page-facts-update-dm', 'with --page-facts on a REUSED data model: PUT it with the page-fact elements added') { opts[:page_facts_update_dm] = true }
+  o.on('--allow-page-fact-todo', 'with --page-facts: integrate page facts that still have TODO measures (those bind to their NULL stubs)') { opts[:allow_page_fact_todo] = true }
   o.on('--skip-name-sanitize') { opts[:skip_name_sanitize] = true }
   # Opt-in materialization schedule for converted Custom SQL elements. Cron is
   # required; timezone is IANA. Without --materialization-elements every SQL
@@ -447,6 +455,46 @@ def run!(cmd, env: {})
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   abort "FATAL: command failed (#{st.exitstatus}): #{cmd.join(' ')}" unless st.success?
   out
+end
+
+# --scaffold-page-facts: draft page facts from each page's DAX closure (offline, seconds) into
+# <WORK>/page-facts-draft. Never blocks the run. mmap_path is optional: before the DM is posted (the
+# --stop-before-post exits) the draft resolves sources by element name instead.
+def scaffold_page_facts!(opts, model_path, signals_path, dm_spec, mmap_path, dialect)
+  draft = File.join(WORK, 'page-facts-draft')
+  cmd = [*PY_ARGV, File.join(HERE, 'scaffold-page-fact.py'), '--model', model_path, '--signals', signals_path,
+         '--dm-spec', dm_spec, '--out-dir', draft,
+         '--dialect', (%w[snowflake databricks bigquery].include?(dialect) ? dialect : 'snowflake')]
+  cmd += ['--master-map', mmap_path] if mmap_path && File.exist?(mmap_path)
+  opts[:scaffold_page_facts].split(',').map(&:strip).reject(&:empty?).each { |t| cmd += ['--page', t] } if opts[:scaffold_page_facts].is_a?(String)
+  # Not a shell: an argv array that runs this plugin's scaffold-page-fact.py with the current Python; options come from this run's own flags and paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  out, st = Open3.capture2e(*cmd)
+  puts '   PAGE FACTS (draft):'
+  out.each_line { |l| puts "     #{l.rstrip}" } unless out.strip.empty?
+  if st.success?
+    puts "   -> #{draft}: read each <page>/closure.md, fill the TODOs, run check-plan.json, then rerun with --page-facts <dir>"
+  else
+    warn "   [warn] scaffold-page-fact.py failed (#{st.exitstatus}); the run continues without drafts"
+  end
+end
+
+# Raised (and rescued in the DM-reuse block) to stop before PUTting page facts into a reused DM.
+class StopBeforePostPageFacts < StandardError; end
+
+# Page facts (--page-facts DIR): fold the completed page-fact.json files into a DM spec with
+# integrate-page-fact.py. check: true reports without writing and returns :changed / :current.
+def integrate_page_facts_dm!(opts, dm_spec, check: false)
+  cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--dm-spec', dm_spec]
+  cmd += check ? ['--check'] : ['--connection', opts[:conn].to_s]
+  cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  # Not a shell: an argv array that runs this plugin's integrate-page-fact.py with the current Python; options come from this run's own flags and paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  out, st = Open3.capture2e(*cmd)
+  out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
+  return :changed if check && st.exitstatus == 3
+  abort "FATAL: page-fact integration failed (#{st.exitstatus}); nothing was posted. Fix #{opts[:page_facts]} and rerun." unless st.success?
+  :current
 end
 
 # Raised when the MECHANICAL WORKBOOK layer (build / validate / POST) fails after
@@ -1398,14 +1446,45 @@ if reuse_dm_id
     File.write(File.join(WORK, 'dm-readback.json'), JSON.pretty_generate(dm_rb))
     n_el = dm_rb['pages'].flat_map { |p| p['elements'] || [] }.size
     puts "   REUSING dataModelId = #{dm_id} (#{n_el} element(s)) — convert + POST skipped"
+    if opts[:page_facts] && integrate_page_facts_dm!(opts, dm_spec, check: true) == :changed
+      # The reused DM lacks (or has stale) page-fact elements. Changing a shared, existing data model
+      # is the user's call: say so and stop unless --page-facts-update-dm was given.
+      unless opts[:page_facts_update_dm]
+        puts
+        puts '==================== OPEN QUESTIONS ===================='
+        puts "   [required] page_facts_reused_dm: the reused data model #{dm_id} does not carry the page facts in"
+        puts "              #{opts[:page_facts]}. Rerun with --page-facts-update-dm to PUT them into it, or with"
+        puts '              --no-reuse to build a new data model that includes them.'
+        exit 10
+      end
+      abort 'FATAL: --page-facts-update-dm needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
+      integrate_page_facts_dm!(opts, dm_spec)
+      if opts[:stop_before_post]
+        puts "   page facts: would PUT them into reused data model #{dm_id} (--stop-before-post: not written)"
+        raise StopBeforePostPageFacts
+      end
+      _put_rb = File.join(WORK, 'dm-readback.json')
+      run!(['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'datamodel', '--spec', dm_spec,
+            '--out', _put_rb, '--workdir', WORK, '--update-id', dm_id], env: ENV.to_h)
+      dm_rb = JSON.parse(File.read(_put_rb))
+      dm_model = JSON.parse(File.read(dm_spec))
+      puts "   page facts: PUT into reused data model #{dm_id}"
+    end
     if opts[:stop_before_post]
       # --stop-before-post means NOTHING is created in Sigma on ANY path: the reuse path would go
-      # on to build and POST the workbook in Phase 4.
+      # on to build and POST the workbook in Phase 4. A draft-only page-fact run stops here too.
+      scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
       puts
       puts "STOP BEFORE POST: would reuse existing data model #{dm_id} (spec read back -> #{dm_spec})"
       puts '   no Sigma objects were created; rerun without --stop-before-post to build the workbook on it'
       exit 0
     end
+  rescue StopBeforePostPageFacts
+    scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
+    puts
+    puts "STOP BEFORE POST: would reuse existing data model #{dm_id} with the page facts added (spec -> #{dm_spec})"
+    puts '   no Sigma objects were created or changed; rerun without --stop-before-post to PUT and build the workbook'
+    exit 0
   rescue StandardError => e
     puts "   [warn] could not read reused DM #{reuse_dm_id} (#{e.message[0, 120]}) — building a new DM instead"
     reuse_dm_id = nil
@@ -1481,8 +1560,13 @@ else
   abort 'FATAL: need --ref-dm (to harvest folderId/ownerId) or --folder plus a --ref-dm for ownerId'
 end
 run!(fixup, env: ENV.to_h)
+if opts[:page_facts]
+  abort 'FATAL: --page-facts needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
+  integrate_page_facts_dm!(opts, dm_spec)
+end
 run!(['ruby', File.join(HERE, 'validate-spec.rb'), '--type', 'datamodel', dm_spec])
 if opts[:stop_before_post]
+  scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
   # Offline iteration mode for large models: everything up to and including the
   # DM spec validation ran (extract, scope, convert, NativeQuery restore,
   # name-sanitize, dm-resolver, --probe-sources). Nothing has been created in
@@ -1982,6 +2066,24 @@ mmap_path = File.join(WORK, 'master-map.json')
 File.write(mmap_path, JSON.pretty_generate(master_map))
 puts "   master-map: #{masters.size} master(s), #{field_map.size} field/measure ref(s) -> #{mmap_path}"
 
+pf_model_path = scoped_tmsl_path || opts[:tmsl]
+pf_dialect = PbiProbeGate.dialect_for(opts[:wh_type])
+if opts[:page_facts]
+  # page-scoped bindings: each page fact's page binds its measures + grain columns to the page fact
+  _mm_cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--master-map', mmap_path,
+             '--dm-readback', File.join(WORK, 'dm-readback.json')]
+  _mm_cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  run!(_mm_cmd)
+end
+if opts[:scaffold_page_facts]
+  # Draft page facts from each page's DAX closure (offline, seconds). Never blocks the run: the
+  # drafts go to <WORK>/page-facts-draft; complete their TODOs, prove them with check-plan.json,
+  # then rerun with --page-facts <dir>.
+  phase_mark('4a-scaffold-page-facts')
+  scaffold_page_facts!(opts, pf_model_path, signals_path, dm_spec, mmap_path, pf_dialect)
+  phase_mark('4-build-workbook')
+end
+
 wb_spec = File.join(WORK, 'workbook-spec.json')
 layout = File.join(WORK, 'layout.xml')
 build = ['ruby', File.join(HERE, 'build-workbook-from-pbir.rb'),
@@ -2010,6 +2112,15 @@ build += ['--folder-id', wb_folder] if wb_folder
 # workbook against this DM (see SKILL.md). Never worse than the proven agent path.
 begin
   build_log = run_wb!(build)
+  if opts[:page_facts]
+    # Slicers on dimensions a page fact does not carry: control-parameterized SQL behind a union gate
+    # (refs/large-pbix.md). Rewrites the spec + layout.xml in place; report in slicer-gate.json.
+    run_wb!([*PY_ARGV, File.join(HERE, 'wire-slicer-gate.py'), '--spec', wb_spec, '--page-facts', opts[:page_facts],
+             '--model', pf_model_path, '--dm-spec', dm_spec, '--master-map', mmap_path, '--connection', opts[:conn].to_s,
+             '--control-scope', File.join(WORK, 'control-scope.json'), '--layout-out', layout,
+             '--report', File.join(WORK, 'slicer-gate.json'), '--verify-out', File.join(WORK, 'slicer-gate-verify.json'),
+             '--dialect', (%w[snowflake databricks bigquery].include?(pf_dialect) ? pf_dialect : 'snowflake')])
+  end
   if !opts[:full_model] && File.exist?(masters_pruned_path)
     begin
       model_scope['dropped_masters'] = JSON.parse(File.read(masters_pruned_path))

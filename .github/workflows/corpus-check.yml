@@ -684,6 +684,7 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild-emit.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-slicer-heavy-build.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-page-facts-orchestrator.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-builder-followups.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-b.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-f.rb
@@ -900,6 +901,8 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-sigma-sql-probe.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-probe-native-sources.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-parity-from-oracle.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-page-fact-scaffold.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-slicer-gate.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-model-pbix.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-report-classic.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-semantic-context.py

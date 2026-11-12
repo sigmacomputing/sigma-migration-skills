@@ -101,7 +101,8 @@ directories is also registered in CI, so a new suite cannot be added and silentl
 Read `refs/large-pbix.md` first: run with `--probe-sources` (pre-POST warehouse gate; stops on a bound column missing from
 the SQL output) and rerun in the same `--out` (Phase 0/1 extraction is cached). Classify each page: single-fact pages bind
 on the joined View; multi-fact / as-of / bucketed pages get one page-fact SQL element verified by an independent oracle
-(`scripts/sigma-sql-probe.py`, `scripts/parity-from-oracle.py`).
+(`scripts/sigma-sql-probe.py`, `scripts/parity-from-oracle.py`). `--scaffold-page-facts` drafts them (brief, SQL, oracle,
+check plan); fill the TODOs, then rerun with `--page-facts <dir>` to add them to the DM, bind their pages and gate their slicers.
 
 ## Preflight the workbook spec before POST (mandatory)
 

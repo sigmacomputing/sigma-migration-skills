@@ -29,6 +29,8 @@ Duplicate keys on either side are reported, never summed.
 Inputs
   --spec plan.json   {"charts":[{"name","export","oracle","oracle_key"?,"keys":[..],
                       "measures":[..]?, "rel_tol"?, "abs_tol"?}]}  (paths relative to the spec)
+                     An "export" ending in .json is a second SQL result (rows / probe results,
+                     pick with "export_key"), e.g. scaffold-page-fact.py's check-plan.json.
   or one chart: --name N --export sigma.csv --oracle rows.json|rows.csv --keys A=B,C [--measures ..]
   Oracle files: a JSON list of row objects, {"rows": [...]}, a sigma-sql-probe results
   file (pick the entry with --oracle-key / "oracle_key"), or a CSV with a header.
@@ -211,6 +213,17 @@ def read_csv_rows(text):
     if not rows:
         raise ParityError("export CSV is empty (no header)")
     return Table(rows[0], rows[1:])
+
+
+def rows_to_table(rows):
+    """JSON row objects -> the Table a Sigma CSV export parses into (None -> empty cell)."""
+    header = []
+    for r in rows:
+        for k in r:
+            if k not in header:
+                header.append(k)
+    cell = lambda v: "" if v is None else (v if isinstance(v, str) else json.dumps(v) if isinstance(v, (bool, list, dict)) else str(v))
+    return Table(header, [[cell(r.get(h)) for h in header] for r in rows])
 
 
 def load_oracle_rows(text, path, oracle_key=None):
@@ -428,7 +441,12 @@ def run_chart(cfg, base_dir, defaults):
         return x if os.path.isabs(x) else os.path.join(base_dir, x)
 
     try:
-        sigma = read_csv_rows(_read_text(p(cfg["export"])))
+        if str(cfg["export"]).lower().endswith(".json"):
+            # a second SQL result (e.g. a page fact rolled up by scaffold-page-fact.py's check queries)
+            # stands in for the Sigma export: same row/probe-results shapes as the oracle side
+            sigma = rows_to_table(load_oracle_rows(_read_text(p(cfg["export"])), cfg["export"], cfg.get("export_key")))
+        else:
+            sigma = read_csv_rows(_read_text(p(cfg["export"])))
         oracle = load_oracle_rows(_read_text(p(cfg["oracle"])), cfg["oracle"], cfg.get("oracle_key"))
     except (OSError, ParityError) as e:
         r = _empty_result(name)

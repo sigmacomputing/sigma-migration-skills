@@ -101,6 +101,57 @@ Write the page-fact SQL from the page's DAX closure. Check it against an **indep
 DAX: `sigma-sql-probe.py` runs both, and `parity-from-oracle.py` compares them and writes `parity-final.json`. A closure of
 50+ measures usually collapses to about 15 additive parts under the page's default filters.
 
+### Automated: scaffold, prove, integrate, gate
+
+The mechanical part of that loop is scripted. Each step is offline except the two probe runs.
+
+1. **Scaffold.** `migrate-powerbi.rb ... --scaffold-page-facts [PAGES]` (after the DM exists) or
+   `scripts/scaffold-page-fact.py --model M --signals S --dm-spec D --master-map MM --out-dir DIR [--page T]... [--scenario 'Dim.Col=v']...`
+   classifies every page (`page-closure.json`) and, for each page-fact page (default: several facts, USERELATIONSHIP,
+   filter removal, selectors or time intelligence), writes `DIR/<page>/`:
+   - `closure.md`: the brief. It lists the visuals, the DAX closure (comments stripped, dependencies first), and the tables each measure scans. It also lists the modifiers and the slicers, with each slicer's filter path to each fact (USERELATIONSHIP path weight applied, the losing path named), and the TODOs.
+   - `page-fact.sql` / `page-fact.json`: one CTE per source table (the DM element's own SQL), one aggregate CTE per fact
+     (and per USERELATIONSHIP set) joined to the page grain along those paths, UNION ALL'd and regrouped when several
+     facts share the grain. Components are decomposed mechanically: SUM/MIN/MAX/AVERAGE/COUNT(A)/COUNTROWS, SUMX-style
+     row expressions with RELATED, arithmetic, DIVIDE, measure references, top-level VAR/RETURN (refused when a
+     variable is used inside CALCULATE or an iterator), and CALCULATE with literal `=`/`<>`/`<`/`IN {...}`/ISBLANK/NOT
+     filters, KEEPFILTERS and USERELATIONSHIP. DAX semantics kept: string comparisons are case-insensitive and
+     blank-as-empty; an inner CALCULATE filter replaces the outer filter on its column (KEEPFILTERS intersects);
+     BLANK counts as 0 in `+`/`-`.
+     Everything else is a `TODO_<measure>` NULL column with its DAX in the header: IF/SWITCH, selectors, time
+     intelligence, DISTINCTCOUNT, a path through a many-to-many or bidirectional hop, an unresolved USERELATIONSHIP,
+     and a CALCULATE that replaces the filter on a grouping, slicer or report/page-filter column (the page fact
+     applies those filters to every component, so such a measure needs its own handling).
+   - Report- and page-level list filters are applied inside each fact CTE they reach (semi-joins with literal
+     values, `(Blank)` included). Other filter types, and visual filters on a column the visual does not group by,
+     are TODOs: the page fact cannot carry them.
+     Each fact CTE carries a `/*@slicers fact="..." alias="..."*/` hook in its WHERE clause; keep it when editing.
+   - `oracle-queries.json`: one oracle per data visual from `lib/pbi_semantic_sql.py`'s constrained compiler, over the
+     raw sources (correlated per-cell evaluation, not the page fact), with the report/page filters, the saved
+     selections and the visual's own filters, plus `@<scenario>` variants. `check-queries.json` rolls the page fact up
+     to each visual with the Sigma formulas' SQL twins.
+   - **What the oracle shares with the page fact**: the relationship-path choice, the model-column to SQL-column
+     mapping and VAR inlining. It is independent in how it evaluates (per cell, from the DAX), not in those three, so
+     read the paths in `closure.md` (each names the path it beat) and the column mapping by eye; a wrong choice there
+     would make both sides agree.
+   - `check-plan.json` (page fact vs oracle, before any workbook) and `parity-plan.json` (workbook exports vs oracle).
+2. **Prove.** Fill the TODOs. Run `check-queries.json` and `oracle-queries.json` through `sigma-sql-probe.py --out
+   check-results.json` / `--out oracle-results.json`, then `parity-from-oracle.py --spec check-plan.json` (a `.json`
+   export is a second SQL result). Fix until every chart MATCHes.
+3. **Integrate.** Rerun `migrate-powerbi.rb ... --page-facts DIR`. `integrate-page-fact.py` adds each page fact to the
+   DM spec as a Custom SQL element before validation and adds a master plus page-scoped bindings
+   (`master-map.page_fields["<page>"]`, which `build-workbook-from-pbir.rb` uses for that page only). A page fact with
+   TODOs is refused unless `--allow-page-fact-todo`: each TODO measure then binds to its all-NULL stub column, so its
+   visual stays on the gated page fact and shows blanks (parity flags them) until the TODO is filled. On a reused DM
+   the run stops with an open question; `--page-facts-update-dm` PUTs the page facts into it.
+4. **Gate.** After the build, `wire-slicer-gate.py` applies the recipe below to every slicer the page fact does not
+   carry (report: `slicer-gate.json`; verification queries: `slicer-gate-verify.json` + `slicer-gate-verify-plan.json`).
+   In-grain slicers are wired straight to the page copy.
+
+The `corpus/powerbi/page-facts-multipage` case runs all four steps on a synthetic three-page fixture, executing the SQL in
+SQLite. On a real six-page report the scaffold ran in under 2 s; most of that report's measures became TODOs (VARs
+used inside CALCULATE, IF/SWITCH selectors, bidirectional paths), so the agent's work shrinks to the TODOs each brief lists.
+
 ### Slicers on dimensions a page fact does not carry
 
 A page fact pre-computes windows or ratios at a fixed grain, so a slicer on any other dimension has no column to
@@ -135,6 +186,18 @@ on the fact rows, before the windows.
 4. Verify: render the parameterized SQL with every template neutral (gate open, each control empty) and compare it
    with the data-model element (row count and measure sums must be identical); then compare a filtered export
    (`/export` with `parameters`) against an independent oracle that applies the same predicate.
+
+`wire-slicer-gate.py` does steps 1 to 3 for every page fact, from the model's relationships and each fact hook's
+USERELATIONSHIP set. A slicer counts as in the grain (wired straight to the page copy) only when every fact of the page
+fact reaches its table; otherwise a direct filter would drop the unrelated fact's rows, so it is gated. A gated text
+control gets a Custom SQL value list (with a `(Blank)` row unless the slicer hides blanks) and keeps include-mode saved
+defaults, `(Blank)` included. A gated typed control (number, date, boolean) keeps the builder's typed value list,
+defaults and other targets, and the SQL compares the raw column (no `(Blank)` member). A gated control's direct target
+on the page fact is removed. The page copy gets a `Slicer Filter Count` column so the control lint sees the charts in
+each control's reach (it does not follow union sources). The builder never targets a page fact from another page. A date or number range control,
+an ambiguous path, or a slicer whose table reaches no hook is reported and left as built. Step 4 is
+`slicer-gate-verify-plan.json` (neutral render = page fact) plus filtered exports compared with the scaffold's
+`@<scenario>` oracles.
 
 Verified live behaviours:
 - `IN {{Ctl}}` renders a multi-select list control as a quoted SQL list, with apostrophes escaped; an empty control
