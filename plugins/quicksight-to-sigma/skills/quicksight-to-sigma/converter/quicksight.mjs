@@ -1,6 +1,25 @@
-// ../../..~/converter-source/build/sigma-ids.js
+// ../../../../../wt-sdm-vendor-src/build/sigma-ids.js
 var SIGMA_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 var _usedIds = /* @__PURE__ */ new Set();
+var _idCounter = 0;
+function encodeBase62(n, len) {
+  let x = n, s = "";
+  while (x > 0) {
+    s = SIGMA_CHARS[x % 62] + s;
+    x = Math.floor(x / 62);
+  }
+  return s.padStart(len, SIGMA_CHARS[0]);
+}
+function fnv1a32(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+var NS_MODULUS = 62 ** 4;
+var NS_BLOCK = 1e6;
 var SIGMA_LOWERCASE_WORDS = /* @__PURE__ */ new Set([
   "a",
   "an",
@@ -24,23 +43,31 @@ var SIGMA_LOWERCASE_WORDS = /* @__PURE__ */ new Set([
   "via",
   "per"
 ]);
-function resetIds() {
+function resetIds(seed) {
   _usedIds.clear();
+  _idCounter = seed == null ? 0 : fnv1a32(seed) % NS_MODULUS * NS_BLOCK;
+}
+function clampId(id, max = 64) {
+  if (id.length <= max)
+    return id;
+  const suffix = "~" + encodeBase62(fnv1a32(id) % 62 ** 6, 6);
+  return id.slice(0, max - suffix.length) + suffix;
 }
 function sigmaShortId(len = 10) {
   let id;
   do {
-    id = Array.from({ length: len }, () => SIGMA_CHARS[Math.floor(Math.random() * SIGMA_CHARS.length)]).join("");
+    id = encodeBase62(++_idCounter, len);
   } while (_usedIds.has(id));
   _usedIds.add(id);
   return id;
 }
-function sigmaInodeId(identifier) {
-  return `inode-${sigmaShortId(22)}/${identifier.toUpperCase()}`;
+function sigmaInodeId(identifier, casing = "upper") {
+  const phys = casing === "lower" ? identifier.toLowerCase() : identifier.toUpperCase();
+  return clampId(`inode-${sigmaShortId(22)}/${phys}`);
 }
 function sigmaDisplayName(s) {
   const normalized = (s || "").replace(/([a-z])([A-Z])/g, "$1_$2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2").replace(/([A-Za-z])([0-9])/g, "$1_$2").replace(/([0-9])([A-Za-z])/g, "$1_$2");
-  const words = normalized.toLowerCase().split(/[_\s]+/).filter(Boolean);
+  const words = normalized.toLowerCase().split(/[_\s/-]+/).filter(Boolean);
   return words.map((w, i) => i === 0 || !SIGMA_LOWERCASE_WORDS.has(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(" ");
 }
 function sigmaColFormula(tableName, identifier) {
@@ -116,7 +143,7 @@ function makeClsSecurity(opts) {
   };
 }
 
-// ../../..~/converter-source/build/quicksight.js
+// ../../../../../wt-sdm-vendor-src/build/quicksight.js
 function rewriteSqlRefs(formula, colMap) {
   const byDisplay = /* @__PURE__ */ new Map();
   for (const e of colMap.values())
@@ -1544,52 +1571,78 @@ function buildDerivedView(srcEl, allElements) {
     order: viewOrder
   };
 }
-function qsSafeWindowToNative(rawExpr, warnings) {
-  // SAFE inline mapping for SELF-CONTAINED QuickSight window fns ONLY:
-  // unpartitioned rank / denseRank / percentileRank and unpartitioned
-  // percentOfTotal. These fully specify their own ordering/scope, so they
-  // translate faithfully to a native Sigma window formula in a calc column
-  // (which resolves — live-verified 2026-07-15). Order/partition-DEPENDENT
-  // windows (running*/lag/lead/difference/period*/window*/*Over) are NOT mapped
-  // here: the native fns inherit the element's sort/partition, so an inline map
-  // would silently drop the QuickSight PARTITION BY / ORDER BY. Those fall
-  // through to the loud Null-degrade (or the SQL OVER() helper path). bd 7lw8.
-  warnings = warnings || [];
+function _qsSingleBalancedCall(inner) {
+  let depth = 0, quote = "";
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      if (c === "\\") {
+        i++;
+        continue;
+      }
+      if (c === quote)
+        quote = "";
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+      continue;
+    }
+    if (c === "(")
+      depth++;
+    else if (c === ")") {
+      depth--;
+      if (depth < 0)
+        return false;
+    }
+  }
+  return depth === 0;
+}
+function qsSafeWindowToNative(rawExpr, warnings = []) {
   const m = (rawExpr || "").trim().match(/^(rank|denseRank|percentileRank|percentOfTotal)\s*\(([\s\S]*)\)$/i);
-  if (!m) return null;
+  if (!m)
+    return null;
+  if (!_qsSingleBalancedCall(m[2]))
+    return null;
   const fn = m[1].toLowerCase();
   const args = splitTopLevel(m[2], ",");
-  if (args.length === 0 || !args[0].trim()) return null;
-  if (args.length >= 2 && args[1].trim()) return null; // partitioned → not self-contained → bail to loud degrade
+  if (args.length === 0 || !args[0].trim())
+    return null;
+  if (args.length >= 2 && _qsParsePartitionList(args[1]).length > 0)
+    return null;
+  if (args.length >= 3 && args[2].trim())
+    return null;
   const toSigma = (qs) => {
     const r = quicksightFormulaToSigmaEx(qs, []);
-    return r && r.formula && r.formula !== "Null" ? r.formula : null;
+    return r.formula && r.formula !== "Null" ? r.formula : null;
   };
   if (fn === "percentoftotal") {
     const agg = toSigma(args[0]);
-    if (!agg) return null;
-    warnings.push(`ℹ QuickSight percentOfTotal → native PercentOfTotal(_, "grand_total") (resolves in a calc column). Verify against the QuickSight total.`);
+    if (!agg)
+      return null;
+    warnings.push(`\u2139 QuickSight percentOfTotal \u2192 native PercentOfTotal(_, "grand_total") (resolves in a calc column). Verify against the QuickSight total.`);
     return `PercentOfTotal(${agg}, "grand_total")`;
   }
   const sortTok = args[0].trim().replace(/^\[/, "").replace(/\]$/, "").trim();
+  if (splitTopLevel(sortTok, ",").length > 1)
+    return null;
   const dm = sortTok.match(/^([\s\S]*?)\s+(ASC|DESC)\s*$/i);
   const exprPart = dm ? dm[1].trim() : sortTok;
-  const dir = (dm && dm[2] ? dm[2] : (fn === "percentilerank" ? "ASC" : "DESC")).toLowerCase();
+  const dir = (dm && dm[2] ? dm[2] : fn === "percentilerank" ? "ASC" : "DESC").toLowerCase();
   const sigExpr = toSigma(exprPart);
-  if (!sigExpr) return null;
+  if (!sigExpr)
+    return null;
   const sigFn = fn === "rank" ? "Rank" : fn === "denserank" ? "RankDense" : "RankPercentile";
-  warnings.push(`ℹ QuickSight ${m[1]} → native ${sigFn}(_, "${dir}") (resolves in a calc column). Verify ranking direction/tie handling.`);
+  warnings.push(`\u2139 QuickSight ${m[1]} \u2192 native ${sigFn}(_, "${dir}") (resolves in a calc column). Verify ranking direction/tie handling.`);
   return `${sigFn}(${sigExpr}, "${dir}")`;
 }
 function quicksightFormulaToSigmaEx(expr, warnings) {
   if (!expr || typeof expr !== "string")
     return { formula: "" };
   let s = expr.trim();
-  // Self-contained window fns (unpartitioned rank family + percentOfTotal) map
-  // to a faithful native Sigma window formula; order/partition-dependent ones
-  // fall through to the loud degrade below. See qsSafeWindowToNative / bd 7lw8.
-  const _nativeWin = qsSafeWindowToNative(s, warnings);
-  if (_nativeWin) return { formula: _nativeWin };
+  const nativeWin = qsSafeWindowToNative(s, warnings);
+  if (nativeWin)
+    return { formula: nativeWin };
   const strings = [];
   s = s.replace(/'((?:[^'\\]|\\.)*)'/g, (_, body) => {
     const idx = strings.length;
@@ -1950,6 +2003,7 @@ function dedupeElementNames(elements) {
 }
 export {
   convertQuickSightToSigma,
+  qsSafeWindowToNative,
   quicksightFormulaToSigma,
   quicksightFormulaToSigmaEx
 };

@@ -166,6 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     parity_path.write_text(
         json.dumps(parity, indent=2) + "\n", encoding="utf-8"
     )
+    # This recorder writes v1 grades only: a visual-residuals.json left by an
+    # earlier v2 record is stale and must not feed the ledger (mirrors the Ruby
+    # recorder's rm_f on every v1 / not-executable / waiver record).
+    (workdir / "visual-residuals.json").unlink(missing_ok=True)
     print(f"[RECORDED] visual comparison: {args.verdict.upper()}")
     return 0
 

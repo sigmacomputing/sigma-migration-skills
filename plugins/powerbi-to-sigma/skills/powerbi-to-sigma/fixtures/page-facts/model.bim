@@ -1,0 +1,461 @@
+{
+ "name": "Retail Fixture",
+ "compatibilityLevel": 1550,
+ "model": {
+  "culture": "en-US",
+  "tables": [
+   {
+    "name": "Sales",
+    "columns": [
+     {
+      "name": "Sale Id",
+      "dataType": "int64",
+      "sourceColumn": "SALE_ID",
+      "summarizeBy": "sum"
+     },
+     {
+      "name": "Date Key",
+      "dataType": "int64",
+      "sourceColumn": "DATE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Store Key",
+      "dataType": "int64",
+      "sourceColumn": "STORE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Product Key",
+      "dataType": "int64",
+      "sourceColumn": "PRODUCT_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Qty",
+      "dataType": "int64",
+      "sourceColumn": "QTY",
+      "summarizeBy": "sum"
+     },
+     {
+      "name": "Amount",
+      "dataType": "double",
+      "sourceColumn": "AMOUNT",
+      "summarizeBy": "sum"
+     },
+     {
+      "name": "Cost",
+      "dataType": "double",
+      "sourceColumn": "COST",
+      "summarizeBy": "sum"
+     }
+    ],
+    "measures": [
+     {
+      "name": "Sales Amount",
+      "expression": "SUM(Sales[Amount])",
+      "formatString": "#,0.00"
+     },
+     {
+      "name": "Sales Cost",
+      "expression": "SUM(Sales[Cost])"
+     },
+     {
+      "name": "Gross Margin",
+      "expression": [
+       "-- margin before rebates",
+       "[Sales Amount] - [Sales Cost]"
+      ]
+     },
+     {
+      "name": "Margin %",
+      "expression": "DIVIDE([Gross Margin], [Sales Amount])",
+      "formatString": "0.0%"
+     },
+     {
+      "name": "Units",
+      "expression": "SUM(Sales[Qty])",
+      "formatString": "#,0"
+     },
+     {
+      "name": "Avg Price",
+      "expression": "DIVIDE([Sales Amount], [Units])"
+     },
+     {
+      "name": "West Sales",
+      "expression": "CALCULATE([Sales Amount], Store[Region] = \"West\")"
+     },
+     {
+      "name": "Orders",
+      "expression": "DISTINCTCOUNT(Sales[Sale Id])",
+      "formatString": "#,0"
+     },
+     {
+      "name": "Prior Year Amount",
+      "expression": "CALCULATE([Sales Amount], SAMEPERIODLASTYEAR(Calendar[Date]))"
+     },
+     {
+      "name": "Rollup Sales",
+      "expression": "CALCULATE([Sales Amount], USERELATIONSHIP(Rollup[Child Product Key], Sales[Product Key]))"
+     },
+     {
+      "name": "Rollup Units",
+      "expression": "CALCULATE([Units], USERELATIONSHIP(Rollup[Child Product Key], Sales[Product Key]))"
+     },
+     {
+      "name": "Margin per Unit",
+      "expression": [
+       "VAR m = [Gross Margin]",
+       "VAR u = [Units]",
+       "RETURN DIVIDE(m, u)"
+      ],
+      "formatString": "0.00"
+     }
+    ],
+    "partitions": [
+     {
+      "name": "Sales",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM SALES\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Stock",
+    "columns": [
+     {
+      "name": "Snapshot Date Key",
+      "dataType": "int64",
+      "sourceColumn": "SNAPSHOT_DATE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Store Key",
+      "dataType": "int64",
+      "sourceColumn": "STORE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Product Key",
+      "dataType": "int64",
+      "sourceColumn": "PRODUCT_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "On Hand",
+      "dataType": "int64",
+      "sourceColumn": "ON_HAND",
+      "summarizeBy": "sum"
+     }
+    ],
+    "measures": [
+     {
+      "name": "On Hand",
+      "expression": "SUM(Stock[On Hand])",
+      "formatString": "#,0"
+     },
+     {
+      "name": "Weeks of Cover",
+      "expression": "DIVIDE([On Hand], [Units])",
+      "formatString": "0.0"
+     },
+     {
+      "name": "Unassigned Stock",
+      "expression": "CALCULATE([On Hand], ISBLANK(Store[Manager Key]))",
+      "formatString": "#,0"
+     }
+    ],
+    "partitions": [
+     {
+      "name": "Stock",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM STOCK\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Calendar",
+    "columns": [
+     {
+      "name": "Date Key",
+      "dataType": "int64",
+      "sourceColumn": "DATE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Date",
+      "dataType": "dateTime",
+      "sourceColumn": "CAL_DATE",
+      "summarizeBy": "sum"
+     },
+     {
+      "name": "Year",
+      "dataType": "int64",
+      "sourceColumn": "CAL_YEAR",
+      "summarizeBy": "sum"
+     },
+     {
+      "name": "Month",
+      "dataType": "string",
+      "sourceColumn": "CAL_MONTH",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Calendar",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM CAL\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Store",
+    "columns": [
+     {
+      "name": "Store Key",
+      "dataType": "int64",
+      "sourceColumn": "STORE_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Store Name",
+      "dataType": "string",
+      "sourceColumn": "STORE_NAME",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Region",
+      "dataType": "string",
+      "sourceColumn": "REGION",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Manager Key",
+      "dataType": "int64",
+      "sourceColumn": "MANAGER_KEY",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Store",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM STORE\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Manager",
+    "columns": [
+     {
+      "name": "Manager Key",
+      "dataType": "int64",
+      "sourceColumn": "MANAGER_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Manager Name",
+      "dataType": "string",
+      "sourceColumn": "MANAGER_NAME",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Manager",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM MGR\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Product",
+    "columns": [
+     {
+      "name": "Product Key",
+      "dataType": "int64",
+      "sourceColumn": "PRODUCT_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Product Name",
+      "dataType": "string",
+      "sourceColumn": "PRODUCT_NAME",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Category",
+      "dataType": "string",
+      "sourceColumn": "CATEGORY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Supplier Key",
+      "dataType": "int64",
+      "sourceColumn": "SUPPLIER_KEY",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Product",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM PRODUCT\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Supplier",
+    "columns": [
+     {
+      "name": "Supplier Key",
+      "dataType": "int64",
+      "sourceColumn": "SUPPLIER_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Supplier Name",
+      "dataType": "string",
+      "sourceColumn": "SUPPLIER_NAME",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Supplier",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM SUPPLIER\") in Source"
+      }
+     }
+    ]
+   },
+   {
+    "name": "Rollup",
+    "columns": [
+     {
+      "name": "Child Product Key",
+      "dataType": "int64",
+      "sourceColumn": "CHILD_PRODUCT_KEY",
+      "summarizeBy": "none"
+     },
+     {
+      "name": "Parent Product Key",
+      "dataType": "int64",
+      "sourceColumn": "PARENT_PRODUCT_KEY",
+      "summarizeBy": "none"
+     }
+    ],
+    "measures": [],
+    "partitions": [
+     {
+      "name": "Rollup",
+      "mode": "import",
+      "source": {
+       "type": "m",
+       "expression": "let Source = Value.NativeQuery(Db, \"SELECT * FROM ROLLUP_MAP\") in Source"
+      }
+     }
+    ]
+   }
+  ],
+  "relationships": [
+   {
+    "name": "r00",
+    "fromTable": "Sales",
+    "fromColumn": "Date Key",
+    "toTable": "Calendar",
+    "toColumn": "Date Key"
+   },
+   {
+    "name": "r01",
+    "fromTable": "Sales",
+    "fromColumn": "Store Key",
+    "toTable": "Store",
+    "toColumn": "Store Key"
+   },
+   {
+    "name": "r02",
+    "fromTable": "Sales",
+    "fromColumn": "Product Key",
+    "toTable": "Product",
+    "toColumn": "Product Key"
+   },
+   {
+    "name": "r03",
+    "fromTable": "Sales",
+    "fromColumn": "Product Key",
+    "toTable": "Rollup",
+    "toColumn": "Child Product Key",
+    "isActive": false
+   },
+   {
+    "name": "r04",
+    "fromTable": "Rollup",
+    "fromColumn": "Parent Product Key",
+    "toTable": "Product",
+    "toColumn": "Product Key"
+   },
+   {
+    "name": "r05",
+    "fromTable": "Stock",
+    "fromColumn": "Snapshot Date Key",
+    "toTable": "Calendar",
+    "toColumn": "Date Key"
+   },
+   {
+    "name": "r06",
+    "fromTable": "Stock",
+    "fromColumn": "Store Key",
+    "toTable": "Store",
+    "toColumn": "Store Key"
+   },
+   {
+    "name": "r07",
+    "fromTable": "Stock",
+    "fromColumn": "Product Key",
+    "toTable": "Product",
+    "toColumn": "Product Key"
+   },
+   {
+    "name": "r08",
+    "fromTable": "Store",
+    "fromColumn": "Manager Key",
+    "toTable": "Manager",
+    "toColumn": "Manager Key"
+   },
+   {
+    "name": "r09",
+    "fromTable": "Product",
+    "fromColumn": "Supplier Key",
+    "toTable": "Supplier",
+    "toColumn": "Supplier Key"
+   }
+  ]
+ }
+}

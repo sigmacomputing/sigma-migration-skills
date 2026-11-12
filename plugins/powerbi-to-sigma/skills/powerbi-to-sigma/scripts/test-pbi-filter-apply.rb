@@ -109,7 +109,7 @@ Dir.mktmpdir('pbi-filter-apply') do |dir|
   mm  = File.join(dir, 'master-map.json'); File.write(mm, JSON.generate(MMAP))
   out = File.join(dir, 'wb.json'); lay = File.join(dir, 'lay.xml')
   cmd = ['ruby', BUILDER, '--signals', sig, '--master-map', mm, '--data-model', 'dm-1',
-         '--out', out, '--layout-out', lay, '--name', 'Filter Apply Test']
+         '--out', out, '--layout-out', lay, '--name', 'Filter Apply Test', '--no-prune-masters']
   system(*cmd, out: File::NULL, err: File::NULL) || (abort "builder failed to run: #{cmd.join(' ')}")
   spec = JSON.parse(File.read(out))
   cov  = JSON.parse(File.read(File.join(dir, 'coverage.json')))

@@ -101,6 +101,23 @@ def ensure_sigma_env(workdir=None):
     migrate.ensure_sigma_env(workdir)
 
 
+def sigma_preflight_missing(reuse_dm):
+    """Non-dry-run preflight: what is still missing before a live migration.
+
+    The Sigma host comes from the shared client (an explicit SIGMA_BASE_URL, else
+    the host a signed-in Sigma CLI profile reports), not from the environment
+    alone, so a CLI-only user with no exported base URL is not refused.
+    """
+    missing = []
+    try:
+        migrate.sigma_rest.base_url()
+    except (migrate.sigma_rest.SigmaError, SystemExit) as exc:
+        missing.append(f"Sigma host ({exc})")
+    if not reuse_dm and not os.environ.get("SIGMA_CONNECTION_ID"):
+        missing.append("SIGMA_CONNECTION_ID (full warehouse-connection UUID)")
+    return missing
+
+
 def resolve_folder():
     """SIGMA_FOLDER_ID is a decision point — auto-resolve with a PRINTED default
     (prefers a THOUGHTSPOT/MIGRATION/TEST folder) rather than silently failing."""
@@ -315,9 +332,7 @@ def main():
     wd = migrate.resolve_workdir(a.workdir)
     ensure_sigma_env(wd)
     if not a.dry_run:
-        missing = [v for v in ("SIGMA_BASE_URL",) if not os.environ.get(v)]
-        if not a.reuse_dm and not os.environ.get("SIGMA_CONNECTION_ID"):
-            missing.append("SIGMA_CONNECTION_ID (full warehouse-connection UUID)")
+        missing = sigma_preflight_missing(a.reuse_dm)
         if missing:
             sys.exit("FATAL: missing env: " + ", ".join(missing))
     TOTAL = 6

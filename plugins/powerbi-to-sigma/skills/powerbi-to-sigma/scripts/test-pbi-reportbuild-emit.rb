@@ -193,16 +193,25 @@ Dir.mktmpdir do |d|
   p1_data = p1.select { |e| DATA.include?(e['kind']) }
 
   # 1. one-base-table-per-page ------------------------------------------------
+  # master-sales feeds pages p1 AND p2, so each page sources its OWN page-local child copy of
+  # it (G21) — still ONE base table per page, never the shared master itself.
+  all_els = doc['elements']
+  copy_of = ->(id) { (all_els.find { |e| e['id'] == id } || {}).dig('source', 'elementId') }
   srcs = p1_data.map { |e| e.dig('source', 'elementId') }.uniq
-  ok('1) every data visual on the page sources the ONE base table (master-sales)',
-     srcs == ['master-sales'] || (puts("    sources: #{srcs.inspect}") && false))
+  ok('1) every data visual on the page sources the ONE base table (a page-local copy of master-sales)',
+     srcs.size == 1 && copy_of.call(srcs.first) == 'master-sales' || (puts("    sources: #{srcs.inspect}") && false))
+  p1_copy = srcs.first
 
   # 2. control-targets-base + no passthrough + propagation --------------------
   region_ctl = p1.find { |e| e['kind'] == 'control' && e['name'] == 'Region' }
-  ok('2a) region control has exactly ONE filter target', region_ctl && (region_ctl['filters'] || []).length == 1)
-  ok('2b) that target is the base table (master-sales / its Region column)',
-     region_ctl && region_ctl['filters'][0].dig('source', 'elementId') == 'master-sales' &&
-       region_ctl['filters'][0]['columnId'] == 'mc-region')
+  # The Region slicer is a SYNC GROUP spanning p1+p2, so its primary filters the copy on each
+  # hosting page (and nothing else — never the shared master).
+  rf = region_ctl && (region_ctl['filters'] || [])
+  ok('2a) region control targets exactly the page-local copies of its sync group (one per hosting page)',
+     rf && rf.length == 2 && rf.all? { |f| copy_of.call(f.dig('source', 'elementId')) == 'master-sales' })
+  p1_rf = rf && rf.find { |f| f.dig('source', 'elementId') == p1_copy }
+  ok('2b) the p1 target is the p1 base table copy, on the copy of the Region column',
+     p1_rf && all_els.find { |e| e['id'] == p1_copy }['columns'].any? { |c| c['id'] == p1_rf['columnId'] && c['name'] == 'Region' })
 
   # no passthrough: every column on a CHART/PIVOT element is referenced by a role
   # (an unreferenced "orphan" column is the passthrough that corrupts grouping).
@@ -227,8 +236,8 @@ Dir.mktmpdir do |d|
   ok('3a) boolean slicer is a list control', active_ctl && active_ctl['controlType'] == 'list')
   ok('3b) boolean control does NOT ship the zeroing include+empty-values shape',
      active_ctl && !(active_ctl['mode'] == 'include' && Array(active_ctl['values']).empty?))
-  ok('3c) boolean control seeds the full boolean domain (unset = no filter)',
-     active_ctl && active_ctl['values'] == [true, false])
+  ok('3c) boolean control is exclude + [] (G27: include [] matches zero rows; exclude [] = all)',
+     active_ctl && active_ctl['mode'] == 'exclude' && active_ctl['values'] == [])
   # A saved selection must not silently widen the report to all values.
   region_vals = region_ctl['values']
   ok('3d) string slicer preserves the source saved selection',
