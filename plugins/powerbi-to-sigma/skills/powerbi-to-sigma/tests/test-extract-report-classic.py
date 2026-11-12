@@ -112,6 +112,13 @@ def main():
             z.writestr("[Content_Types].xml", "<Types/>")
         _assert_signals(_run(["--pbix", pbix], os.path.join(d, "s1.json")), "pbix")
 
+        # --dump-layout: decoded Layout JSON text is written alongside signals
+        dump = os.path.join(d, "layout-dump.json")
+        _run(["--pbix", pbix, "--dump-layout", dump], os.path.join(d, "s1b.json"))
+        with open(dump, encoding="utf-8") as f:
+            assert json.load(f) == LAYOUT, "dump-layout must equal the decoded Layout"
+        print("  ok [dump-layout]: decoded Layout written")
+
         # --report-layout: standalone UTF-16LE file WITH a BOM.
         layout_file = os.path.join(d, "Layout")
         with open(layout_file, "wb") as f:
@@ -157,6 +164,8 @@ def main():
             assert signals["source"] == "pbix-pbir" and "pbir_dir" not in signals
             assert visual["title"] == "Region picker" and visual["sync_group"] == "SharedRegion"
             assert visual["bindings"] == {"Values": ["T.Region"]}
+            _run(["--pbix", modern, "--dump-layout", dump], os.path.join(d, "modern2.json"))
+            assert "definition/pages/pages.json" in json.load(open(dump, encoding="utf-8")), "PBIR dump parts"
         print("  ok [pbir]: hybrid PBIX prefers modern metadata with either separator")
         with zipfile.ZipFile(modern, "a") as z:
             z.writestr("Report/definition/../../../outside.json", "{}")

@@ -31,7 +31,7 @@ A TMSL **calculated table** (e.g. a DAX `DimDate`) fails create with `RequiredOp
 - **Key fact:** `page.json`/`pages.json` do NOT track a visual list — visuals are discovered purely by the `pages/{page}/visuals/{id}/visual.json` folder layout, so **adding a visual = adding a folder**. Live-binding is held by `datasetReference.byConnection` in `definition.pbir`.
 - Each `visual.json` (schema `…/visualContainer/1.0.0`): `{name, position:{x,y,z,width,height,tabOrder}, visual:{visualType, query.queryState}}`. Only the queryState *role* + Measure-vs-Column varies per type:
   - **Measure projection:** `{"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"<table>"}},"Property":"<measure>"}},"queryRef":"<table>.<measure>","nativeQueryRef":"<measure>"}` — measures are referenced by their HOME table entity. **Column projection:** same with `"Column"`.
-  - `card` → `Values`; `clusteredColumnChart`/`clusteredBarChart`/`lineChart` → `Category` (column) + `Y` (measures); `tableEx` → `Values` (cols+measures in order); `pivotTable` → `Rows` (column) + `Values` (measures).
+  - `card` → `Values`; `clusteredColumnChart`/`clusteredBarChart`/`lineChart` → `Category` (column) + `Y` (measures); `tableEx` → `Values` (cols+measures in order); `pivotTable` → `Rows` (one projection per level) + optional `Columns` + `Values` (measures); the `active` flag marks the level Power BI opens at.
 
 ## Load data — bind credentials + refresh (else all measures = "(Blank)")
 An API-created import model has **no credentials and has never refreshed** → every measure is blank. Validated fix (Snowflake key-pair):

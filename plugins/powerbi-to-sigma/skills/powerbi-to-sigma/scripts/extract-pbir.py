@@ -109,6 +109,177 @@ def _fetch_pbir(ws, report, out_dir):
           file=sys.stderr)
 
 
+def _hierarchy_level_ref(expr):
+    """Table.Level for a user-defined hierarchy level (its queryRef,
+    Table.Hierarchy.Level, names no column). None for anything else, including
+    date-hierarchy variations (PropertyVariationSource), which keep their queryRef."""
+    level = (expr or {}).get("HierarchyLevel") if isinstance(expr, dict) else None
+    if not isinstance(level, dict) or not level.get("Level"):
+        return None
+    hierarchy = (level.get("Expression") or {}).get("Hierarchy") or {}
+    entity = ((hierarchy.get("Expression") or {}).get("SourceRef") or {}).get("Entity")
+    return f"{entity}.{level['Level']}" if entity else None
+
+
+def _field_ref(field):
+    """Canonical `Entity.Property` (or `Fn(Entity.Property)`) from a PBIR field
+    expression, or None when the shape is not modelled exactly. The field
+    expression is the source of truth: a projection's `queryRef` is a cached
+    display string that goes STALE when a measure/column is renamed in the model
+    (G22), so binding by it makes a live field look "missing". Unknown aggregation
+    function codes and Entity-less (alias-only) refs return None so the caller
+    falls back to the queryRef instead of guessing."""
+    if not isinstance(field, dict):
+        return None
+    for kind in ("Measure", "Column"):
+        node = field.get(kind)
+        if isinstance(node, dict):
+            ent = ((node.get("Expression") or {}).get("SourceRef") or {}).get("Entity")
+            prop = node.get("Property")
+            return f"{ent}.{prop}" if ent and prop else None
+    agg = field.get("Aggregation")
+    if isinstance(agg, dict) and agg.get("Function") in AGG_FUNC:
+        inner = _field_ref(agg.get("Expression"))
+        return f"{AGG_FUNC[agg['Function']]}({inner})" if inner else None
+    return None
+
+
+_QREF_FN = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\(")
+
+
+def _agg_queryref_fn(p):
+    """Aggregate function name Power BI wrote into the projection's queryRef
+    ("Min(T.c)" -> "Min"), or None. The name is authoritative over the numeric code."""
+    m = _QREF_FN.match(p.get("queryRef") or "")
+    return m.group(1) if m else None
+
+
+def _projection_ref(p):
+    field = p.get("field")
+    agg = field.get("Aggregation") if isinstance(field, dict) else None
+    if isinstance(agg, dict):
+        fn = _agg_queryref_fn(p)
+        inner = _field_ref(agg.get("Expression")) if fn else None
+        if fn and inner:
+            return f"{fn}({inner})"
+    # A table visual's implicit (default-summarization) aggregate is written ONLY
+    # into the queryRef ("Sum(T.c)"); the field is a bare Column. Keep the
+    # aggregate, with the field-bound column (the queryRef's inner name can be stale).
+    if isinstance(field, dict) and isinstance(field.get("Column"), dict):
+        fn = _agg_queryref_fn(p)
+        col = _field_ref(field)
+        if fn and col:
+            return f"{fn}({col})"
+    return (_hierarchy_level_ref(p.get("field")) or _field_ref(p.get("field"))
+            or p.get("queryRef") or p.get("nativeQueryRef"))
+
+
+def _binding_aliases(query_state):
+    """{field-derived ref: stale/alternate queryRef} for every projection whose
+    cached queryRef differs from the ref we bind by (G22). Lets a consumer still
+    resolve a name that older artifacts (master-map, notes) recorded."""
+    out = {}
+    for blk in (query_state or {}).values():
+        for p in (blk or {}).get("projections", []):
+            if not isinstance(p, dict):
+                continue
+            ref, qr = _projection_ref(p), p.get("queryRef")
+            if ref and qr and ref != qr:
+                out[ref] = qr
+    return out
+
+
+_MATRIX_TYPES = ("pivotTable", "matrix")
+_MATRIX_LEVEL_ROLES = ("Rows", "Columns")
+# Power BI's date hierarchy (auto date/time variation or Year/Quarter/Month/Week/Day
+# levels). Stricter than _drill_signal's test: a user hierarchy ("Geo Hierarchy.Country")
+# is NOT a date hierarchy.
+_DATE_LEVEL_RE = re.compile(
+    r"((?:^|\.)date\.variation\.|(?:^|\.)date hierarchy(?:\.|$)|(?:^|\.)(?:year|quarter|month|week|day|date)$)", re.I)
+# User calendar hierarchies ("Calendar.Fiscal.Fiscal Month", "Time.Time Hierarchy.Yr",
+# "Orders.ORDER_YEAR"). Every identifier (table, hierarchy, leaf) is split into lowercase
+# WORDS (spaces, underscores, hyphens, dots, camelCase and digit boundaries), then matched as
+# whole words, so ORDER_YEAR / OrderYear count but 'Candidates' / 'Status Updates' do not.
+#  - a leaf is a date grain when one of its words is a grain word, unless it is clearly a
+#    measure-like bucket ("Days Overdue Bucket", "Aging Band", "Months Since Signup");
+#  - a table/hierarchy is date-scoped by the words date / calendar. Neither 'time' (a
+#    timesheet's Client > Project > Task) nor 'fiscal' (a 'Fiscal Actuals' account tree) is
+#    scope; 'fiscal' and 'period' count only as LEAF grain words (FISCAL_YEAR, FISCAL_PERIOD).
+#  - under a date-scoped table/hierarchy a leaf may also be a compact grain (Y, Q, M, D,
+#    FQ, FM); outside that scope a one-letter leaf is not a grain;
+#  - the auto-date markers are anchored (a 'Date.Variation.' segment pair, a whole 'Date
+#    Hierarchy' segment), so 'Candidate Hierarchy', a 'Product Variations' table or a
+#    'Product.Variation.Color' hierarchy is not a date hierarchy.
+# A role is a date hierarchy only with at least two levels that each carry a grain word, and
+# at least two DISTINCT grain words between them (_is_date_hierarchy): Year + Month is a
+# drill, while Order Date + Ship Date (one grain, 'date') or Fiscal Year + Holiday (Holiday
+# has no grain) are independent columns and stay bound.
+_DATE_GRAIN_WORDS = frozenset((
+    "year", "years", "yr", "fy", "quarter", "qtr", "month", "months", "mth", "mo",
+    "week", "wk", "day", "days", "date", "period", "periods", "fiscal"))
+_DATE_SCOPED_GRAIN_WORDS = frozenset(("y", "q", "m", "d", "fq", "fm"))
+_DATE_BUCKET_WORDS = frozenset((
+    "overdue", "since", "bucket", "buckets", "band", "bands", "aging", "ageing", "age", "ages"))
+_DATE_SCOPE_WORDS = frozenset(("date", "calendar"))
+
+
+def _words(name):
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])",
+               " ", str(name))
+    return [w for w in re.split(r"[^A-Za-z0-9]+", s.lower()) if w]
+
+
+def _date_grains(ref):
+    parts = str(ref).split(".")
+    leaf = set(_words(parts[-1]))
+    if leaf & _DATE_BUCKET_WORDS:
+        return set()
+    grains = leaf & _DATE_GRAIN_WORDS
+    if any(set(_words(p)) & _DATE_SCOPE_WORDS for p in parts[:-1]):
+        grains |= leaf & _DATE_SCOPED_GRAIN_WORDS
+    return grains
+
+
+def _is_date_ref(ref):
+    ref = str(ref)
+    if _DATE_LEVEL_RE.search(ref):
+        return True
+    parts = ref.split(".")
+    if _date_grains(ref):
+        return True
+    return any(set(_words(p)) & _DATE_SCOPE_WORDS for p in parts[:-1])
+
+
+def _is_date_hierarchy(projs):
+    raw = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
+    raw = [r for r in raw if r]
+    date_refs = [r for r in raw if _is_date_ref(r)]
+    grain_sets = [g for g in (_date_grains(r) for r in date_refs) if g]
+    grains = set().union(*grain_sets)
+    # Distinct grains distinguish Year/Month drills from independent date columns.
+    return len(grain_sets) >= 2 and len(grains) >= 2
+
+
+def _matrix_levels(query_state, visual_type):
+    """{Role: {levels, active, date}} for a matrix's multi-level Rows/Columns roles.
+
+    `levels` is every projection in order, `active` the level(s) Power BI opens at;
+    `date` marks a date hierarchy (only the active level is bound, see _role_bindings).
+    None when there is nothing multi-level (non-matrix, or single-level roles)."""
+    if visual_type not in _MATRIX_TYPES:
+        return None
+    out = {}
+    for role in _MATRIX_LEVEL_ROLES:
+        projs = [p for p in ((query_state or {}).get(role) or {}).get("projections", [])
+                 if isinstance(p, dict)]
+        levels = [r for r in (_projection_ref(p) for p in projs) if r]
+        if len(levels) < 2:
+            continue
+        active = [r for r in (_projection_ref(p) for p in projs if p.get("active") is True) if r]
+        out[role] = {"levels": levels, "active": active, "date": _is_date_hierarchy(projs)}
+    return out or None
+
+
 def _role_bindings(query_state, visual_type=None):
     """{Role: [queryRef, ...]} from visual.query.queryState.
 
@@ -116,16 +287,26 @@ def _role_bindings(query_state, visual_type=None):
     (Year/Quarter/Month/Day); the drilled-to level is flagged `active`. When any
     projection in a role carries an active flag, keep only the active one(s) so a
     day-drilled line binds Day instead of collapsing to the first level (Year).
+
+    Matrices (pivotTable/matrix) are exempt for Rows and Columns: the active flag
+    there only records which level Power BI opens collapsed, and the +/- buttons
+    reveal the rest, so every level is kept in order. A DATE hierarchy is not exempt
+    (every date level would open the Sigma pivot at Day grain), so it keeps the
+    active level(s) only.
     """
     out = {}
     for role, blk in (query_state or {}).items():
         projs = [p for p in blk.get("projections", []) if isinstance(p, dict)]
         active = [p for p in projs if p.get("active") is True]
-        if active and len(active) < len(projs):
+        if (visual_type in _MATRIX_TYPES and role in _MATRIX_LEVEL_ROLES
+                and active and len(active) < len(projs) and not _is_date_hierarchy(projs)):
+            print(f"[extract-pbir] matrix: role {role} keeps all {len(projs)} level(s) "
+                  f"({len(active)} active); Power BI opens it collapsed", file=sys.stderr)
+        elif active and len(active) < len(projs):
             print(f"[extract-pbir] drill: role {role} has {len(projs)} hierarchy level(s); "
                   f"using active level only", file=sys.stderr)
             projs = active
-        refs = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
+        refs = [_projection_ref(p) for p in projs]
         out[role] = [r for r in refs if r]
     # Azure Maps uses cartesian-looking role names for geographic coordinates.
     # Canonicalize the roles, never the bound column names; scatter X/Y must stay
@@ -149,19 +330,18 @@ def _drill_signal(query_state):
     """
     for role, blk in (query_state or {}).items():
         projs = [p for p in (blk or {}).get("projections", []) if isinstance(p, dict)]
-        levels = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
+        raw = [p.get("queryRef") or p.get("nativeQueryRef") for p in projs]
+        levels = [_projection_ref(p) for p in projs]
         levels = [r for r in levels if r]
         if len(levels) < 2:
             continue
-        active = [
-            p.get("queryRef") or p.get("nativeQueryRef")
-            for p in projs if p.get("active") is True
-        ]
+        active = [_projection_ref(p) for p in projs if p.get("active") is True]
         active = [r for r in active if r]
+        # judged on the raw queryRefs: a hierarchy level's names its hierarchy
         hierarchy_named = all(
             re.search(r"(variation|hierarchy|(?:^|\.)(?:year|quarter|month|week|day|date)$)",
                       str(ref), re.I)
-            for ref in levels
+            for ref in raw if ref
         )
         if not active and not hierarchy_named:
             continue
@@ -233,7 +413,11 @@ def _visual_title(visual):
 # bead f972: PBI aggregation function codes (query OrderBy / sortDefinition
 # Aggregation.Function) -> the function name PBI uses in aggregated queryRefs
 # ("Sum(ABSENCE_RECORDS.HOURS)").
-AGG_FUNC = {0: "Sum", 1: "Avg", 2: "Min", 3: "Max", 4: "Count", 5: "CountNonNull"}
+# Follows Power BI's QueryAggregateFunction enum (verified against real PBIR: 3 pairs with
+# queryRef "Min(...)", 4 with "Max(...)"). Only a fallback: _projection_ref prefers the
+# function name in the projection's queryRef.
+AGG_FUNC = {0: "Sum", 1: "Avg", 2: "Count", 3: "Min", 4: "Max", 5: "CountNonNull",
+            6: "Median", 7: "StandardDeviation", 8: "Variance"}
 
 
 def _expr_queryref(expr):
@@ -241,6 +425,12 @@ def _expr_queryref(expr):
     Aggregation shapes). Returns None for shapes we don't model (hierarchies)."""
     if not isinstance(expr, dict):
         return None
+    level = _hierarchy_level_ref(expr)
+    if level:
+        return level
+    strict = _field_ref(expr)
+    if strict:
+        return strict
     if "Aggregation" in expr:
         inner = _expr_queryref(expr["Aggregation"].get("Expression"))
         fn = AGG_FUNC.get(expr["Aggregation"].get("Function"), "Sum")
@@ -277,7 +467,7 @@ def _sort_signal(visual):
             for role in ("Rows", "Category", "Values"):  # first non-empty = leftmost column
                 for p in (qs.get(role) or {}).get("projections", []):
                     if isinstance(p, dict):
-                        qr = p.get("queryRef") or p.get("nativeQueryRef")
+                        qr = _projection_ref(p)
                         if qr:
                             return {"queryRef": qr, "direction": "asc", "default": True}
         return None
@@ -287,7 +477,7 @@ def _sort_signal(visual):
     for _role, blk in qs.items():
         for p in blk.get("projections", []):
             if isinstance(p, dict) and p.get("field") == fld:
-                qr = p.get("queryRef") or p.get("nativeQueryRef")
+                qr = _projection_ref(p)
                 if qr:
                     return {"queryRef": qr, "direction": direction}
     qr = _expr_queryref(fld)
@@ -468,7 +658,9 @@ def _card_value_color(visual):
     the builder puts this on the Sigma KPI `value.color`."""
     for item in (visual.get("objects", {}) or {}).get("labels", []):
         props = (item or {}).get("properties", {}) or {}
-        c = _color_literal(props.get("color", {}) or {})
+        node = props.get("color", {}) or {}
+        # hex string, or {"theme": id, "percent": p} for a colour-picker theme swatch
+        c = _static_color(node) or _color_literal(node)
         if c:
             return c
     return None
@@ -715,10 +907,296 @@ def _report_theme(defn):
         return None
 
 
+def _static_color(node):
+    """A static color node -> '#RRGGBB' | {"theme": ColorId, "percent": p} | None.
+    Accepts {solid:{color:{expr:{Literal|ThemeDataColor}}}} and the bare inner shapes."""
+    if not isinstance(node, dict):
+        return None
+    tdc = node.get("ThemeDataColor")
+    if isinstance(tdc, dict):
+        try:
+            return {"theme": int(tdc.get("ColorId")), "percent": float(tdc.get("Percent") or 0)}
+        except (TypeError, ValueError):
+            return None
+    lit = (node.get("Literal") or {}).get("Value")
+    if lit is not None:
+        s = str(lit).strip().strip("'")
+        return s if s.startswith("#") else None
+    for k in ("solid", "color", "expr"):
+        if k in node:
+            c = _static_color(node[k])
+            if c is not None:
+                return c
+    return None
+
+
+def _bool_prop(props, key, default):
+    """Literal boolean property with an explicit default for an ABSENT key."""
+    if key not in props:
+        return default
+    v = _literal(props.get(key))
+    if v is None:
+        return default
+    return str(v).strip().lower() == "true"
+
+
+def _column_formats(visual, vtype):
+    """Static per-column fills of a table/matrix: objects.columnFormatting[] entries
+    {properties:{backColor, fontColor, styleHeader, styleValues, styleSubtotals,
+    styleTotal}, selector:{metadata: queryRef}}. Returns a list of
+    {target, back, font, header, values, subtotals, total} (colors are '#hex' or
+    {"theme": id, "percent": p}), or None when there are none. An ABSENT styleValues
+    means TRUE (verified against PBI renders); absent styleHeader/styleTotal = false,
+    absent styleSubtotals = true. Entries that carry neither a back nor a font color
+    (e.g. data bars only) are skipped."""
+    if vtype not in ("tableEx", "tableExV2", "pivotTable", "matrix"):
+        return None
+    out = []
+    for item in (visual.get("objects", {}) or {}).get("columnFormatting", []) or []:
+        if not isinstance(item, dict):
+            continue
+        target = (item.get("selector") or {}).get("metadata")
+        props = item.get("properties", {}) or {}
+        if not target:
+            continue
+        back = _static_color(props.get("backColor"))
+        font = _static_color(props.get("fontColor"))
+        if back is None and font is None:
+            continue
+        out.append({"target": target, "back": back, "font": font,
+                    "header": _bool_prop(props, "styleHeader", False),
+                    "values": _bool_prop(props, "styleValues", True),
+                    "subtotals": _bool_prop(props, "styleSubtotals", True),
+                    "total": _bool_prop(props, "styleTotal", False)})
+    return out or None
+
+
+def _hex_list(colors):
+    if not isinstance(colors, list) or not colors:
+        return None
+    out = [str(c).strip() for c in colors]
+    ok = all(__import__("re").fullmatch(r"#[0-9A-Fa-f]{6}", c) for c in out)
+    return out if ok else None
+
+
+def _read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _report_theme_colors(defn):
+    """The report theme's own dataColors (custom theme overrides the base theme), or
+    None. Base theme: StaticResources/SharedResources/BaseThemes/<name>.json; custom:
+    StaticResources/RegisteredResources/<file> (found via report.json resourcePackages,
+    else by the customTheme name). `defn` is <pbir>/definition."""
+    root = os.path.dirname(os.path.abspath(defn))
+    rep = _read_json(os.path.join(defn, "report.json")) or {}
+    tc = rep.get("themeCollection", {}) or {}
+    colors = None
+    base_name = (tc.get("baseTheme") or {}).get("name")
+    if base_name:
+        base = _read_json(os.path.join(root, "StaticResources", "SharedResources",
+                                       "BaseThemes", f"{base_name}.json"))
+        colors = _hex_list((base or {}).get("dataColors"))
+    custom = tc.get("customTheme") or {}
+    cname = custom.get("name")
+    if cname:
+        reg = os.path.join(root, "StaticResources", "RegisteredResources")
+        cands = []
+        for pkg in rep.get("resourcePackages", []) or []:
+            for it in (pkg or {}).get("items", []) or []:
+                if isinstance(it, dict) and it.get("name") == cname and it.get("path"):
+                    cands.append(os.path.join(reg, os.path.basename(str(it["path"]))))
+        cands.append(os.path.join(reg, cname))
+        cands.append(os.path.join(reg, f"{cname}.json"))
+        for c in cands:
+            th = _read_json(c)
+            cc = _hex_list((th or {}).get("dataColors"))
+            if cc:
+                colors = cc
+                break
+    return colors
+
+
 def _sync_group(visual):
     """PBIR visual.syncGroup.groupName for cross-page slicer mirroring."""
     group = (visual.get("syncGroup") or {}).get("groupName")
     return str(group).strip() if group is not None and str(group).strip() else None
+
+
+def _from_entities(filter_obj):
+    """{alias: Entity} from a Version-2 query filter's From[]."""
+    return {f.get("Name"): f.get("Entity") for f in (filter_obj.get("From") or [])
+            if isinstance(f, dict) and f.get("Name") and f.get("Entity")}
+
+
+def _column_ref(expr, entities):
+    """Entity.Property for a Column expression whose SourceRef is an Entity or a
+    From alias; None otherwise."""
+    col = (expr or {}).get("Column") if isinstance(expr, dict) else None
+    if not isinstance(col, dict) or not col.get("Property"):
+        return None
+    src = (col.get("Expression") or {}).get("SourceRef") or {}
+    ent = src.get("Entity") or entities.get(src.get("Source"))
+    return f"{ent}.{col['Property']}" if ent else None
+
+
+def _selection_literal(node):
+    """Typed decode of one saved-selection literal -> (ok, value). Version-2 query
+    literals: 'text' (quotes doubled to escape), 2026L int, 1.5D / 2D / 1M double,
+    true/false, null, datetime'...' / date'...'. ok=False for anything else so the
+    whole selection is recorded as unsupported rather than guessed."""
+    raw = (node or {}).get("Literal", {}).get("Value") if isinstance(node, dict) else None
+    if raw is None:
+        return False, None
+    s = str(raw).strip()
+    if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
+        return True, s[1:-1].replace("''", "'")
+    low = s.lower()
+    if low == "null":
+        return True, None
+    if low in ("true", "false"):
+        return True, low == "true"
+    m = re.fullmatch(r"(?:datetime|date)'([^']*)'", s, re.I)
+    if m:
+        return True, m.group(1)
+    m = re.fullmatch(r"(-?\d+(?:\.\d+)?)([LDMF]?)", s, re.I)
+    if m:
+        num, suffix = m.group(1), m.group(2).upper()
+        if suffix == "L" or (not suffix and "." not in num):
+            return (True, int(num)) if "." not in num else (False, None)
+        return True, float(num)
+    return False, None
+
+
+def _saved_selection(general_props, slicer_field):
+    """Saved slicer selection (visual.objects.general[].properties.filter.filter, a
+    Version-2 query filter) -> ({mode, column, values, has_null}, None), or
+    (None, reason) when it is not a plain In / Not(In) list over one column.
+    `values` are typed JSON values with null removed (has_null carries it)."""
+    flt = ((general_props or {}).get("filter") or {}).get("filter")
+    if not isinstance(flt, dict):
+        return None, None
+    where = flt.get("Where") or []
+    if len(where) != 1:
+        return None, "multiple-conditions" if where else "no-condition"
+    cond = (where[0] or {}).get("Condition") or {}
+    exclude = False
+    node = cond
+    if "Not" in cond:
+        exclude, node = True, (cond["Not"].get("Expression") or {})
+    in_node = node.get("In") if isinstance(node, dict) else None
+    if not isinstance(in_node, dict):
+        return None, "not-an-in-list"
+    exprs = in_node.get("Expressions") or []
+    if len(exprs) != 1:
+        return None, "multi-column-key"
+    entities = _from_entities(flt)
+    column = _column_ref(exprs[0], entities) or _field_ref(slicer_field)
+    if not column:
+        return None, "unresolved-column"
+    if not exclude:
+        flag = ((general_props.get("isInvertedSelectionMode") or {}).get("expr") or {}).get("Literal", {}).get("Value")
+        exclude = str(flag).strip("'").lower() == "true"
+    values, has_null = [], False
+    for row in in_node.get("Values") or []:
+        if not (isinstance(row, list) and len(row) == 1):
+            return None, "multi-column-key"
+        ok, val = _selection_literal(row[0])
+        if not ok:
+            return None, "unmodeled-literal"
+        if val is None:
+            has_null = True
+        else:
+            values.append(val)
+    return {"mode": "exclude" if exclude else "include", "column": column,
+            "values": values, "has_null": has_null}, None
+
+
+def _display_names(visual, query_state):
+    """{queryRef: display name} for fields the report author renamed. Sources, in
+    priority order: projection.displayName, objects.columnProperties[].displayName
+    (selector.metadata = queryRef), query.queryMetadata.Select[].Restatement (only when it
+    differs from the field's own leaf). Keyed like bindings (_projection_ref)."""
+    out = {}
+    aliases = {}
+    for blk in (query_state or {}).values():
+        for p in (blk or {}).get("projections", []):
+            if not isinstance(p, dict):
+                continue
+            ref = _projection_ref(p)
+            if not ref:
+                continue
+            for a in (p.get("queryRef"), p.get("nativeQueryRef")):
+                if a:
+                    aliases[a] = ref
+            dn = p.get("displayName")
+            if isinstance(dn, str) and dn.strip():
+                out[ref] = dn.strip()
+    cp = (visual.get("objects") or {}).get("columnProperties")
+    items = cp if isinstance(cp, list) else []
+    for item in items:
+        props = (item or {}).get("properties") or {}
+        meta = ((item or {}).get("selector") or {}).get("metadata")
+        dn = _literal(props.get("displayName"))
+        if meta and dn:
+            out.setdefault(aliases.get(meta, meta), dn)
+    if isinstance(cp, dict):
+        for meta, props in cp.items():
+            dn = _literal((props or {}).get("displayName")) if isinstance(props, dict) else None
+            if dn:
+                out.setdefault(aliases.get(meta, meta), dn)
+    sel = ((visual.get("query") or {}).get("queryMetadata") or {}).get("Select") or []
+    for item in sel:
+        name, rest = (item or {}).get("Name"), (item or {}).get("Restatement")
+        if name and isinstance(rest, str) and rest.strip():
+            ref = aliases.get(name, name)
+            leaf = ref.split(".")[-1].rstrip(")")
+            if rest.strip() != leaf:
+                out.setdefault(ref, rest.strip())
+    return out
+
+
+def _header_title(visual):
+    """A slicer's visible header title (objects.header[].properties.text) when the header
+    is not turned off; None otherwise."""
+    for item in (visual.get("objects") or {}).get("header", []):
+        props = (item or {}).get("properties") or {}
+        if _literal(props.get("show")) == "false":
+            return None
+        t = _literal(props.get("text"))
+        if t:
+            return t
+    return None
+
+
+def _absolute_positions(visuals):
+    """PBIR positions of a member of a visualGroup are RELATIVE to the group, and groups
+    nest. Resolve absolute x/y by summing the offsets up the parent chain; the raw
+    relative values are kept as x_rel / y_rel (only on grouped members)."""
+    by_id = {r["visual_id"]: r for r in visuals}
+    rel = {r["visual_id"]: (r["x"], r["y"]) for r in visuals}
+    cache = {}
+
+    def absxy(vid, seen=()):
+        if vid in cache:
+            return cache[vid]
+        rx, ry = rel[vid]
+        parent = by_id[vid].get("parent_group")
+        if parent and parent in by_id and parent not in seen and parent != vid:
+            px, py = absxy(parent, seen + (vid,))
+            rx, ry = rx + px, ry + py
+        cache[vid] = (rx, ry)
+        return cache[vid]
+
+    for r in visuals:
+        if r.get("parent_group") and r["parent_group"] in by_id:
+            r["x_rel"], r["y_rel"] = rel[r["visual_id"]]
+    for r in visuals:
+        r["x"], r["y"] = absxy(r["visual_id"])
 
 
 def _slicer_state(visual, query_state):
@@ -731,11 +1209,18 @@ def _slicer_state(visual, query_state):
     field = projections[0].get("field") if len(projections) == 1 else None
     result = {"mode": mode.strip("'") if isinstance(mode, str) else None}
     for item in objects.get("general", []):
-        predicate = item.get("properties", {}).get("filter", {}).get("filter")
+        props = item.get("properties", {})
+        predicate = props.get("filter", {}).get("filter")
         if predicate:
             result["has_saved_filter"] = True
             if field:
                 result["selection"] = _filter_signal({"field": field, "type": "Categorical", "filter": predicate}, "slicer", numeric=True)
+            # F14: the typed, builder-facing contract (see refs/pbi-filter-spec.md)
+            sel, why = _saved_selection(props, field)
+            if sel:
+                result["saved_selection"] = sel
+            elif why:
+                result["saved_selection_unsupported"] = why
             break
     return result
 
@@ -766,7 +1251,7 @@ def extract(pbir_dir):
             for _role, _blk in (qs or {}).items():
                 for _p in _blk.get("projections", []):
                     if isinstance(_p, dict):
-                        _qr = _p.get("queryRef") or _p.get("nativeQueryRef")
+                        _qr = _projection_ref(_p)
                         _f = _proj_format(_p)
                         if _qr and _f:
                             formats[_qr] = _f
@@ -790,6 +1275,9 @@ def extract(pbir_dir):
                 "z": pos.get("z", 0),
                 "parent_group": v.get("parentGroupName"),
                 "bindings": _role_bindings(qs, vtype),
+                # G22: bindings are field-derived (Entity.Property); this keeps the
+                # projection's cached queryRef as an alias where the two differ.
+                "binding_aliases": _binding_aliases(qs),
                 # PBIR synced slicers carry visual.syncGroup. Members with the
                 # same groupName mirror one filter across pages; the builder
                 # emits the first as the primary and later members as Sigma
@@ -799,6 +1287,8 @@ def extract(pbir_dir):
                 # Full ordered hierarchy for native Sigma controlType:drill.
                 # bindings above intentionally keeps only the active level.
                 "drill": _drill_signal(qs),
+                # matrix Rows/Columns level detail (builder's collapsed-start note)
+                "matrix_levels": _matrix_levels(qs, vtype),
                 # bead f972: visual sort ({queryRef, direction asc|desc}) or None
                 "sort": _sort_signal(visual),
                 "formats": formats,
@@ -835,11 +1325,39 @@ def extract(pbir_dir):
                 # rules, field-value measures, data bars) -> Sigma conditionalFormats.
                 "conditional_formats": _conditional_formats(visual, vtype),
                 # visual-level Filters-pane filters -> Sigma element filters ([bead])
-                "filters": _filter_signals(v, "visual"),
+                # G24: a slicer's OWN visual-level filters (e.g. exclude-blank on its
+                # list) are not selections -> scope "slicer-self", so nothing may turn
+                # them into a control default.
+                "filters": _filter_signals(
+                    v, "slicer-self" if (vtype == "slicer" or _vkr["role_class"] == "control") else "visual"),
             }
+            # CF selector.metadata is a queryRef too: re-key it to the field-derived ref
+            _alias_to_ref = {a: r for r, a in rec["binding_aliases"].items()}
+            for _cf in rec["conditional_formats"] or []:
+                _cf["target"] = _alias_to_ref.get(_cf["target"], _cf["target"])
+            # static per-column fills (columnFormatting) — emitted ONLY when present so
+            # reports without them keep byte-identical signals.
+            _colfmt = _column_formats(visual, vtype)
+            if _colfmt:
+                for _cfm in _colfmt:
+                    _cfm["target"] = _alias_to_ref.get(_cfm["target"], _cfm["target"])
+                rec["column_formats"] = _colfmt
             if rec["sigma_kind"] == "text":
                 rec["text"] = _textbox_body(visual)
+            # G30: visual.json top-level isHidden. Emitted ONLY when true so a
+            # report with no hidden visuals produces byte-identical signals.
+            if v.get("isHidden") is True:
+                rec["hidden"] = True
+            _dn = _display_names(visual, qs)
+            if _dn:
+                rec["display_names"] = _dn
+            if vtype == "slicer":
+                _ht = _header_title(visual)
+                if _ht:
+                    rec["header_title"] = _ht
             visuals.append(rec)
+        _absolute_positions(visuals)
+        _propagate_group_hidden(visuals)
         visuals.sort(key=lambda r: (r["y"], r["x"]))
         # Visual-interaction overrides (slicer "edit interactions"): page.json
         # carries them as visualInteractions[{source, target, type}] ONLY when an
@@ -870,11 +1388,148 @@ def extract(pbir_dir):
             report_json = json.load(open(_rp))
         except Exception:
             report_json = {}
-    return {"source": "pbir", "pbir_dir": pbir_dir,
+    sig = {"source": "pbir", "pbir_dir": pbir_dir,
             # style fidelity: report base-theme name -> Sigma settings.theme.overrides palette
             "theme": _report_theme(defn),
             "filters": _filter_signals(report_json, "report"),
+            # G30: report bookmarks (visibility state per bookmark). With each
+            # visual's `hidden` flag this separates permanently hidden visuals
+            # (hidden, shown by no bookmark) from bookmark-toggled ones.
+            "bookmarks": _bookmarks(defn, out_pages),
             "pages": out_pages}
+    # the theme's own dataColors (custom over base) — emitted whenever a theme JSON with
+    # valid dataColors is found (additive key; absent otherwise).
+    _tdc = _report_theme_colors(defn)
+    if _tdc:
+        sig["theme_data_colors"] = _tdc
+    return sig
+
+
+# ── Visual visibility + bookmarks (G30) ────────────────────────────────────────
+def _propagate_group_hidden(visuals):
+    """A member of a hidden visual group (at any nesting depth) is hidden too —
+    PBIR stores isHidden on the group container only."""
+    parent = {r["visual_id"]: r.get("parent_group") for r in visuals}
+    hidden = {r["visual_id"] for r in visuals if r.get("hidden")}
+    if not hidden:
+        return
+    for r in visuals:
+        seen, g = set(), r.get("parent_group")
+        while g and g not in seen:
+            if g in hidden:
+                r["hidden"] = True
+                break
+            seen.add(g)
+            g = parent.get(g)
+
+
+def _bm_visibility(section, sink):
+    """Collect (hides, shows, spotlight) container names from one bookmark
+    section. `visualContainers` entries are SHOWN unless display.mode is hidden;
+    `visualContainerGroups` entries carry isHidden and may nest their members
+    under `children`."""
+    hides, shows, spot = sink
+    for name, st in ((section.get("visualContainers") or {}).items()):
+        mode = ((((st or {}).get("singleVisual") or {}).get("display")) or {}).get("mode")
+        if mode == "hidden":
+            hides.append(name)
+        elif mode in ("spotlight", "maximize"):
+            spot.append(name)
+        else:
+            shows.append(name)
+    for gname, g in ((section.get("visualContainerGroups") or {}).items()):
+        g = g or {}
+        (hides if g.get("isHidden") is True else shows).append(gname)
+        if g.get("children"):
+            _bm_visibility({"visualContainers": g["children"]}, sink)
+
+
+def _bookmark_files(bdir):
+    """Bookmark files in bookmarks.json order (folders flattened), then any not
+    indexed, name-sorted. Missing or unreadable entries are skipped."""
+    on_disk = {}
+    for fn in sorted(os.listdir(bdir)):
+        if fn.endswith(".bookmark.json"):
+            on_disk[fn[:-len(".bookmark.json")]] = os.path.join(bdir, fn)
+    order = []
+
+    def walk(items):
+        for it in items or []:
+            if isinstance(it, dict):
+                if it.get("name"):
+                    order.append(it["name"])
+                walk(it.get("children"))
+
+    idx = os.path.join(bdir, "bookmarks.json")
+    if os.path.exists(idx):
+        try:
+            walk(json.load(open(idx)).get("items"))
+        except Exception:
+            pass
+    ordered = [n for n in dict.fromkeys(order) if n in on_disk]
+    return [on_disk[n] for n in ordered] + [p for n, p in on_disk.items() if n not in ordered]
+
+
+def _bookmarks(defn, pages):
+    bdir = os.path.join(defn, "bookmarks")
+    if not os.path.isdir(bdir):
+        return []
+    members = {}   # group id -> member visual ids (any depth, via parent_group)
+    for pg in pages:
+        for r in pg["visuals"]:
+            if r.get("parent_group"):
+                members.setdefault(r["parent_group"], []).append(r["visual_id"])
+
+    def expand(ids):
+        out, stack = [], list(ids)
+        while stack:
+            n = stack.pop(0)
+            if n not in out:
+                out.append(n)
+                stack = list(members.get(n, [])) + stack
+        return out
+
+    result = []
+    for path in _bookmark_files(bdir):
+        try:
+            b = json.load(open(path))
+        except Exception:
+            continue
+        if not isinstance(b, dict):
+            continue
+        expl = b.get("explorationState") or {}
+        opts = b.get("options") or {}
+        sink = ([], [], [])
+        for sec in (expl.get("sections") or {}).values():
+            _bm_visibility(sec or {}, sink)
+        hides, shows, spot = sink
+        suppress = opts.get("suppressDisplay") is True
+        targets = None
+        if opts.get("applyOnlyToTargetVisuals") is True:
+            targets = list(opts.get("targetVisualNames") or [])
+        if suppress:
+            hides, shows, spot = [], [], []
+        elif targets is not None:
+            allowed = set(expand(targets))
+            hides = [n for n in hides if n in allowed]
+            shows = [n for n in shows if n in allowed]
+            spot = [n for n in spot if n in allowed]
+        hides_x = expand(hides)
+        hidden_set = set(hides_x)
+        # a visual the bookmark hides is never also shown by it (a shown group expands to
+        # members the same bookmark hides explicitly)
+        shows_x = [n for n in expand(shows) if n not in hidden_set]
+        result.append({
+            "name": b.get("name") or os.path.basename(path)[:-len(".bookmark.json")],
+            "display_name": b.get("displayName") or b.get("name"),
+            "page_id": expl.get("activeSection"),
+            "hides": hides_x,
+            "shows": shows_x,
+            "spotlight": spot,
+            "applies_to": targets,
+            "suppress_display": suppress,
+        })
+    return result
 
 
 # ── Report/page/visual FILTER extraction ([bead]) ────────────────────

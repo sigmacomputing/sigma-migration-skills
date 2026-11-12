@@ -1,0 +1,711 @@
+{
+ "masters": {
+  "Sales": {
+   "id": "master-sales",
+   "element_id": "dm-sales",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-sales-sale_id",
+     "name": "Sale Id",
+     "formula": "[Sales/Sale Id]"
+    },
+    {
+     "id": "mc-sales-date_key",
+     "name": "Date Key",
+     "formula": "[Sales/Date Key]"
+    },
+    {
+     "id": "mc-sales-store_key",
+     "name": "Store Key",
+     "formula": "[Sales/Store Key]"
+    },
+    {
+     "id": "mc-sales-product_key",
+     "name": "Product Key",
+     "formula": "[Sales/Product Key]"
+    },
+    {
+     "id": "mc-sales-qty",
+     "name": "Qty",
+     "formula": "[Sales/Qty]"
+    },
+    {
+     "id": "mc-sales-amount",
+     "name": "Amount",
+     "formula": "[Sales/Amount]"
+    },
+    {
+     "id": "mc-sales-cost",
+     "name": "Cost",
+     "formula": "[Sales/Cost]"
+    }
+   ],
+   "metrics": []
+  },
+  "Stock": {
+   "id": "master-stock",
+   "element_id": "dm-stock",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-stock-snapshot_date_key",
+     "name": "Snapshot Date Key",
+     "formula": "[Stock/Snapshot Date Key]"
+    },
+    {
+     "id": "mc-stock-store_key",
+     "name": "Store Key",
+     "formula": "[Stock/Store Key]"
+    },
+    {
+     "id": "mc-stock-product_key",
+     "name": "Product Key",
+     "formula": "[Stock/Product Key]"
+    },
+    {
+     "id": "mc-stock-on_hand",
+     "name": "On Hand",
+     "formula": "[Stock/On Hand]"
+    }
+   ],
+   "metrics": []
+  },
+  "Calendar": {
+   "id": "master-calendar",
+   "element_id": "dm-calendar",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-calendar-date_key",
+     "name": "Date Key",
+     "formula": "[Calendar/Date Key]"
+    },
+    {
+     "id": "mc-calendar-cal_date",
+     "name": "Date",
+     "formula": "[Calendar/Date]"
+    },
+    {
+     "id": "mc-calendar-cal_year",
+     "name": "Year",
+     "formula": "[Calendar/Year]"
+    },
+    {
+     "id": "mc-calendar-cal_month",
+     "name": "Month",
+     "formula": "[Calendar/Month]"
+    }
+   ],
+   "metrics": []
+  },
+  "Store": {
+   "id": "master-store",
+   "element_id": "dm-store",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-store-store_key",
+     "name": "Store Key",
+     "formula": "[Store/Store Key]"
+    },
+    {
+     "id": "mc-store-store_name",
+     "name": "Store Name",
+     "formula": "[Store/Store Name]"
+    },
+    {
+     "id": "mc-store-region",
+     "name": "Region",
+     "formula": "[Store/Region]"
+    },
+    {
+     "id": "mc-store-manager_key",
+     "name": "Manager Key",
+     "formula": "[Store/Manager Key]"
+    }
+   ],
+   "metrics": []
+  },
+  "Manager": {
+   "id": "master-manager",
+   "element_id": "dm-manager",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-manager-manager_key",
+     "name": "Manager Key",
+     "formula": "[Manager/Manager Key]"
+    },
+    {
+     "id": "mc-manager-manager_name",
+     "name": "Manager Name",
+     "formula": "[Manager/Manager Name]"
+    }
+   ],
+   "metrics": []
+  },
+  "Product": {
+   "id": "master-product",
+   "element_id": "dm-product",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-product-product_key",
+     "name": "Product Key",
+     "formula": "[Product/Product Key]"
+    },
+    {
+     "id": "mc-product-product_name",
+     "name": "Product Name",
+     "formula": "[Product/Product Name]"
+    },
+    {
+     "id": "mc-product-category",
+     "name": "Category",
+     "formula": "[Product/Category]"
+    },
+    {
+     "id": "mc-product-supplier_key",
+     "name": "Supplier Key",
+     "formula": "[Product/Supplier Key]"
+    }
+   ],
+   "metrics": []
+  },
+  "Supplier": {
+   "id": "master-supplier",
+   "element_id": "dm-supplier",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-supplier-supplier_key",
+     "name": "Supplier Key",
+     "formula": "[Supplier/Supplier Key]"
+    },
+    {
+     "id": "mc-supplier-supplier_name",
+     "name": "Supplier Name",
+     "formula": "[Supplier/Supplier Name]"
+    }
+   ],
+   "metrics": []
+  },
+  "Rollup": {
+   "id": "master-rollup",
+   "element_id": "dm-rollup",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-rollup-child_product_key",
+     "name": "Child Product Key",
+     "formula": "[Rollup/Child Product Key]"
+    },
+    {
+     "id": "mc-rollup-parent_product_key",
+     "name": "Parent Product Key",
+     "formula": "[Rollup/Parent Product Key]"
+    }
+   ],
+   "metrics": []
+  },
+  "Sales View": {
+   "id": "master-sales-view",
+   "element_id": "dm-sales-view",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-sales-view-sale_id",
+     "name": "Sale Id",
+     "formula": "[Sales View/Sale Id]"
+    },
+    {
+     "id": "mc-sales-view-amount",
+     "name": "Amount",
+     "formula": "[Sales View/Amount]"
+    },
+    {
+     "id": "mc-sales-view-cost",
+     "name": "Cost",
+     "formula": "[Sales View/Cost]"
+    },
+    {
+     "id": "mc-sales-view-qty",
+     "name": "Qty",
+     "formula": "[Sales View/Qty]"
+    },
+    {
+     "id": "mc-sales-view-region",
+     "name": "Region",
+     "formula": "[Sales View/Region]"
+    },
+    {
+     "id": "mc-sales-view-store_name",
+     "name": "Store Name",
+     "formula": "[Sales View/Store Name]"
+    },
+    {
+     "id": "mc-sales-view-cal_month",
+     "name": "Month",
+     "formula": "[Sales View/Month]"
+    },
+    {
+     "id": "mc-sales-view-cal_year",
+     "name": "Year",
+     "formula": "[Sales View/Year]"
+    },
+    {
+     "id": "mc-sales-view-manager_name",
+     "name": "Manager Name",
+     "formula": "[Sales View/Manager Name]"
+    }
+   ],
+   "metrics": []
+  },
+  "Rollup Page Fact": {
+   "id": "master-pf-26dd4e26",
+   "element_id": "pf-26dd4e2616",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-cae79c2409",
+     "name": "Category",
+     "formula": "[Rollup Page Fact/Category]"
+    },
+    {
+     "id": "mc-a15fb94b56",
+     "name": "Sum Amount",
+     "formula": "[Rollup Page Fact/Sum Amount]"
+    },
+    {
+     "id": "mc-46827ff5c2",
+     "name": "Sum Qty",
+     "formula": "[Rollup Page Fact/Sum Qty]"
+    },
+    {
+     "id": "mc-f54e2f693e",
+     "name": "Todo Orders",
+     "formula": "[Rollup Page Fact/Todo Orders]"
+    }
+   ],
+   "metrics": [],
+   "page_fact": "Rollup"
+  },
+  "Sales Overview Page Fact": {
+   "id": "master-pf-a01377ee",
+   "element_id": "pf-a01377eeab",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-8c7f3f5e48",
+     "name": "Region",
+     "formula": "[Sales Overview Page Fact/Region]"
+    },
+    {
+     "id": "mc-ddffddd985",
+     "name": "Month",
+     "formula": "[Sales Overview Page Fact/Month]"
+    },
+    {
+     "id": "mc-75e470797c",
+     "name": "Sum Amount",
+     "formula": "[Sales Overview Page Fact/Sum Amount]"
+    },
+    {
+     "id": "mc-1c99f83afe",
+     "name": "Sum Cost",
+     "formula": "[Sales Overview Page Fact/Sum Cost]"
+    },
+    {
+     "id": "mc-e04de0ea70",
+     "name": "Sum Qty",
+     "formula": "[Sales Overview Page Fact/Sum Qty]"
+    },
+    {
+     "id": "mc-89ced98317",
+     "name": "Todo West Sales",
+     "formula": "[Sales Overview Page Fact/Todo West Sales]"
+    }
+   ],
+   "metrics": [],
+   "page_fact": "Sales Overview"
+  },
+  "Stock Cover Page Fact": {
+   "id": "master-pf-8a884102",
+   "element_id": "pf-8a88410224",
+   "data_model": "dm-fixture",
+   "columns": [
+    {
+     "id": "mc-3d8985a5eb",
+     "name": "Category",
+     "formula": "[Stock Cover Page Fact/Category]"
+    },
+    {
+     "id": "mc-1b51f57a54",
+     "name": "Store Name",
+     "formula": "[Stock Cover Page Fact/Store Name]"
+    },
+    {
+     "id": "mc-243f68df92",
+     "name": "Sum On Hand",
+     "formula": "[Stock Cover Page Fact/Sum On Hand]"
+    },
+    {
+     "id": "mc-baf600d88c",
+     "name": "Sum Qty",
+     "formula": "[Stock Cover Page Fact/Sum Qty]"
+    },
+    {
+     "id": "mc-9d86fa3202",
+     "name": "Sum On Hand 2",
+     "formula": "[Stock Cover Page Fact/Sum On Hand 2]"
+    }
+   ],
+   "metrics": [],
+   "page_fact": "Stock Cover"
+  }
+ },
+ "fields": {
+  "Sales.Sale Id": {
+   "master": "Sales",
+   "ref": "[master-sales/Sale Id]",
+   "agg": null
+  },
+  "Sales.Date Key": {
+   "master": "Sales",
+   "ref": "[master-sales/Date Key]",
+   "agg": null
+  },
+  "Sales.Store Key": {
+   "master": "Sales",
+   "ref": "[master-sales/Store Key]",
+   "agg": null
+  },
+  "Sales.Product Key": {
+   "master": "Sales",
+   "ref": "[master-sales/Product Key]",
+   "agg": null
+  },
+  "Sales.Qty": {
+   "master": "Sales",
+   "ref": "[master-sales/Qty]",
+   "agg": null
+  },
+  "Sales.Amount": {
+   "master": "Sales",
+   "ref": "[master-sales/Amount]",
+   "agg": null
+  },
+  "Sales.Cost": {
+   "master": "Sales",
+   "ref": "[master-sales/Cost]",
+   "agg": null
+  },
+  "Stock.Snapshot Date Key": {
+   "master": "Stock",
+   "ref": "[master-stock/Snapshot Date Key]",
+   "agg": null
+  },
+  "Stock.Store Key": {
+   "master": "Stock",
+   "ref": "[master-stock/Store Key]",
+   "agg": null
+  },
+  "Stock.Product Key": {
+   "master": "Stock",
+   "ref": "[master-stock/Product Key]",
+   "agg": null
+  },
+  "Stock.On Hand": {
+   "master": "Stock",
+   "ref": "Sum([master-stock/On Hand])",
+   "agg": null
+  },
+  "Calendar.Date Key": {
+   "master": "Calendar",
+   "ref": "[master-calendar/Date Key]",
+   "agg": null
+  },
+  "Calendar.Date": {
+   "master": "Calendar",
+   "ref": "[master-calendar/Date]",
+   "agg": null
+  },
+  "Calendar.Year": {
+   "master": "Calendar",
+   "ref": "[master-calendar/Year]",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "[master-sales-view/Year]",
+     "agg": null
+    }
+   ]
+  },
+  "Calendar.Month": {
+   "master": "Calendar",
+   "ref": "[master-calendar/Month]",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "[master-sales-view/Month]",
+     "agg": null
+    }
+   ]
+  },
+  "Store.Store Key": {
+   "master": "Store",
+   "ref": "[master-store/Store Key]",
+   "agg": null
+  },
+  "Store.Store Name": {
+   "master": "Store",
+   "ref": "[master-store/Store Name]",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "[master-sales-view/Store Name]",
+     "agg": null
+    }
+   ]
+  },
+  "Store.Region": {
+   "master": "Store",
+   "ref": "[master-store/Region]",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "[master-sales-view/Region]",
+     "agg": null
+    }
+   ]
+  },
+  "Store.Manager Key": {
+   "master": "Store",
+   "ref": "[master-store/Manager Key]",
+   "agg": null
+  },
+  "Manager.Manager Key": {
+   "master": "Manager",
+   "ref": "[master-manager/Manager Key]",
+   "agg": null
+  },
+  "Manager.Manager Name": {
+   "master": "Manager",
+   "ref": "[master-manager/Manager Name]",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "[master-sales-view/Manager Name]",
+     "agg": null
+    }
+   ]
+  },
+  "Product.Product Key": {
+   "master": "Product",
+   "ref": "[master-product/Product Key]",
+   "agg": null
+  },
+  "Product.Product Name": {
+   "master": "Product",
+   "ref": "[master-product/Product Name]",
+   "agg": null
+  },
+  "Product.Category": {
+   "master": "Product",
+   "ref": "[master-product/Category]",
+   "agg": null
+  },
+  "Product.Supplier Key": {
+   "master": "Product",
+   "ref": "[master-product/Supplier Key]",
+   "agg": null
+  },
+  "Supplier.Supplier Key": {
+   "master": "Supplier",
+   "ref": "[master-supplier/Supplier Key]",
+   "agg": null
+  },
+  "Supplier.Supplier Name": {
+   "master": "Supplier",
+   "ref": "[master-supplier/Supplier Name]",
+   "agg": null
+  },
+  "Rollup.Child Product Key": {
+   "master": "Rollup",
+   "ref": "[master-rollup/Child Product Key]",
+   "agg": null
+  },
+  "Rollup.Parent Product Key": {
+   "master": "Rollup",
+   "ref": "[master-rollup/Parent Product Key]",
+   "agg": null
+  },
+  "Sales.Sales Amount": {
+   "master": "Sales",
+   "ref": "Sum([master-sales/Amount])",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "Sum([master-sales-view/Amount])",
+     "agg": null
+    }
+   ]
+  },
+  "Sales.Sales Cost": {
+   "master": "Sales",
+   "ref": "Sum([master-sales/Cost])",
+   "agg": null
+  },
+  "Sales.Units": {
+   "master": "Sales",
+   "ref": "Sum([master-sales/Qty])",
+   "agg": null
+  },
+  "Sales.Gross Margin": {
+   "master": "Sales",
+   "ref": "Sum([master-sales/Amount]) - Sum([master-sales/Cost])",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "Sum([master-sales-view/Amount]) - Sum([master-sales-view/Cost])",
+     "agg": null
+    }
+   ]
+  },
+  "Sales.Margin %": {
+   "master": "Sales",
+   "ref": "(Sum([master-sales/Amount]) - Sum([master-sales/Cost])) / Sum([master-sales/Amount])",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "(Sum([master-sales-view/Amount]) - Sum([master-sales-view/Cost])) / Sum([master-sales-view/Amount])",
+     "agg": null
+    }
+   ]
+  },
+  "Sales.Orders": {
+   "master": "Sales",
+   "ref": "CountDistinct([master-sales/Sale Id])",
+   "agg": null
+  },
+  "Sales.West Sales": {
+   "master": "Sales View",
+   "ref": "SumIf([master-sales-view/Amount], [master-sales-view/Region] = \"West\")",
+   "agg": null,
+   "alts": [
+    {
+     "master": "Sales View",
+     "ref": "SumIf([master-sales-view/Amount], [master-sales-view/Region] = \"West\")",
+     "agg": null
+    }
+   ]
+  }
+ },
+ "page_fields": {
+  "Rollup": {
+   "Sales.Rollup Sales": {
+    "master": "Rollup Page Fact",
+    "ref": "Sum([master-pf-26dd4e26/Sum Amount])",
+    "agg": null
+   },
+   "Sales.Rollup Units": {
+    "master": "Rollup Page Fact",
+    "ref": "Sum([master-pf-26dd4e26/Sum Qty])",
+    "agg": null
+   },
+   "Sales.Orders": {
+    "master": "Rollup Page Fact",
+    "ref": "Sum([master-pf-26dd4e26/Todo Orders])",
+    "agg": null
+   },
+   "Product.Category": {
+    "master": "Rollup Page Fact",
+    "ref": "[master-pf-26dd4e26/Category]",
+    "agg": null
+   }
+  },
+  "Sales Overview": {
+   "Sales.Sales Amount": {
+    "master": "Sales Overview Page Fact",
+    "ref": "Sum([master-pf-a01377ee/Sum Amount])",
+    "agg": null
+   },
+   "Sales.Margin %": {
+    "master": "Sales Overview Page Fact",
+    "ref": "If(IsNull(Sum([master-pf-a01377ee/Sum Amount])) or Sum([master-pf-a01377ee/Sum Amount]) = 0, Null, If(IsNull(Sum([master-pf-a01377ee/Sum Amount])) and IsNull(Sum([master-pf-a01377ee/Sum Cost])), Null, Coalesce(Sum([master-pf-a01377ee/Sum Amount]), 0) - Coalesce(Sum([master-pf-a01377ee/Sum Cost]), 0)) / Sum([master-pf-a01377ee/Sum Amount]))",
+    "agg": null
+   },
+   "Sales.Gross Margin": {
+    "master": "Sales Overview Page Fact",
+    "ref": "If(IsNull(Sum([master-pf-a01377ee/Sum Amount])) and IsNull(Sum([master-pf-a01377ee/Sum Cost])), Null, Coalesce(Sum([master-pf-a01377ee/Sum Amount]), 0) - Coalesce(Sum([master-pf-a01377ee/Sum Cost]), 0))",
+    "agg": null
+   },
+   "Sales.Margin per Unit": {
+    "master": "Sales Overview Page Fact",
+    "ref": "If(IsNull(Sum([master-pf-a01377ee/Sum Qty])) or Sum([master-pf-a01377ee/Sum Qty]) = 0, Null, If(IsNull(Sum([master-pf-a01377ee/Sum Amount])) and IsNull(Sum([master-pf-a01377ee/Sum Cost])), Null, Coalesce(Sum([master-pf-a01377ee/Sum Amount]), 0) - Coalesce(Sum([master-pf-a01377ee/Sum Cost]), 0)) / Sum([master-pf-a01377ee/Sum Qty]))",
+    "agg": null
+   },
+   "Sales.West Sales": {
+    "master": "Sales Overview Page Fact",
+    "ref": "Sum([master-pf-a01377ee/Todo West Sales])",
+    "agg": null
+   },
+   "Store.Region": {
+    "master": "Sales Overview Page Fact",
+    "ref": "[master-pf-a01377ee/Region]",
+    "agg": null
+   },
+   "Calendar.Month": {
+    "master": "Sales Overview Page Fact",
+    "ref": "[master-pf-a01377ee/Month]",
+    "agg": null
+   }
+  },
+  "Stock Cover": {
+   "Stock.On Hand": {
+    "master": "Stock Cover Page Fact",
+    "ref": "Sum([master-pf-8a884102/Sum On Hand])",
+    "agg": null
+   },
+   "Sales.Units": {
+    "master": "Stock Cover Page Fact",
+    "ref": "Sum([master-pf-8a884102/Sum Qty])",
+    "agg": null
+   },
+   "Stock.Weeks of Cover": {
+    "master": "Stock Cover Page Fact",
+    "ref": "If(IsNull(Sum([master-pf-8a884102/Sum Qty])) or Sum([master-pf-8a884102/Sum Qty]) = 0, Null, Sum([master-pf-8a884102/Sum On Hand]) / Sum([master-pf-8a884102/Sum Qty]))",
+    "agg": null
+   },
+   "Stock.Unassigned Stock": {
+    "master": "Stock Cover Page Fact",
+    "ref": "Sum([master-pf-8a884102/Sum On Hand 2])",
+    "agg": null
+   },
+   "Sum(Sales.Qty)": {
+    "master": "Stock Cover Page Fact",
+    "ref": "Sum([master-pf-8a884102/Sum Qty])",
+    "agg": null
+   },
+   "Product.Category": {
+    "master": "Stock Cover Page Fact",
+    "ref": "[master-pf-8a884102/Category]",
+    "agg": null
+   },
+   "Store.Store Name": {
+    "master": "Stock Cover Page Fact",
+    "ref": "[master-pf-8a884102/Store Name]",
+    "agg": null
+   }
+  }
+ }
+}

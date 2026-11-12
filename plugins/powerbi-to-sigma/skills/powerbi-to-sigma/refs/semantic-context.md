@@ -94,7 +94,10 @@ Data page. This layout rule is covered by an idempotency/placement regression.
 
 Hierarchy slicers become separate level dropdowns; this is not an arbitrary-path
 tree-selection equivalent. Native Sigma pivots open expanded because collapsed
-state is not exposed by the workbook spec. Ask for acceptance before calling
+state is not exposed by the workbook spec. A multi-level matrix keeps all of its row and column levels as
+nested `rowsBy` / `columnsBy` (the `active` flag only marks Power BI's collapsed start level),
+except a date hierarchy, which keeps its active level only (Sigma would otherwise open at Day grain);
+the collapsed start state is the UI adaptation. Ask for acceptance before calling
 that result complete. A drill-level selector provides both directions instead
 of replicating Power BI's drill toolbar. These must remain visible in the
 migration readout; numeric parity does not make the interaction surfaces identical.

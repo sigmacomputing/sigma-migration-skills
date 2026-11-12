@@ -34,6 +34,7 @@ corpus/
 | powerbi/model-fixtures | 8 TMSL .bim (plugin fixtures) | DM for fixture_01 |
 | powerbi/report-classic-employee-dashboard | legacy single report.json | artifact-pin only |
 | powerbi/report-pbir-retail-performance | exploded PBIR + bookmarks | artifact-pin only |
+| powerbi/page-facts-multipage | synthetic 3-page report (two facts, a USERELATIONSHIP bridge) + SQLite seed | page-fact SQL, integrated DM + master-map, gated workbook pins + SQLite page-fact/oracle/slicer checks.sh |
 | qlik/exec-overview-smoke | Engine/REST tables + master measures | DM (11 elements, Set Analysis) |
 | thoughtspot/retail-analytics | model + liveboard TML | DM (7 elements, formulas) |
 | quicksight/orders-overview | analysis + dataset describe JSON (plugin fixtures) | DM (CustomSql element) |

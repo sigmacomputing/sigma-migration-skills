@@ -1,0 +1,1642 @@
+{
+ "name": "Page Facts Fixture",
+ "document": {
+  "schemaVersion": 1,
+  "kind": "workbook",
+  "pages": [
+   {
+    "id": "page-data",
+    "name": "Data",
+    "visibility": "hidden"
+   },
+   {
+    "id": "page-p1",
+    "name": "Sales Overview"
+   },
+   {
+    "id": "page-p2",
+    "name": "Stock Cover"
+   },
+   {
+    "id": "page-p3",
+    "name": "Rollup"
+   }
+  ],
+  "elements": [
+   {
+    "id": "master-calendar",
+    "kind": "table",
+    "name": "CALEND",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "dm-calendar",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-calendar-date_key",
+      "name": "Date Key",
+      "formula": "[Calendar/Date Key]"
+     },
+     {
+      "id": "mc-calendar-cal_date",
+      "name": "Date",
+      "formula": "[Calendar/Date]"
+     },
+     {
+      "id": "mc-calendar-cal_year",
+      "name": "Year",
+      "formula": "[Calendar/Year]"
+     },
+     {
+      "id": "mc-calendar-cal_month",
+      "name": "Month",
+      "formula": "[Calendar/Month]"
+     }
+    ]
+   },
+   {
+    "id": "master-store",
+    "kind": "table",
+    "name": "STORE",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "dm-store",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-store-store_key",
+      "name": "Store Key",
+      "formula": "[Store/Store Key]"
+     },
+     {
+      "id": "mc-store-store_name",
+      "name": "Store Name",
+      "formula": "[Store/Store Name]"
+     },
+     {
+      "id": "mc-store-region",
+      "name": "Region",
+      "formula": "[Store/Region]"
+     },
+     {
+      "id": "mc-store-manager_key",
+      "name": "Manager Key",
+      "formula": "[Store/Manager Key]"
+     }
+    ]
+   },
+   {
+    "id": "master-manager",
+    "kind": "table",
+    "name": "MANAGE",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "dm-manager",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-manager-manager_key",
+      "name": "Manager Key",
+      "formula": "[Manager/Manager Key]"
+     },
+     {
+      "id": "mc-manager-manager_name",
+      "name": "Manager Name",
+      "formula": "[Manager/Manager Name]"
+     }
+    ]
+   },
+   {
+    "id": "master-supplier",
+    "kind": "table",
+    "name": "SUPPLI",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "dm-supplier",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-supplier-supplier_key",
+      "name": "Supplier Key",
+      "formula": "[Supplier/Supplier Key]"
+     },
+     {
+      "id": "mc-supplier-supplier_name",
+      "name": "Supplier Name",
+      "formula": "[Supplier/Supplier Name]"
+     }
+    ]
+   },
+   {
+    "id": "master-sales-view",
+    "kind": "table",
+    "name": "SALES-",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "dm-sales-view",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-sales-view-sale_id",
+      "name": "Sale Id",
+      "formula": "[Sales View/Sale Id]"
+     },
+     {
+      "id": "mc-sales-view-amount",
+      "name": "Amount",
+      "formula": "[Sales View/Amount]"
+     },
+     {
+      "id": "mc-sales-view-cost",
+      "name": "Cost",
+      "formula": "[Sales View/Cost]"
+     },
+     {
+      "id": "mc-sales-view-qty",
+      "name": "Qty",
+      "formula": "[Sales View/Qty]"
+     },
+     {
+      "id": "mc-sales-view-region",
+      "name": "Region",
+      "formula": "[Sales View/Region]"
+     },
+     {
+      "id": "mc-sales-view-store_name",
+      "name": "Store Name",
+      "formula": "[Sales View/Store Name]"
+     },
+     {
+      "id": "mc-sales-view-cal_month",
+      "name": "Month",
+      "formula": "[Sales View/Month]"
+     },
+     {
+      "id": "mc-sales-view-cal_year",
+      "name": "Year",
+      "formula": "[Sales View/Year]"
+     },
+     {
+      "id": "mc-sales-view-manager_name",
+      "name": "Manager Name",
+      "formula": "[Sales View/Manager Name]"
+     }
+    ]
+   },
+   {
+    "id": "master-pf-26dd4e26",
+    "kind": "table",
+    "name": "PF-26D",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "pf-26dd4e2616",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-cae79c2409",
+      "name": "Category",
+      "formula": "[Rollup Page Fact/Category]"
+     },
+     {
+      "id": "mc-a15fb94b56",
+      "name": "Sum Amount",
+      "formula": "[Rollup Page Fact/Sum Amount]"
+     },
+     {
+      "id": "mc-46827ff5c2",
+      "name": "Sum Qty",
+      "formula": "[Rollup Page Fact/Sum Qty]"
+     },
+     {
+      "id": "mc-f54e2f693e",
+      "name": "Todo Orders",
+      "formula": "[Rollup Page Fact/Todo Orders]"
+     }
+    ]
+   },
+   {
+    "id": "master-pf-a01377ee",
+    "kind": "table",
+    "name": "PF-A01",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "pf-a01377eeab",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-8c7f3f5e48",
+      "name": "Region",
+      "formula": "[Sales Overview Page Fact/Region]"
+     },
+     {
+      "id": "mc-ddffddd985",
+      "name": "Month",
+      "formula": "[Sales Overview Page Fact/Month]"
+     },
+     {
+      "id": "mc-75e470797c",
+      "name": "Sum Amount",
+      "formula": "[Sales Overview Page Fact/Sum Amount]"
+     },
+     {
+      "id": "mc-1c99f83afe",
+      "name": "Sum Cost",
+      "formula": "[Sales Overview Page Fact/Sum Cost]"
+     },
+     {
+      "id": "mc-e04de0ea70",
+      "name": "Sum Qty",
+      "formula": "[Sales Overview Page Fact/Sum Qty]"
+     },
+     {
+      "id": "mc-89ced98317",
+      "name": "Todo West Sales",
+      "formula": "[Sales Overview Page Fact/Todo West Sales]"
+     }
+    ]
+   },
+   {
+    "id": "master-pf-8a884102",
+    "kind": "table",
+    "name": "PF-8A8",
+    "source": {
+     "dataModelId": "dm-fixture",
+     "elementId": "pf-8a88410224",
+     "kind": "data-model"
+    },
+    "columns": [
+     {
+      "id": "mc-3d8985a5eb",
+      "name": "Category",
+      "formula": "[Stock Cover Page Fact/Category]"
+     },
+     {
+      "id": "mc-1b51f57a54",
+      "name": "Store Name",
+      "formula": "[Stock Cover Page Fact/Store Name]"
+     },
+     {
+      "id": "mc-243f68df92",
+      "name": "Sum On Hand",
+      "formula": "[Stock Cover Page Fact/Sum On Hand]"
+     },
+     {
+      "id": "mc-baf600d88c",
+      "name": "Sum Qty",
+      "formula": "[Stock Cover Page Fact/Sum Qty]"
+     },
+     {
+      "id": "mc-9d86fa3202",
+      "name": "Sum On Hand 2",
+      "formula": "[Stock Cover Page Fact/Sum On Hand 2]"
+     }
+    ]
+   },
+   {
+    "id": "el-s1year75a395",
+    "kind": "control",
+    "name": "Year",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "master-calendar"
+     },
+     "columnId": "mc-calendar-cal_year"
+    },
+    "controlId": "YearFilter",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [
+     2026
+    ],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-calendar"
+      },
+      "columnId": "mc-calendar-cal_year"
+     },
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-sales-view"
+      },
+      "columnId": "mc-sales-view-cal_year"
+     }
+    ]
+   },
+   {
+    "id": "el-s1mgr153da8",
+    "kind": "control",
+    "name": "Manager",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "pfl-1b068f7d"
+     },
+     "columnId": "pfl-1b068f7d-v"
+    },
+    "controlId": "ManagerNameFilter",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-manager"
+      },
+      "columnId": "mc-manager-manager_name"
+     },
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-sales-view"
+      },
+      "columnId": "mc-sales-view-manager_name"
+     }
+    ]
+   },
+   {
+    "id": "el-s1sup7dfb85",
+    "kind": "control",
+    "name": "Supplier",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "pfl-c91fbbb4"
+     },
+     "columnId": "pfl-c91fbbb4-v"
+    },
+    "controlId": "SupplierNameFilter",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-supplier"
+      },
+      "columnId": "mc-supplier-supplier_name"
+     }
+    ]
+   },
+   {
+    "id": "el-v1kpi9f7271",
+    "kind": "kpi-chart",
+    "name": "Sales Amount",
+    "source": {
+     "elementId": "pfu-54857658",
+     "kind": "table"
+    },
+    "value": {
+     "columnId": "el-v1kpi9f7271-v",
+     "color": "#118DFF"
+    },
+    "layout": {
+     "titleOrient": "bottom",
+     "anchor": "center"
+    },
+    "columns": [
+     {
+      "id": "el-v1kpi9f7271-v",
+      "formula": "Sum([pfu-54857658/Sum Amount])",
+      "name": "Sales Amount",
+      "format": {
+       "kind": "number",
+       "formatString": ",.3s"
+      }
+     }
+    ]
+   },
+   {
+    "id": "el-v1bard1ac7f",
+    "kind": "bar-chart",
+    "name": "Sales by Region",
+    "source": {
+     "elementId": "pfu-54857658",
+     "kind": "table"
+    },
+    "xAxis": {
+     "columnId": "el-v1bard1ac7f-x"
+    },
+    "yAxis": {
+     "columnIds": [
+      "el-v1bard1ac7f-y0"
+     ]
+    },
+    "dataLabel": {
+     "labels": "shown"
+    },
+    "columns": [
+     {
+      "id": "el-v1bard1ac7f-x",
+      "formula": "[pfu-54857658/Region]",
+      "name": "Region"
+     },
+     {
+      "id": "el-v1bard1ac7f-y0",
+      "formula": "Sum([pfu-54857658/Sum Amount])",
+      "name": "Sales Amount",
+      "format": {
+       "kind": "number",
+       "formatString": ",.2s"
+      }
+     }
+    ],
+    "filters": [
+     {
+      "id": "flt-Region",
+      "columnId": "el-v1bard1ac7f-x",
+      "kind": "list",
+      "mode": "exclude",
+      "values": [
+       null
+      ]
+     }
+    ]
+   },
+   {
+    "id": "el-v1linef273bd",
+    "kind": "line-chart",
+    "name": "Margin by Month",
+    "source": {
+     "elementId": "pfu-54857658",
+     "kind": "table"
+    },
+    "xAxis": {
+     "columnId": "el-v1linef273bd-x",
+     "sort": {
+      "by": "el-v1linef273bd-natcol",
+      "direction": "ascending"
+     }
+    },
+    "yAxis": {
+     "columnIds": [
+      "el-v1linef273bd-y0"
+     ]
+    },
+    "columns": [
+     {
+      "id": "el-v1linef273bd-x",
+      "formula": "[pfu-54857658/Month]",
+      "name": "Month"
+     },
+     {
+      "id": "el-v1linef273bd-y0",
+      "formula": "If(IsNull(Sum([pfu-54857658/Sum Amount])) or Sum([pfu-54857658/Sum Amount]) = 0, Null, If(IsNull(Sum([pfu-54857658/Sum Amount])) and IsNull(Sum([pfu-54857658/Sum Cost])), Null, Coalesce(Sum([pfu-54857658/Sum Amount]), 0) - Coalesce(Sum([pfu-54857658/Sum Cost]), 0)) / Sum([pfu-54857658/Sum Amount]))",
+      "name": "Margin %",
+      "format": {
+       "kind": "number",
+       "formatString": ".1%"
+      }
+     },
+     {
+      "id": "el-v1linef273bd-natcol",
+      "formula": "If(RegexpMatch(Text([pfu-54857658/Month]), \"[0-9]$\"), Concat(Coalesce(RegexpExtract(Text([pfu-54857658/Month]), \"^.*[^0-9]\"), \"\"), ) +\n                %(LPad(RegexpExtract(Text([pfu-54857658/Month]), \"[0-9]+$\"), 10, \"0\")), If(RegexpCount(Text([pfu-54857658/Month]), \"[0-9]+\") = 1, Concat(Coalesce(RegexpExtract(Text([pfu-54857658/Month]), \"^[^0-9]*\"), \"\"), ) +\n              %(LPad(Coalesce(RegexpExtract(Text([pfu-54857658/Month]), \"[0-9]+\"), \"\"), 10, \"0\")), Text([pfu-54857658/Month])))",
+      "name": "Month (sort)",
+      "hidden": true
+     }
+    ]
+   },
+   {
+    "id": "el-1pivot0b579d",
+    "kind": "pivot-table",
+    "name": "Region Detail",
+    "source": {
+     "elementId": "pfu-54857658",
+     "kind": "table"
+    },
+    "rowsBy": [
+     {
+      "columnId": "el-1pivot0b579d-r0"
+     }
+    ],
+    "values": [
+     "el-1pivot0b579d-v0",
+     "el-1pivot0b579d-v1",
+     "el-1pivot0b579d-v2",
+     "el-1pivot0b579d-v3"
+    ],
+    "totals": {
+     "showGrandTotals": "shown",
+     "grandTotalFontWeight": "bold",
+     "totalPosition": "last"
+    },
+    "columns": [
+     {
+      "id": "el-1pivot0b579d-r0",
+      "formula": "[pfu-54857658/Region]",
+      "name": "Region"
+     },
+     {
+      "id": "el-1pivot0b579d-v0",
+      "formula": "Sum([pfu-54857658/Sum Amount])",
+      "name": "Sales Amount",
+      "format": {
+       "kind": "number",
+       "formatString": ",.2f"
+      }
+     },
+     {
+      "id": "el-1pivot0b579d-v1",
+      "formula": "If(IsNull(Sum([pfu-54857658/Sum Amount])) and IsNull(Sum([pfu-54857658/Sum Cost])), Null, Coalesce(Sum([pfu-54857658/Sum Amount]), 0) - Coalesce(Sum([pfu-54857658/Sum Cost]), 0))",
+      "name": "Gross Margin"
+     },
+     {
+      "id": "el-1pivot0b579d-v2",
+      "formula": "Sum([pfu-54857658/Todo West Sales])",
+      "name": "West Sales"
+     },
+     {
+      "id": "el-1pivot0b579d-v3",
+      "formula": "If(IsNull(Sum([pfu-54857658/Sum Qty])) or Sum([pfu-54857658/Sum Qty]) = 0, Null, If(IsNull(Sum([pfu-54857658/Sum Amount])) and IsNull(Sum([pfu-54857658/Sum Cost])), Null, Coalesce(Sum([pfu-54857658/Sum Amount]), 0) - Coalesce(Sum([pfu-54857658/Sum Cost]), 0)) / Sum([pfu-54857658/Sum Qty]))",
+      "name": "Margin per Unit",
+      "format": {
+       "kind": "number",
+       "formatString": ".2f"
+      }
+     }
+    ],
+    "tableStyle": {
+     "preset": "presentation",
+     "cellSpacing": "medium",
+     "gridLines": "horizontal",
+     "banding": "shown"
+    }
+   },
+   {
+    "id": "band-page-p1-hdr",
+    "kind": "container",
+    "style": {
+     "backgroundColor": "#0F172A",
+     "borderRadius": "round"
+    }
+   },
+   {
+    "id": "band-page-p1-hdrtext",
+    "kind": "text",
+    "body": "# <span style=\"color: #FFFFFF\">Sales Overview</span>"
+   },
+   {
+    "id": "band-page-p1-ctrl",
+    "kind": "container"
+   },
+   {
+    "id": "el-regiondf813b",
+    "kind": "control",
+    "name": "Region",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "pfl-bdc79454"
+     },
+     "columnId": "pfl-bdc79454-v"
+    },
+    "controlId": "RegionFilter",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-store"
+      },
+      "columnId": "mc-store-region"
+     },
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-sales-view"
+      },
+      "columnId": "mc-sales-view-region"
+     }
+    ]
+   },
+   {
+    "id": "el-s2mgrb89ad6",
+    "kind": "control",
+    "name": "Manager",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "pfl-80ee52cb"
+     },
+     "columnId": "pfl-80ee52cb-v"
+    },
+    "controlId": "ManagerNameFilter2",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-manager"
+      },
+      "columnId": "mc-manager-manager_name"
+     },
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-sales-view"
+      },
+      "columnId": "mc-sales-view-manager_name"
+     }
+    ]
+   },
+   {
+    "id": "el-2pivot161ea1",
+    "kind": "pivot-table",
+    "name": "Cover by Category",
+    "source": {
+     "elementId": "pfu-c431ec3b",
+     "kind": "table"
+    },
+    "rowsBy": [
+     {
+      "columnId": "el-2pivot161ea1-r0"
+     }
+    ],
+    "values": [
+     "el-2pivot161ea1-v0",
+     "el-2pivot161ea1-v1",
+     "el-2pivot161ea1-v2"
+    ],
+    "totals": {
+     "showGrandTotals": "shown",
+     "grandTotalFontWeight": "bold",
+     "totalPosition": "last"
+    },
+    "columns": [
+     {
+      "id": "el-2pivot161ea1-r0",
+      "formula": "[pfu-c431ec3b/Category]",
+      "name": "Category"
+     },
+     {
+      "id": "el-2pivot161ea1-v0",
+      "formula": "Sum([pfu-c431ec3b/Sum On Hand])",
+      "name": "On Hand",
+      "format": {
+       "kind": "number",
+       "formatString": ",.0f"
+      }
+     },
+     {
+      "id": "el-2pivot161ea1-v1",
+      "formula": "Sum([pfu-c431ec3b/Sum Qty])",
+      "name": "Units",
+      "format": {
+       "kind": "number",
+       "formatString": ",.0f"
+      }
+     },
+     {
+      "id": "el-2pivot161ea1-v2",
+      "formula": "If(IsNull(Sum([pfu-c431ec3b/Sum Qty])) or Sum([pfu-c431ec3b/Sum Qty]) = 0, Null, Sum([pfu-c431ec3b/Sum On Hand]) / Sum([pfu-c431ec3b/Sum Qty]))",
+      "name": "Weeks of Cover",
+      "format": {
+       "kind": "number",
+       "formatString": ".1f"
+      }
+     }
+    ],
+    "tableStyle": {
+     "preset": "presentation",
+     "cellSpacing": "medium",
+     "gridLines": "horizontal",
+     "banding": "shown"
+    }
+   },
+   {
+    "id": "el-v2kpib17bc3",
+    "kind": "kpi-chart",
+    "name": "On Hand",
+    "source": {
+     "elementId": "pfu-c431ec3b",
+     "kind": "table"
+    },
+    "value": {
+     "columnId": "el-v2kpib17bc3-v",
+     "color": "#118DFF"
+    },
+    "layout": {
+     "titleOrient": "bottom",
+     "anchor": "center"
+    },
+    "columns": [
+     {
+      "id": "el-v2kpib17bc3-v",
+      "formula": "Sum([pfu-c431ec3b/Sum On Hand])",
+      "name": "On Hand",
+      "format": {
+       "kind": "number",
+       "formatString": ",.3s"
+      }
+     }
+    ]
+   },
+   {
+    "id": "el-signed970db8",
+    "kind": "kpi-chart",
+    "name": "Unassigned Stock",
+    "source": {
+     "elementId": "pfu-c431ec3b",
+     "kind": "table"
+    },
+    "value": {
+     "columnId": "el-signed970db8-v",
+     "color": "#118DFF"
+    },
+    "layout": {
+     "titleOrient": "bottom",
+     "anchor": "center"
+    },
+    "columns": [
+     {
+      "id": "el-signed970db8-v",
+      "formula": "Sum([pfu-c431ec3b/Sum On Hand 2])",
+      "name": "Unassigned Stock",
+      "format": {
+       "kind": "number",
+       "formatString": ",.3s"
+      }
+     }
+    ]
+   },
+   {
+    "id": "el-v2baree0e6c",
+    "kind": "bar-chart",
+    "name": "Units by Store",
+    "source": {
+     "elementId": "pfu-c431ec3b",
+     "kind": "table"
+    },
+    "xAxis": {
+     "columnId": "el-v2baree0e6c-x"
+    },
+    "yAxis": {
+     "columnIds": [
+      "el-v2baree0e6c-y0"
+     ]
+    },
+    "orientation": "horizontal",
+    "dataLabel": {
+     "labels": "shown"
+    },
+    "columns": [
+     {
+      "id": "el-v2baree0e6c-x",
+      "formula": "[pfu-c431ec3b/Store Name]",
+      "name": "Store Name"
+     },
+     {
+      "id": "el-v2baree0e6c-y0",
+      "formula": "Sum([pfu-c431ec3b/Sum Qty])",
+      "name": "Qty"
+     }
+    ]
+   },
+   {
+    "id": "band-page-p2-hdr",
+    "kind": "container",
+    "style": {
+     "backgroundColor": "#0F172A",
+     "borderRadius": "round"
+    }
+   },
+   {
+    "id": "band-page-p2-hdrtext",
+    "kind": "text",
+    "body": "# <span style=\"color: #FFFFFF\">Stock Cover</span>"
+   },
+   {
+    "id": "band-page-p2-ctrl",
+    "kind": "container"
+   },
+   {
+    "id": "el-s3sup16de1c",
+    "kind": "control",
+    "name": "Supplier",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "pfl-1ea0e84e"
+     },
+     "columnId": "pfl-1ea0e84e-v"
+    },
+    "controlId": "SupplierNameFilter2",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "master-supplier"
+      },
+      "columnId": "mc-supplier-supplier_name"
+     }
+    ]
+   },
+   {
+    "id": "el-s3cat53d2d4",
+    "kind": "control",
+    "name": "Category",
+    "source": {
+     "kind": "source",
+     "source": {
+      "kind": "table",
+      "elementId": "master-pf-26dd4e26"
+     },
+     "columnId": "mc-cae79c2409"
+    },
+    "controlId": "CategoryFilter",
+    "controlType": "list",
+    "mode": "include",
+    "selectionMode": "multiple",
+    "values": [],
+    "filters": [
+     {
+      "source": {
+       "kind": "table",
+       "elementId": "pfu-a51d68ff"
+      },
+      "columnId": "pfu-a51d68ff-0"
+     }
+    ]
+   },
+   {
+    "id": "el-v3bar9e48b7",
+    "kind": "bar-chart",
+    "name": "Rollup Sales by Category",
+    "source": {
+     "elementId": "pfu-a51d68ff",
+     "kind": "table"
+    },
+    "xAxis": {
+     "columnId": "el-v3bar9e48b7-x"
+    },
+    "yAxis": {
+     "columnIds": [
+      "el-v3bar9e48b7-y0"
+     ]
+    },
+    "dataLabel": {
+     "labels": "shown"
+    },
+    "columns": [
+     {
+      "id": "el-v3bar9e48b7-x",
+      "formula": "[pfu-a51d68ff/Category]",
+      "name": "Category"
+     },
+     {
+      "id": "el-v3bar9e48b7-y0",
+      "formula": "Sum([pfu-a51d68ff/Sum Amount])",
+      "name": "Rollup Sales"
+     }
+    ]
+   },
+   {
+    "id": "el-orders2a2694",
+    "kind": "kpi-chart",
+    "name": "Orders",
+    "source": {
+     "elementId": "pfu-a51d68ff",
+     "kind": "table"
+    },
+    "value": {
+     "columnId": "el-orders2a2694-v",
+     "color": "#118DFF"
+    },
+    "layout": {
+     "titleOrient": "bottom",
+     "anchor": "center"
+    },
+    "columns": [
+     {
+      "id": "el-orders2a2694-v",
+      "formula": "Sum([pfu-a51d68ff/Todo Orders])",
+      "name": "Orders",
+      "format": {
+       "kind": "number",
+       "formatString": ",.3s"
+      }
+     }
+    ]
+   },
+   {
+    "id": "el-3units580f24",
+    "kind": "kpi-chart",
+    "name": "Rollup Units",
+    "source": {
+     "elementId": "pfu-a51d68ff",
+     "kind": "table"
+    },
+    "value": {
+     "columnId": "el-3units580f24-v",
+     "color": "#118DFF"
+    },
+    "layout": {
+     "titleOrient": "bottom",
+     "anchor": "center"
+    },
+    "columns": [
+     {
+      "id": "el-3units580f24-v",
+      "formula": "Sum([pfu-a51d68ff/Sum Qty])",
+      "name": "Rollup Units"
+     }
+    ]
+   },
+   {
+    "id": "band-page-p3-hdr",
+    "kind": "container",
+    "style": {
+     "backgroundColor": "#0F172A",
+     "borderRadius": "round"
+    }
+   },
+   {
+    "id": "band-page-p3-hdrtext",
+    "kind": "text",
+    "body": "# <span style=\"color: #FFFFFF\">Rollup</span>"
+   },
+   {
+    "id": "band-page-p3-ctrl",
+    "kind": "container"
+   },
+   {
+    "id": "pfu-a51d68ff",
+    "kind": "table",
+    "name": "Rollup Page Fact (Rollup)",
+    "source": {
+     "kind": "union",
+     "sources": [
+      {
+       "kind": "table",
+       "elementId": "pfg-a51d68ff"
+      },
+      {
+       "kind": "table",
+       "elementId": "pfp-a51d68ff"
+      }
+     ],
+     "matches": [
+      {
+       "outputColumnName": "Category",
+       "sourceColumns": [
+        "[Category]",
+        "[Category]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Amount",
+       "sourceColumns": [
+        "[Sum Amount]",
+        "[Sum Amount]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Qty",
+       "sourceColumns": [
+        "[Sum Qty]",
+        "[Sum Qty]"
+       ]
+      },
+      {
+       "outputColumnName": "Todo Orders",
+       "sourceColumns": [
+        "[Todo Orders]",
+        "[Todo Orders]"
+       ]
+      }
+     ]
+    },
+    "columns": [
+     {
+      "id": "pfu-a51d68ff-0",
+      "name": "Category",
+      "formula": "[Union of 2 Sources/Category]"
+     },
+     {
+      "id": "pfu-a51d68ff-1",
+      "name": "Sum Amount",
+      "formula": "[Union of 2 Sources/Sum Amount]"
+     },
+     {
+      "id": "pfu-a51d68ff-2",
+      "name": "Sum Qty",
+      "formula": "[Union of 2 Sources/Sum Qty]"
+     },
+     {
+      "id": "pfu-a51d68ff-3",
+      "name": "Todo Orders",
+      "formula": "[Union of 2 Sources/Todo Orders]"
+     },
+     {
+      "id": "pfu-a51d68ff-slicers",
+      "name": "Slicer Filter Count",
+      "formula": "ArrayLength([SupplierNameFilter2])"
+     }
+    ]
+   },
+   {
+    "id": "pfg-a51d68ff",
+    "kind": "table",
+    "name": "Rollup Page Fact (fast path)",
+    "source": {
+     "kind": "table",
+     "elementId": "master-pf-26dd4e26"
+    },
+    "columns": [
+     {
+      "id": "pfg-a51d68ff-0",
+      "name": "Category",
+      "formula": "[master-pf-26dd4e26/Category]"
+     },
+     {
+      "id": "pfg-a51d68ff-1",
+      "name": "Sum Amount",
+      "formula": "[master-pf-26dd4e26/Sum Amount]"
+     },
+     {
+      "id": "pfg-a51d68ff-2",
+      "name": "Sum Qty",
+      "formula": "[master-pf-26dd4e26/Sum Qty]"
+     },
+     {
+      "id": "pfg-a51d68ff-3",
+      "name": "Todo Orders",
+      "formula": "[master-pf-26dd4e26/Todo Orders]"
+     },
+     {
+      "id": "pfg-a51d68ff-gate",
+      "name": "Param Filter Count",
+      "formula": "ArrayLength([SupplierNameFilter2])"
+     }
+    ],
+    "filters": [
+     {
+      "id": "flt-pfg-a51d68ff",
+      "columnId": "pfg-a51d68ff-gate",
+      "kind": "list",
+      "mode": "include",
+      "values": [
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": "pfp-a51d68ff",
+    "kind": "table",
+    "name": "Rollup Page Fact (filtered by slicers)",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "-- page fact for page 'Rollup' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Product[Category]\n-- SUM_AMOUNT = SUM(Sales.Amount) on Sales [USERELATIONSHIP]\n-- SUM_QTY = SUM(Sales.Qty) on Sales [USERELATIONSHIP]\n-- TODO Orders: DAX function DISTINCTCOUNT is not decomposed into additive components\n--     DISTINCTCOUNT(Sales[Sale Id])\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_rollup AS (\n  SELECT CHILD_PRODUCT_KEY, PARENT_PRODUCT_KEY FROM ROLLUP_MAP\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_sales_ur1 AS (\n  SELECT\n    j2.\"CATEGORY\" AS \"G_CATEGORY\",\n    SUM(f.\"AMOUNT\") AS \"SUM_AMOUNT\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_rollup j1 ON j1.\"CHILD_PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_product j2 ON j2.\"PRODUCT_KEY\" = j1.\"PARENT_PRODUCT_KEY\"\n  WHERE 1 = 1\n    /*@slicers fact=\"Sales\" alias=\"f\" userelationship=\"'Rollup'[Child Product Key]|'Sales'[Product Key]\" sources=\"Product=pfs_product;Rollup=pfs_rollup;Supplier=pfs_supplier\"*/\n    AND ({{#formula ArrayLength([SupplierNameFilter2])}}) > 0\n    AND (CASE WHEN {{#formula ArrayLength([SupplierNameFilter2])}} = 0 THEN TRUE ELSE (f.\"PRODUCT_KEY\" IN (SELECT sj1.\"CHILD_PRODUCT_KEY\" FROM pfs_rollup sj1 WHERE (sj1.\"PARENT_PRODUCT_KEY\" IN (SELECT sj2.\"PRODUCT_KEY\" FROM pfs_product sj2 WHERE (sj2.\"SUPPLIER_KEY\" IN (SELECT sj3.\"SUPPLIER_KEY\" FROM pfs_supplier sj3 WHERE COALESCE(CAST(sj3.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN {{SupplierNameFilter2}}) OR ('(Blank)' IN {{SupplierNameFilter2}} AND (sj2.\"SUPPLIER_KEY\" IS NULL OR sj2.\"SUPPLIER_KEY\" NOT IN (SELECT sjb.\"SUPPLIER_KEY\" FROM pfs_supplier sjb WHERE sjb.\"SUPPLIER_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{SupplierNameFilter2}} AND (sj1.\"PARENT_PRODUCT_KEY\" IS NULL OR sj1.\"PARENT_PRODUCT_KEY\" NOT IN (SELECT sjb.\"PRODUCT_KEY\" FROM pfs_product sjb WHERE sjb.\"PRODUCT_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{SupplierNameFilter2}} AND (f.\"PRODUCT_KEY\" IS NULL OR f.\"PRODUCT_KEY\" NOT IN (SELECT sjb.\"CHILD_PRODUCT_KEY\" FROM pfs_rollup sjb WHERE sjb.\"CHILD_PRODUCT_KEY\" IS NOT NULL)))) END)\n  GROUP BY j2.\"CATEGORY\"\n)\nSELECT\n  \"G_CATEGORY\",\n  \"SUM_AMOUNT\",\n  \"SUM_QTY\",\n  CAST(NULL AS DOUBLE) AS \"TODO_ORDERS\"\nFROM agg_sales_ur1"
+    },
+    "columns": [
+     {
+      "id": "pfp-a51d68ff-0",
+      "name": "Category",
+      "formula": "[Custom SQL/G_CATEGORY]"
+     },
+     {
+      "id": "pfp-a51d68ff-1",
+      "name": "Sum Amount",
+      "formula": "[Custom SQL/SUM_AMOUNT]"
+     },
+     {
+      "id": "pfp-a51d68ff-2",
+      "name": "Sum Qty",
+      "formula": "[Custom SQL/SUM_QTY]"
+     },
+     {
+      "id": "pfp-a51d68ff-3",
+      "name": "Todo Orders",
+      "formula": "[Custom SQL/TODO_ORDERS]"
+     }
+    ]
+   },
+   {
+    "id": "pfl-1ea0e84e",
+    "kind": "table",
+    "name": "Supplier values",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "SELECT DISTINCT COALESCE(CAST(d.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') AS V FROM (\nSELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n) d\nUNION\nSELECT '(Blank)' AS V"
+    },
+    "columns": [
+     {
+      "id": "pfl-1ea0e84e-v",
+      "name": "Value",
+      "formula": "[Custom SQL/V]"
+     }
+    ]
+   },
+   {
+    "id": "pfu-54857658",
+    "kind": "table",
+    "name": "Sales Overview Page Fact (Sales Overview)",
+    "source": {
+     "kind": "union",
+     "sources": [
+      {
+       "kind": "table",
+       "elementId": "pfg-54857658"
+      },
+      {
+       "kind": "table",
+       "elementId": "pfp-54857658"
+      }
+     ],
+     "matches": [
+      {
+       "outputColumnName": "Region",
+       "sourceColumns": [
+        "[Region]",
+        "[Region]"
+       ]
+      },
+      {
+       "outputColumnName": "Month",
+       "sourceColumns": [
+        "[Month]",
+        "[Month]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Amount",
+       "sourceColumns": [
+        "[Sum Amount]",
+        "[Sum Amount]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Cost",
+       "sourceColumns": [
+        "[Sum Cost]",
+        "[Sum Cost]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Qty",
+       "sourceColumns": [
+        "[Sum Qty]",
+        "[Sum Qty]"
+       ]
+      },
+      {
+       "outputColumnName": "Todo West Sales",
+       "sourceColumns": [
+        "[Todo West Sales]",
+        "[Todo West Sales]"
+       ]
+      }
+     ]
+    },
+    "columns": [
+     {
+      "id": "pfu-54857658-0",
+      "name": "Region",
+      "formula": "[Union of 2 Sources/Region]"
+     },
+     {
+      "id": "pfu-54857658-1",
+      "name": "Month",
+      "formula": "[Union of 2 Sources/Month]"
+     },
+     {
+      "id": "pfu-54857658-2",
+      "name": "Sum Amount",
+      "formula": "[Union of 2 Sources/Sum Amount]"
+     },
+     {
+      "id": "pfu-54857658-3",
+      "name": "Sum Cost",
+      "formula": "[Union of 2 Sources/Sum Cost]"
+     },
+     {
+      "id": "pfu-54857658-4",
+      "name": "Sum Qty",
+      "formula": "[Union of 2 Sources/Sum Qty]"
+     },
+     {
+      "id": "pfu-54857658-5",
+      "name": "Todo West Sales",
+      "formula": "[Union of 2 Sources/Todo West Sales]"
+     },
+     {
+      "id": "pfu-54857658-slicers",
+      "name": "Slicer Filter Count",
+      "formula": "ArrayLength([YearFilter]) + ArrayLength([ManagerNameFilter]) + ArrayLength([SupplierNameFilter])"
+     }
+    ]
+   },
+   {
+    "id": "pfg-54857658",
+    "kind": "table",
+    "name": "Sales Overview Page Fact (fast path)",
+    "source": {
+     "kind": "table",
+     "elementId": "master-pf-a01377ee"
+    },
+    "columns": [
+     {
+      "id": "pfg-54857658-0",
+      "name": "Region",
+      "formula": "[master-pf-a01377ee/Region]"
+     },
+     {
+      "id": "pfg-54857658-1",
+      "name": "Month",
+      "formula": "[master-pf-a01377ee/Month]"
+     },
+     {
+      "id": "pfg-54857658-2",
+      "name": "Sum Amount",
+      "formula": "[master-pf-a01377ee/Sum Amount]"
+     },
+     {
+      "id": "pfg-54857658-3",
+      "name": "Sum Cost",
+      "formula": "[master-pf-a01377ee/Sum Cost]"
+     },
+     {
+      "id": "pfg-54857658-4",
+      "name": "Sum Qty",
+      "formula": "[master-pf-a01377ee/Sum Qty]"
+     },
+     {
+      "id": "pfg-54857658-5",
+      "name": "Todo West Sales",
+      "formula": "[master-pf-a01377ee/Todo West Sales]"
+     },
+     {
+      "id": "pfg-54857658-gate",
+      "name": "Param Filter Count",
+      "formula": "ArrayLength([YearFilter]) + ArrayLength([ManagerNameFilter]) + ArrayLength([SupplierNameFilter])"
+     }
+    ],
+    "filters": [
+     {
+      "id": "flt-pfg-54857658",
+      "columnId": "pfg-54857658-gate",
+      "kind": "list",
+      "mode": "include",
+      "values": [
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": "pfp-54857658",
+    "kind": "table",
+    "name": "Sales Overview Page Fact (filtered by slicers)",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "-- page fact for page 'Sales Overview' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Store[Region], Calendar[Month]\n-- SUM_AMOUNT = SUM(Sales.Amount) on Sales\n-- SUM_COST = SUM(Sales.Cost) on Sales\n-- SUM_QTY = SUM(Sales.Qty) on Sales\n-- TODO West Sales: CALCULATE replaces the filter on Store[Region], a grouping column of this page: the page fact applies that filter to every component, so this measure needs its own handling (add KEEPFILTERS in the source if an intersection is meant, or model it by hand)\n--     CALCULATE([Sales Amount], Store[Region] = \"West\")\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_calendar AS (\n  SELECT DATE_KEY, CAL_DATE, CAL_YEAR, CAL_MONTH FROM CAL\n),\npfs_manager AS (\n  SELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_store AS (\n  SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_sales AS (\n  SELECT\n    j2.\"REGION\" AS \"G_REGION\",\n    j1.\"CAL_MONTH\" AS \"G_MONTH\",\n    SUM(f.\"AMOUNT\") AS \"SUM_AMOUNT\",\n    SUM(f.\"COST\") AS \"SUM_COST\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_calendar j1 ON j1.\"DATE_KEY\" = f.\"DATE_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    /*@slicers fact=\"Sales\" alias=\"f\" sources=\"Calendar=pfs_calendar;Manager=pfs_manager;Product=pfs_product;Store=pfs_store;Supplier=pfs_supplier\"*/\n    AND ({{#formula ArrayLength([YearFilter])}} + {{#formula ArrayLength([ManagerNameFilter])}} + {{#formula ArrayLength([SupplierNameFilter])}}) > 0\n    AND (CASE WHEN {{#formula ArrayLength([YearFilter])}} = 0 THEN TRUE ELSE f.\"DATE_KEY\" IN (SELECT sj1.\"DATE_KEY\" FROM pfs_calendar sj1 WHERE sj1.\"CAL_YEAR\" IN {{YearFilter}}) END)\n    AND (CASE WHEN {{#formula ArrayLength([ManagerNameFilter])}} = 0 THEN TRUE ELSE (f.\"STORE_KEY\" IN (SELECT sj1.\"STORE_KEY\" FROM pfs_store sj1 WHERE (sj1.\"MANAGER_KEY\" IN (SELECT sj2.\"MANAGER_KEY\" FROM pfs_manager sj2 WHERE COALESCE(CAST(sj2.\"MANAGER_NAME\" AS VARCHAR), '(Blank)') IN {{ManagerNameFilter}}) OR ('(Blank)' IN {{ManagerNameFilter}} AND (sj1.\"MANAGER_KEY\" IS NULL OR sj1.\"MANAGER_KEY\" NOT IN (SELECT sjb.\"MANAGER_KEY\" FROM pfs_manager sjb WHERE sjb.\"MANAGER_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{ManagerNameFilter}} AND (f.\"STORE_KEY\" IS NULL OR f.\"STORE_KEY\" NOT IN (SELECT sjb.\"STORE_KEY\" FROM pfs_store sjb WHERE sjb.\"STORE_KEY\" IS NOT NULL)))) END)\n    AND (CASE WHEN {{#formula ArrayLength([SupplierNameFilter])}} = 0 THEN TRUE ELSE (f.\"PRODUCT_KEY\" IN (SELECT sj1.\"PRODUCT_KEY\" FROM pfs_product sj1 WHERE (sj1.\"SUPPLIER_KEY\" IN (SELECT sj2.\"SUPPLIER_KEY\" FROM pfs_supplier sj2 WHERE COALESCE(CAST(sj2.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN {{SupplierNameFilter}}) OR ('(Blank)' IN {{SupplierNameFilter}} AND (sj1.\"SUPPLIER_KEY\" IS NULL OR sj1.\"SUPPLIER_KEY\" NOT IN (SELECT sjb.\"SUPPLIER_KEY\" FROM pfs_supplier sjb WHERE sjb.\"SUPPLIER_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{SupplierNameFilter}} AND (f.\"PRODUCT_KEY\" IS NULL OR f.\"PRODUCT_KEY\" NOT IN (SELECT sjb.\"PRODUCT_KEY\" FROM pfs_product sjb WHERE sjb.\"PRODUCT_KEY\" IS NOT NULL)))) END)\n  GROUP BY j2.\"REGION\", j1.\"CAL_MONTH\"\n)\nSELECT\n  \"G_REGION\",\n  \"G_MONTH\",\n  \"SUM_AMOUNT\",\n  \"SUM_COST\",\n  \"SUM_QTY\",\n  CAST(NULL AS DOUBLE) AS \"TODO_WEST_SALES\"\nFROM agg_sales"
+    },
+    "columns": [
+     {
+      "id": "pfp-54857658-0",
+      "name": "Region",
+      "formula": "[Custom SQL/G_REGION]"
+     },
+     {
+      "id": "pfp-54857658-1",
+      "name": "Month",
+      "formula": "[Custom SQL/G_MONTH]"
+     },
+     {
+      "id": "pfp-54857658-2",
+      "name": "Sum Amount",
+      "formula": "[Custom SQL/SUM_AMOUNT]"
+     },
+     {
+      "id": "pfp-54857658-3",
+      "name": "Sum Cost",
+      "formula": "[Custom SQL/SUM_COST]"
+     },
+     {
+      "id": "pfp-54857658-4",
+      "name": "Sum Qty",
+      "formula": "[Custom SQL/SUM_QTY]"
+     },
+     {
+      "id": "pfp-54857658-5",
+      "name": "Todo West Sales",
+      "formula": "[Custom SQL/TODO_WEST_SALES]"
+     }
+    ]
+   },
+   {
+    "id": "pfl-1b068f7d",
+    "kind": "table",
+    "name": "Manager values",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "SELECT DISTINCT COALESCE(CAST(d.\"MANAGER_NAME\" AS VARCHAR), '(Blank)') AS V FROM (\nSELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n) d\nUNION\nSELECT '(Blank)' AS V"
+    },
+    "columns": [
+     {
+      "id": "pfl-1b068f7d-v",
+      "name": "Value",
+      "formula": "[Custom SQL/V]"
+     }
+    ]
+   },
+   {
+    "id": "pfl-c91fbbb4",
+    "kind": "table",
+    "name": "Supplier values",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "SELECT DISTINCT COALESCE(CAST(d.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') AS V FROM (\nSELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n) d\nUNION\nSELECT '(Blank)' AS V"
+    },
+    "columns": [
+     {
+      "id": "pfl-c91fbbb4-v",
+      "name": "Value",
+      "formula": "[Custom SQL/V]"
+     }
+    ]
+   },
+   {
+    "id": "pfu-c431ec3b",
+    "kind": "table",
+    "name": "Stock Cover Page Fact (Stock Cover)",
+    "source": {
+     "kind": "union",
+     "sources": [
+      {
+       "kind": "table",
+       "elementId": "pfg-c431ec3b"
+      },
+      {
+       "kind": "table",
+       "elementId": "pfp-c431ec3b"
+      }
+     ],
+     "matches": [
+      {
+       "outputColumnName": "Category",
+       "sourceColumns": [
+        "[Category]",
+        "[Category]"
+       ]
+      },
+      {
+       "outputColumnName": "Store Name",
+       "sourceColumns": [
+        "[Store Name]",
+        "[Store Name]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum On Hand",
+       "sourceColumns": [
+        "[Sum On Hand]",
+        "[Sum On Hand]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum Qty",
+       "sourceColumns": [
+        "[Sum Qty]",
+        "[Sum Qty]"
+       ]
+      },
+      {
+       "outputColumnName": "Sum On Hand 2",
+       "sourceColumns": [
+        "[Sum On Hand 2]",
+        "[Sum On Hand 2]"
+       ]
+      }
+     ]
+    },
+    "columns": [
+     {
+      "id": "pfu-c431ec3b-0",
+      "name": "Category",
+      "formula": "[Union of 2 Sources/Category]"
+     },
+     {
+      "id": "pfu-c431ec3b-1",
+      "name": "Store Name",
+      "formula": "[Union of 2 Sources/Store Name]"
+     },
+     {
+      "id": "pfu-c431ec3b-2",
+      "name": "Sum On Hand",
+      "formula": "[Union of 2 Sources/Sum On Hand]"
+     },
+     {
+      "id": "pfu-c431ec3b-3",
+      "name": "Sum Qty",
+      "formula": "[Union of 2 Sources/Sum Qty]"
+     },
+     {
+      "id": "pfu-c431ec3b-4",
+      "name": "Sum On Hand 2",
+      "formula": "[Union of 2 Sources/Sum On Hand 2]"
+     },
+     {
+      "id": "pfu-c431ec3b-slicers",
+      "name": "Slicer Filter Count",
+      "formula": "ArrayLength([RegionFilter]) + ArrayLength([ManagerNameFilter2])"
+     }
+    ]
+   },
+   {
+    "id": "pfg-c431ec3b",
+    "kind": "table",
+    "name": "Stock Cover Page Fact (fast path)",
+    "source": {
+     "kind": "table",
+     "elementId": "master-pf-8a884102"
+    },
+    "columns": [
+     {
+      "id": "pfg-c431ec3b-0",
+      "name": "Category",
+      "formula": "[master-pf-8a884102/Category]"
+     },
+     {
+      "id": "pfg-c431ec3b-1",
+      "name": "Store Name",
+      "formula": "[master-pf-8a884102/Store Name]"
+     },
+     {
+      "id": "pfg-c431ec3b-2",
+      "name": "Sum On Hand",
+      "formula": "[master-pf-8a884102/Sum On Hand]"
+     },
+     {
+      "id": "pfg-c431ec3b-3",
+      "name": "Sum Qty",
+      "formula": "[master-pf-8a884102/Sum Qty]"
+     },
+     {
+      "id": "pfg-c431ec3b-4",
+      "name": "Sum On Hand 2",
+      "formula": "[master-pf-8a884102/Sum On Hand 2]"
+     },
+     {
+      "id": "pfg-c431ec3b-gate",
+      "name": "Param Filter Count",
+      "formula": "ArrayLength([RegionFilter]) + ArrayLength([ManagerNameFilter2])"
+     }
+    ],
+    "filters": [
+     {
+      "id": "flt-pfg-c431ec3b",
+      "columnId": "pfg-c431ec3b-gate",
+      "kind": "list",
+      "mode": "include",
+      "values": [
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": "pfp-c431ec3b",
+    "kind": "table",
+    "name": "Stock Cover Page Fact (filtered by slicers)",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "-- page fact for page 'Stock Cover' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Product[Category], Store[Store Name]\n-- SUM_ON_HAND = SUM(Stock.On Hand) on Stock\n-- SUM_QTY = SUM(Sales.Qty) on Sales\n-- SUM_ON_HAND_2 = SUM(Stock.On Hand) WHERE Store.Manager Key IS NULL on Stock\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_stock AS (\n  SELECT SNAPSHOT_DATE_KEY, STORE_KEY, PRODUCT_KEY, ON_HAND FROM STOCK\n),\npfs_manager AS (\n  SELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_store AS (\n  SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_stock AS (\n  SELECT\n    j1.\"CATEGORY\" AS \"G_CATEGORY\",\n    j2.\"STORE_NAME\" AS \"G_STORE_NAME\",\n    SUM(f.\"ON_HAND\") AS \"SUM_ON_HAND\",\n    SUM(CASE WHEN j2.\"MANAGER_KEY\" IS NULL THEN f.\"ON_HAND\" END) AS \"SUM_ON_HAND_2\"\n  FROM pfs_stock f\n  LEFT JOIN pfs_product j1 ON j1.\"PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    AND f.\"PRODUCT_KEY\" IN (SELECT sj1.\"PRODUCT_KEY\" FROM pfs_product sj1 WHERE sj1.\"SUPPLIER_KEY\" IN (SELECT sj2.\"SUPPLIER_KEY\" FROM pfs_supplier sj2 WHERE COALESCE(CAST(sj2.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN ('Acme', 'Globex')))\n    /*@slicers fact=\"Stock\" alias=\"f\" sources=\"Manager=pfs_manager;Product=pfs_product;Sales=pfs_sales;Store=pfs_store;Supplier=pfs_supplier\"*/\n    AND ({{#formula ArrayLength([RegionFilter])}} + {{#formula ArrayLength([ManagerNameFilter2])}}) > 0\n    AND (CASE WHEN {{#formula ArrayLength([RegionFilter])}} = 0 THEN TRUE ELSE (f.\"STORE_KEY\" IN (SELECT sj1.\"STORE_KEY\" FROM pfs_store sj1 WHERE COALESCE(CAST(sj1.\"REGION\" AS VARCHAR), '(Blank)') IN {{RegionFilter}}) OR ('(Blank)' IN {{RegionFilter}} AND (f.\"STORE_KEY\" IS NULL OR f.\"STORE_KEY\" NOT IN (SELECT sjb.\"STORE_KEY\" FROM pfs_store sjb WHERE sjb.\"STORE_KEY\" IS NOT NULL)))) END)\n    AND (CASE WHEN {{#formula ArrayLength([ManagerNameFilter2])}} = 0 THEN TRUE ELSE (f.\"STORE_KEY\" IN (SELECT sj1.\"STORE_KEY\" FROM pfs_store sj1 WHERE (sj1.\"MANAGER_KEY\" IN (SELECT sj2.\"MANAGER_KEY\" FROM pfs_manager sj2 WHERE COALESCE(CAST(sj2.\"MANAGER_NAME\" AS VARCHAR), '(Blank)') IN {{ManagerNameFilter2}}) OR ('(Blank)' IN {{ManagerNameFilter2}} AND (sj1.\"MANAGER_KEY\" IS NULL OR sj1.\"MANAGER_KEY\" NOT IN (SELECT sjb.\"MANAGER_KEY\" FROM pfs_manager sjb WHERE sjb.\"MANAGER_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{ManagerNameFilter2}} AND (f.\"STORE_KEY\" IS NULL OR f.\"STORE_KEY\" NOT IN (SELECT sjb.\"STORE_KEY\" FROM pfs_store sjb WHERE sjb.\"STORE_KEY\" IS NOT NULL)))) END)\n  GROUP BY j1.\"CATEGORY\", j2.\"STORE_NAME\"\n),\nagg_sales AS (\n  SELECT\n    j1.\"CATEGORY\" AS \"G_CATEGORY\",\n    j2.\"STORE_NAME\" AS \"G_STORE_NAME\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_product j1 ON j1.\"PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    AND f.\"PRODUCT_KEY\" IN (SELECT sj1.\"PRODUCT_KEY\" FROM pfs_product sj1 WHERE sj1.\"SUPPLIER_KEY\" IN (SELECT sj2.\"SUPPLIER_KEY\" FROM pfs_supplier sj2 WHERE COALESCE(CAST(sj2.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN ('Acme', 'Globex')))\n    /*@slicers fact=\"Sales\" alias=\"f\" sources=\"Manager=pfs_manager;Product=pfs_product;Stock=pfs_stock;Store=pfs_store;Supplier=pfs_supplier\"*/\n    AND ({{#formula ArrayLength([RegionFilter])}} + {{#formula ArrayLength([ManagerNameFilter2])}}) > 0\n    AND (CASE WHEN {{#formula ArrayLength([RegionFilter])}} = 0 THEN TRUE ELSE (f.\"STORE_KEY\" IN (SELECT sj1.\"STORE_KEY\" FROM pfs_store sj1 WHERE COALESCE(CAST(sj1.\"REGION\" AS VARCHAR), '(Blank)') IN {{RegionFilter}}) OR ('(Blank)' IN {{RegionFilter}} AND (f.\"STORE_KEY\" IS NULL OR f.\"STORE_KEY\" NOT IN (SELECT sjb.\"STORE_KEY\" FROM pfs_store sjb WHERE sjb.\"STORE_KEY\" IS NOT NULL)))) END)\n    AND (CASE WHEN {{#formula ArrayLength([ManagerNameFilter2])}} = 0 THEN TRUE ELSE (f.\"STORE_KEY\" IN (SELECT sj1.\"STORE_KEY\" FROM pfs_store sj1 WHERE (sj1.\"MANAGER_KEY\" IN (SELECT sj2.\"MANAGER_KEY\" FROM pfs_manager sj2 WHERE COALESCE(CAST(sj2.\"MANAGER_NAME\" AS VARCHAR), '(Blank)') IN {{ManagerNameFilter2}}) OR ('(Blank)' IN {{ManagerNameFilter2}} AND (sj1.\"MANAGER_KEY\" IS NULL OR sj1.\"MANAGER_KEY\" NOT IN (SELECT sjb.\"MANAGER_KEY\" FROM pfs_manager sjb WHERE sjb.\"MANAGER_KEY\" IS NOT NULL))))) OR ('(Blank)' IN {{ManagerNameFilter2}} AND (f.\"STORE_KEY\" IS NULL OR f.\"STORE_KEY\" NOT IN (SELECT sjb.\"STORE_KEY\" FROM pfs_store sjb WHERE sjb.\"STORE_KEY\" IS NOT NULL)))) END)\n  GROUP BY j1.\"CATEGORY\", j2.\"STORE_NAME\"\n)\nSELECT\n  \"G_CATEGORY\",\n  \"G_STORE_NAME\",\n  SUM(\"SUM_ON_HAND\") AS \"SUM_ON_HAND\",\n  SUM(\"SUM_QTY\") AS \"SUM_QTY\",\n  SUM(\"SUM_ON_HAND_2\") AS \"SUM_ON_HAND_2\"\nFROM (\n  SELECT \"G_CATEGORY\", \"G_STORE_NAME\", \"SUM_ON_HAND\", NULL AS \"SUM_QTY\", \"SUM_ON_HAND_2\" FROM agg_stock\n  UNION ALL\n  SELECT \"G_CATEGORY\", \"G_STORE_NAME\", NULL AS \"SUM_ON_HAND\", \"SUM_QTY\", NULL AS \"SUM_ON_HAND_2\" FROM agg_sales\n) u\nGROUP BY \"G_CATEGORY\", \"G_STORE_NAME\""
+    },
+    "columns": [
+     {
+      "id": "pfp-c431ec3b-0",
+      "name": "Category",
+      "formula": "[Custom SQL/G_CATEGORY]"
+     },
+     {
+      "id": "pfp-c431ec3b-1",
+      "name": "Store Name",
+      "formula": "[Custom SQL/G_STORE_NAME]"
+     },
+     {
+      "id": "pfp-c431ec3b-2",
+      "name": "Sum On Hand",
+      "formula": "[Custom SQL/SUM_ON_HAND]"
+     },
+     {
+      "id": "pfp-c431ec3b-3",
+      "name": "Sum Qty",
+      "formula": "[Custom SQL/SUM_QTY]"
+     },
+     {
+      "id": "pfp-c431ec3b-4",
+      "name": "Sum On Hand 2",
+      "formula": "[Custom SQL/SUM_ON_HAND_2]"
+     }
+    ]
+   },
+   {
+    "id": "pfl-bdc79454",
+    "kind": "table",
+    "name": "Region values",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "SELECT DISTINCT COALESCE(CAST(d.\"REGION\" AS VARCHAR), '(Blank)') AS V FROM (\nSELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE\n) d\nUNION\nSELECT '(Blank)' AS V"
+    },
+    "columns": [
+     {
+      "id": "pfl-bdc79454-v",
+      "name": "Value",
+      "formula": "[Custom SQL/V]"
+     }
+    ]
+   },
+   {
+    "id": "pfl-80ee52cb",
+    "kind": "table",
+    "name": "Manager values",
+    "source": {
+     "kind": "sql",
+     "connectionId": "00000000-0000-4000-8000-00000000c0de",
+     "statement": "SELECT DISTINCT COALESCE(CAST(d.\"MANAGER_NAME\" AS VARCHAR), '(Blank)') AS V FROM (\nSELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n) d\nUNION\nSELECT '(Blank)' AS V"
+    },
+    "columns": [
+     {
+      "id": "pfl-80ee52cb-v",
+      "name": "Value",
+      "formula": "[Custom SQL/V]"
+     }
+    ]
+   }
+  ],
+  "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master-calendar\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n  <Element elementId=\"master-store\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n  <Element elementId=\"master-manager\" gridColumn=\"1 / 25\" gridRow=\"21 / 31\"/>\n  <Element elementId=\"master-supplier\" gridColumn=\"1 / 25\" gridRow=\"31 / 41\"/>\n  <Element elementId=\"master-sales-view\" gridColumn=\"1 / 25\" gridRow=\"41 / 51\"/>\n  <Element elementId=\"master-pf-26dd4e26\" gridColumn=\"1 / 25\" gridRow=\"51 / 61\"/>\n  <Element elementId=\"master-pf-a01377ee\" gridColumn=\"1 / 25\" gridRow=\"61 / 71\"/>\n  <Element elementId=\"master-pf-8a884102\" gridColumn=\"1 / 25\" gridRow=\"71 / 81\"/>\n  <Element elementId=\"pfu-a51d68ff\" gridColumn=\"1 / 25\" gridRow=\"81 / 91\"/>\n  <Element elementId=\"pfg-a51d68ff\" gridColumn=\"1 / 25\" gridRow=\"91 / 101\"/>\n  <Element elementId=\"pfp-a51d68ff\" gridColumn=\"1 / 25\" gridRow=\"101 / 111\"/>\n  <Element elementId=\"pfl-1ea0e84e\" gridColumn=\"1 / 25\" gridRow=\"111 / 121\"/>\n  <Element elementId=\"pfu-54857658\" gridColumn=\"1 / 25\" gridRow=\"121 / 131\"/>\n  <Element elementId=\"pfg-54857658\" gridColumn=\"1 / 25\" gridRow=\"131 / 141\"/>\n  <Element elementId=\"pfp-54857658\" gridColumn=\"1 / 25\" gridRow=\"141 / 151\"/>\n  <Element elementId=\"pfl-1b068f7d\" gridColumn=\"1 / 25\" gridRow=\"151 / 161\"/>\n  <Element elementId=\"pfl-c91fbbb4\" gridColumn=\"1 / 25\" gridRow=\"161 / 171\"/>\n  <Element elementId=\"pfu-c431ec3b\" gridColumn=\"1 / 25\" gridRow=\"171 / 181\"/>\n  <Element elementId=\"pfg-c431ec3b\" gridColumn=\"1 / 25\" gridRow=\"181 / 191\"/>\n  <Element elementId=\"pfp-c431ec3b\" gridColumn=\"1 / 25\" gridRow=\"191 / 201\"/>\n  <Element elementId=\"pfl-bdc79454\" gridColumn=\"1 / 25\" gridRow=\"201 / 211\"/>\n  <Element elementId=\"pfl-80ee52cb\" gridColumn=\"1 / 25\" gridRow=\"211 / 221\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-p1\">\n<Container elementId=\"band-page-p1-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-p1-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-p1-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 8\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-s1year75a395\" gridColumn=\"1 / 9\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-s1mgr153da8\" gridColumn=\"9 / 17\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-s1sup7dfb85\" gridColumn=\"17 / 25\" gridRow=\"1 / 5\"/>\n</Container>\n  <Element elementId=\"el-v1kpi9f7271\" gridColumn=\"1 / 25\" gridRow=\"8 / 13\"/>\n  <Element elementId=\"el-v1bard1ac7f\" gridColumn=\"1 / 13\" gridRow=\"13 / 26\"/>\n  <Element elementId=\"el-v1linef273bd\" gridColumn=\"13 / 25\" gridRow=\"13 / 26\"/>\n  <Element elementId=\"el-1pivot0b579d\" gridColumn=\"1 / 25\" gridRow=\"26 / 37\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-p2\">\n<Container elementId=\"band-page-p2-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-p2-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-p2-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 8\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-regiondf813b\" gridColumn=\"1 / 13\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-s2mgrb89ad6\" gridColumn=\"13 / 25\" gridRow=\"1 / 5\"/>\n</Container>\n  <Element elementId=\"el-2pivot161ea1\" gridColumn=\"1 / 17\" gridRow=\"8 / 23\"/>\n  <Element elementId=\"el-v2kpib17bc3\" gridColumn=\"17 / 25\" gridRow=\"8 / 15\"/>\n  <Element elementId=\"el-signed970db8\" gridColumn=\"17 / 25\" gridRow=\"15 / 23\"/>\n  <Element elementId=\"el-v2baree0e6c\" gridColumn=\"1 / 25\" gridRow=\"23 / 38\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-p3\">\n<Container elementId=\"band-page-p3-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-p3-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-p3-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 8\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-s3sup16de1c\" gridColumn=\"1 / 13\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-s3cat53d2d4\" gridColumn=\"13 / 25\" gridRow=\"1 / 5\"/>\n</Container>\n  <Element elementId=\"el-v3bar9e48b7\" gridColumn=\"1 / 17\" gridRow=\"8 / 23\"/>\n  <Element elementId=\"el-orders2a2694\" gridColumn=\"17 / 25\" gridRow=\"8 / 15\"/>\n  <Element elementId=\"el-3units580f24\" gridColumn=\"17 / 25\" gridRow=\"15 / 23\"/>\n</Page>\n",
+  "panels": [],
+  "overlays": [],
+  "settings": {
+   "theme": {
+    "name": "Light",
+    "overrides": {
+     "hasCards": "shown",
+     "borderRadius": "round",
+     "elementBorder": {
+      "color": "#E2E8F0",
+      "width": 1
+     },
+     "categoricalScheme": [
+      "#118DFF",
+      "#12239E",
+      "#E66C37",
+      "#6B007B",
+      "#E044A7",
+      "#744EC2",
+      "#D9B300",
+      "#D64550"
+     ],
+     "colors": {
+      "highlight": "#118DFF"
+     },
+     "space": {
+      "unit": "small",
+      "showElementPadding": "hidden"
+     }
+    }
+   }
+  }
+ },
+ "folderId": "00000000-0000-4000-8000-0000000f01d0"
+}

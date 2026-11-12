@@ -1,0 +1,154 @@
+{
+ "generated_by": "wire-slicer-gate.py",
+ "pages": [
+  {
+   "page": "Rollup",
+   "page_fact": "Rollup Page Fact",
+   "gated": [
+    {
+     "slicer": "Supplier",
+     "control": "SupplierNameFilter2",
+     "field": "Supplier[Supplier Name]",
+     "blank_policy": "row",
+     "value_list": "pfl-1ea0e84e"
+    }
+   ],
+   "direct": [
+    {
+     "slicer": "Category",
+     "control": "CategoryFilter"
+    }
+   ],
+   "skipped": [],
+   "unreached": [],
+   "union": "pfu-a51d68ff",
+   "fast_path": "pfg-a51d68ff",
+   "parameterized": "pfp-a51d68ff",
+   "hooks": [
+    {
+     "fact": "Sales",
+     "activations": 1,
+     "predicates": [
+      {
+       "control": "SupplierNameFilter2",
+       "path": "Supplier --Supplier[Supplier Key]=Product[Supplier Key] 1:M--> Product --Product[Product Key]=Rollup[Parent Product Key] 1:M--> Rollup --Rollup[Child Product Key]=Sales[Product Key] 1:M USERELATIONSHIP--> Sales"
+      }
+     ]
+    }
+   ],
+   "sql_chars": 2429
+  },
+  {
+   "page": "Sales Overview",
+   "page_fact": "Sales Overview Page Fact",
+   "gated": [
+    {
+     "slicer": "Year",
+     "control": "YearFilter",
+     "field": "Calendar[Year]",
+     "blank_policy": "none",
+     "value_list": "typed int64 list kept; no (Blank) member"
+    },
+    {
+     "slicer": "Manager",
+     "control": "ManagerNameFilter",
+     "field": "Manager[Manager Name]",
+     "blank_policy": "row",
+     "value_list": "pfl-1b068f7d"
+    },
+    {
+     "slicer": "Supplier",
+     "control": "SupplierNameFilter",
+     "field": "Supplier[Supplier Name]",
+     "blank_policy": "row",
+     "value_list": "pfl-c91fbbb4"
+    }
+   ],
+   "direct": [],
+   "skipped": [],
+   "unreached": [],
+   "union": "pfu-54857658",
+   "fast_path": "pfg-54857658",
+   "parameterized": "pfp-54857658",
+   "hooks": [
+    {
+     "fact": "Sales",
+     "activations": 0,
+     "predicates": [
+      {
+       "control": "YearFilter",
+       "path": "Calendar --Calendar[Date Key]=Sales[Date Key] 1:M--> Sales"
+      },
+      {
+       "control": "ManagerNameFilter",
+       "path": "Manager --Manager[Manager Key]=Store[Manager Key] 1:M--> Store --Store[Store Key]=Sales[Store Key] 1:M--> Sales"
+      },
+      {
+       "control": "SupplierNameFilter",
+       "path": "Supplier --Supplier[Supplier Key]=Product[Supplier Key] 1:M--> Product --Product[Product Key]=Sales[Product Key] 1:M--> Sales"
+      }
+     ]
+    }
+   ],
+   "sql_chars": 3487
+  },
+  {
+   "page": "Stock Cover",
+   "page_fact": "Stock Cover Page Fact",
+   "gated": [
+    {
+     "slicer": "Region",
+     "control": "RegionFilter",
+     "field": "Store[Region]",
+     "blank_policy": "row",
+     "value_list": "pfl-bdc79454"
+    },
+    {
+     "slicer": "Manager",
+     "control": "ManagerNameFilter2",
+     "field": "Manager[Manager Name]",
+     "blank_policy": "row",
+     "value_list": "pfl-80ee52cb"
+    }
+   ],
+   "direct": [],
+   "skipped": [],
+   "unreached": [],
+   "union": "pfu-c431ec3b",
+   "fast_path": "pfg-c431ec3b",
+   "parameterized": "pfp-c431ec3b",
+   "hooks": [
+    {
+     "fact": "Stock",
+     "activations": 0,
+     "predicates": [
+      {
+       "control": "RegionFilter",
+       "path": "Store --Store[Store Key]=Stock[Store Key] 1:M--> Stock"
+      },
+      {
+       "control": "ManagerNameFilter2",
+       "path": "Manager --Manager[Manager Key]=Store[Manager Key] 1:M--> Store --Store[Store Key]=Stock[Store Key] 1:M--> Stock"
+      }
+     ]
+    },
+    {
+     "fact": "Sales",
+     "activations": 0,
+     "predicates": [
+      {
+       "control": "RegionFilter",
+       "path": "Store --Store[Store Key]=Sales[Store Key] 1:M--> Sales"
+      },
+      {
+       "control": "ManagerNameFilter2",
+       "path": "Manager --Manager[Manager Key]=Store[Manager Key] 1:M--> Store --Store[Store Key]=Sales[Store Key] 1:M--> Sales"
+      }
+     ]
+    }
+   ],
+   "sql_chars": 5124
+  }
+ ],
+ "control_scope_promoted": 23
+}
