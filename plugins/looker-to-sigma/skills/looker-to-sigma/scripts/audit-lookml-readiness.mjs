@@ -20,13 +20,14 @@ const display = s => String(s || "").replace(/([a-z])([A-Z])/g, "$1_$2")
 
 function usage(message) {
   if (message) console.error(message);
-  console.error("Usage: audit-lookml-readiness.mjs --lookml-dir DIR [--explore NAME ...] --out FILE --field-census FILE --formula-mapping FILE [--dashboard-contract FILE]");
+  console.error("Usage: audit-lookml-readiness.mjs --lookml-dir DIR [--explore NAME ...] --out FILE --field-census FILE --formula-mapping FILE [--dashboard-contract FILE]\n  [--accept-omitted VIEW.FIELD[,..] ... --accept-omitted-reason TEXT]");
   process.exit(2);
 }
 
 function argsOf(argv) {
-  const out = { explore: [] };
-  const values = new Set(["lookml-dir", "explore", "out", "field-census", "formula-mapping", "dashboard-contract"]);
+  const out = { explore: [], "accept-omitted": [] };
+  const values = new Set(["lookml-dir", "explore", "out", "field-census", "formula-mapping", "dashboard-contract",
+    "accept-omitted", "accept-omitted-reason"]);
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith("--")) usage(`Unknown argument: ${token}`);
@@ -35,8 +36,14 @@ function argsOf(argv) {
     const value = inline ?? argv[++i];
     if (!value || value.startsWith("--")) usage(`Missing value for --${key}`);
     if (key === "explore") out.explore.push(...value.split(",").filter(Boolean));
+    else if (key === "accept-omitted") out[key].push(...value.split(",").map(x => x.trim()).filter(Boolean));
     else out[key] = value;
   }
+  out["accept-omitted"] = [...new Set(out["accept-omitted"])].sort();
+  if (out["accept-omitted"].length && !String(out["accept-omitted-reason"] || "").trim())
+    usage("--accept-omitted requires --accept-omitted-reason \"<text>\"");
+  if (out["accept-omitted-reason"] !== undefined && !out["accept-omitted"].length)
+    usage("--accept-omitted-reason given without --accept-omitted");
   for (const k of ["lookml-dir", "out", "field-census", "formula-mapping"]) if (!out[k]) usage(`Missing --${k}`);
   out.explore = [...new Set(out.explore)].sort();
   return out;
@@ -126,6 +133,25 @@ function structuralWarning(id, evidence, catalog) {
   return { id, readiness: item.readiness, source: "structural", evidence };
 }
 
+// Names the converter may legitimately emit for a field, beyond display(name):
+// its `label:` (measures; also dimensions) and, for a simple `${TABLE}.<col>`
+// dimension (or single-timeframe dimension group), the PHYSICAL column (the
+// converter names warehouse columns after the column, not the LookML field name).
+function simpleTableColumn(sql) {
+  return String(sql || "").match(/^\s*\$\{TABLE\}\s*\.\s*["`]?([A-Za-z0-9_$]+)["`]?\s*$/)?.[1] || null;
+}
+function candidateNames(f) {
+  const out = [display(f.name), f.name];
+  const label = f.source?.label;
+  if (label && typeof label === "string") out.push(label, display(label));
+  const singleTimeframeGroup = f.kind === "dimension_group" && arr(f.source?.timeframes).length === 1;
+  if (f.kind === "dimension" || singleTimeframeGroup) {
+    const col = simpleTableColumn(f.sql);
+    if (col) out.push(display(col), col);
+  }
+  return [...new Set(out.map(norm).filter(Boolean))];
+}
+
 function stableWarnings(warnings) {
   const seen = new Set();
   return warnings.filter(w => {
@@ -202,9 +228,14 @@ async function main() {
       warningByField.get(key).push(warning);
     }
   }
+  const acceptSet = new Set(opt["accept-omitted"]), acceptReason = opt["accept-omitted-reason"] || "", accepted = new Set();
+  const known = new Set(sourceFields.map(f => `${f.view}.${f.name}`));
+  const unknownAccepted = [...acceptSet].filter(x => !known.has(x));
+  if (unknownAccepted.length) throw new Error(`--accept-omitted names unknown field(s): ${unknownAccepted.join(", ")} (use VIEW.FIELD)`);
   const fieldRows = sourceFields.map(f => {
     const viewOutput = emittedByView.get(norm(display(f.view)));
-    const hit = Boolean(viewOutput?.has(norm(display(f.name))) || viewOutput?.has(norm(f.name)));
+    const matched = candidateNames(f).find(c => viewOutput?.has(c));
+    const hit = Boolean(matched);
     const dep = deps.get(`${f.view}.${f.name}`);
     let mapping = hit ? "exact" : "omitted";
     const reasons = [];
@@ -218,8 +249,15 @@ async function main() {
       { view: f.view, field: f.name, unresolvedReferences: dep.unresolved }, catalog));
     if (dep?.cycle.length) warnings.push(structuralWarning("LOOKML_MEASURE_DEPENDENCY_CYCLE",
       { view: f.view, field: f.name, cycle: dep.cycle }, catalog));
-    if (!hit) warnings.push(structuralWarning("LOOKML_EMITTED_MATCH_OMITTED",
-      { view: f.view, field: f.name }, catalog));
+    let acceptedOmission = null;
+    if (!hit) {
+      if (acceptSet.has(`${f.view}.${f.name}`)) {
+        acceptedOmission = { reason: acceptReason };
+        accepted.add(`${f.view}.${f.name}`);
+        mapping = "approximate"; reasons.push("accepted-omission");
+      } else warnings.push(structuralWarning("LOOKML_EMITTED_MATCH_OMITTED",
+        { view: f.view, field: f.name }, catalog));
+    }
     const rowWarnings = stableWarnings(warnings);
     const warningReadiness = worst(...rowWarnings.map(w => w.readiness));
     if (warningReadiness === "blocked") { mapping = "omitted"; reasons.push("converter-warning"); }
@@ -229,6 +267,7 @@ async function main() {
       kind: f.kind, type: f.type, mapping, reasons: [...new Set(reasons)].sort(),
       warningIds: [...new Set(rowWarnings.map(w => w.id))].sort(), warnings: rowWarnings,
       ...(f.timeframe ? { timeframe: f.timeframe } : {}),
+      ...(acceptedOmission ? { acceptedOmission } : {}),
       ...(dep ? { dependencyDepth: dep.depth, dependencies: refs(f.sql).sort(), unresolvedReferences: dep.unresolved, dependencyCycle: dep.cycle } : {})
     };
   }).sort((a, b) => `${a.view}.${a.field}`.localeCompare(`${b.view}.${b.field}`));
@@ -268,11 +307,14 @@ async function main() {
       tiles: Array.isArray(tiles) ? tiles.map((t, i) => ({ id: String(t.id ?? t.name ?? i), explore: t.explore ?? t.query?.explore ?? null })).sort((a, b) => a.id.localeCompare(b.id)) : [] };
   }
 
+  const notOmitted = [...acceptSet].filter(x => !accepted.has(x));
+  if (notOmitted.length) throw new Error(`--accept-omitted field(s) are not actually omitted (nothing to accept): ${notOmitted.join(", ")}`);
+
   const formulaRows = sourceFields.filter(f => f.sql || f.kind === "measure").map(f => {
     const census = fieldRows.find(x => x.view === f.view && x.field === f.name);
     return { view: f.view, field: f.name, kind: f.kind, sourceFormula: f.sql || null,
-      sigmaFormula: emittedFormula.get(`${norm(display(f.view))}:${norm(display(f.name))}`) ??
-        emittedFormula.get(`${norm(display(f.view))}:${norm(f.name)}`) ?? null, mapping: census.mapping,
+      sigmaFormula: candidateNames(f).map(c => emittedFormula.get(`${norm(display(f.view))}:${c}`))
+        .find(x => x !== undefined) ?? null, mapping: census.mapping,
       dependencies: refs(f.sql).sort(), dependencyDepth: census.dependencyDepth ?? 0,
       unresolvedReferences: census.unresolvedReferences || [],
       warningIds: census.warningIds, warnings: census.warnings };
@@ -285,9 +327,11 @@ async function main() {
     ...fieldRows.flatMap(f => f.warnings.filter(w => w.source === "structural"))
   ]);
   const omitted = fieldRows.filter(f => f.mapping === "omitted").length;
-  const status = worst(...warningRows.map(w => w.readiness), ...structuralWarnings.map(w => w.readiness), omitted ? "blocked" : "clean");
+  const status = worst(...warningRows.map(w => w.readiness), ...structuralWarnings.map(w => w.readiness), omitted ? "blocked" : "clean",
+    accepted.size ? "caveat" : "clean");  // a waived omission is never a clean run
   const readiness = {
     schemaVersion: 1, readiness: status,
+    ...(accepted.size ? { acceptedOmissions: { reason: acceptReason, fields: [...accepted].sort() } } : {}),
     inputs: { lookmlFiles: files.map(f => f.name), explores: targets, dashboardContract: dashboard?.file || null },
     summary: { views: views.size, fields: fieldRows.length, explores: explores.size, joins: joinRows.length,
       derivedTables: derivedTables.length, exact: fieldRows.filter(f => f.mapping === "exact").length,

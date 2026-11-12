@@ -52,6 +52,15 @@ Usage (live — ~/.looker/looker.ini configured):
 Resume after the MCP converter fallback (exit 3):
   ... same command ... --converted <workdir>/converted.json
 Other flags:
+  --contract PATH --contract-reason TEXT
+                             use a pre-built/reviewed contract instead of fetching
+                             one; with --dashboard-id/--look-id the live source is
+                             still fetched and parity expects the SOURCE tiles;
+                             provenance is reported (contract-provenance.json)
+  --accept-readiness-omission VIEW.FIELD --accept-readiness-omission-reason TEXT
+                             narrow, recorded waiver for a field the readiness
+                             audit cannot match to converter output (never clears
+                             any other readiness warning)
   --reuse-dm <dataModelId>   reuse an existing DM (skip convert+POST) — the
                              Phase-3.5 check prints candidates; reuse is NEVER
                              chosen silently, only via this flag
@@ -78,6 +87,7 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import scout_gate
+import looker_contract
 import code_rep  # workbook code-rep document-wrapper adapter (nested POST shape)
 import sigma_rest
 from build_workbook import build_field_index, parse_join_aliases, disp, leaf
@@ -569,19 +579,88 @@ def expected_offline(el, ev, rows):
     return [[d, ev.measure_value(ms[0], rs)] for d, rs in groups.items()]
 
 
-def expected_live(el, measures=None, want_label=None):
+def _dynamic_fields_list(dyn):
+    if isinstance(dyn, str):
+        try:
+            dyn = json.loads(dyn)
+        except (TypeError, ValueError):
+            return []
+    return dyn if isinstance(dyn, list) else []
+
+
+def _dynamic_field_names(dyn):
+    """Names a tile's dynamic_fields define (table calcs / custom dims+measures)."""
+    names = set()
+    for d in _dynamic_fields_list(dyn):
+        if isinstance(d, dict):
+            for k in ("table_calculation", "measure", "dimension", "name"):
+                if isinstance(d.get(k), str):
+                    names.add(d[k])
+    return names
+
+
+def _live_dynamic_fields(dyn):
+    """Looker's WriteQuery takes dynamic_fields as a JSON STRING. The contract
+    carries a parsed list (fetch_looker_dashboard._dyn); contract-internal
+    `_`-prefixed hints (e.g. _kind_hint) are not Looker properties — strip them."""
+    if not dyn:
+        return None
+    if isinstance(dyn, str):
+        return dyn
+    clean = [{k: v for k, v in d.items() if not str(k).startswith("_")} if isinstance(d, dict) else d
+             for d in dyn]
+    return json.dumps(clean)
+
+
+def expected_live(el, measures=None, want_label=None, known_fields=None,
+                  dimension_groups=None, warn=None):
     """Ground truth from Looker itself: run the tile's inline query.
 
     want_label: for measure-only grids split into KPI tiles named
     "<tile> · <Measure Label>", select the field whose display matches the
-    label (and return a single [[None, value]] row)."""
+    label (and return a single [[None, value]] row).
+
+    Tile `dynamicFields` are sent as the query's `dynamic_fields` JSON string —
+    otherwise Looker silently ignores custom fields (and filters on them).
+    known_fields: optional set of "view.field" LookML names; dimension_groups
+    identifies prefixes whose timeframe fields are also valid. A filter key that
+    matches neither those nor a requested/dynamic field is reported through
+    warn(msg) (a callable; messages are also never fatal)."""
     import looker_api
     fields = el.get("fields") or []
     body = {"model": el.get("model"), "view": el.get("explore"), "fields": fields,
             "filters": el.get("filters") or {}, "limit": "5000"}
+    dyn = el.get("dynamicFields")
+    dyn_json = _live_dynamic_fields(dyn)
+    if dyn_json:
+        body["dynamic_fields"] = dyn_json
+    if warn is not None and known_fields is not None:
+        allowed = set(fields) | _dynamic_field_names(dyn)
+        for fk in body["filters"]:
+            group_frame = any(fk.startswith(f"{group}_") for group in (dimension_groups or ()))
+            if fk in allowed or fk in known_fields or group_frame:
+                continue
+            warn(f"filter on {fk!r} is neither a requested field, a known LookML field, "
+                 f"nor a dynamic field — Looker may silently ignore it")
     code, res = looker_api.call("POST", "/queries/run/json", body)
     if code != 200 or not isinstance(res, list):
         raise RuntimeError(f"Looker inline query -> {code}: {str(res)[:200]}")
+    if res and isinstance(res[0], dict):
+        missing = [f for f in fields if f not in res[0]]
+        # A dropped table calculation is reported but not fatal (same expected
+        # value selection as before); a dropped LookML or custom dimension/measure
+        # means Looker ran a different query than the tile, so refuse it.
+        tcalcs = {d.get("table_calculation") for d in _dynamic_fields_list(dyn)
+                  if isinstance(d, dict) and d.get("table_calculation")}
+        if warn is not None and any(f in tcalcs for f in missing):
+            warn(f"Looker returned no column for table calculation(s) "
+                 f"{[f for f in missing if f in tcalcs]}")
+        dropped = [f for f in missing if f not in tcalcs]
+        if dropped:
+            raise RuntimeError(
+                f"Looker dropped requested field(s) {dropped} from the result (not in the "
+                f"returned columns {sorted(res[0])}) — a custom/dynamic field Looker did not "
+                f"honor, or a field it could not resolve; the live expected is not trustworthy")
     keys = list(res[0].keys()) if res else fields
     val_key = None
     if want_label:
@@ -617,6 +696,22 @@ def main():
     ap.add_argument("--dashboard-id", help="live: Looker dashboard id (needs ~/.looker/looker.ini)")
     ap.add_argument("--look-id", help="live: Looker Look id (a single saved query → a "
                     "one-tile workbook; needs ~/.looker/looker.ini)")
+    ap.add_argument("--contract", metavar="PATH",
+                    help="use a pre-built / reviewed dashboard contract instead of fetching "
+                         "or parsing one (escape hatch: requires --contract-reason). With "
+                         "--dashboard-id/--look-id the live source is STILL fetched "
+                         "(contract.source.json) and live parity's expected side uses the "
+                         "SOURCE tiles; provenance + tile diff land in contract-provenance.json "
+                         "and the migration report. A source (--dashboard/--dashboard-id/"
+                         "--look-id) is still required.")
+    ap.add_argument("--contract-reason", metavar="TEXT",
+                    help="why a supplied --contract is needed (required with --contract)")
+    ap.add_argument("--accept-readiness-omission", metavar="VIEW.FIELD", action="append", default=[],
+                    help="narrow, recorded waiver for ONE LOOKML_EMITTED_MATCH_OMITTED field "
+                         "(repeatable / comma-separated). Never clears any other readiness "
+                         "warning. Requires --accept-readiness-omission-reason.")
+    ap.add_argument("--accept-readiness-omission-reason", metavar="TEXT",
+                    help="reason recorded for the accepted readiness omissions")
     ap.add_argument("--explore", help="explore to convert (default: the contract's most-used)")
     ap.add_argument("--name", help="name PREFIX applied to the DM and the workbook")
     ap.add_argument("--workdir")
@@ -665,6 +760,12 @@ def main():
         ap.error("--dashboard (offline .dashboard.lookml) / --dashboard-id / --look-id (live) required")
     if not a.lookml_dir and not a.project:
         ap.error("--lookml-dir (local checkout) or --project (pull via Looker API) required")
+    if a.contract and not str(a.contract_reason or "").strip():
+        ap.error("--contract requires --contract-reason \"<why a supplied contract is needed>\"")
+    if a.contract_reason and not a.contract:
+        ap.error("--contract-reason given without --contract")
+    if bool(a.accept_readiness_omission) != bool(str(a.accept_readiness_omission_reason or "").strip()):
+        ap.error("--accept-readiness-omission and --accept-readiness-omission-reason must be given together")
     offline = not a.dashboard_id and not a.look_id
     wd = os.path.abspath(os.path.expanduser(a.workdir or "./looker-migration"))
     os.makedirs(wd, exist_ok=True)
@@ -689,7 +790,28 @@ def main():
     # ── Phase 1 — Parse (the normalized dashboard contract) ──────────────────
     hdr(1, TOTAL, "Parse")
     contract_path = os.path.join(wd, "contract.json")
-    if a.look_id:
+    source_dash = None   # live source fetch alongside a supplied --contract
+    if a.contract:
+        def _fetch_source(dest):
+            if a.look_id:
+                run([sys.executable, os.path.join(HERE, "fetch_looker_look.py"), a.look_id, dest])
+            else:
+                run([sys.executable, os.path.join(HERE, "fetch_looker_dashboard.py"), a.dashboard_id, dest])
+        try:
+            contract_path, source_dash, prov = looker_contract.resolve_phase1_contract(
+                a.contract, a.contract_reason, wd,
+                None if offline else _fetch_source)
+        except ValueError as ex:
+            ap.error(str(ex))
+        print(f"   ⚠ CONTRACT SUPPLIED (not fetched): {prov['suppliedPath']} sha256={prov['sha256'][:12]}… "
+              f"reason: {prov['reason']}")
+        if prov["sourceFetched"]:
+            print(f"     vs live source: {len(prov['changedTiles'])} changed, "
+                  f"{len(prov['addedTiles'])} added, {len(prov['removedTiles'])} removed tile(s); "
+                  "parity expected values come from the SOURCE tiles.")
+        else:
+            print("     no live source fetched — no live source comparison of this contract.")
+    elif a.look_id:
         # A Look is a single saved query → the same normalized contract with one tile.
         run([sys.executable, os.path.join(HERE, "fetch_looker_look.py"),
              a.look_id, contract_path])
@@ -710,6 +832,7 @@ def main():
     view_files = sorted(glob.glob(os.path.join(views_dir, "*.view.lkml")))
     _aliases = parse_join_aliases(glob.glob(os.path.join(lookml_dir, "*.model.lkml")))
     measures, _dims, view_pk, _formats, _yesno, _dim_groups, _labels = build_field_index(view_files, _aliases)
+    known_fields = set(measures) | set(_dims)
     print(f"   '{dash['title']}': {len(dash['elements'])} tile(s), {len(dash['filters'])} filter(s), "
           f"explore '{explore}' · {len(view_files)} view file(s), {len(measures)} measure(s) · workdir {wd}")
 
@@ -732,6 +855,10 @@ def main():
         "--formula-mapping", formula_mapping_path,
         "--dashboard-contract", contract_path,
     ]
+    for _f in a.accept_readiness_omission:
+        readiness_cmd += ["--accept-omitted", _f]
+    if a.accept_readiness_omission:
+        readiness_cmd += ["--accept-omitted-reason", a.accept_readiness_omission_reason]
     readiness_explores = sorted(set([e for e in explores if e] +
                                     ([explore] if explore else [])))
     for target_explore in readiness_explores:
@@ -1467,6 +1594,9 @@ console.error('stats:', JSON.stringify(res.stats));
         sys.exit("FATAL: parity pass 1 failed")
     plan = json.load(open(os.path.join(wd, "parity-plan.json")))
     by_name = {e.get("name"): e for e in dash["elements"]}
+    # EXPECTED side: with a supplied --contract and a live source fetch, use the
+    # SOURCE tiles so the supplied contract can never grade itself.
+    exp_by_name = looker_contract.expected_tile_lookup(dash, source_dash)
     ev = SourceEval(measures, view_pk, explore, mh)
     expected, actuals = {}, {}
 
@@ -1513,15 +1643,22 @@ console.error('stats:', JSON.stringify(res.stats));
                 vi = cidx.get(want[0], 0)
                 act = [[None, sum(n for r in rows if vi < len(r)
                                   for n in [_num(r[vi])] if n is not None)]]
-            el = by_name.get(cname)
+            el = exp_by_name.get(cname)
             if el is None:
-                msgs.append(f"   WARN: no source tile named {cname!r} in the contract — will DIVERGE")
+                msgs.append(f"   WARN: no source tile named {cname!r} in the "
+                            f"{'live source fetch' if source_dash is not None else 'contract'} — will DIVERGE")
                 return cname, act, None, msgs
             exp = None
             try:
                 rowsexp = None
                 if not offline:
-                    rowsexp = expected_live(el, measures)
+                    try:
+                        rowsexp = expected_live(
+                            el, measures, known_fields=known_fields, dimension_groups=_dim_groups,
+                            warn=lambda m: msgs.append(f"   WARN: tile {cname!r}: {m}"))
+                    except Exception as ex:
+                        msgs.append(f"   WARN: Looker inline query failed for {cname!r} ({ex}); "
+                                    "falling back to warehouse re-aggregation")
                 if rowsexp is None:
                     rowsexp = expected_offline(el, ev, mr)
                 exp = [[None, sum(numify(v) for _d, v in rowsexp if v is not None)]]
@@ -1535,19 +1672,22 @@ console.error('stats:', JSON.stringify(res.stats));
             di = cidx.get(want[0], 0)
             vi = cidx.get(want[1], 1 if len(headers) > 1 else 0)
             act = [[row[di], numify(row[vi])] for row in rows]
-        el = by_name.get(cname)
+        el = exp_by_name.get(cname)
         want_label = None
         if not el and " · " in cname:
             # measure-only grid split into KPI tiles "<tile> · <Measure Label>"
             base_name, want_label = cname.rsplit(" · ", 1)
-            el = by_name.get(base_name)
+            el = exp_by_name.get(base_name)
         if not el:
-            msgs.append(f"   WARN: no source tile named {cname!r} in the contract — chart will DIVERGE")
+            msgs.append(f"   WARN: no source tile named {cname!r} in the "
+                        f"{'live source fetch' if source_dash is not None else 'contract'} — chart will DIVERGE")
             return cname, act, None, msgs
         exp = None
         if not offline:
             try:
-                exp = expected_live(el, measures, want_label)
+                exp = expected_live(el, measures, want_label, known_fields=known_fields,
+                                   dimension_groups=_dim_groups,
+                                   warn=lambda m: msgs.append(f"   WARN: tile {cname!r}: {m}"))
             except Exception as ex:
                 msgs.append(f"   WARN: Looker inline query failed for {cname!r} ({ex}); "
                             "falling back to warehouse re-aggregation")
@@ -1655,6 +1795,11 @@ console.error('stats:', JSON.stringify(res.stats));
          "--inventory", os.path.join(wd, "source-object-census.json")],
         check=False,
     )
+    # Surface a supplied contract / accepted readiness omissions in the report
+    # (the vendored builder does not know about them; the verdict is untouched).
+    annexes = looker_contract.annotate_report(wd)
+    if annexes:
+        print(f"   report annex: {', '.join(annexes)} → migration-result.json + MIGRATION_REPORT.md")
     report = {}
     try:
         report = json.load(open(os.path.join(wd, "migration-result.json")))

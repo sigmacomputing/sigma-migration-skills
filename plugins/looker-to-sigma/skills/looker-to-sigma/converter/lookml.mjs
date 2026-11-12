@@ -820,7 +820,7 @@ function lookConvertExpression(expr) {
   return _unmaskCountDistinct(_unmaskLiterals(expr, lits), cd.args).trim();
 }
 function lookSqlToSigmaRules(sql) {
-  let expr = sql.replace(/\$\{TABLE\}\./gi, "").replace(/\$\{[^.}]+\.([^}]+)\}/g, (_, f) => f.toUpperCase()).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => n.toUpperCase()).replace(/[\r\n]+\s*/g, " ").trim();
+  let expr = sql.replace(/\$\{TABLE\}\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b/gi, (_, c) => c.toUpperCase()).replace(/\$\{TABLE\}\./gi, "").replace(/\$\{[^.}]+\.([^}]+)\}/g, (_, f) => f.toUpperCase()).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => n.toUpperCase()).replace(/[\r\n]+\s*/g, " ").trim();
   expr = stripOuterParens(expr);
   {
     const m = expr.match(/^([A-Z_][A-Z0-9_]*)\s*=\s*(\d+)$/i);
@@ -1755,9 +1755,10 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
         return;
       const lname = yd._name.toLowerCase();
       if ((yd.type || "").toLowerCase() === "yesno" && yd.sql) {
-        const expr = yd.sql.replace(/\$\{TABLE\}\s*\.\s*/gi, "").replace(/\$\{[^.}]+\.([^}]+)\}/g, (_, f) => f.toUpperCase()).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => n.toUpperCase()).trim();
-        yesnoExprMap.set(lname, expr);
+        yesnoExprMap.set(lname, yd.sql.trim());
       } else {
+        if (/^\s*\$\{[A-Za-z_][A-Za-z0-9_]*\}\s*$/.test(yd.sql || ""))
+          return;
         let displayName;
         if (yd.sql && !lookIsComplexSql(yd.sql)) {
           const stripped = lookStripSql(yd.sql) || yd._name;
@@ -1772,6 +1773,12 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
     });
   }
   const physColDisplays = /* @__PURE__ */ new Set();
+  const customSqlPhysByDisplay = /* @__PURE__ */ new Map();
+  const notePhysCol = (c) => {
+    physColDisplays.add(colLabel(c));
+    if (isCustomSql)
+      customSqlPhysByDisplay.set(sigmaDisplayName(c), c);
+  };
   {
     const allDims = view.dimension ? Array.isArray(view.dimension) ? view.dimension : [view.dimension] : [];
     const allGroups = view.dimension_group ? Array.isArray(view.dimension_group) ? view.dimension_group : [view.dimension_group] : [];
@@ -1779,13 +1786,13 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
       const re = /\$\{TABLE\}\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)/gi;
       let m;
       while ((m = re.exec(sql || "")) !== null)
-        physColDisplays.add(colLabel(m[1].toUpperCase()));
+        notePhysCol(m[1].toUpperCase());
     };
     allDims.forEach((d) => {
       scan(d.sql);
       if (d.case)
         JSON.stringify(d.case).replace(/\$\{TABLE\}\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)/gi, (_, c) => {
-          physColDisplays.add(colLabel(c.toUpperCase()));
+          notePhysCol(c.toUpperCase());
           return "";
         });
     });
@@ -1796,16 +1803,16 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
     });
   }
   function qualifyPhysRefs(formula) {
-    return formula.replace(/\[([^\]\/]+)\]/g, (m, disp) => physColDisplays.has(disp) ? `[${tableName}/${disp}]` : m);
+    return formula.replace(/\[([^\]\/]+)\]/g, (m, disp) => physColDisplays.has(disp) ? `[${tableName}/${disp}]` : customSqlPhysByDisplay.has(disp) ? `[${tableName}/${customSqlPhysByDisplay.get(disp)}]` : m);
   }
-  function expandFieldRefs(sql) {
+  function expandFieldRefs(sql, seen = /* @__PURE__ */ new Set()) {
     if (!yesnoExprMap.size && !fieldDisplayMap.size)
       return sql;
     return sql.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (match, n) => {
       const lname = n.toLowerCase();
       const yesnoExpr = yesnoExprMap.get(lname);
-      if (yesnoExpr !== void 0)
-        return `(${yesnoExpr})`;
+      if (yesnoExpr !== void 0 && !seen.has(lname))
+        return `(${expandFieldRefs(yesnoExpr, /* @__PURE__ */ new Set([...seen, lname]))})`;
       const displayName = fieldDisplayMap.get(lname);
       if (displayName !== void 0)
         return `[${displayName}]`;
@@ -1883,8 +1890,12 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
       }
     }
     if (/\$\{[^.}]+\}/.test(d.sql || "") && !/\$\{TABLE\}/i.test(d.sql || "")) {
-      warnings.push(`\u26A0 "${d._name}": uses LookML parameter substitution \u2014 skipped. Add this dimension manually after configuring parameters in Sigma.`);
-      continue;
+      const lname = d._name.toLowerCase();
+      const unresolved = [...(d.sql || "").matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1].toLowerCase()).filter((n) => n === lname || !yesnoExprMap.has(n) && !fieldDisplayMap.has(n));
+      if (unresolved.length || !lookIsComplexSql(d.sql)) {
+        warnings.push(`\u26A0 "${d._name}": uses LookML parameter substitution \u2014 skipped. Add this dimension manually after configuring parameters in Sigma.`);
+        continue;
+      }
     }
     if (lookIsComplexSql(d.sql)) {
       const cleanedSql = (d.sql || "").replace(/\$\{TABLE\}\./gi, "").replace(/\$\{[^.}]+\.([^}]+)\}/g, "$1").trim();
@@ -1913,7 +1924,6 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
         continue;
       }
       const colId2 = sigmaShortId();
-      colIdMap[colName] = colId2;
       const expandedSql = expandFieldRefs(d.sql || "");
       let sigmaFormula = lookSqlToSigmaRules(expandedSql);
       if (!sigmaFormula) {
@@ -1923,11 +1933,15 @@ function lookConvertView(viewName, view, connectionId, warnings, sqlTableNameMap
         }
       }
       if (sigmaFormula) {
+        colIdMap[colName] = colId2;
         sigmaFormula = qualifyPhysRefs(sigmaFormula);
         element.columns.push({ id: colId2, formula: sigmaFormula, name: d.label || sigmaDisplayName(d._name), ...dFormat ? { format: dFormat } : {} });
         element.order.push(colId2);
         warnings.push(`\u2139 "${d._name}" \u2192 calculated column: ${sigmaFormula}`);
+      } else if (/\$\{[A-Za-z_][A-Za-z0-9_]*\}/.test(d.sql || "")) {
+        warnings.push(`\u26A0 "${d._name}": could not auto-convert field-reference calculation \u2014 skipped. Add this dimension manually in Sigma.`);
       } else {
+        colIdMap[colName] = colId2;
         element.columns.push({ id: colId2, formula: `[${tableName}/${sigmaDisplayName(colName)}]`, name: d.label || sigmaDisplayName(d._name), ...dFormat ? { format: dFormat } : {} });
         element.order.push(colId2);
         warnings.push(`\u26A0 "${d._name}": could not auto-convert. Edit formula manually.`);

@@ -108,6 +108,35 @@ exit 1 means blocked, and exit 2 means the audit itself failed. A blocked audit
 is a hard pre-POST stop. Use `refs/open-items.md` for the durable gap/evidence
 status; keep run-specific findings in the workdir.
 
+The audit matches a LookML field to converter output by every name the
+converter may use: the field name, its `label:` (measures are named after their
+label) and, for a simple `${TABLE}.<col>` dimension, the PHYSICAL column (the
+converter names warehouse columns after the column, not the LookML field).
+Converter-blocked warnings, cycles and unresolved refs are never loosened.
+
+**Narrow waiver for a genuinely unmatchable field** (`LOOKML_EMITTED_MATCH_OMITTED`
+only): `--accept-omitted <view.field>` (repeatable / comma-separated) with a
+required `--accept-omitted-reason "<text>"`; through the orchestrator,
+`--accept-readiness-omission VIEW.FIELD` and
+`--accept-readiness-omission-reason TEXT`. Each listed field becomes
+`approximate` (`accepted-omission`); it never clears any other warning, and an
+unknown or not-actually-omitted field is an error (exit 2). The reason and field
+list are recorded in `lookml-readiness.json` (`acceptedOmissions`),
+`migration-result.json` (`accepted_readiness_omissions`) and the MIGRATION_REPORT.
+
+**Supplied contract (escape hatch).** `migrate-looker.py --contract PATH
+--contract-reason "<why>"` installs a pre-built/reviewed contract as
+`contract.json` instead of fetching/parsing one (a `--dashboard`,
+`--dashboard-id` or `--look-id` source is still required). With a live source id
+the normal fetch STILL runs into `contract.source.json`, and live parity's
+EXPECTED side reads the SOURCE tile by name — a rewritten contract cannot grade
+itself; a supplied tile with no same-named source tile has no live expected and
+DIVERGEs. `contract-provenance.json` records the supplied path, sha256 and a
+tile-level diff (changed/added/removed; explore, fields, filters, dynamicFields,
+pivots, sorts) and appears in `migration-result.json` and a "Contract supplied,
+not fetched" section of the MIGRATION_REPORT. Offline (`--dashboard`) there is
+no source fetch (`sourceFetched: false`) and the report says so.
+
 The field/formula censuses do not replace final object accounting. Maintain
 `<workdir>/source-object-census.json` for every in-scope model, explore, view,
 dashboard/Look, tile, filter, and field/formula finding. Each must end as
@@ -953,6 +982,13 @@ ruby scripts/verify-anchors.rb      --workdir /tmp/<name> --workbook-id <wb>    
 python3 scripts/visual-similarity.py --source /tmp/<name>/dashboards/looker-<dash>.png --render /tmp/<name>/sigma-<dash>.png --json-out /tmp/<name>/visual-similarity.json  # gate 14
 ruby scripts/assert-phase6-ran.rb   --workdir /tmp/<name> --workbook-id <wb>    # must exit 0
 ```
+
+Live parity's Looker query sends each tile's `dynamicFields` as the inline
+query's `dynamic_fields` JSON string (Looker otherwise silently ignores custom
+fields and filters on them), raises if Looker drops a requested field from the
+result (the caller WARNs and falls back to warehouse re-aggregation), and warns
+about a tile filter on a field that is neither requested, a known LookML field,
+nor a dynamic field.
 
 The finalize pass writes the **`parity-final.json` sentinel**; `assert-phase6-ran.rb`
 (hard gate, vendored byte-identical across the 5 plugins) refuses GREEN unless

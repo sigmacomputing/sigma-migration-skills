@@ -855,6 +855,8 @@ jobs:
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_build_looker_accounting.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_post_workbook_coderep.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_resolved_base_url.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_live_expected.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_contract.py
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_grounding.py
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_completion_contract.py
             shared/lib/test_metric_binding.py
@@ -973,6 +975,9 @@ jobs:
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-compose-print-layout.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-report-spec.mjs
             plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-report-data-model.mjs
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-audit-lookml-readiness.mjs
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-audit-lookml-readiness-names.mjs
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test-lookml-calc-refs.mjs
             shared/lib/tests/test_code_rep.mjs
             shared/examples/node-orchestration-template/lib/test-auth.mjs
           )

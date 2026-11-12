@@ -86,6 +86,18 @@ Notes:
 - `lookmlLinkId` set ⇒ dashboard is LookML-linked but may have UI edits; the API returns the
   edited (live) state — prefer it.
 
+## Supplied contracts (`--contract`)
+
+`migrate-looker.py --contract PATH --contract-reason TEXT` replaces the Phase-1
+fetch/parse with a pre-built contract (same shape as above). It is an escape
+hatch, so it stays gate-preserving: with `--dashboard-id`/`--look-id` the live
+source is still fetched to `contract.source.json` and live parity's expected
+values come from the SOURCE tile of the same name (never the supplied tile);
+`contract-provenance.json` = `{suppliedPath, sha256, reason, sourceFetched,
+changedTiles, addedTiles, removedTiles}` (tile diff over explore, fields,
+filters, dynamicFields, pivots, sorts). Live parity forwards a tile's
+`dynamicFields` to Looker as the `dynamic_fields` JSON string.
+
 ## Tile types in the thelook fixture (business_pulse.dashboard.lookml)
 
 Observed: `single_value` ×2, `looker_column`, `looker_area`, `looker_donut_multiples`,
