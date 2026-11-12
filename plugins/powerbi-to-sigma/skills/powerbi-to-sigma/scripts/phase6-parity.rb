@@ -54,7 +54,6 @@ else
   abort('--workbook-id required for pass 1') unless opts[:wb]
 end
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
@@ -62,8 +61,12 @@ require 'code_rep'
 # Sigma.request handles initial token fetch + 401-retry-with-refresh
 # transparently. Phase 6 is the longest pass in the pipeline; tokens
 # routinely expire mid-run on big workbooks.
+# The host comes from the shared client (SIGMA_BASE_URL, else a signed-in Sigma
+# CLI profile); --finalize makes no Sigma call, so nothing resolves it up front.
 def http_json(path)
   Sigma.request(:get, path)
+rescue Sigma::Error => e
+  abort "phase6-parity: #{e.message}"
 end
 
 plan_path = File.join(opts[:tab], 'parity-plan.json')

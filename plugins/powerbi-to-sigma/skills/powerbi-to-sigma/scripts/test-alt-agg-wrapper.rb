@@ -92,6 +92,67 @@ bad = src.scan(/base\.merge\('ref'\s*=>/).size
 check(bad.zero?,
       "no synthesis site still hand-rolls base.merge('ref' => …) (found #{bad})", fails)
 
+puts "\n7. G28: a field whose OWN name has a parenthetical keeps it when aliased to the View column"
+# "DimDate.Date (Fiscal Month)" is a Power BI field literally named "Date (Fiscal Month)". The joined
+# View exposes dim columns as "<Leaf> (<ENTITY>)"; stripping the field's own "(Month)"
+# aliased it to "Date (DimDate)" (the plain Date column) so "monthly" charts plotted daily.
+VMASTERS = {
+  'Sales View' => { 'id' => 'master-view',
+                    'columns' => [{ 'id' => 'v1', 'name' => 'Amount' },
+                                  { 'id' => 'v2', 'name' => 'Date (DimDate)' },
+                                  { 'id' => 'v3', 'name' => 'Date (Fiscal Month) (DimDate)' },
+                                  { 'id' => 'v4', 'name' => 'Region (Region)' }] },
+  'DimDate' => { 'id' => 'master-dd', 'columns' => [{ 'id' => 'd1', 'name' => 'Date' }, { 'id' => 'd2', 'name' => 'Date (Fiscal Month)' }] }
+}.freeze
+fm = {
+  'DimDate.Date (Fiscal Month)' => { 'master' => 'DimDate', 'ref' => '[master-dd/Date (Fiscal Month)]', 'agg' => nil,
+                              'alts' => [{ 'master' => 'Sales View', 'ref' => '[master-view/Date (DimDate)]', 'agg' => nil }] },
+  'DimDate.Date'         => { 'master' => 'DimDate', 'ref' => '[master-dd/Date]', 'agg' => nil,
+                              'alts' => [{ 'master' => 'Sales View', 'ref' => '[master-view/Date (DimDate)]', 'agg' => nil }] }
+}
+res = PbiFieldAlts.repair_view_alts!(fm, VMASTERS)
+check(fm['DimDate.Date (Fiscal Month)']['alts'][0]['ref'] == '[master-view/Date (Fiscal Month) (DimDate)]',
+      "Date (Fiscal Month) aliases to the View column 'Date (Fiscal Month) (DimDate)' (got #{fm['DimDate.Date (Fiscal Month)']['alts'][0]['ref'].inspect})", fails)
+check(fm['DimDate.Date']['alts'][0]['ref'] == '[master-view/Date (DimDate)]',
+      'a plain field (no own parenthetical) keeps its Date (DimDate) alias', fails)
+check(res['fixed'] == 1 && res['dropped'].empty?, "repair reports 1 fixed / 0 dropped (got #{res.inspect})", fails)
+
+# the exact column does not exist on the View: the wrong alias is REMOVED and reported, never kept
+fm2 = { 'DimDate.Date (Fiscal Week)' => { 'master' => 'DimDate', 'ref' => '[master-dd/Date (Fiscal Week)]', 'agg' => nil,
+                                   'alts' => [{ 'master' => 'Sales View', 'ref' => '[master-view/Date (DimDate)]', 'agg' => nil }] } }
+res2 = PbiFieldAlts.repair_view_alts!(fm2, VMASTERS)
+check(fm2['DimDate.Date (Fiscal Week)']['alts'].empty?, 'an alias that cannot be made exact is dropped (no silent daily-grain fallback)', fails)
+check(res2['dropped'].size == 1 && res2['dropped'][0]['field'] == 'DimDate.Date (Fiscal Week)' &&
+      res2['dropped'][0]['wanted'] == 'Date (Fiscal Week) (DimDate)', "the drop is reported (got #{res2['dropped'].inspect})", fails)
+
+# a leaf that merely carries the ENTITY disambiguation suffix is not "own parenthetical"
+fm3 = { 'DimDate.Date (DimDate)' => { 'master' => 'DimDate', 'ref' => '[master-dd/Date]', 'agg' => nil,
+                                      'alts' => [{ 'master' => 'Sales View', 'ref' => '[master-view/Date (DimDate)]', 'agg' => nil }] } }
+res3 = PbiFieldAlts.repair_view_alts!(fm3, VMASTERS)
+check(res3['fixed'].zero? && res3['dropped'].empty? && fm3['DimDate.Date (DimDate)']['alts'].size == 1,
+      'an entity-disambiguated leaf ("Date (DimDate)") is left alone', fails)
+# aggregate/formula alts are never touched
+fm4 = { 'DimDate.Date (Fiscal Month)' => { 'master' => 'DimDate', 'ref' => '[master-dd/Date (Fiscal Month)]', 'agg' => nil,
+                                    'alts' => [{ 'master' => 'Sales View', 'ref' => 'Sum([master-view/Amount])', 'agg' => nil }] } }
+res4 = PbiFieldAlts.repair_view_alts!(fm4, VMASTERS)
+check(res4['fixed'].zero? && fm4['DimDate.Date (Fiscal Month)']['alts'].size == 1, 'non plain-column alts are not rewritten', fails)
+# fact-owned fields: View exposes the bare leaf
+fm5 = { 'Sales.Amount (USD)' => { 'master' => 'Sales', 'ref' => '[master-s/Amount (USD)]', 'agg' => nil,
+                                  'alts' => [{ 'master' => 'Sales View', 'ref' => '[master-view/Amount]', 'agg' => nil }] } }
+vm5 = { 'Sales View' => { 'id' => 'master-view', 'columns' => [{ 'id' => 'v1', 'name' => 'Amount' }, { 'id' => 'v9', 'name' => 'Amount (USD)' }] } }
+res5 = PbiFieldAlts.repair_view_alts!(fm5, vm5)
+check(fm5['Sales.Amount (USD)']['alts'][0]['ref'] == '[master-view/Amount (USD)]' && res5['fixed'] == 1,
+      'a fact field keeps its own parenthetical against the bare-leaf View column', fails)
+# idempotent
+res6 = PbiFieldAlts.repair_view_alts!(fm, VMASTERS)
+check(res6['fixed'].zero? && res6['dropped'].empty?, 'repair is idempotent', fails)
+
+puts "\n8. view_lookup_leaf strips ONLY an entity-disambiguation suffix"
+check(PbiFieldAlts.view_lookup_leaf('DimDate.Date (Fiscal Month)', %w[DimDate]) == 'Date (Fiscal Month)', 'own parenthetical kept', fails)
+check(PbiFieldAlts.view_lookup_leaf('DimDate.Date (DimDate)', %w[DimDate]) == 'Date', 'entity suffix stripped', fails)
+check(PbiFieldAlts.view_lookup_leaf('DimDate.Date (dimdate)', %w[DIM_DATE DimDate]) == 'Date', 'case-insensitive entity match', fails)
+check(PbiFieldAlts.view_lookup_leaf('T.Plain', %w[T]) == 'Plain', 'no parenthetical -> leaf', fails)
+
 puts "\n#{fails.empty? ? 'ALL PASS' : "#{fails.size} FAILURE(S)"}"
 fails.each { |f| puts "  - #{f}" }
 exit(fails.empty? ? 0 : 1)

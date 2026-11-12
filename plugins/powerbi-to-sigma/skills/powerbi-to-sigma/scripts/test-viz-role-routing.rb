@@ -306,6 +306,40 @@ check(fallback_cov && fallback_cov['severity'] == 'approximated' &&
       Array(cov6['unresolved']).none? { |u| u['visual'] == 'Group Magnitude' && u['detail'].to_s.include?('no measure') },
       'coverage records only the honest map→bar approximation, not a missing-measure defect', fails)
 
+# =============================================================================
+# Scenario 7 (bead n9u9): a combo chart honors the per-visual data-label signal
+# like the bar/line branch: true -> dataLabel shown; false / nil -> omitted.
+# =============================================================================
+combo_mmap = {
+  'masters' => { 'S' => { 'id' => 'master-s', 'element_id' => 'el-s', 'data_model' => 'dm-1',
+                          'columns' => [{ 'id' => 'mc-reg', 'name' => 'Region', 'formula' => '[S/Region]' },
+                                        { 'id' => 'mc-amt', 'name' => 'Amount', 'formula' => '[S/Amount]' },
+                                        { 'id' => 'mc-mar', 'name' => 'Margin', 'formula' => '[S/Margin]' }] } },
+  'fields' => { 'S.Region' => { 'master' => 'S', 'ref' => '[master-s/Region]', 'agg' => nil },
+                'S.Amount' => { 'master' => 'S', 'ref' => '[master-s/Amount]', 'agg' => 'Sum' },
+                'S.Margin' => { 'master' => 'S', 'ref' => '[master-s/Margin]', 'agg' => 'Sum' } }
+}
+combo_visual = lambda do |id, title, labels|
+  { 'visual_id' => id, 'visual_type' => 'lineClusteredColumnComboChart', 'title' => title,
+    'sigma_kind' => 'combo', 'role_class' => 'chart', 'sigma_target' => 'combo',
+    'viz_guidance' => nil, 'viz_catalog' => 'viz-kind', 'approximate' => false,
+    'orientation' => nil, 'x' => 0, 'y' => 0, 'w' => 400, 'h' => 300, 'z' => 0, 'parent_group' => nil,
+    'bindings' => { 'Category' => ['S.Region'], 'Y' => ['S.Amount'], 'Y2' => ['S.Margin'] },
+    'sort' => nil, 'stacking' => nil, 'formats' => {}, 'data_labels' => labels, 'legend' => nil }
+end
+combo_signals = { 'source' => 'powerbi', 'pages' => [{ 'page_id' => 'p0', 'page_title' => 'Combo', 'page_w' => 1280, 'page_h' => 720,
+  'interactions' => [], 'visuals' => [combo_visual.call('cv-on', 'Combo On', true), combo_visual.call('cv-off', 'Combo Off', false),
+                                      combo_visual.call('cv-nil', 'Combo Nil', nil)] }] }
+out7, = run_builder(sig: combo_signals, mmap: combo_mmap)
+els7 = out7.dig('document', 'elements')
+combos7 = els7.select { |e| e['kind'] == 'combo-chart' } # builder order = visual order: on, off, nil
+check(combos7.length == 3, 'three combo charts are built', fails)
+c_on, c_off, c_nil = combos7
+check(c_on && c_on['dataLabel'] == { 'labels' => 'shown' },
+      'combo data_labels:true emits dataLabel {labels: shown}', fails)
+check(c_off && c_nil && !c_off.key?('dataLabel') && !c_nil.key?('dataLabel'),
+      'combo data_labels false / nil emits no dataLabel', fails)
+
 puts
 puts(fails.empty? ? 'ALL PASS' : "#{fails.size} FAILURE(S)")
 fails.each { |f| puts "  - #{f}" }

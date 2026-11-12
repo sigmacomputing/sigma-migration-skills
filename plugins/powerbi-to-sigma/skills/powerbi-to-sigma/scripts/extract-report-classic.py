@@ -97,7 +97,8 @@ def _map_role(role, visual_type):
 
 
 # Aggregation.Function enum -> modern queryRef wrapper (Sum(Table.Col)).
-_AGG_FN = {0: "Sum", 1: "Avg", 2: "Min", 3: "Max", 4: "Count"}
+_AGG_FN = {0: "Sum", 1: "Avg", 2: "Count", 3: "Min", 4: "Max", 5: "CountNonNull",
+           6: "Median", 7: "StandardDeviation", 8: "Variance"}  # QueryAggregateFunction
 
 
 def _select_alias_map(sv):
@@ -135,6 +136,94 @@ def _select_alias_map(sv):
     return out
 
 
+_DATE_LEVEL_RE = re.compile(
+    r"((?:^|\.)date\.variation\.|(?:^|\.)date hierarchy(?:\.|$)|(?:^|\.)(?:year|quarter|month|week|day|date)$)", re.I)
+# User calendar hierarchies ("Calendar.Fiscal.Fiscal Month", "Time.Time Hierarchy.Yr",
+# "Orders.ORDER_YEAR"). Every identifier (table, hierarchy, leaf) is split into lowercase
+# WORDS (spaces, underscores, hyphens, dots, camelCase and digit boundaries), then matched as
+# whole words, so ORDER_YEAR / OrderYear count but 'Candidates' / 'Status Updates' do not.
+#  - a leaf is a date grain when one of its words is a grain word, unless it is clearly a
+#    measure-like bucket ("Days Overdue Bucket", "Aging Band", "Months Since Signup");
+#  - a table/hierarchy is date-scoped by the words date / calendar. Neither 'time' (a
+#    timesheet's Client > Project > Task) nor 'fiscal' (a 'Fiscal Actuals' account tree) is
+#    scope; 'fiscal' and 'period' count only as LEAF grain words (FISCAL_YEAR, FISCAL_PERIOD).
+#  - under a date-scoped table/hierarchy a leaf may also be a compact grain (Y, Q, M, D,
+#    FQ, FM); outside that scope a one-letter leaf is not a grain;
+#  - the auto-date markers are anchored (a 'Date.Variation.' segment pair, a whole 'Date
+#    Hierarchy' segment), so 'Candidate Hierarchy', a 'Product Variations' table or a
+#    'Product.Variation.Color' hierarchy is not a date hierarchy.
+# A role is a date hierarchy only with at least two levels that each carry a grain word, and
+# at least two DISTINCT grain words between them (_is_date_hierarchy): Year + Month is a
+# drill, while Order Date + Ship Date (one grain, 'date') or Fiscal Year + Holiday (Holiday
+# has no grain) are independent columns and stay bound.
+_DATE_GRAIN_WORDS = frozenset((
+    "year", "years", "yr", "fy", "quarter", "qtr", "month", "months", "mth", "mo",
+    "week", "wk", "day", "days", "date", "period", "periods", "fiscal"))
+_DATE_SCOPED_GRAIN_WORDS = frozenset(("y", "q", "m", "d", "fq", "fm"))
+_DATE_BUCKET_WORDS = frozenset((
+    "overdue", "since", "bucket", "buckets", "band", "bands", "aging", "ageing", "age", "ages"))
+_DATE_SCOPE_WORDS = frozenset(("date", "calendar"))
+
+
+def _words(name):
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])",
+               " ", str(name))
+    return [w for w in re.split(r"[^A-Za-z0-9]+", s.lower()) if w]
+
+
+def _date_grains(ref):
+    parts = str(ref).split(".")
+    leaf = set(_words(parts[-1]))
+    if leaf & _DATE_BUCKET_WORDS:
+        return set()
+    grains = leaf & _DATE_GRAIN_WORDS
+    if any(set(_words(p)) & _DATE_SCOPE_WORDS for p in parts[:-1]):
+        grains |= leaf & _DATE_SCOPED_GRAIN_WORDS
+    return grains
+
+
+def _is_date_ref(ref):
+    ref = str(ref)
+    if _DATE_LEVEL_RE.search(ref):
+        return True
+    parts = ref.split(".")
+    if _date_grains(ref):
+        return True
+    return any(set(_words(p)) & _DATE_SCOPE_WORDS for p in parts[:-1])
+
+
+def _is_date_hierarchy(items, aliases=None):
+    aliases = aliases or {}
+    raw = [aliases.get(it["queryRef"], it["queryRef"])
+           for it in items if isinstance(it, dict) and it.get("queryRef")]
+    date_refs = [r for r in raw if _is_date_ref(r)]
+    grain_sets = [g for g in (_date_grains(r) for r in date_refs) if g]
+    grains = set().union(*grain_sets)
+    # Distinct grains distinguish Year/Month drills from independent date columns.
+    return len(grain_sets) >= 2 and len(grains) >= 2
+
+
+def _matrix_levels(sv, vt):
+    """{Role: {levels, active, date}} for a matrix's multi-level Rows/Columns roles
+    (same shape as extract-pbir.py); None when nothing is multi-level."""
+    if vt not in ("pivotTable", "matrix"):
+        return None
+    smap = _select_alias_map(sv)
+    act = sv.get("activeProjections", {}) or {}
+    out = {}
+    for role in ("Rows", "Columns"):
+        items = (sv.get("projections", {}) or {}).get(role) or []
+        levels = [smap.get(it["queryRef"], it["queryRef"]) for it in items
+                  if isinstance(it, dict) and it.get("queryRef")]
+        if len(levels) < 2:
+            continue
+        active = [smap.get(it["queryRef"], it["queryRef"]) for it in (act.get(role) or [])
+                  if isinstance(it, dict) and it.get("queryRef")]
+        out[role] = {"levels": levels, "active": active,
+                     "date": _is_date_hierarchy(items, smap)}
+    return out or None
+
+
 def _projections(sv, vt=None):
     # bead hjke(c): classic configs record the drilled-to hierarchy level in
     # singleVisual.activeProjections — prefer it over the full level list so a
@@ -148,7 +237,11 @@ def _projections(sv, vt=None):
                  if isinstance(it, dict) and it.get("queryRef")]
         refs = [smap.get(it["queryRef"], it["queryRef"]) for it in items
                 if isinstance(it, dict) and it.get("queryRef")]
-        if arefs and arefs != refs:
+        if (vt in ("pivotTable", "matrix") and role in ("Rows", "Columns")
+                and arefs and arefs != refs and not _is_date_hierarchy(items, smap)):
+            print(f"[classic] matrix: role {role} keeps all {len(refs)} level(s) "
+                  f"({len(arefs)} active); Power BI opens it collapsed", file=sys.stderr)
+        elif arefs and arefs != refs:
             print(f"[classic] drill: role {role} -> active projection {arefs} "
                   f"(of {len(refs)} level(s))", file=sys.stderr)
             refs = arefs
@@ -247,6 +340,16 @@ def _textbox_body(sv):
     return None
 
 
+def _is_hidden(vc, cfg, sv):
+    """G30: a classic visual is hidden when its container is flagged `hidden` or
+    its single visual's display.mode is "hidden" (what Power BI writes for the
+    Selection-pane eye)."""
+    if vc.get("hidden") is True:
+        return True
+    disp = sv.get("display")
+    return isinstance(disp, dict) and disp.get("mode") == "hidden"
+
+
 def extract(report):
     out_pages = []
     for s in report.get("sections", []):
@@ -281,6 +384,8 @@ def extract(report):
                     "sigma_target": None, "viz_guidance": None,
                     "viz_catalog": "viz-kind", "approximate": False,
                 }
+                if _is_hidden(vc, cfg, sv):
+                    rec["hidden"] = True
                 visuals.append((cfg.get("name"), rec))
                 continue
             # position: prefer vc top-level x/y/w/h, fall back to config layouts
@@ -316,6 +421,7 @@ def extract(report):
                 # Preserve the full hierarchy separately from the active-level
                 # binding so the workbook builder can emit controlType:drill.
                 "drill": _drill_signal(sv, vt),
+                "matrix_levels": _matrix_levels(sv, vt),
                 # bead f972: visual sort ({queryRef, direction asc|desc}) or None
                 "sort": _sort_signal(sv),
                 "stacking": _stacking(vt) if vkind["builder_kind"] in ("bar", "area") else None,
@@ -327,6 +433,10 @@ def extract(report):
             }
             if rec["sigma_kind"] == "text":
                 rec["text"] = _textbox_body(sv)
+            # emitted ONLY when true: signals for a report with no hidden
+            # visuals stay byte-identical.
+            if _is_hidden(vc, cfg, sv):
+                rec["hidden"] = True
             visuals.append((cfg.get("name"), rec))
         visuals.sort(key=lambda nr: (nr[1]["y"], nr[1]["x"]))
         # Visual-interaction overrides ("edit interactions"): the classic
@@ -441,6 +551,9 @@ def main():
     src.add_argument("--pbix", help="local .pbix file with classic Report/Layout or Report/definition PBIR")
     src.add_argument("--report-layout", help="an already-extracted Report/Layout file (UTF-16LE/utf-8)")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--dump-layout", metavar="PATH",
+                    help="also write the decoded report definition JSON text to PATH "
+                         "(classic Layout, or {part: text} for a PBIR .pbix) for model scoping")
     a = ap.parse_args()
     if a.pbix:
         with zipfile.ZipFile(a.pbix) as archive:
@@ -451,6 +564,7 @@ def main():
                 # synced slicers and hierarchy metadata through classic JSON.
                 with tempfile.TemporaryDirectory(prefix="pbi-report-") as directory:
                     seen = set()
+                    dump_parts = {}
                     for info, name in members:
                         if not name.startswith("Report/definition/") or info.is_dir():
                             continue
@@ -463,6 +577,7 @@ def main():
                         target = Path(directory).joinpath(*relative.parts)
                         target.parent.mkdir(parents=True, exist_ok=True)
                         target.write_bytes(archive.read(info))
+                        dump_parts[relative.as_posix()] = target.read_text(encoding="utf-8", errors="replace")
                     page_index = Path(directory, 'definition', 'pages', 'pages.json')
                     for page_name in json.loads(page_index.read_text()).get('pageOrder', []):
                         if not isinstance(page_name, str) or page_name in ('', '.', '..') or any(c in page_name for c in '/\\:'):
@@ -474,6 +589,9 @@ def main():
                     signals = parser.extract(directory)
                 signals.pop("pbir_dir", None)  # temporary extraction path no longer exists
                 signals["source"] = "pbix-pbir"
+                if a.dump_layout:
+                    with open(a.dump_layout, "w", encoding="utf-8") as dump:
+                        json.dump(dump_parts, dump)
                 with open(a.out, "w") as output:
                     json.dump(signals, output, indent=2)
                 nvis = sum(len(p["visuals"]) for p in signals["pages"])
@@ -481,6 +599,9 @@ def main():
                 return
     report = load_report(report_json=a.report_json, pbix=a.pbix, report_layout=a.report_layout)
     signals = extract(report)
+    if a.dump_layout:
+        with open(a.dump_layout, "w", encoding="utf-8") as dump:
+            json.dump(report, dump)
     json.dump(signals, open(a.out, "w"), indent=2)
     nvis = sum(len(p["visuals"]) for p in signals["pages"])
     print(f"[classic] {len(signals['pages'])} page(s), {nvis} visual(s) -> {a.out}", file=sys.stderr)

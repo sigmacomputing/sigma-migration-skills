@@ -28,7 +28,7 @@ mig = File.read(File.join(__dir__, 'migrate-powerbi.rb'))
 
 check(mig.include?("require_relative 'lib/code_rep'"),
       'migrate-powerbi.rb requires lib/code_rep', fails)
-check(mig.match?(/has_creds = begin\s+!ENV\['SIGMA_BASE_URL'\].*Sigma\.auth_token/m) &&
+check(mig.match?(/has_creds = begin\s+!Sigma\.base_url.*Sigma\.auth_token/m) &&
       !mig.match?(/has_creds\s*=.*ENV\['SIGMA_API_TOKEN'\]/),
       'Phase 6b accepts browser/client auth resolved by sigma_rest, not only a static bearer',
       fails)
