@@ -34,6 +34,7 @@
 
 require 'json'
 require 'digest'
+require 'date'
 require_relative 'twb_xml'
 require_relative 'join_plan'
 
@@ -451,7 +452,9 @@ module GroundTruthSql
   def build_from_relationships(ds, meta)
     objects = ds['objects']
     rels = ds['relationships'] || []
-    return { 'error' => 'relationship model with no relationship edges parseable', 'anchor_only' => true } if rels.empty?
+    if rels.empty? && objects.size != 1
+      return { 'error' => 'relationship model with no relationship edges parseable', 'anchor_only' => true }
+    end
     nonuniq = rels.reject { |r| r['second_unique'] }
     unless nonuniq.empty?
       return { 'error' => "relationship (object-graph) model: #{nonuniq.size} related table(s) not " \
@@ -495,7 +498,7 @@ module GroundTruthSql
       end
       resolved ? sql : nil
     end
-    root_id = rels.first['first']
+    root_id = rels.empty? ? objects.first['id'] : rels.first['first']
     root = by_id[root_id]
     return { 'error' => 'relationship root object unresolvable' } if root.nil?
     lines = ["FROM #{root['fqn']} #{aliases[root_id]}"]
@@ -528,6 +531,7 @@ module GroundTruthSql
     named.each do |t|
       (t['columns'] || []).each { |c| (owners[c] ||= []) << t['key'] }
     end
+    catalog = owners.transform_values { |tables| tables.uniq }
     field_owners = ds['field_owners'] || {}
     columns_by_guid = meta.is_a?(Hash) ? (meta['columns_by_guid'] || {}) : {}
     columns_by_guid.each do |guid, info|
@@ -556,17 +560,26 @@ module GroundTruthSql
           n = m[1]
         end
       end
-      col = JoinPlan.physical_name(n)
-      own = owners[col] || owners[n]
-      tbl = table_hint || (own && own.size == 1 ? own.first : nil)
-      tbl ||= own.first if own && own.include?((named.first || {})['key'])
+      info = columns_by_guid[field_guid]
+      source_identifier = info.is_a?(Hash) && !info['formula'] &&
+                          !field_guid.start_with?('Calculation_') && field_guid.match?(/\A[A-Za-z_][A-Za-z0-9_$]*\z/)
+      col = source_identifier ? field_guid : JoinPlan.physical_name(n)
+      unless catalog.empty?
+        candidates = source_identifier ? [field_guid, n, col] : [n, col]
+        col = candidates.find { |candidate| catalog.key?(candidate) }
+        return nil unless col
+      end
+      own = (catalog.empty? ? owners[col] || owners[n] : catalog[col])&.uniq
+      return nil if table_hint && own && !own.include?(table_hint)
+      return nil if !table_hint && own && own.size > 1
+      tbl = table_hint || (own && own.first)
+      identifier = col.match?(/\A[A-Z_][A-Z0-9_$]*\z/) ? col : quote_alias(col)
       if tbl && aliases[tbl]
-        "#{aliases[tbl]}.#{col}"
-      elsif own && own.first && aliases[own.first]
-        "#{aliases[own.first]}.#{col}"
+        "#{aliases[tbl]}.#{identifier}"
+      elsif !catalog.empty?
+        nil
       else
-        col # no (or ambiguous) column metadata — emit unqualified; the
-        #     warehouse errors loudly on a genuinely ambiguous name
+        identifier # No column inventory: retain the source-derived unqualified name.
       end
     end
   end
@@ -601,6 +614,7 @@ module GroundTruthSql
       end
       members = Array(fi['members'])
       if members.empty?
+        return { 'sql' => "#{col} IS NULL" } if !fi['exclude'] && fi['includes_null']
         return { 'skip' => "categorical filter on #{target.inspect} enumerates no members (Tableau 'All')" } unless fi['exclude']
         return { 'skip' => "exclude filter on #{target.inspect} excludes nothing" } if !fi['excludes_null']
         return { 'sql' => "#{col} IS NOT NULL" }
@@ -608,10 +622,11 @@ module GroundTruthSql
       lits = members.map { |v| sql_literal(v, fi['datatype']) }.join(', ')
       if fi['exclude']
         sql = "#{col} NOT IN (#{lits})"
-        sql += " AND #{col} IS NOT NULL" if fi['excludes_null']
+        sql = fi['excludes_null'] ? "#{sql} AND #{col} IS NOT NULL" : "(#{sql} OR #{col} IS NULL)"
         { 'sql' => sql }
       else
-        { 'sql' => "#{col} IN (#{lits})" }
+        sql = "#{col} IN (#{lits})"
+        { 'sql' => fi['includes_null'] ? "(#{sql} OR #{col} IS NULL)" : sql }
       end
     when 'wildcard'
       wc = fi['wildcard']
@@ -628,8 +643,25 @@ module GroundTruthSql
       { 'sql' => "#{col} #{neg ? 'NOT ' : ''}LIKE '#{p}'" }
     when 'number-range'
       parts = []
-      parts << "#{col} >= #{fi['min']}" if fi['min']
-      parts << "#{col} <= #{fi['max']}" if fi['max']
+      { 'min' => '>=', 'max' => '<=' }.each do |key, operator|
+        next if fi[key].nil?
+        bound = fi[key].to_s.strip.sub(/\A#(.*)#\z/, '\1')
+        literal = case fi['datatype'].to_s
+                  when 'date'
+                    if bound.match?(/\A\d{4}-\d{2}-\d{2}\z/) && (Date.iso8601(bound) rescue nil)
+                      "DATE '#{bound}'"
+                    end
+                  when 'datetime', 'timestamp'
+                    if bound.match?(/\A\d{4}-\d{2}-\d{2}[ T](?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,9})?\z/) &&
+                       (DateTime.iso8601(bound.tr(' ', 'T')) rescue nil)
+                      "TIMESTAMP '#{bound.tr('T', ' ')}'"
+                    end
+                  else
+                    bound if bound.match?(/\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\z/)
+                  end
+        return { 'error' => "quantitative filter on #{target.inspect} has an invalid #{key} literal" } unless literal
+        parts << "#{col} #{operator} #{literal}"
+      end
       return { 'skip' => "quantitative filter on #{target.inspect} carries no bounds" } if parts.empty?
       { 'sql' => parts.join(' AND ') }
     when 'relative-date'
@@ -891,7 +923,11 @@ module GroundTruthSql
     end
     ds_label = ds['caption'].to_s
     ds_name = ds['name'].to_s
-    Array(meta.is_a?(Hash) ? meta['datasource_filters'] : nil).each do |fi|
+    source_filters = Array(meta.is_a?(Hash) ? meta['datasource_filters'] : nil)
+    source_filters += Array(meta.is_a?(Hash) ? meta['shared_filters'] : nil).map do |filter|
+      filter.merge('datasource_name' => filter['shared_view'], 'filter_scope' => 'shared-view')
+    end
+    source_filters.each do |fi|
       next unless [fi['datasource'].to_s, fi['datasource_name'].to_s].include?(ds_label) ||
                   [fi['datasource'].to_s, fi['datasource_name'].to_s].include?(ds_name)
       r = filter_clause(fi, ctx)

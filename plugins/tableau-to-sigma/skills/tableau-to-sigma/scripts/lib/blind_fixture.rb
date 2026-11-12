@@ -73,4 +73,29 @@ module BlindFixture
     end
     grade
   end
+
+  # blind-grade/v2 fixture (test-only). Writes <dir>/<name> bound to the real
+  # images + the given catalog file's sha256. Returns the grade Hash.
+  def install_v2(dir, catalog_path:, name: 'blind-grade.json', score: 85, per_tile: DEFAULT_TILES,
+                 dim_fail: [], gaps: [], extra: {})
+    src = File.join(dir, 'source-dashboard.png')
+    tgt = File.join(dir, 'sigma-render.png')
+    File.binwrite(src, png_bytes('S')) unless File.exist?(src)
+    File.binwrite(tgt, png_bytes('T')) unless File.exist?(tgt)
+    grade = {
+      'schema'         => 'blind-grade/v2',
+      'source_png'     => src,
+      'target_png'     => tgt,
+      'source_sha256'  => Digest::SHA256.file(src).hexdigest,
+      'target_sha256'  => Digest::SHA256.file(tgt).hexdigest,
+      'catalog_sha256' => Digest::SHA256.file(catalog_path).hexdigest,
+      'dimensions'     => KEYS.map { |k| [k, { 'verdict' => dim_fail.include?(k) ? 'fail' : 'pass', 'evidence' => 'fixture' }] }.to_h,
+      'scores'         => KEYS.map { |k| [k, dim_fail.include?(k) ? 4 : 9] }.to_h,
+      'overall_score'  => score,
+      'gaps'           => gaps,
+      'per_tile'       => per_tile
+    }.merge(extra)
+    File.write(File.join(dir, name), JSON.pretty_generate(grade))
+    grade
+  end
 end

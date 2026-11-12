@@ -1,0 +1,93 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "orders",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "SALES",
+              "PUBLIC",
+              "ORDERS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "orders-order_id",
+              "formula": "[ORDERS/ORDER_ID]"
+            },
+            {
+              "id": "orders-date_key",
+              "formula": "[ORDERS/DATE_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-orders-0",
+              "targetElementId": "sdate",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-date_key",
+                  "targetColumnId": "sdate-date_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sdate",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "SALES",
+              "PUBLIC",
+              "DATE_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "sdate-date_key",
+              "formula": "[DATE_DIM/DATE_KEY]"
+            },
+            {
+              "id": "sdate-cal_date",
+              "formula": "[DATE_DIM/CAL_DATE]"
+            }
+          ]
+        },
+        {
+          "id": "hdate",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "HR",
+              "PUBLIC",
+              "DATE_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "hdate-date_key",
+              "formula": "[DATE_DIM/DATE_KEY]"
+            },
+            {
+              "id": "hdate-cal_date",
+              "formula": "[DATE_DIM/CAL_DATE]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

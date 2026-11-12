@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "0e75f5fecd69566cc63ef46838b60cceccba6d2b4d972ee841cf7a6d748eb09d",
+    "dm_sha256": "6cef27ca98690358ea17aa66a8f65fb233671171d967c747aa472c154feb0857"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "orders"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "cust"
+      ]
+    },
+    {
+      "table": "SQL:DIM_PRODUCT",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "prod"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "orders->cust",
+      "edge_sha": "bd3558e93fc546581d51240d7cca7b121cfdf745585b7eb155472254f9a66b3f",
+      "source_element": "orders",
+      "target_element": "cust",
+      "source_table": "ANALYTICS.PUBLIC.ORDERS",
+      "target_table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "keys": [
+        {
+          "source": "CUSTOMER_KEY",
+          "target": "CUSTOMER_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "orders->prod",
+      "edge_sha": "6398a6ee6710a73fbbe1c03f7062f7f0f5a8fad356ff000809921d4017b005ff",
+      "source_element": "orders",
+      "target_element": "prod",
+      "source_table": "ANALYTICS.PUBLIC.ORDERS",
+      "target_table": "SQL:DIM_PRODUCT",
+      "keys": [
+        {
+          "source": "PRODUCT_KEY",
+          "target": "PRODUCT_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "tableau_keys": [
+        {
+          "left": "CUSTOMER_KEY",
+          "right": "CUSTOMER_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "orders->cust"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "SQL:DIM_PRODUCT",
+      "tableau_keys": [
+        {
+          "left": "PRODUCT_KEY",
+          "right": "PRODUCT_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "orders->prod"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

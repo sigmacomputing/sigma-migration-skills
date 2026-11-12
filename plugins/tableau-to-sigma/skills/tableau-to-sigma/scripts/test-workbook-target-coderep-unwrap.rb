@@ -34,7 +34,7 @@ block = mig[/if opts\[:wb_target\].*?^end\n/m]
 check(!block.nil?, 'the `if opts[:wb_target]` PUT-append block is present', fails)
 
 if block
-  get_idx    = block.index(/Sigma\.request\(:get,.*workbooks.*spec/)
+  get_idx    = block.index(/Sigma\.request\(:get,.*(workbooks.*spec|CodeRep\.read_path)/)
   unwrap_idx = block.index(/WorkbookCode\.legacy_view\(raw_existing\)/)
   guard_idx  = block.index(/unless existing\.is_a\?\(Hash\) && existing\['pages'\]\.is_a\?\(Array\)/)
 

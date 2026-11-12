@@ -1113,41 +1113,84 @@ Dir.mktmpdir do |dir|
         "gate 21: malformed png-read.json → exit 28 (got #{st.exitstatus})", fails)
 end
 
-# ---- gate 8b + budget: RECORDED divergent verdict spends waiver budget (D3) --
+# ---- gate 8b + budget: RECORDED divergent verdict is NOT a waiver (B1.4) -----
+# blind-grade v2: a recorded divergent passes gate 8b as RECORDED, no longer
+# spends waiver budget, and still forfeits GREEN via the degradation ledger.
 DIVERGENT_PF = { 'visual_checked' => false, 'visual_verdict' => 'divergent',
                  'visual_notes' => 'Region bar truncated vs source',
                  'agent_vision' => true }.freeze
 
-# divergent alone: gate 8b passes as RECORDED, run completes, census names it
+# divergent alone: gate 8b passes as RECORDED, run completes YELLOW
 Dir.mktmpdir do |dir|
   base_workdir(dir, blind: false, parity_extra: DIVERGENT_PF)
   out, _err, st = run_gate(dir)
   check(st.success?, "recorded divergent, no other waivers → exit 0 (got #{st.exitstatus})", fails)
-  check(out.include?('recorded (divergent)') && out.include?('BUDGET-COUNTED'),
-        'gate 8b divergent OK line states RECORDED-not-clean + the budget cost', fails)
-  check(out.include?('visual-divergent'), 'the waiver census names visual-divergent', fails)
-  check(out.include?('PR-14'), 'gate 8b divergent line carries the PR-14 verdict-capping forward pointer', fails)
+  check(out.include?('recorded (divergent)') && out.include?('forfeit GREEN') && !out.include?('BUDGET-COUNTED'),
+        'gate 8b divergent OK line states RECORDED-not-clean, forfeits GREEN, no budget cost', fails)
   pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
-  check(Array(pf['waivers']).include?('visual-divergent'),
-        'visual-divergent stamped into the parity-final waiver census', fails)
+  check(!Array(pf['waivers']).include?('visual-divergent'),
+        'visual-divergent is NOT stamped into the parity-final waiver census', fails)
+  led = JSON.parse(File.read(File.join(dir, 'degradation-ledger.json')))
+  check(led['entries'].any? { |e| e['class'] == 'fidelity-residual' && e['item'] == 'visual verdict: divergent' },
+        'divergent still recorded as a fidelity-residual in the degradation ledger', fails)
+  succ = JSON.parse(File.read(File.join(dir, 'phase6-success.json')))
+  check(succ['verdict'] == 'YELLOW', 'divergent still forfeits GREEN (verdict YELLOW)', fails)
 end
 
-# divergent + 1 quality waiver = 2 (within budget) → GREEN still available
+# divergent + 1 quality waiver (within budget) → completes, YELLOW
 Dir.mktmpdir do |dir|
   base_workdir(dir, blind: false, parity_extra: DIVERGENT_PF)
   out, _err, st = run_gate(dir, '--skip-orphan-check', 'r1')
   check(st.success?, "divergent + 1 prior waiver → within budget, exit 0 (got #{st.exitstatus})", fails)
-  check(out.include?('all gates pass'), 'divergent within budget still reaches the GREEN clearance', fails)
+  check(out.include?('1/1 waiver(s) within budget'), 'divergent does not add to the waiver count (1/1 within budget)', fails)
 end
 
-# divergent + 2 quality waivers = 3 → budget exceeded, exit 19 naming it
+# divergent + 2 quality waivers = 2 → still within budget (was exit 19 before B1.4)
 Dir.mktmpdir do |dir|
   base_workdir(dir, blind: false, parity_extra: DIVERGENT_PF)
   out, err, st = run_gate(dir, '--skip-orphan-check', 'r1', '--skip-column-check', 'r2')
-  check(st.exitstatus == 19, "divergent + 2 prior waivers → budget exceeded, exit 19 (got #{st.exitstatus})", fails)
-  check(err.include?('visual-divergent') || out.include?('visual-divergent'),
-        'budget failure lists visual-divergent among the census', fails)
-  check(err.include?('DIVERGENT'), 'budget failure explains what the divergent verdict hid', fails)
+  check(st.success?, "divergent + 2 other waivers → within the 2-waiver budget, exit 0 (got #{st.exitstatus})", fails)
+  check(!(err + out).include?('visual-divergent'), 'visual-divergent absent from the census output', fails)
+  succ = JSON.parse(File.read(File.join(dir, 'phase6-success.json')))
+  check(succ['verdict'] == 'YELLOW', 'still YELLOW (divergent forfeits GREEN)', fails)
+end
+
+# the other waivers keep their budget: divergent + 3 quality waivers → exit 19
+Dir.mktmpdir do |dir|
+  base_workdir(dir, blind: false, parity_extra: DIVERGENT_PF)
+  _out, err, st = run_gate(dir, '--skip-orphan-check', 'r1', '--skip-column-check', 'r2', '--skip-layout-check', 'r3')
+  check(st.exitstatus == 19, "3 real waivers still exceed the budget with divergent present, exit 19 (got #{st.exitstatus})", fails)
+  check(!err.include?('visual-divergent:'), 'budget failure does not list visual-divergent as a waiver', fails)
+end
+
+# ---- B1.4 tableau-run shape: v2 grade + RCF budget spent → YELLOW residual ---
+Dir.mktmpdir do |dir|
+  base_workdir(dir, blind: false)
+  catalog = File.expand_path('../refs/sigma-platform-differences.json', __dir__)
+  BlindFixture.install_v2(dir, catalog_path: catalog, score: 85)
+  gpath = File.join(dir, 'blind-grade.json')
+  grade = JSON.parse(File.read(gpath))
+  pf = JSON.parse(File.read(File.join(dir, 'parity-final.json')))
+  pf['blind_grade'] = { 'schema' => 'blind-grade/v2', 'path' => 'blind-grade.json', 'verdict' => 'pass', 'score' => 85.0,
+                        'faithful' => true, 'source_sha256' => grade['source_sha256'], 'target_sha256' => grade['target_sha256'],
+                        'catalog_sha256' => Digest::SHA256.file(catalog).hexdigest, 'catalog_path' => catalog,
+                        'grades' => [{ 'path' => 'blind-grade.json', 'sha256' => Digest::SHA256.file(gpath).hexdigest, 'overall_score' => 85 }],
+                        'cross_check' => { 'target' => 'skipped', 'source' => 'skipped' } }
+  File.write(File.join(dir, 'parity-final.json'), JSON.pretty_generate(pf))
+  # gate 8b binds visual-residuals.json to the re-verified grade (final review I1)
+  File.write(File.join(dir, 'visual-residuals.json'), JSON.pretty_generate(
+    'schema' => 'visual-residuals/v1', 'catalog_sha256' => Digest::SHA256.file(catalog).hexdigest,
+    'score' => 85.0, 'faithful' => true, 'platform_differences' => [], 'residuals' => [], 'fixable_major' => [], 'reasons' => []))
+  write_fidelity_binding(dir, pass: 5, max_passes: 5,
+                         entries: [{ 'id' => 'p1', 'cls' => 'spec-fixable', 'dimension' => 'palette_match', 'delta' => 'palette drift', 'resolved' => false }])
+  File.write(File.join(dir, 'migrate-state.json'), JSON.generate('workbook_id' => 'wb-test', 'run_id' => 'r1', 'rcf_passes' => 5))
+  out, err, st = run_gate(dir)
+  check(st.success?, "v2 pass + spent RCF budget + unresolved spec-fixable → exit 0 (got #{st.exitstatus}: #{err[0, 200]})", fails)
+  led = JSON.parse(File.read(File.join(dir, 'degradation-ledger.json')))
+  check(led['entries'].any? { |e| e['item'].to_s.start_with?('RCF residual p1') }, 'the unresolved spec-fixable is an "RCF residual" ledger item', fails)
+  succ = JSON.parse(File.read(File.join(dir, 'phase6-success.json')))
+  check(succ['verdict'] == 'YELLOW', 'spent-budget run finishes YELLOW', fails)
+  check(out.include?('fix budget SPENT'), 'gate 8d states the spent budget', fails)
 end
 
 # =============================================================================
@@ -1581,7 +1624,7 @@ end
 Dir.mktmpdir do |dir|
   base_workdir(dir)
   out, _err, st = run_gate(dir)
-  check(st.success? && out.include?('VERDICT: YELLOW'),
+  check(st.success? && out.include?('gate verdict: YELLOW'),
         'clean offline run → VERDICT: YELLOW (unaudited live columns forfeit GREEN)', fails)
   led = JSON.parse(File.read(File.join(dir, 'degradation-ledger.json')))
   check(led['entries'].length == 1 && led['entries'].first['item'] == 'gate-3-column-scan',
@@ -1597,7 +1640,7 @@ Dir.mktmpdir do |dir|
   base_workdir(dir)
   out, _err, st = run_gate(dir, '--skip-orphan-check', 'multi-workbook estate by design')
   check(st.success?, "1 waiver still passes the gates (got #{st.exitstatus})", fails)
-  check(out.include?('VERDICT: YELLOW') && out.include?('GREEN requires an EMPTY degradation ledger'),
+  check(out.include?('gate verdict: YELLOW') && out.include?('GREEN requires an EMPTY degradation ledger'),
         '1 quality waiver → VERDICT: YELLOW (empty-ledger doctrine)', fails)
   check(out.include?('[quality-waiver] --skip-orphan-check — multi-workbook estate by design'),
         'the ledger prints inline with the waiver reason', fails)
@@ -1614,7 +1657,7 @@ Dir.mktmpdir do |dir|
   _out, err, st = run_gate(dir, '--skip-orphan-check', 'a', '--skip-column-check', 'b',
                            '--skip-layout-check', 'c')
   check(st.exitstatus == 19, "3 quality waivers → exit 19 (got #{st.exitstatus})", fails)
-  check(err.include?('VERDICT: YELLOW'), 'budget-exceeded run prints VERDICT: YELLOW with the ledger', fails)
+  check(err.include?('gate verdict: YELLOW'), 'budget-exceeded run prints gate verdict: YELLOW with the ledger', fails)
   check(File.exist?(File.join(dir, 'degradation-ledger.json')),
         'the ledger is written even on the budget-fail path', fails)
 end
@@ -1630,7 +1673,7 @@ Dir.mktmpdir do |dir|
     'unresolved' => [{ 'visual' => 'Region Map', 'severity' => 'dropped', 'detail' => 'no basemap support' }]))
   out, _err, st = run_gate(dir)
   check(st.success?, "dropped tile with 0 waivers still passes the gates (got #{st.exitstatus})", fails)
-  check(out.include?('VERDICT: PARTIAL+YELLOW'),
+  check(out.include?('gate verdict: PARTIAL+YELLOW'),
         '1 dropped tile + unaudited columns → VERDICT: PARTIAL+YELLOW (scope cut dominant)', fails)
   check(out.include?('[scope-cut]') && out.include?('Region Map'),
         'the scope cut prints inline, named', fails)
@@ -1645,7 +1688,7 @@ Dir.mktmpdir do |dir|
   File.write(File.join(dir, 'coverage.json'), JSON.pretty_generate(
     'unresolved' => [{ 'visual' => 'Trend', 'severity' => 'dropped', 'detail' => 'empty view CSV' }]))
   out, _err, st = run_gate(dir, '--skip-orphan-check', 'estate')
-  check(st.success? && out.include?('VERDICT: PARTIAL+YELLOW'),
+  check(st.success? && out.include?('gate verdict: PARTIAL+YELLOW'),
         'scope cut + quality waiver → VERDICT: PARTIAL+YELLOW (PARTIAL dominant, YELLOW noted)', fails)
 end
 
@@ -1656,7 +1699,7 @@ Dir.mktmpdir do |dir|
     'unresolved' => [{ 'visual' => 'Trend', 'severity' => 'dropped', 'detail' => 'x' }]))
   _out, err, st = run_gate(dir, '--skip-orphan-check', 'a', '--skip-column-check', 'b',
                            '--skip-layout-check', 'c')
-  check(st.exitstatus == 19 && err.include?('VERDICT: PARTIAL+YELLOW'),
+  check(st.exitstatus == 19 && err.include?('gate verdict: PARTIAL+YELLOW'),
         'scope cut + budget exceeded → exit 19 names PARTIAL+YELLOW', fails)
 end
 
@@ -1670,8 +1713,40 @@ Dir.mktmpdir do |dir|
     [{ 'control' => 'filter:Region', 'reason' => 'single-value in the source data' }]))
   out, _err, st = run_gate(dir)
   check(st.success?, "ledger-waived control passes gate 7c (got #{st.exitstatus})", fails)
-  check(out.include?('VERDICT: PARTIAL') && out.include?('dropped control: filter:Region'),
+  check(out.include?('gate verdict: PARTIAL') && out.include?('dropped control: filter:Region'),
         'a ledger-waived control is a scope cut → PARTIAL with the control named', fails)
+end
+
+# ---- final-review m4: gate 8d and `fidelity-loop.rb status` AGREE -----------
+# The catalog-id predicate and the budget-spent logic are duplicated between the
+# vendored gate and fidelity-loop.rb. Same fixture, both run: the gate fails 8d
+# (exit 15) exactly when status refuses (exit != 0).
+FIDELITY_LOOP = File.join(__dir__, 'fidelity-loop.rb')
+{
+  'spec-fixable'            => { 'cls' => 'spec-fixable' },
+  'uncatalogued capability' => { 'cls' => 'sigma-capability' },
+  'catalogued capability'   => { 'cls' => 'sigma-capability', 'catalog_id' => 'nav-button-style' },
+  'data'                    => { 'cls' => 'data' }
+}.each do |label, extra|
+  [false, true].each do |spent|
+    Dir.mktmpdir do |dir|
+      base_workdir(dir)
+      File.write(File.join(dir, 'migrate-state.json'),
+                 JSON.generate('workbook_id' => 'wb-test', 'run_id' => 'r1', 'rcf_passes' => 5))
+      write_fidelity_binding(
+        dir, pass: spent ? 5 : 1, max_passes: 5,
+        entries: [{ 'id' => 'e0', 'dimension' => 'composition_match', 'delta' => 'x', 'resolved' => false }.merge(extra)]
+      )
+      _out, err, gst = run_gate(dir)
+      sout, serr, sst = Open3.capture3({ 'FIDELITY_LOOP_CLI' => '1' }, RbConfig.ruby, FIDELITY_LOOP,
+                                       'status', '--workdir', dir)
+      gate_blocks = gst.exitstatus == 15
+      status_blocks = !sst.success?
+      check([0, 15].include?(gst.exitstatus), "agreement [#{label}, budget #{spent ? 'spent' : 'left'}]: gate exits 0 or 15 only (got #{gst.exitstatus}: #{err.lines.first.to_s.strip})", fails)
+      check(gate_blocks == status_blocks,
+            "agreement [#{label}, budget #{spent ? 'spent' : 'left'}]: gate 8d #{gate_blocks ? 'blocks' : 'passes'} == status #{status_blocks ? 'blocks' : 'passes'} (#{(sout + serr).lines.first.to_s.strip})", fails)
+    end
+  end
 end
 
 # ---- source-level pins: the finalize plumbing (migrate-tableau.rb) -----------

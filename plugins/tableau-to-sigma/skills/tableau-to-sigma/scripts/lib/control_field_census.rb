@@ -65,6 +65,11 @@ module ControlFieldCensus
         next
       end
       dropped = pel.keys.reject { |k| k.start_with?('_') || IGNORE_KEYS.include?(k) } - live.keys
+      # An EMPTY posted value (filters: [] on a parameter control that only
+      # formulas read — the metric switch) is omitted by the readback, not
+      # dropped: nothing was set, so nothing was lost (live re-proof false
+      # "Select Metric ... absent from readback: filters").
+      dropped.reject! { |k| empty_value?(pel[k]) }
 
       # #456: a filter-TARGET drop the key-diff above cannot see — `filters`
       # survives as a KEY on readback but its columnId/source were stripped
@@ -84,6 +89,10 @@ module ControlFieldCensus
                     'dropped' => dropped.sort }
     end
     problems
+  end
+
+  def empty_value?(v)
+    v.nil? || ((v.is_a?(Array) || v.is_a?(Hash) || v.is_a?(String)) && v.empty?)
   end
 
   # Count filter entries that actually BIND a target: a control filter binds

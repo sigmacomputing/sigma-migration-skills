@@ -15,6 +15,37 @@ module SqlProvenance
 
   module_function
 
+  def record_active_spec(workdir, path, model_id)
+    root = File.realpath(workdir)
+    source = File.realpath(path)
+    raise ArgumentError, 'active data-model spec must be inside the workdir' unless File.dirname(source) == root
+    raise ArgumentError, 'active data-model id is missing' unless model_id.is_a?(String) && !model_id.empty?
+    record = { 'path' => File.basename(source), 'data_model_id' => model_id,
+               'sha256' => Digest::SHA256.file(source).hexdigest }
+    destination = File.join(root, 'active-dm-spec.json')
+    raise ArgumentError, 'active binding must not be a symlink' if File.symlink?(destination)
+    File.open(destination, 'w', 0o600) { |file| file.write(JSON.pretty_generate(record)) }
+  end
+
+  def active_spec_path(workdir)
+    binding = File.join(workdir, 'active-dm-spec.json')
+    raise ArgumentError, 'active binding must not be a symlink' if File.symlink?(binding)
+    if File.file?(binding)
+      record = JSON.parse(File.read(binding))
+      raise ArgumentError, 'invalid active data-model binding' unless record.is_a?(Hash) && record['data_model_id'].is_a?(String) && !record['data_model_id'].empty?
+      name = record['path'].to_s
+      raise ArgumentError, 'invalid active data-model spec path' if name.empty? || File.basename(name) != name || name.include?('\\')
+      path = File.join(workdir, name)
+      raise ArgumentError, 'active data-model spec is missing or stale' unless File.file?(path) && !File.symlink?(path) && Digest::SHA256.file(path).hexdigest == record['sha256']
+      ids = JSON.parse(File.read(File.join(workdir, 'dm-ids.json')))
+      raise ArgumentError, 'active data-model binding belongs to another model' unless ids.is_a?(Hash) && ids['dataModelId'] == record['data_model_id']
+      return path
+    end
+    paths = %w[dm-spec.json dm-spec-reused.json dm-remapped.json dm-raw.json].map { |name| File.join(workdir, name) }.select { |path| File.file?(path) }
+    raise ArgumentError, 'ambiguous data-model source; rerun the gated pass to record the active spec' if paths.size > 1
+    paths.first
+  end
+
   def normalize_sql(value)
     CGI.unescapeHTML(value.to_s)
        .sub(/\A\s*<!\[CDATA\[/, '').sub(/\]\]>\s*\z/, '')
@@ -55,14 +86,29 @@ module SqlProvenance
     converter_entries = Array(metadata['sqlProvenance'])
     elements = Array(spec['pages']).flat_map { |page| Array(page['elements']) }
     sql_elements = elements.select { |element| element.dig('source', 'kind') == 'sql' }
+    # Name matching only identifies an element whose name no other SQL element shares.
+    name_counts = sql_elements.each_with_object(Hash.new(0)) { |element, counts| counts[element['name'].to_s] += 1 }
 
     entries = sql_elements.map do |element|
       statement = element.dig('source', 'statement').to_s
       normalized = normalize_sql(statement)
-      override = overrides[element['id'].to_s] || overrides[element['name'].to_s]
+      unique_name = !element['name'].to_s.empty? && name_counts[element['name'].to_s] == 1
       converter_entry = converter_entries.find do |entry|
         entry.is_a?(Hash) && entry['elementId'].to_s == element['id'].to_s
       end
+      # A live readback carries server-assigned ids; fall back to a unique
+      # ledger name (the statement must still match below).
+      if !converter_entry && unique_name
+        named = converter_entries.select do |entry|
+          entry.is_a?(Hash) && !entry['elementName'].to_s.empty? &&
+            entry['elementName'].to_s == element['name'].to_s
+        end
+        converter_entry = named.first if named.size == 1
+      end
+      # A pass-1 override may be keyed by the converter id the readback lost.
+      override = overrides[element['id'].to_s] ||
+                 (unique_name && overrides[element['name'].to_s]) ||
+                 (converter_entry && overrides[converter_entry['elementId'].to_s])
       converter_origin = converter_entry && converter_entry['originType'].to_s
       converter_statement_matches = converter_entry &&
                                     normalize_sql(converter_entry['statement']) == normalized

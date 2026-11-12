@@ -1,0 +1,127 @@
+{
+  "_note": "Redacted for hygiene (test-org names replaced). Gaps, scores and per_tile copied verbatim from the 2026-11-09 regression OEO blind grade (overall 85, faithful). Image paths and hashes are re-bound by the test.",
+  "overall_score": 85,
+  "scores": {
+    "element_titles_hidden": 9,
+    "palette_match": 9,
+    "composition_match": 8,
+    "chart_shapes_match": 9,
+    "labels_legible": 8,
+    "numbers_formatted": 8
+  },
+  "dimensions": {
+    "element_titles_hidden": {
+      "verdict": "pass",
+      "evidence": "The only chart titles shown are the same section titles as the source (Net Revenue by Month, by Region, by Shipping Mode, by Customer Tier); no extra element-title chrome appears."
+    },
+    "palette_match": {
+      "verdict": "pass",
+      "evidence": "Steel-blue lines and bars, light grey-blue KPI band and grey reference line read as the source palette."
+    },
+    "composition_match": {
+      "verdict": "pass",
+      "evidence": "Title, five KPIs, wide trend line, then three bottom charts follow the source order; KPIs became separate cards, which is a small difference."
+    },
+    "chart_shapes_match": {
+      "verdict": "pass",
+      "evidence": "Line with reference line, horizontal bars for Region and Customer Tier, and vertical bars for Shipping Mode all match the source families and tile count."
+    },
+    "labels_legible": {
+      "verdict": "pass",
+      "evidence": "All category and value labels are readable; Shipping Mode category labels are small and the x-axis title sits at the clipped bottom edge."
+    },
+    "numbers_formatted": {
+      "verdict": "pass",
+      "evidence": "KPIs ($199,739, $124,886, 1,313, 64.1%, 1.4%) and bar labels ($71,015, $89,555, 64.6%) match the source exactly; the trend axis shows fewer ticks and abbreviated month labels."
+    }
+  },
+  "per_tile": [
+    {
+      "position": "r1c1",
+      "source_family": "text",
+      "target_family": "text"
+    },
+    {
+      "position": "r2c1",
+      "source_family": "kpi",
+      "target_family": "kpi"
+    },
+    {
+      "position": "r2c2",
+      "source_family": "kpi",
+      "target_family": "kpi"
+    },
+    {
+      "position": "r2c3",
+      "source_family": "kpi",
+      "target_family": "kpi"
+    },
+    {
+      "position": "r2c4",
+      "source_family": "kpi",
+      "target_family": "kpi"
+    },
+    {
+      "position": "r2c5",
+      "source_family": "kpi",
+      "target_family": "kpi"
+    },
+    {
+      "position": "r3c1",
+      "source_family": "line",
+      "target_family": "line"
+    },
+    {
+      "position": "r4c1",
+      "source_family": "bar",
+      "target_family": "bar"
+    },
+    {
+      "position": "r4c2",
+      "source_family": "bar",
+      "target_family": "bar"
+    },
+    {
+      "position": "r4c3",
+      "source_family": "bar",
+      "target_family": "bar"
+    }
+  ],
+  "gaps": [
+    {
+      "tile": "r3c1",
+      "dimension": "numbers_formatted",
+      "description": "Trend chart y-axis has ticks only at $0, $10,000, $20,000 (source every $2,000) and x labels read 'Jan 2024' quarterly instead of 'December 2023', 'March 2024' style; the axis starts at Jan 2024 rather than Dec 2023.",
+      "severity": "minor",
+      "class": "fixable"
+    },
+    {
+      "tile": "r4c1",
+      "dimension": "composition_match",
+      "description": "Region and Customer Tier bar charts show a rotated vertical axis title ('Region', 'Customer Value Tier') where the source shows a small upright header above the axis.",
+      "severity": "minor",
+      "class": "horizontal-axis-title-orientation"
+    },
+    {
+      "tile": "r4c2",
+      "dimension": "labels_legible",
+      "description": "Shipping Mode axis title 'Shipping Mode Category' sits at the bottom edge, partly clipped, and category labels are smaller than in the source, where the title is a header above the chart.",
+      "severity": "minor",
+      "class": "fixable"
+    },
+    {
+      "tile": "r2c1",
+      "dimension": "composition_match",
+      "description": "KPI labels and values are in separate boxed cards with centered text; the source has a flat band with labels above values.",
+      "severity": "minor",
+      "class": "fixable"
+    },
+    {
+      "tile": "r3c1",
+      "dimension": "palette_match",
+      "description": "Trend line stroke is thinner than the source's heavier line.",
+      "severity": "minor",
+      "class": "fixable"
+    }
+  ]
+}

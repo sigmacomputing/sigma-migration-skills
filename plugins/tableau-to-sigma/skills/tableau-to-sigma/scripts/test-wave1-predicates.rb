@@ -19,6 +19,7 @@
 # Usage: ruby scripts/test-wave1-predicates.rb
 
 require 'json'
+require_relative 'lib/sdk_route' # finalize_chain_predicate consults SdkRoute
 require 'tmpdir'
 require 'fileutils'
 

@@ -1,0 +1,111 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "sales",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "LANDED",
+              "SALES_WIDE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "sales-order_id",
+              "formula": "[SALES_WIDE/ORDER_ID]"
+            },
+            {
+              "id": "sales-order_line_no",
+              "formula": "[SALES_WIDE/ORDER_LINE_NO]"
+            },
+            {
+              "id": "sales-customer_key",
+              "formula": "[SALES_WIDE/CUSTOMER_KEY]"
+            },
+            {
+              "id": "sales-amount",
+              "formula": "[SALES_WIDE/AMOUNT]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-sales-0",
+              "targetElementId": "cust",
+              "keys": [
+                {
+                  "sourceColumnId": "sales-customer_key",
+                  "targetColumnId": "cust-customer_key"
+                }
+              ]
+            },
+            {
+              "id": "rel-sales-1",
+              "targetElementId": "orders",
+              "keys": [
+                {
+                  "sourceColumnId": "sales-order_id",
+                  "targetColumnId": "orders-order_id"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cust",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "LANDED",
+              "CUSTOMERS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "cust-customer_key",
+              "formula": "[CUSTOMERS/CUSTOMER_KEY]"
+            },
+            {
+              "id": "cust-customer_name",
+              "formula": "[CUSTOMERS/CUSTOMER_NAME]"
+            }
+          ]
+        },
+        {
+          "id": "orders",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "LANDED",
+              "SALES_WIDE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "orders-order_id",
+              "formula": "[SALES_WIDE/ORDER_ID]"
+            },
+            {
+              "id": "orders-order_line_no",
+              "formula": "[SALES_WIDE/ORDER_LINE_NO]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

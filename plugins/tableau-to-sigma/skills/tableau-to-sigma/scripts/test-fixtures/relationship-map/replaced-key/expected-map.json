@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "45458df885b4445cd3526e00672160428b16d89a507e245fe852a44881112ef8",
+    "dm_sha256": "5eb7e7cfe870537523b916672d7d451d8ed27ccbd04e8e1157e78a5feeacebc0"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "orders"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "cust"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.DIM_PRODUCT",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "prod"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "orders->cust",
+      "edge_sha": "dd73e12c5146c828fabe0de464815d2bd5a94e2a2ea4043bbdfb3796cb3659f6",
+      "source_element": "orders",
+      "target_element": "cust",
+      "source_table": "ANALYTICS.PUBLIC.ORDERS",
+      "target_table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "keys": [
+        {
+          "source": "CUSTOMER_KEY",
+          "target": "CUSTOMER_ALT_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "orders->prod",
+      "edge_sha": "9c0af644b5078511feced8ae9179cdfedda12491146b0e30ccc942b237d13cc5",
+      "source_element": "orders",
+      "target_element": "prod",
+      "source_table": "ANALYTICS.PUBLIC.ORDERS",
+      "target_table": "ANALYTICS.PUBLIC.DIM_PRODUCT",
+      "keys": [
+        {
+          "source": "PRODUCT_KEY",
+          "target": "PRODUCT_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "tableau_keys": [
+        {
+          "left": "CUSTOMER_KEY",
+          "right": "CUSTOMER_KEY"
+        }
+      ],
+      "disposition": "replaced",
+      "dm_path": [
+        "orders->cust"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+        "Revenue by Customer"
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.DIM_PRODUCT",
+      "tableau_keys": [
+        {
+          "left": "PRODUCT_KEY",
+          "right": "PRODUCT_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "orders->prod"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

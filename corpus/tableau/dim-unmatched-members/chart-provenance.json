@@ -1,0 +1,32 @@
+{
+  "elements": [
+    [
+      "el-store-state-map",
+      {
+        "worksheet": "Store State Map",
+        "dashboard": "Store Network"
+      }
+    ],
+    [
+      "el-store-scorecard",
+      {
+        "worksheet": "Store Scorecard",
+        "dashboard": "Store Network"
+      }
+    ],
+    [
+      "el-ship-method-bar",
+      {
+        "worksheet": "Ship Method Revenue",
+        "dashboard": "Store Network"
+      }
+    ],
+    [
+      "el-store-type-bar",
+      {
+        "worksheet": "Store Type Revenue",
+        "dashboard": "Store Network"
+      }
+    ]
+  ]
+}

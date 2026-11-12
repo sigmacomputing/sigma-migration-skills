@@ -304,7 +304,7 @@ check(st.exitstatus == 1, '--withdraw mixed with probe flags → exit 1', fails)
 # the same canonicalizer used by probe-join-keys.rb.
 script_source = File.read(SCRIPT)
 canonicalize_at = script_source.index('WorkbookCode.canonicalize(spec)')
-post_at = script_source.index("Sigma.request(:post, '/v2/workbooks/spec'")
+post_at = script_source.index('Sigma.request(:post, Sigma::CodeRep.create_path')
 check(script_source.include?("require_relative 'lib/workbook_code'"),
       'live seam loads the workbook code-representation adapter', fails)
 check(canonicalize_at && post_at && canonicalize_at < post_at,

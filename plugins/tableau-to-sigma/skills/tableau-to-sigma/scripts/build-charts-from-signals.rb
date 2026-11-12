@@ -63,11 +63,13 @@ require_relative 'learned-rules'
 require_relative 'lib/theme_derive'
 require_relative 'lib/png_classify'
 require_relative 'lib/zone_census'
+require_relative 'lib/measure_precision' # plan C11b: percent precision follows the source
 require_relative 'lib/format_map'     # PR-12: the ONE Tableau→Sigma format translator
 require_relative 'lib/series_colors'  # PR-12: ordered per-series color schemes
 require_relative 'lib/threshold_halo'  # C2: threshold-halo (computed-boolean color) detection
 require_relative 'lib/integer_dim'    # PR-18: integer-coded dimension decode-to-text routing
 require_relative 'lib/trellis_emit'   # shared native-trellis emitter (supported-kind gate + fallbacks)
+require_relative 'lib/addressing_canon' # VC GUID table-calc addressing -> caption
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 require_relative 'lib/tableau_dynamic_title'
 require_relative 'lib/kpi_card'       # shared KPI-chart emitter (comparative-KPI-ready)
@@ -76,6 +78,8 @@ require_relative 'lib/action_ledger' # workbook-wide action id registry + valida
 require_relative 'lib/button_fallback' # native-button gate + the nav text-pill shared with post-and-readback's fallback
 require_relative 'lib/action_column_resolver' # Task 5: raw Tableau source-field ref -> emitted Sigma column name
 require_relative 'lib/chart_calc_translate' # pure calc translators (shared with scan-workbook-gaps.rb)
+require_relative 'lib/pivot_widths' # plan C10: pivot header/body uniformWidth
+require_relative 'lib/null_member_display' # plan C1: displayNullAs / IsNull CF (display-only, no Coalesce)
 require 'erb'
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
@@ -349,7 +353,7 @@ end
 # when its caption/param names the worksheet, or when the dashboard has exactly
 # one color-encoded chart and one legend. Free-floating pixel offsets have no
 # Sigma equivalent; map the legend to the nearest chart edge.
-def legend_config_for(zone, dashboard)
+def matching_legend_zone(zone, dashboard)
   legends = Array(dashboard['zones']).select { |candidate| candidate['kind'] == 'legend' }
   return nil if legends.empty?
 
@@ -363,9 +367,13 @@ def legend_config_for(zone, dashboard)
     end
     matches = legends if legends.one? && color_charts.one? && color_charts.first.equal?(zone)
   end
-  return nil unless matches.one?
+  matches.one? ? matches.first : nil
+end
 
-  legend = matches.first
+def legend_config_for(zone, dashboard)
+  legend = matching_legend_zone(zone, dashboard)
+  return nil unless legend
+
   chart_left = zone['x_pct'].to_f
   chart_right = chart_left + zone['w_pct'].to_f
   chart_top = zone['y_pct'].to_f
@@ -379,6 +387,73 @@ def legend_config_for(zone, dashboard)
     'bottom' => (legend_y - chart_bottom).abs
   }
   { 'position' => distances.min_by { |_, distance| distance }.first }
+end
+
+# C14: the chart's own colours as legend entries. Sigma binds `color.scheme`
+# positionally over the members in ascending order, so zipping the ascending
+# members with the final scheme yields exactly the colours the chart shows (one
+# derivation for every scheme branch, so legend and chart cannot disagree). nil
+# when there is no explicit scheme to carry (theme palette: nothing to emit).
+def legend_custom_colors(members, scheme)
+  ms = Array(members).map { |m| m.to_s.strip }.reject(&:empty?).uniq.sort_by { |m| m.downcase }
+  colors = Array(scheme)
+  return nil if ms.size < 2 || colors.empty?
+
+  ms.zip(colors).reject { |_, c| c.nil? }.map { |m, c| { 'value' => m, 'color' => c } }
+end
+
+# Per-chart plans for the legend controls, keyed by [dashboard, chart element id] and consumed
+# by the page pass (which knows the final, namespaced chart ids).
+$legend_plans = {}
+# Every category-coloured chart bound to a master column -> its member->colour map, keyed by
+# [master element id, master column id]. The legend control recolours EVERY chart on that column,
+# so it may only be emitted when all of them show the same map.
+$legend_color_registry = Hash.new { |h, k| h[k] = [] }
+
+# The chart's colour column as a column of the table element the chart is SOURCED from (the master),
+# or nil when it cannot be named that way. Live-proven (plan C live regression R1): a legend control
+# is accepted ONLY when its `source` and `targets` both name a column of the chart's source table;
+# naming the chart element's own colour column is rejected ("Invalid value source for list control"
+# as the source, "Invalid legend target on control" as the target). That binding needs the chart
+# colour column to be a plain [Master/<name>] reference to a master column, on a chart sourced
+# directly from a master (a top-N / LOD helper source carries no such column).
+def legend_master_ref(chart, mmap, data_elements)
+  src = chart['source']
+  return nil unless src.is_a?(Hash) && src['kind'] == 'table' && src['elementId']
+  return nil if Array(data_elements).any? { |d| d.is_a?(Hash) && d['id'] == src['elementId'] }
+
+  col = Array(chart['columns']).find { |c| c['id'] == chart.dig('color', 'column') }
+  name = col && col['formula'].to_s[%r{\A\[Master/([^\[\]/]+)\]\z}, 1]
+  entry = name && mmap.values.find { |v| v.is_a?(Hash) && v['name'] == name && v['id'] }
+  return nil unless entry
+
+  { 'source' => { 'kind' => 'table', 'elementId' => src['elementId'] }, 'columnId' => entry['id'] }
+end
+
+# A Sigma legend control with only `colorAssignment.customColors` appends a grey "Others" row
+# after the listed members even when the customColors cover every member (the default
+# otherCategories mode groups unlisted values under "Others"). A Tableau colour legend lists
+# only the field's members: an "Other" bucket exists only as a real group member, and that
+# arrives as an ordinary customColors value. `use-legend-palette` colours any unlisted value
+# from the palette instead of grouping it, which drops the extra row. Live-probed 2026-11-10
+# (wb 8793373b, Stress 4 Store Type legend): default → 4 members + "Others"; nullValues:"hidden"
+# → still "Others"; otherCategories use-legend-palette → the 4 members only. The extra row is
+# also what clipped the legend cell, which build-dashboard-layout sizes from the customColors
+# count.
+LEGEND_NO_OTHERS_ROW = { 'mode' => 'use-legend-palette' }.freeze
+
+# The native legend control (verdict legend-outside-chart). `ref` is legend_master_ref's column;
+# `plan` carries the source zone id and colours.
+def build_legend_control(ref, plan)
+  # The id stem is rewritten across the control's whole JSON by namespace_ids, so on dashboards 2+
+  # both id and controlId pick up the page suffix and stay unique. controlId must differ from id:
+  # the server counts ids and controlIds in one namespace ("Duplicate id").
+  id = "legend-#{plan['zone_id']}"
+  { 'kind' => 'control', 'id' => id, 'controlId' => "#{id}-ctl",
+    'controlType' => 'legend', 'source' => ref.merge('kind' => 'source'), 'targets' => [ref],
+    'colorAssignment' => { 'customColors' => plan['custom_colors'] },
+    'otherCategories' => LEGEND_NO_OTHERS_ROW.dup,
+    'style' => { 'backgroundColor' => 'transparent' } }
 end
 
 # ---- Tableau derivation → Sigma aggregation function name ----
@@ -561,7 +636,7 @@ end
 
 def typed_filter_members(filter)
   members = Array(filter['members'])
-  case filter['datatype'].to_s.downcase
+  values = case filter['datatype'].to_s.downcase
   when 'boolean'
     members.map do |member|
       case member.to_s.strip.downcase
@@ -577,6 +652,7 @@ def typed_filter_members(filter)
   else
     members
   end
+  filter['includes_null'] || filter['excludes_null'] ? (values + [nil]).uniq : values
 end
 
 def full_boolean_domain_filter?(filter)
@@ -590,14 +666,121 @@ end
 # An EXCLUDE-mode Tableau filter enumerates the values it HIDES: mode:'exclude', never an
 # inverted include list.
 def list_filter_for(filter, column_id)
-  return nil if Array(filter['members']).empty? || full_boolean_domain_filter?(filter)
-  { 'columnId' => column_id, 'kind' => 'list', 'mode' => (filter['exclude'] ? 'exclude' : 'include'),
-    'selectionMode' => 'multiple', 'values' => typed_filter_members(filter), 'includeNulls' => 'never' }
+  values = typed_filter_members(filter)
+  return nil if values.empty? || full_boolean_domain_filter?(filter)
+  result = { 'columnId' => column_id, 'kind' => 'list', 'mode' => (filter['exclude'] ? 'exclude' : 'include'),
+             'selectionMode' => 'multiple', 'values' => values }
+  result['includeNulls'] = 'never' unless values.include?(nil)
+  result
 end
 
 # Null-dimension exclusion pair for a plotted dimension/color column object: a Text(IsNotNull)
 # helper column + its include:["true"] list filter (a boolean-typed list filter target renders
 # "Invalid filter" — the same Text() cast every keep-filter uses). Returns [column, filter].
+# Pivot null-dim exclusion: the master LEFT-joins its dimension tables, so
+# fact rows with no dim match form an all-NULL pivot group (live proof:
+# "Customers by Cohort Year and Loyalty Tier" exported an extra
+# {Cohort Year: null, Loyalty Tier: null, Customer Id: 0} row; Tableau's
+# relationship query over dimension-table fields never produces it). For each
+# rowsBy/columnsBy dimension whose Tableau view CSV has NO null/blank member,
+# add a hidden Text(IsNotNull(dim)) column + include ["true"] filter — a pivot
+# renders only its rows/columns/values, and the round-1 live proof showed this
+# filter does prune the pivot's null group. A dimension Tableau shows with a
+# Null member (Category x Region's blank Region) is left alone. Needs the
+# view CSV; a signal-only zone is untouched.
+def add_pivot_null_exclusion!(pivot_el, view, opts, warnings, cap)
+  return 0 unless pivot_el.is_a?(Hash) && view && view['id']
+  path = McpSource.csv_path(opts[:tab], view)
+  return 0 unless path && File.file?(path)
+  table = (CSV.read(path, encoding: 'bom|utf-8') rescue [])
+  header = Array(table.first).map { |h| h.to_s.strip.downcase }
+  body = table.drop(1)
+  return 0 if header.empty? || body.empty?
+  cols = Array(pivot_el['columns'])
+  n = 0
+  (Array(pivot_el['rowsBy']) + Array(pivot_el['columnsBy'])).each do |entry|
+    cobj = cols.find { |c| c['id'] == (entry['columnId'] || entry['id']) }
+    next unless cobj
+    ci = header.index(cobj['name'].to_s.strip.downcase)
+    next if ci.nil?
+    next if body.any? { |r| r[ci].nil? || r[ci].to_s.strip.empty? || r[ci].to_s.strip.casecmp?('null') }
+    next if cols.any? { |c| c['id'] == "nn-#{cobj['id']}" }
+    nn_col, nn_filter = null_exclusion_for(cobj)
+    pivot_el['columns'] << nn_col
+    (pivot_el['filters'] ||= []) << nn_filter.merge('id' => "flt-#{nn_col['id']}")
+    n += 1
+  end
+  if n.positive?
+    warnings << "'#{cap}' pivot null-dim exclusion: #{n} Text(IsNotNull) filter(s) — the Tableau view shows no null " \
+                'member on those axes; the LEFT-joined master would add an all-null group'
+  end
+  n
+end
+
+# Plan C10: pivot header/body uniformWidth from the Tableau view CSV (row members,
+# column-member count, formatted value strings — Tableau exports values formatted)
+# and the dashboard frame (canvas px x zone w_pct). Display-only; merged into
+# el['display'] without disturbing stacked / rowLayout.
+def add_pivot_widths!(pivot_el, view, dash, z, opts, warnings, cap)
+  return unless pivot_el.is_a?(Hash)
+  cols = Array(pivot_el['columns'])
+  by_id = cols.each_with_object({}) { |c, h| h[c['id']] = c }
+  row_cols = Array(pivot_el['rowsBy']).map { |r| by_id[r['columnId'] || r['id']] }.compact
+  col_cols = Array(pivot_el['columnsBy']).map { |r| by_id[r['columnId'] || r['id']] }.compact
+  val_cols = Array(pivot_el['values']).map { |id| by_id[id] }.compact
+  return if row_cols.empty? || val_cols.empty?
+
+  table = []
+  path = view && view['id'] && McpSource.csv_path(opts[:tab], view)
+  table = (CSV.read(path, encoding: 'bom|utf-8') rescue []) if path && File.file?(path)
+  header = Array(table.first).map { |h| h.to_s.strip.downcase }
+  body = table.drop(1)
+  idx = ->(c) { header.index(c['name'].to_s.strip.downcase) }
+  members = lambda do |c|
+    i = idx.call(c)
+    i ? body.map { |r| r[i].to_s }.reject { |v| v.strip.empty? } : []
+  end
+
+  row_members = row_cols.flat_map { |c| members.call(c) }
+  header_texts = row_members.empty? ? row_cols.map { |c| c['name'] } : row_members
+  n_col_members =
+    if col_cols.empty? then 1
+    elsif body.empty? then nil
+    else
+      combos = body.map { |r| col_cols.map { |c| (i = idx.call(c)) ? r[i].to_s : nil } }.uniq
+      combos.any? { |cb| cb.include?(nil) } ? nil : combos.size
+    end
+  value_n = n_col_members && n_col_members * val_cols.size
+  cw = dash.is_a?(Hash) ? dash.dig('canvas_px', 'w').to_f : 0.0
+  frame = PivotWidths.cell_px(cw, z['w_pct'])
+  n_hdr = pivot_el.dig('display', 'rowLayout') == 'separate-columns' ? row_cols.size : 1
+
+  widths = PivotWidths.display(header_texts: header_texts, frame_px: frame, value_cols: value_n, row_header_cols: n_hdr)
+  if frame && value_n
+    # Sigma discards the whole width spec when it overflows the cell, so a fit that leaves the
+    # columns illegible (< 48px) or impossible (< 16px) is a recorded residual, not a silent clip.
+    body = widths.dig('bodyWidths', 'uniformWidth')
+    if body.nil? || body < PivotWidths::LEGIBLE_BODY_PX
+      header_px = widths.dig('headerWidths', 'uniformWidth') ||
+                  [PivotWidths.longest_px(header_texts), (PivotWidths::HEADER_SHARE * frame / n_hdr).floor].min
+      warnings << "'#{cap}' pivot residual overflow-hash-vs-ellipsis: #{value_n} value columns do not fit the " \
+                  "#{frame}px cell legibly (#{body ? "#{body}px each" : 'under 16px each; no widths emitted'}); " \
+                  "Tableau prints ### here. Legible at a viewport of about " \
+                  "#{PivotWidths.legible_viewport_px(header_px, n_hdr, value_n, z['w_pct'])}px"
+    end
+  end
+  return if widths.empty?
+  pivot_el['display'] = (pivot_el['display'] || {}).merge(widths)
+  if PivotWidths.squeezed?(widths.dig('bodyWidths', 'uniformWidth'))
+    pivot_el['tableStyle'] = PivotWidths.merge_squeezed_table_style(pivot_el['tableStyle'])
+    warnings << "'#{cap}' pivot residual row-height-fixed: Sigma pivot rows cannot stretch to fill the source " \
+                'frame height (no row-height field; extra-small spacing is the tightest legible preset)'
+  end
+  warnings << "'#{cap}' pivot widths: header #{widths.dig('headerWidths', 'uniformWidth')}px" \
+              "#{widths['bodyWidths'] ? ", body #{widths.dig('bodyWidths', 'uniformWidth')}px" : ' (body left to Sigma: frame/value columns unknown)'}" \
+              "#{row_members.empty? ? ' (header from row captions: no member list offline)' : ''}"
+end
+
 def null_exclusion_for(cobj)
   nn_id = "nn-#{cobj['id']}"
   [{ 'id' => nn_id, 'name' => "#{cobj['name']} Not Null",
@@ -1311,6 +1494,75 @@ def region_type_for_geo_role(role, members = [])
   end
 end
 
+# ---- Tableau map styling → Sigma region-map mapStyle ------------------------
+# Tableau basemap styles with a Sigma mapStyle.baseStyle twin. "normal" and
+# "outdoors" have none (left at Sigma's default and named as a residual).
+TABLEAU_MAP_BASE_STYLES = {
+  'light' => 'light', 'dark' => 'dark', 'streets' => 'streets', 'satellite' => 'satellite'
+}.freeze
+SIGMA_DEFAULT_MAP_BASE_STYLE = 'light'
+# Map settings Sigma has no field for, keyed to the platform-difference catalog
+# id that would retire them once live-proven there (the catalog is the only
+# authority: an id it does not ship leaves the residual open).
+MAP_WASHOUT_CATALOG_ID = 'map-basemap-washout'
+MAP_STEPPED_COLOR_CATALOG_ID = 'map-stepped-color-scale'
+
+# signal: parse-twb-layout's zone 'map_style' ({formats, sources, color_steps})
+# or nil. Returns { base_style: String|nil, residuals: [{detail:, catalog_id:}] }.
+def region_map_style_plan(signal)
+  out = { base_style: nil, residuals: [] }
+  unless signal.is_a?(Hash)
+    # No signal (a layout parsed before map styling was read): unknown is not
+    # "carried" — keep the tile approximated rather than claim a clean map.
+    out[:residuals] << { detail: 'Tableau map styling not inspected (no map_style signal: the sheet has no map style rule or ' \
+                                 'map source, or dashboard-layout.json predates the signal)',
+                         catalog_id: nil }
+    return out
+  end
+  formats = (signal['formats'] || {}).dup
+  style = formats.delete('map-style').to_s.strip.downcase
+  unless style.empty?
+    out[:base_style] = TABLEAU_MAP_BASE_STYLES[style]
+    unless out[:base_style]
+      out[:residuals] << { detail: "basemap style '#{style}' (no Sigma baseStyle twin; Sigma default used)", catalog_id: nil }
+    end
+  end
+  washout = formats.delete('washout')
+  if washout && washout.to_f.positive?
+    out[:residuals] << { detail: "basemap washout #{(washout.to_f * 100).round}% (Sigma has no basemap washout setting)",
+                         catalog_id: MAP_WASHOUT_CATALOG_ID }
+  end
+  formats.each do |attr, value|
+    out[:residuals] << { detail: "map setting #{attr}=#{value}", catalog_id: nil }
+  end
+  Array(signal['sources']).reject { |name| name.to_s.casecmp?('Tableau') }.each do |name|
+    out[:residuals] << { detail: "background map source '#{name}'", catalog_id: nil }
+  end
+  steps = signal['color_steps'].to_i
+  if steps.positive?
+    out[:residuals] << { detail: "stepped color (#{steps} steps) drawn as a continuous gradient " \
+                                 '(Sigma scale color has no step count)',
+                         catalog_id: MAP_STEPPED_COLOR_CATALOG_ID }
+  end
+  out
+end
+
+# The residuals a catalogued platform difference does NOT explain (ids: the
+# shipped catalog's entry ids). Empty → the map carries everything Sigma can.
+def map_open_residuals(residuals, ids)
+  Array(residuals).reject { |r| r[:catalog_id] && ids.include?(r[:catalog_id]) }
+end
+
+def platform_difference_ids
+  @platform_difference_ids ||= begin
+    require_relative 'lib/degradation_ledger'
+    DegradationLedger.catalog_ids
+  rescue LoadError, StandardError
+    []
+  end
+end
+
+
 # A view-CSV cell that is a NUMBER as Tableau formats it: plain, thousands-separated,
 # currency-prefixed ("$1,234.50"), percent ("77.5%"), accounting-negative ("(12.3)").
 # The multi-channel detector must not mistake a formatted measure column for a dimension.
@@ -1399,6 +1651,47 @@ end
 # its Sigma-safe form (MechanicalSpecs.sigma_safe_column_name, optionally with the " 2"
 # collision suffix). Any other caption/name difference (a warehouse-mapped name, a caption
 # from another master-map source) is left alone.
+# Sigma's workbook-spec dry run rejects an axis title object without non-empty
+# text (400 "requires non-empty text"); a fontSize-only title is never valid and
+# there is no "hidden title" shape, so the only safe spelling is OMITTING it.
+# Final pass over the whole output so no emitter (or later rewrite) can leave a
+# textless xAxis/yAxis format.title behind. Returns the number removed.
+def sanitize_axis_titles!(node)
+  removed = 0
+  case node
+  when Hash
+    %w[xAxis yAxis].each do |axis|
+      fmt = node[axis].is_a?(Hash) ? node[axis]['format'] : nil
+      next unless fmt.is_a?(Hash) && fmt.key?('title')
+      t = fmt['title']
+      next if t.is_a?(Hash) && t['text'].is_a?(String) && !t['text'].strip.empty?
+      fmt.delete('title')
+      removed += 1
+    end
+    node.each_value { |v| removed += sanitize_axis_titles!(v) }
+  when Array
+    node.each { |v| removed += sanitize_axis_titles!(v) }
+  end
+  removed
+end
+
+# Plan C1: null members/cells display as Tableau shows them (display-only; see
+# lib/null_member_display.rb). Final pass beside sanitize_axis_titles!; the
+# datatype lookup resolves a column by caption / [Master/<name>] against the
+# workbook's columns_by_guid so numeric group keys take the number-format route
+# and unknown types take the (type-agnostic) IsNull conditional-format route.
+def apply_null_member_display!(tree)
+  cbg = ($meta_for_null_display || {})['columns_by_guid'] || {}
+  lookup = lambda do |col|
+    names = [col['name'].to_s.strip, col['formula'].to_s[%r{\A\[(?:Master/)?([^\]]+)\]\z}, 1].to_s.strip].reject(&:empty?)
+    hit = cbg.values.find do |v|
+      v.is_a?(Hash) && names.any? { |n| v['caption'].to_s.strip.casecmp?(n) || v['name'].to_s.strip.casecmp?(n) }
+    end
+    hit && hit['datatype']
+  end
+  NullMemberDisplay.apply!(tree, datatype_of: lookup)
+end
+
 def slash_renamed_caption(entry)
   return nil unless entry.is_a?(Hash)
   cap = entry['caption'].to_s
@@ -1436,6 +1729,11 @@ def rewrite_slash_caption_refs!(tree)
 end
 
 meta   = opts[:meta] ? JSON.parse(File.read(opts[:meta])) : { 'worksheets' => {}, 'shared_filters' => [] }
+$meta_for_null_display = meta
+# Virtual-connection datasources name table-calc addressing by GUID; every
+# direction / null-first / share-scope consumer matches it by caption.
+AddressingCanon.canonicalize!(meta['worksheets'], meta['columns_by_guid'])
+AddressingCanon.canonicalize!(layout, meta['columns_by_guid'])
 # Caption → Tableau formula for every calculated field the workbook defines
 # (deduped across worksheets; first definition wins). Lets the shared-filter
 # control builder tell a calc-field filter ("Team Bucket", "Tier") apart
@@ -1457,8 +1755,12 @@ end
 LEARNED_RULES = LearnedRules.load
 warn "loaded #{LEARNED_RULES.length} customer-learned rule(s) from #{LearnedRules.rules_path}" if LEARNED_RULES.any?
 gw     = JSON.parse(File.read(File.join(opts[:tab], 'get-workbook.json')))
-views  = gw.dig('views', 'view') || []
-views  = [views] unless views.is_a?(Array)
+# Discovery metadata (Tableau workbook `showTabs`): only an explicit false hides
+# Sigma's page tabs (see MechanicalSpecs.hide_page_tabs_for_nav_strip!).
+SOURCE_HIDES_TABS = [gw['showTabs'], (gw['workbook'].is_a?(Hash) ? gw['workbook']['showTabs'] : nil)]
+                    .any? { |v| v == false || v.to_s.strip.downcase == 'false' }
+require_relative 'lib/mcp_source'
+views = McpSource.views_for(opts[:tab], gw)
 view_by_name = views.each_with_object({}) { |v, h| h[v['name']] = v }
 
 # Single-datasource logical-table grain routing. The orchestrator provides the
@@ -1470,7 +1772,7 @@ grain_plan = opts[:grain_plan] && File.exist?(opts[:grain_plan]) ?
 if grain_plan && grain_plan['datasources'].is_a?(Array)
   grain_plan['datasources'].each { |grain| grain['worksheets'] = [] }
   views.each do |view|
-    csv_path = File.join(opts[:tab], 'views', "#{view['id']}.csv")
+    csv_path = McpSource.csv_path(opts[:tab], view)
     next unless File.exist?(csv_path)
     headers = begin
       CSV.open(csv_path, 'r', headers: true, encoding: 'bom|utf-8') { |csv| csv.first&.headers || [] }
@@ -1500,6 +1802,46 @@ end
 # formats are RECORDED in formats-emitted.json, never guessed.
 def tableau_format_to_sigma(s)
   FormatMap.translate(s)
+end
+
+# Plan C8: the datetime format of a date-grain axis column. The SOURCE's own
+# date format (when it translates) wins for non-quarter grains; otherwise by
+# grain: month `%b %Y`, week `%b %d, %Y`, year `%Y`. Sigma's strftime set has
+# no quarter directive, so a quarter-grain axis gets NO format (Sigma's default
+# date label) rather than a month format that would hide the grain. Other
+# grains keep the historical `%b %Y`. Display-only; the column formula is untouched.
+DATE_GRAIN_FORMAT = { 'month' => '%b %Y', 'week' => '%b %d, %Y', 'year' => '%Y' }.freeze
+def date_axis_format(grain, src_fmt = nil)
+  return nil if grain.to_s == 'quarter'
+  return src_fmt if src_fmt.is_a?(Hash) && src_fmt['kind'] == 'datetime'
+  { 'kind' => 'datetime', 'formatString' => DATE_GRAIN_FORMAT.fetch(grain.to_s, '%b %Y') }
+end
+
+# Epoch ms of UTC midnight for a Tableau date literal ('#2023-12-01#' or
+# '#2023-12-01 00:00:00#'); `first_of_month` snaps to day 1. nil if not a date.
+def tableau_date_epoch_ms(raw, first_of_month: true)
+  m = raw.to_s.match(/(\d{4})-(\d{2})-(\d{2})/)
+  return nil unless m
+  Time.utc(m[1].to_i, m[2].to_i, first_of_month ? 1 : m[3].to_i).to_i * 1000
+end
+
+# Tableau major-units → [Sigma time unit, step multiplier]; nil = not mappable.
+TICK_UNIT_MAP = {
+  'years' => ['year', 1], 'iso-years' => ['year', 1], 'quarters' => ['month', 3],
+  'iso-quarters' => ['month', 3], 'months' => ['month', 1], 'weeks' => ['week', 1],
+  'iso-weeks' => ['week', 1], 'days' => ['day', 1]
+}.freeze
+
+# The SOURCE-fact-only xAxis time tick spacing for a date axis (nil when the
+# worksheet has no explicit major-tick step or no anchor fact).
+def date_tick_spacing(af)
+  unit, mult = TICK_UNIT_MAP[af['major_units'].to_s]
+  step = af['major_spacing'].to_s.to_f
+  return nil if unit.nil? || step <= 0
+  origin = af['major_origin'].to_s.empty? ? af['min_raw'] : af['major_origin']
+  anchor = tableau_date_epoch_ms(origin, first_of_month: !%w[week day].include?(unit))
+  return nil unless anchor
+  { 'type' => 'interval', 'scale' => 'time', 'unit' => unit, 'step' => (step * mult).round, 'anchor' => anchor }
 end
 
 # PR-12: per-column DEFAULT formats from the .twb (<column default-format=…>,
@@ -1538,13 +1880,17 @@ def format_key_match_keys(field)
   names.map { |n| n.downcase.gsub(/\W+/, '') }.reject(&:empty?).uniq
 end
 
+def format_header_keys(header)
+  raw = header.to_s
+  stripped = raw.sub(/\A(?:(?:sum|avg|average|min|max|median|distinct count|count) of |(?:avg|sum|min|max|med|cnt|ctd)\.\s*)/i, '')
+  [raw, stripped].map { |name| name.downcase.gsub(/\W+/, '') }.reject(&:empty?).uniq
+end
+
 def pick_column_default_format_raw(header)
-  hkey = header.to_s.downcase.gsub(/\W+/, '')
-  return nil if hkey.empty?
-  COLUMN_DEFAULT_FORMATS.each do |capn, val|
-    ckey = capn.to_s.downcase.gsub(/\W+/, '')
-    next if ckey.empty?
-    return val if ckey == hkey || hkey.include?(ckey) || ckey.include?(hkey)
+  format_header_keys(header).each do |hkey|
+    matches = COLUMN_DEFAULT_FORMATS.select { |caption, _| caption.to_s.downcase.gsub(/\W+/, '') == hkey }.values.uniq
+    return matches.first if matches.size == 1
+    return nil if matches.size > 1
   end
   nil
 end
@@ -1552,6 +1898,39 @@ end
 def pick_column_default_format(header)
   raw = pick_column_default_format_raw(header)
   raw && tableau_format_to_sigma(raw)
+end
+
+# Plan C11b: the SOURCE percent format (worksheet pill format, then the .twb
+# column default) for any of `names`, or nil. Percent overrides (share,
+# attainment, rank-percentile) use it so the decimals follow the source.
+def source_percent_format(z, *names)
+  names.flatten.compact.each do |n|
+    f = pick_tableau_format((z || {})['formats'], n) || pick_column_default_format(n)
+    return f if MeasurePrecision.percent?(f)
+  end
+  nil
+end
+
+# The percent format an override stamps: default precision `default_fs` only
+# when the source carries no percent format; otherwise the source's own.
+def percent_override_format(z, default_fs, names, existing = nil)
+  MeasurePrecision.percent_format(source_percent_format(z, *Array(names)), default_fs, existing)
+end
+
+# Precision rule for a pivot value with NO source format (no pill format, no .twb default, no
+# master-map format): print it exactly as Tableau does. Tableau's Automatic format renders a
+# crosstab real at 0 decimals, so a ratio such as Gross Margin Pct (0.63) prints "1" in the
+# source itself (Complex Pivot source PNG, 2026-11-09 regression). Switching to a percent format
+# would change every printed cell against the source; the grader compares against the source,
+# and the data gate needs the same printed numbers. So ',.0f' stays, and this returns a
+# PRECISION-AS-SOURCE warning for ratio-named measures (the heuristic_number_format percent
+# test), so a human can opt into ',.1%' after publish. nil when the name is not ratio-like.
+def precision_as_source_note(cap, measure_name)
+  return nil unless heuristic_number_format(measure_name)['formatString'].to_s.end_with?('%')
+
+  "PRECISION-AS-SOURCE: '#{cap}' pivot value '#{measure_name}' has no source number format; Tableau's " \
+    "Automatic format prints it at 0 decimals (a ratio shows as 1/0), and Sigma matches that with ',.0f'. " \
+    "Readability opt-in after publish: set the column format to ',.1%'."
 end
 
 # Last-resort number format when NO source format resolves (no pill format, no
@@ -1667,6 +2046,63 @@ end
 
 # Tableau table-calc / window translators (translate_tableau_tc,
 # translate_window_calc, WINDOW_* constants) live in lib/chart_calc_translate.rb.
+
+# Plan C2: where a bar/column data label sits. Tableau prints the value just past
+# the bar end; Sigma's default anchor is not guaranteed to, so an UNSTACKED bar
+# gets dataLabel.anchor "outside-end" explicitly. Never "end" as a default: that
+# renders white labels INSIDE the bar top. A source-explicit label alignment
+# (z['mark_label_align']) maps to the nearest anchor instead. Stacked bars
+# (several measures, or a category colour, without stacking:none) ignore the
+# anchor in Sigma and keep segment-centred labels like Tableau — return nil
+# (unchanged). Non-bar kinds are unchanged. Display-only; never touches values.
+# NOTE: no parser (parse-twb-layout .rb/.py) populates z['mark_label_align'] yet, so in real
+# runs every unstacked bar gets outside-end. The alignment mapping below is signal-level only
+# until a follow-up parses Tableau's label alignment from a probed TWB.
+BAR_LABEL_ALIGN_ANCHOR = {
+  'inside' => 'end', 'inside-end' => 'end', 'top-inside' => 'end',
+  'center' => 'middle', 'middle' => 'middle',
+  'base' => 'start', 'inside-base' => 'start', 'start' => 'start', 'bottom-inside' => 'start'
+}.freeze
+def bar_label_anchor(element, kind, source_align)
+  return nil unless kind == 'bar-chart'
+  stacked = element['stacking'] != 'none' &&
+            (Array(element.dig('yAxis', 'columnIds')).size > 1 || element.dig('color', 'by') == 'category')
+  return nil if stacked
+  return BAR_LABEL_ALIGN_ANCHOR[source_align.to_s.downcase] unless source_align.to_s.strip.empty?
+  'outside-end'
+end
+
+# A bar coloured by the SAME dimension as its category axis (Tableau: Region on Rows and on
+# Colour) draws one segment per bar, so Tableau prints a single dark label past the bar end.
+# Sigma still treats colour-by-category as a stack: `dataLabel.anchor` is ignored and the
+# segment label renders white inside the bar. Live-probed 2026-11-10 (wbs 8793373b, 0b520126):
+# anchor alone → white inside; stacking:"none" → dark outside, but each bar shrinks to a thin
+# clustered slot; dataLabel.color → dark but still inside; colouring by the x-axis column
+# itself → POST 400 ("a column can only be on one channel at a time"). The stack TOTAL label
+# is the match: it sits past the bar end in dark text, and with one segment per bar the total
+# IS the value (same number format). So segment labels are hidden and totals shown.
+# True only for a single-measure bar whose colour column has the same formula as the x axis.
+def single_segment_category_bar?(element, kind)
+  return false unless kind == 'bar-chart' && element.dig('color', 'by') == 'category'
+  return false if element['stacking'] == 'none'
+  return false unless Array(element.dig('yAxis', 'columnIds')).size == 1
+
+  cols = Array(element['columns'])
+  formula = ->(id) { (cols.find { |c| c['id'] == id } || {})['formula'].to_s.strip }
+  x = formula.call(element.dig('xAxis', 'columnId'))
+  !x.empty? && x == formula.call(element.dig('color', 'column'))
+end
+
+# The dataLabel for a labelled bar: single-segment category bars carry the value as a stack
+# total (see single_segment_category_bar?); everything else keeps labels:shown + the C2 anchor.
+def bar_data_label(element, kind, source_align)
+  return { 'labels' => 'hidden', 'totals' => { 'display' => 'shown' } } if single_segment_category_bar?(element, kind)
+
+  label = { 'labels' => 'shown' }
+  anchor = bar_label_anchor(element, kind, source_align)
+  label['anchor'] = anchor if anchor
+  label
+end
 
 # A bar whose data label is a separate column (the rank on a leaderboard) prints that label just
 # PAST the bar end in Tableau. In Sigma the longest bar fills the plot, so its label lands inside
@@ -2118,9 +2554,10 @@ def remap_param_branch(expr, mmap, columns_by_guid)
   # so an untranslated branch fails: "references function(s) not in Sigma's
   # library: SUM". Translate the common aggregate/function names (COUNTD before
   # COUNT so it isn't partially matched).
+  s = tableau_iif_to_sigma(s)
   { 'COUNTD' => 'CountDistinct', 'SUM' => 'Sum', 'AVG' => 'Avg', 'MIN' => 'Min',
-    'MAX' => 'Max', 'MEDIAN' => 'Median', 'COUNT' => 'Count', 'STDEV' => 'StdDev',
-    'IIF' => 'If' }.each { |t, sg| s = s.gsub(/\b#{t}\s*\(/i, "#{sg}(") }
+    'MAX' => 'Max', 'MEDIAN' => 'Median', 'COUNT' => 'Count', 'STDEV' => 'StdDev'
+  }.each { |t, sg| s = s.gsub(/\b#{t}\s*\(/i, "#{sg}(") }
   s
 end
 
@@ -2635,20 +3072,8 @@ end
 # Match by best-effort: field ref contains a column GUID OR a friendly name
 # fragment that overlaps with the header.
 def pick_tableau_format(formats, header)
-  return nil if formats.nil? || formats.empty?
-  hkey = header.to_s.downcase.gsub(/\W+/, '')
-  return nil if hkey.empty?
-  formats.each do |field, val|
-    # Friendly-name match: format key looks like `[usr:Return Rate:qk]` OR is
-    # keyed by an internal id (`[usr:Calculation_AvgBal:qk]`) the KPI/measure
-    # column carries under its CAPTION — format_key_match_keys bridges both.
-    format_key_match_keys(field).each do |fkey|
-      next unless fkey == hkey || hkey.include?(fkey) || fkey.include?(hkey)
-      sigma = tableau_format_to_sigma(val)
-      return sigma if sigma
-    end
-  end
-  nil
+  raw = pick_tableau_format_raw(formats, header)
+  raw && tableau_format_to_sigma(raw)
 end
 
 # The RAW Tableau format string for a header (same matching loop as
@@ -2656,12 +3081,10 @@ end
 # (scale-comma + suffix), where the exact path is a Text() formula column.
 def pick_tableau_format_raw(formats, header)
   return nil if formats.nil? || formats.empty?
-  hkey = header.to_s.downcase.gsub(/\W+/, '')
-  return nil if hkey.empty?
-  formats.each do |field, val|
-    format_key_match_keys(field).each do |fkey|
-      return val if fkey == hkey || hkey.include?(fkey) || fkey.include?(hkey)
-    end
+  format_header_keys(header).each do |hkey|
+    matches = formats.select { |field, _| format_key_match_keys(field).include?(hkey) }.values.uniq
+    return matches.first if matches.size == 1
+    return nil if matches.size > 1
   end
   nil
 end
@@ -2912,8 +3335,127 @@ def pivot_flag_color_rules(z, meta, mmap, value_ids, el_id, cap, warnings)
   { 'rules' => rules, 'column' => flag }
 end
 
+def measure_name_alias(field, zone, meta)
+  aliases = meta['measure_name_aliases'] || {}
+  raw = (field['column'] || field['raw']).to_s
+  token = raw.scan(/\[([^\]]+)\]/).flatten.last.to_s
+  token = token.include?(':') ? token.sub(/:[a-z0-9]+\z/i, '') : "#{field['derivation']}:#{field['guid'] || (token.empty? ? raw : token)}"
+  sources = raw.scan(/\[([^\]]+)\]\.\[/).flatten
+  if sources.empty?
+    sources = [zone.dig('rows_shelf', 'raw'), zone.dig('cols_shelf', 'raw')].compact.join(' ').scan(/\[([^\]]+)\]\.\[/).flatten.uniq
+  end
+  return nil unless sources.size == 1
+  aliases.dig(sources.first, token.downcase)
+end
+
+# Tableau orders NULL dimension members FIRST; Sigma orders them LAST. For a
+# running / moving / Lag / Lead window calc the accumulation order IS the
+# result, so a nullable axis dimension shifts every cumulative value (field
+# case: RUNNING_SUM over Region with a null Region). Sigma axis sorts take ONE
+# key, so instead of a separate 0/1 sort column ahead of the dimension we sort
+# by a single hidden key that folds both: If(IsNull(dim), "", dim) with
+# aggregation min — null members get "" (first ascending, last descending,
+# exactly Tableau's placement) and the rest keep alphabetical order.
+# Only string dims that are a plain column ref and sit on their natural order
+# (no sort, or sorted by themselves) are rewritten; a measure sort, an
+# explicit alternate key, or a non-string dim is left alone (the null position
+# there is the user's / not safely foldable).
+NULL_FIRST_WINDOW_RE = /\b(?:Cumulative[A-Za-z]*|Moving[A-Za-z]*|Lag|Lead)\s*\(/
+PIVOT_DIRECTIONAL_SHARE_RE = /\APercentOfTotal\(.*"(?:row|column)"\)\s*\z/m
+def add_null_first_sort_key!(element, meta, warnings, cap, z = nil)
+  return false unless element.is_a?(Hash)
+  cols = element['columns']
+  return false unless cols.is_a?(Array)
+  window = cols.any? { |c| c.is_a?(Hash) && c['formula'].to_s =~ NULL_FIRST_WINDOW_RE }
+  # A pivot's direction-scoped share (Region across the COLUMNS) shows the
+  # addressed dim's members as headers: Tableau puts the NULL header first,
+  # Sigma last — same one-key fold keeps the source's column order.
+  share = element['kind'] == 'pivot-table' &&
+          cols.any? { |c| c.is_a?(Hash) && c['formula'].to_s =~ PIVOT_DIRECTIONAL_SHARE_RE }
+  return false unless window || share
+  entries = if element['kind'] == 'pivot-table'
+              Array(element['rowsBy']) + Array(element['columnsBy'])
+            elsif element['xAxis'].is_a?(Hash)
+              [element['xAxis']]
+            else
+              []
+            end
+  cbg = meta['columns_by_guid'] || {}
+  changed = false
+  # The compute-using dim(s) of the sheet's table calcs (parser ordering_field)
+  # are the only axes whose null placement matters; none known → every axis dim.
+  nrm = ->(x) { x.to_s.downcase.gsub(/[^a-z0-9]/, '') }
+  addr = Array(z && z['calculations']).map { |c| nrm.call(c['ordering_field']) }
+  addr += Array(z && z['quick_calc_pcto']).map { |q| nrm.call(AddressingCanon.caption_for(q['addressing'], cbg) || q['addressing']) }
+  addr = addr.reject(&:empty?).uniq
+  entries.each do |entry|
+    next unless entry.is_a?(Hash)
+    cid = entry['columnId'] || entry['id']
+    col = cols.find { |c| c['id'] == cid }
+    next if col && addr.any? && !addr.include?(nrm.call(col['name']))
+    next unless col && col['formula'].to_s =~ /\A\s*(\[[^\]]+\])\s*\z/
+    ref = Regexp.last_match(1)
+    srt = entry['sort']
+    next unless srt.nil? || srt['by'] == cid
+    dt = cbg.values.find { |v| v.is_a?(Hash) && v['caption'].to_s.strip.casecmp?(col['name'].to_s.strip) }&.dig('datatype')
+    next unless dt.to_s == 'string'
+    kid = "#{cid}-nullfirst"
+    next if cols.any? { |c| c['id'] == kid }
+    cols << { 'id' => kid, 'name' => "#{col['name']} (null-first sort)",
+              'formula' => %(If(IsNull(#{ref}), "", #{ref})) }
+    entry['sort'] = { 'direction' => (srt && srt['direction']) || 'ascending', 'by' => kid, 'aggregation' => 'min' }
+    warnings << "'#{cap}' #{window ? 'window calc (cumulative/moving/Lag/Lead) is ordered' : 'directional share is laid out'} by '#{col['name']}' — added hidden " \
+                "sort key '#{kid}' so NULL members sort FIRST as in Tableau (Sigma defaults to last)"
+    changed = true
+  end
+  changed
+end
+
+# A parameter is DECLARED-ONLY when its internal name ("[Year Filter]",
+# "[Parameter 1]") appears nowhere in the .twb except its own declaration
+# <column ... param-domain-type=...> in the top-level <datasources> — no
+# worksheet dependency, filter (a top-N count), reference line, title, calc
+# or dashboard zone mentions it. Without the .twb text nothing is provably
+# unused, so the answer is false (keep the needs-wiring emission).
+def param_declared_only?(twb_text, internal_name)
+  return false if twb_text.to_s.empty? || internal_name.to_s.strip.empty?
+
+  name = internal_name.to_s.strip
+  name = "[#{name}]" unless name.start_with?('[')
+  ws_at = twb_text.index('<worksheets') || twb_text.index('<dashboards') || twb_text.length
+  head = twb_text[0...ws_at]
+  tail = twb_text[ws_at..] || ''
+  return false if tail.include?(name)
+
+  decl = /<column\b(?=[^>]*\bparam-domain-type=)(?=[^>]*\bname=(['"])#{Regexp.escape(name)}\1)[^>]*>/
+  head.gsub(decl, '').scan(Regexp.escape(name)).empty?
+end
+
+# The plotted measure column a native top-N ranks by, when the top-N order
+# expression is exactly one of the tile's shelf measures (same field GUID /
+# name, same aggregation) and the element plots exactly one measure column
+# for it. nil otherwise (the caller then keeps the hidden helper column).
+TOPN_AGG_DERIVATION = { 'SUM' => 'sum', 'AVG' => 'avg', 'MIN' => 'min', 'MAX' => 'max', 'MEDIAN' => 'median',
+                        'COUNT' => 'count', 'COUNTD' => 'countd' }.freeze
+def topn_plotted_measure_col(element, z, order_expr)
+  m = order_expr.to_s.match(/\A\s*(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[([^\]]+)\]\s*\)\s*\z/i)
+  return nil unless m
+  agg = TOPN_AGG_DERIVATION[m[1].upcase]
+  field = m[2].strip.downcase
+  on_shelf = Array(z && z['measures']).any? do |mz|
+    mz.is_a?(Hash) && mz['column'].to_s.gsub(/\A\[|\]\z/, '').strip.downcase == field &&
+      mz['derivation'].to_s.downcase == agg
+  end
+  return nil unless on_shelf
+  ids = Array(element.dig('yAxis', 'columnIds'))
+  ids = Array(element['values']) if ids.empty? && element['values'].is_a?(Array)
+  return nil unless ids.size == 1
+  Array(element['columns']).find { |c| c['id'] == ids.first }
+end
+
 def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
   cap = z['caption']
+  default_fmt_ids = [] # measure columns stamped ',.0f' for want of any source format
   el_id = worksheet_element_id(cap)
   rows_shelf = z['rows_shelf'] || {}
   cols_shelf = z['cols_shelf'] || {}
@@ -2989,6 +3531,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       cbg_cap = (meta['columns_by_guid'] || {}).dig(display_name.to_s, 'caption')
       display_name = cbg_cap if cbg_cap && !cbg_cap.to_s.strip.empty? && cbg_cap.to_s !~ /\ACalculation_/i
     end
+    display_name = measure_name_alias(field, z, meta) || display_name if target == :value
     col_obj = { 'id' => col_id, 'name' => display_name, 'formula' => formula }
     if field['role'] == 'measure'
       # PR-12: fall back to the column's .twb default-format when the sheet
@@ -2997,7 +3540,10 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
                 pick_column_default_format(m['name'])
       col_obj['format'] = tab_fmt if tab_fmt
       col_obj['format'] ||= m['format'] if m['format'].is_a?(Hash)
-      col_obj['format'] ||= { 'kind' => 'number', 'formatString' => ',.0f' }
+      unless col_obj['format']
+        col_obj['format'] = { 'kind' => 'number', 'formatString' => ',.0f' }
+        default_fmt_ids << col_id
+      end
     elsif field['role'] == 'dim'
       # A dimension (date header) honors the SOURCE date format when one
       # translates to a datetime format — e.g. the label rule '*m/d/yy' →
@@ -3011,8 +3557,9 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       elsif SHELF_TRUNC_FOR_PREFIX[deriv]
         # A YEAR derivation labels the header with the year ("2024"), not the
         # month-grain "Jan 2024" the truncated date would show by default.
-        col_obj['format'] = { 'kind' => 'datetime',
-                              'formatString' => SHELF_TRUNC_FOR_PREFIX[deriv] == 'year' ? '%Y' : '%b %Y' }
+        # Quarter grain gets no month format (plan C8, date_axis_format).
+        df = date_axis_format(SHELF_TRUNC_FOR_PREFIX[deriv])
+        col_obj['format'] = df if df
       end
     end
     cols_array << col_obj
@@ -3182,7 +3729,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
         # would otherwise false-match the currency heuristic on "revenue".)
         if uv['name'].to_s =~ /attain|\bshare\b|sell[-\s]?through|win[-\s]?rate|conversion/i ||
            ws_calc['formula'].to_s =~ /\b(goal|target|budget|quota|plan|forecast)\b/i
-          uv['col']['format'] = { 'kind' => 'number', 'formatString' => ',.1%' }
+          uv['col']['format'] = percent_override_format(z, ',.1%', [uv['name'], uv['col']['name']], uv['col']['format'])
         end
         warnings << "'#{cap}' pivot value '#{uv['name']}' is a Tableau User-aggregated calc — decomposed: #{f[0..120]}"
       else
@@ -3221,6 +3768,10 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
           ['row', "table-calc addressing '#{addr}' rides the columns axis"]
         elsif addr && axis_has_addr.call(rows_by)
           ['column', "table-calc addressing '#{addr}' rides the rows axis"]
+        elsif !addr && ws_calc['ordering_type'] == 'across'
+          ['row', 'table-calc compute-using Table (Across)']
+        elsif !addr && ws_calc['ordering_type'] == 'down'
+          ['column', 'table-calc compute-using Table (Down)']
         else
           [uv['shelf'] == :cols ? 'column' : 'row',
            addr ? "addressing '#{addr}' not on either pivot axis — pill-shelf fallback, VERIFY scope" \
@@ -3232,7 +3783,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
         else
           plan['inner']
         end
-      uv['col']['format'] = { 'kind' => 'number', 'formatString' => ',.1%' } if plan['share_kind'] == 'percent_of_total'
+      uv['col']['format'] = percent_override_format(z, ',.1%', [uv['name'], uv['col']['name']], uv['col']['format']) if plan['share_kind'] == 'percent_of_total'
       warnings << "'#{cap}' pivot value '#{uv['name']}' → #{plan['wrapper']}(share) emitted as " \
                   "#{uv['col']['formula'][0..90]} [scope=#{scope}: #{scope_src}] [#{plan['note']}]"
     elsif plan['mode'] == 'inline' && plan['formula']
@@ -3243,13 +3794,51 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       # conservative "UNVALIDATED in pivot context" behaviour lost real measures
       # like share-of-total and running-total from migrated crosstabs).
       uv['col']['formula'] = plan['formula']
+      # SUM(x)/TOTAL(SUM(x)) and SUM(x)/WINDOW_SUM(SUM(x)) translate to a
+      # direction-less grand_total share; a pivot's "compute using" decides
+      # the real partition (Region on COLUMNS → each row sums to 100% → "row").
+      # The pareto CumulativeSum(PercentOfTotal(…)) form stays grand_total.
+      if plan['formula'] =~ /\A\s*PercentOfTotal\(.*"grand_total"\)\s*\z/m
+        nqa = ->(x) { x.to_s.downcase.gsub(/[^a-z0-9]/, '') }
+        addr_n = nqa.call(ws_calc['ordering_field'])
+        on_axis = lambda do |entries|
+          !addr_n.empty? && entries.any? do |e|
+            c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
+            c && nqa.call(c['name']) == addr_n
+          end
+        end
+        # No <table-calc> at all (an explicit SUM(x)/TOTAL(SUM(x)) calc the
+        # author never re-addressed — live regression "Sales Matrix"): Tableau
+        # computes it with its DEFAULT addressing, Table (Across), i.e. each
+        # pivot row is a partition → "row". Only when the pivot actually has a
+        # column dimension (with rows only, Across is a per-row 100% quirk we
+        # never infer).
+        col_dim = cols_by.any? do |e|
+          c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
+          c && !values_arr.include?(c['id'])
+        end
+        default_across = addr_n.empty? && ws_calc['ordering_type'].nil? && col_dim
+        sc = if on_axis.call(cols_by) then 'row'
+             elsif on_axis.call(rows_by) then 'column'
+             elsif addr_n.empty? && ws_calc['ordering_type'] == 'across' then 'row'
+             elsif addr_n.empty? && ws_calc['ordering_type'] == 'down' then 'column'
+             elsif default_across then 'row'
+             end
+        if sc
+          uv['col']['formula'] = plan['formula'].sub(/"grand_total"\)\s*\z/, "\"#{sc}\")")
+          how = default_across && sc == 'row' && !on_axis.call(cols_by) ? 'Tableau default addressing Table (Across) — no compute-using in the .twb' : "table-calc compute-using #{(ws_calc['ordering_field'] || ws_calc['ordering_type']).inspect}"
+          warnings << "'#{cap}' pivot value '#{uv['name']}' share re-scoped to \"#{sc}\" from #{how}"
+        else
+          warnings << "'#{cap}' pivot value '#{uv['name']}' share compute-using #{(ws_calc['ordering_field'] || 'unspecified').inspect} did not resolve to a pivot axis — kept \"grand_total\"; VERIFY scope"
+        end
+      end
       # Window formulas that yield a 0–1 fraction (share-of-total, rank-percentile)
       # must carry a percent format, else the default ',.0f' rounds every cell to
       # "0" and the crosstab reads as all-zeros even though it computes correctly
       # (grand total = 1.0). Mirrors the chart-path override (PercentOfTotal→',.2%').
       case plan['formula']
-      when /\A\s*(?:CumulativeSum\(PercentOfTotal|PercentOfTotal)\(/ then uv['col']['format'] = { 'kind' => 'number', 'formatString' => ',.2%' }
-      when /\A\s*RankPercentile\(/ then uv['col']['format'] = { 'kind' => 'number', 'formatString' => ',.1%' }
+      when /\A\s*(?:CumulativeSum\(PercentOfTotal|PercentOfTotal)\(/ then uv['col']['format'] = percent_override_format(z, ',.2%', [uv['name'], uv['col']['name']], uv['col']['format'])
+      when /\A\s*RankPercentile\(/ then uv['col']['format'] = percent_override_format(z, ',.1%', [uv['name'], uv['col']['name']], uv['col']['format'])
       end
       sort_note = plan['follows_sort'] ? ' (accumulates along the pivot sort — verify order vs Tableau)' : ''
       warnings << "'#{cap}' pivot value '#{uv['name']}' → window formula in grid: " \
@@ -3317,12 +3906,40 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
     # also rode a rows/cols shelf and add_col wrapped it), this quick calc is
     # HANDLED — bail before the loose match wraps a sibling raw value
     # (review-caught: dual-pill pivots corrupted the raw count column).
-    handled = cols_array.any? do |c|
+    # Direction scope from the PctTotal addressing ("compute using"): the
+    # addressing dim on ROWS → "column", on COLUMNS → "row"; Table(Across) →
+    # "row", Table(Down) → "column"; unresolved → "grand_total".
+    addr_cap = (meta['columns_by_guid'] || {}).dig(qc['addressing'].to_s, 'caption') || qc['addressing']
+    axis_of = lambda do |entries|
+      entries.any? do |e|
+        c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
+        c && addr_cap && nq.call(c['name']) == nq.call(addr_cap)
+      end
+    end
+    scope = if axis_of.call(rows_by) then 'column'
+            elsif axis_of.call(cols_by) then 'row'
+            elsif qc['addressing_type'] == 'across' then 'row'
+            elsif qc['addressing_type'] == 'down' then 'column'
+            else 'grand_total'
+            end
+    handled_col = cols_array.find do |c|
       values_arr.include?(c['id']) &&
         c['formula'].to_s =~ /\APercentOfTotal\(\s*#{qc_agg_name ? Regexp.escape(qc_agg_name) : '[A-Za-z]+'}/ &&
         (ir = c['formula'].to_s[%r{\[Master/([^\]]+)\]}, 1]) && nq.call(ir) == nq.call(inner_cap)
     end
-    next if handled
+    if handled_col
+      # add_col already wrapped the pill but only knew its shelf (nil on the
+      # marks card → "grand_total"): the addressing is authoritative, so
+      # re-scope instead of silently keeping a direction-less share.
+      if scope != 'grand_total' && handled_col['formula'] =~ /"(?:grand_total|row|column)"\)\z/ &&
+         handled_col['formula'] !~ /"#{scope}"\)\z/
+        handled_col['formula'] = handled_col['formula'].sub(/"(?:grand_total|row|column)"\)\z/, "\"#{scope}\")")
+        warnings << "'#{cap}' pivot value '#{handled_col['name']}' percent-of-total re-scoped to \"#{scope}\" from table-calc addressing #{(addr_cap || qc['addressing_type']).inspect}"
+      elsif scope == 'grand_total'
+        warnings << "'#{cap}' pivot value '#{handled_col['name']}' percent-of-total addressing #{(addr_cap || 'none').inspect} not resolvable to a pivot axis — kept \"grand_total\"; VERIFY scope"
+      end
+    end
+    next if handled_col
     vcol = cols_array.find do |c|
       next false unless values_arr.include?(c['id'])
       next false if c['formula'].to_s.include?('PercentOfTotal(')
@@ -3333,17 +3950,6 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       ref && (nq.call(ref) == nq.call(inner_cap) || nq.call(c['name']) == nq.call(inner_cap))
     end
     next unless vcol
-    addr_cap = (meta['columns_by_guid'] || {}).dig(qc['addressing'].to_s, 'caption') || qc['addressing']
-    axis_of = lambda do |entries|
-      entries.any? do |e|
-        c = cols_array.find { |x| x['id'] == (e['columnId'] || e['id']) }
-        c && addr_cap && nq.call(c['name']) == nq.call(addr_cap)
-      end
-    end
-    scope = if axis_of.call(rows_by) then 'column'
-            elsif axis_of.call(cols_by) then 'row'
-            else 'grand_total'
-            end
     vcol['formula'] = %(PercentOfTotal(#{vcol['formula']}, "#{scope}"))
     # exact decimals from the pill's own text-format (p0.0% → ,.1%); with no
     # pill format, FORCE a percent format — add_col already stamped the
@@ -3461,7 +4067,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
   pivot_filters = []
   Array(z['filters']).reject { |filter| filter['is_action'] }.each do |filter|
     next unless filter['kind'] == 'list'
-    next if Array(filter['members']).empty? || full_boolean_domain_filter?(filter)
+    next unless list_filter_for(filter, 'pending')
     filter_caption = filter['column_caption'] || filter['raw_param']
     mapped = filter_caption && map_column(filter_caption, mmap)
     if mapped.nil? && filter_caption
@@ -3497,15 +4103,7 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
       }
       cols_array << filter_column
     end
-    pivot_filters << {
-      'id' => "flt-#{el_id}-#{pivot_filters.length}",
-      'columnId' => filter_column['id'],
-      'kind' => 'list',
-      'mode' => (filter['exclude'] ? 'exclude' : 'include'),
-      'selectionMode' => 'multiple',
-      'values' => typed_filter_members(filter),
-      'includeNulls' => 'never'
-    }
+    pivot_filters << list_filter_for(filter, filter_column['id']).merge('id' => "flt-#{el_id}-#{pivot_filters.length}")
     record_carried_calc_filter!(z, filter, element_id: el_id, mode: (translated ? 'boolean-calc' : 'calc-column'),
                                 column: filter_column['name'], formula: filter_column['formula'])
   end
@@ -3612,7 +4210,17 @@ def build_pivot_element(z, meta, mmap, opts, warnings, data_elements = [])
     next unless values_arr.include?(c['id'])
     next unless c['formula'].to_s.include?('PercentOfTotal(')
     fs = c.dig('format', 'formatString')
-    c['format'] = { 'kind' => 'number', 'formatString' => ',.1%' } if fs.nil? || fs =~ /\A,?\.0%\z/
+    # C11b: a source-derived percent format (even a deliberate 0dp `p0%`) is never
+    # re-rounded. A nil format (source lookup missed the column earlier) gets the source
+    # percent format, else ',.1%'; a default-stamped ',.0%' is repaired only with no source.
+    next unless fs.nil? || (fs =~ /\A,?\.0%\z/ && !source_percent_format(z, c['name']))
+    c['format'] = percent_override_format(z, ',.1%', c['name'], c['format'])
+  end
+  cols_array.each do |c|
+    next unless default_fmt_ids.include?(c['id']) && values_arr.include?(c['id'])
+    next unless c.dig('format', 'formatString') == ',.0f' # a later override already chose a format
+    note = precision_as_source_note(cap, c['name'])
+    warnings << note if note
   end
   el
 end
@@ -4164,7 +4772,7 @@ def translate_kpi_measure_formula(formula, mmap, columns_by_guid = {})
     info = columns_by_guid[Regexp.last_match(1)]
     info && info['caption'] ? "[#{info['caption']}]" : "[#{Regexp.last_match(1)}]"
   end
-  s = s.gsub(/\bIIF\s*\(/i, 'If(')
+  s = tableau_iif_to_sigma(s)
   # (a) explicit aggregates SUM([x]) / COUNT([x]) / …
   s = s.gsub(/\b(SUM|AVG|MIN|MAX|MEDIAN|COUNTD|COUNT)\s*\(\s*\[([^\]]+)\]\s*\)/i) do
     agg = Regexp.last_match(1).upcase
@@ -4195,8 +4803,9 @@ def translate_kpi_measure_formula(formula, mmap, columns_by_guid = {})
   residue = s.dup
   residue.gsub!(/"(?:\\.|[^"\\])*"/, '1')
   residue.gsub!(/\[Master\/[^\]]+\]/, '1')
-  allowed = %w[Sum Avg Min Max Median CountDistinct CountIf IsNotNull Coalesce If Abs]
+  allowed = %w[Sum Avg Min Max Median CountDistinct CountIf IsNotNull IsNull Coalesce If Abs]
   residue.gsub!(/\b(#{allowed.map { |f| Regexp.escape(f) }.join('|')})\b/, '')
+  residue.gsub!(/\bnull\b/, '') # the lowercase literal tableau_iif_to_sigma emits
   return nil unless residue =~ %r{\A[\s()+\-*/.,\d!=<>]*\z}
   s
 end
@@ -4555,6 +5164,34 @@ end
 # Without this, the chart_kind=kpi worksheet would fall through to the
 # CSV-driven flat-table flow and quietly produce nothing usable.
 # See [bead].
+# The ONE place a BAN's value font size is decided: min(source size, tile-width
+# fit) so the value never truncates (plan C17). value_text / frame_px unknown ->
+# the source size, untouched.
+def kpi_value_font_size(z, value_text: nil, frame_px: nil)
+  PivotWidths.fit_font_px(value_text, frame_px, z['kpi_value_font_size'])
+end
+
+# Longest exported (Tableau-formatted) value string of a KPI view's CSV, or nil.
+def kpi_value_text(view, opts)
+  path = view && view['id'] && McpSource.csv_path(opts[:tab], view)
+  return nil unless path && File.file?(path)
+  table = (CSV.read(path, encoding: 'bom|utf-8') rescue [])
+  table.drop(1).flatten.map(&:to_s).reject { |v| v.strip.empty? }.max_by(&:length)
+end
+
+# Plan C17: re-decide the BAN value size against the tile width (dashboard canvas
+# px x zone w_pct). Only touches an element that already carries a source size.
+def cap_kpi_value_font_size!(kpi_el, z, view, dash, opts, warnings, cap)
+  return unless kpi_el.is_a?(Hash) && kpi_el.dig('value', 'fontSize')
+  cw = dash.is_a?(Hash) ? dash.dig('canvas_px', 'w').to_f : 0.0
+  frame = cw.positive? && z['w_pct'].to_f.positive? ? (cw * z['w_pct'].to_f / 100.0).floor : nil
+  text = kpi_value_text(view, opts)
+  size = kpi_value_font_size(z, value_text: text, frame_px: frame)
+  return if size == kpi_el['value']['fontSize']
+  warnings << "'#{cap}' KPI value size #{kpi_el['value']['fontSize']} -> #{size} to fit '#{text}' in a #{frame}px tile (no truncation)"
+  kpi_el['value']['fontSize'] = size
+end
+
 def build_kpi_element(z, meta, mmap, opts, warnings, data_elements = [])
   cap = z['caption']
   el_id = worksheet_element_id(cap, kpi: true)
@@ -4915,7 +5552,7 @@ def build_kpi_element(z, meta, mmap, opts, warnings, data_elements = [])
     # — the worksheet <title> (already applied above) is the more authoritative name.
     element['name'] = z['kpi_label'] if z['kpi_label'] && !z['kpi_label'].to_s.strip.empty? &&
                                         z['display_title'].to_s.strip.empty?
-    element['value']['fontSize'] = z['kpi_value_font_size']
+    element['value']['fontSize'] = kpi_value_font_size(z)
     element['layout'] = { 'anchor' => 'middle' }
     # The BAN's side annotation (e.g. "40% of U.S. total") is driven by a dynamic
     # Tableau calc token that can't be reproduced as static text; emitting the
@@ -4999,7 +5636,10 @@ warnings = []
 # EVERY element sourcing that datasource (Tableau row-scopes the whole source;
 # no worksheet carries them). They ride the normal per-zone value-filter
 # dispatch below, tagged so a loud post-loop summary can list what was applied.
-ds_value_filters = (meta['datasource_filters'] || []).reject { |f| f['is_action'] }
+shared_defaults = Array(meta['shared_filters']).select { |filter| filter['is_datasource_filter'] }.map do |filter|
+  filter.merge('datasource_name' => filter['shared_view'], 'filter_scope' => 'shared-view')
+end
+ds_value_filters = ((meta['datasource_filters'] || []) + shared_defaults).reject { |f| f['is_action'] }
 ds_value_filters.each { |f| f['_ds_scope'] = true }
 ds_filter_applications = Hash.new { |h, k| h[k] = [] } # object_id → [worksheet]
 # topn-probes sidecar is rebuilt from scratch each run — append-only growth
@@ -5035,6 +5675,21 @@ layout.each do |dash|
     # not a guess, so the image-confirmation routing below is redundant).
     png_ck = PNG_KIND[cap.to_s.downcase.strip]
     png_ck ||= PNG_KIND[z['display_title'].to_s.downcase.strip]
+    # R2: a Measure Names/Measure Values text table renders as a plain grid in the
+    # source image, so png-read says 'table' — but only the pivot path resolves its
+    # Measure Names/Values columns and colour-flag rules. Keep the shelf pivot when
+    # the CSV has extra (colour-encoding) columns; the plain 3-column export is
+    # dissolved by the flat-table path below, so those still follow png-read.
+    if png_ck == 'table' && z['chart_kind'].to_s == 'pivot-table' &&
+       (_mnv_view = view_by_name[cap]) && File.exist?(_mnv_csv = McpSource.csv_path(opts[:tab], _mnv_view))
+      _mnv_hdrs = (CSV.open(_mnv_csv, 'r', encoding: 'bom|utf-8') { |c| c.first } rescue nil) || []
+      _mnv_hdrs = _mnv_hdrs.map { |h| h.to_s.strip.downcase }
+      if _mnv_hdrs.include?('measure names') && _mnv_hdrs.include?('measure values') && _mnv_hdrs.length != 3
+        warn "[png-read] '#{cap}': verified kind 'table' ignored — Measure Names/Measure Values text table keeps shelf-inferred 'pivot-table' (the flat-table path cannot resolve those columns)"
+        png_ck = nil
+        z['chart_kind_inferred'] = false
+      end
+    end
     if png_ck
       if png_ck != z['chart_kind'].to_s
         warn "[png-read] '#{cap}': verified kind '#{png_ck}' OVERRIDES shelf-inferred '#{z['chart_kind']}' (png-read.json is the source-image truth)"
@@ -5119,6 +5774,9 @@ layout.each do |dash|
                       'auto-applied (element filters do not prune pivots); scope its SOURCE by hand ' \
                       "(helper prefilter or DM filter): #{ds_value_filters.map { |f| f['column_caption'] || f['raw_param'] }.join(', ')[0..160]}"
         end
+        add_null_first_sort_key!(pivot_el, meta, warnings, cap, z)
+        add_pivot_null_exclusion!(pivot_el, view_by_name[cap], opts, warnings, cap)
+        add_pivot_widths!(pivot_el, view_by_name[cap], dash, z, opts, warnings, cap)
         elements << pivot_el
         warnings << "'#{cap}' auto-emitted as Sigma pivot-table from Tableau crosstab (rows/cols shelves) — verify dim placement"
         next
@@ -5133,6 +5791,7 @@ layout.each do |dash|
     if z['chart_kind'] == 'kpi'
       kpi_el = build_kpi_element(z, meta, mmap, opts, warnings, data_elements)
       if kpi_el
+        cap_kpi_value_font_size!(kpi_el, z, view_by_name[cap], dash, opts, warnings, cap)
         kpi_el['_worksheet'] = cap
         kpi_el['_dashboard'] = dash['dashboard']
         elements << kpi_el
@@ -5175,7 +5834,7 @@ layout.each do |dash|
     # stopped the run, but with no explanation of WHY or WHAT to do).
     _zshelves = [z['rows_shelf'], z['cols_shelf']].compact.map { |s| s['raw'].to_s }.join(' ') +
                 (z['channels'] || {}).values.map { |c| c.is_a?(Hash) ? c['column'].to_s : '' }.join(' ')
-    _zds = _zshelves.scan(/\[(federated\.[a-z0-9]+)\]/).flatten
+    _zds = _zshelves.scan(/\[([^\]]+)\]\.\[/).flatten
                     .group_by(&:itself).max_by { |_k, v| v.length }&.first # (no .tally — Ruby 2.6 floor)
     ($zone_datasource ||= {})[cap] = _zds if _zds
 
@@ -5205,7 +5864,7 @@ layout.each do |dash|
       warnings << "'#{cap}' chart kind was AUTOMATIC in Tableau — inferred '#{z['chart_kind']}' from the shelves; " \
                   'routed to image confirmation (verify-visual-tiles) — confirm against the Tableau view image.'
     end
-    csv_path = File.join(opts[:tab], 'views', "#{view['id']}.csv")
+    csv_path = McpSource.csv_path(opts[:tab], view)
     # A view CSV that is MISSING (dataless / signal-only run — e.g. synth-twb-e2e
     # stubs the views with no export) is treated the same as an EMPTY one: the
     # standard-chart flow below is header+signal driven, so reconstruct the view
@@ -5296,7 +5955,11 @@ layout.each do |dash|
           "[Master/#{dimm['name']}]"
         end
       dim_col_obj = { 'id' => "x-#{el_id}", 'name' => dimm['name'], 'formula' => mm_dim_formula }
-      dim_col_obj['format'] = { 'kind' => 'datetime', 'formatString' => mm_trunc == 'week' ? '%b %d, %Y' : '%b %Y' } if mm_trunc
+      if mm_trunc
+        mm_fmt = date_axis_format(mm_trunc, pick_tableau_format(z['formats'], dimm['name']) ||
+                                            pick_column_default_format(dimm['name']))
+        dim_col_obj['format'] = mm_fmt if mm_fmt
+      end
       cap_deriv = {}
       (z['aggregations'] || {}).each do |col_ref, deriv|
         g = strip_brackets(col_ref)
@@ -5382,9 +6045,13 @@ layout.each do |dash|
           unresolved << label
           next
         end
-        fmt = label.to_s =~ /(rate|margin|pct|percent|ratio|share)/i ?
-                { 'kind' => 'number', 'formatString' => ',.1%' } :
-                { 'kind' => 'number', 'formatString' => ',.0f' }
+        # C11b: the SOURCE format (pill, then .twb default) wins; the label-regex guess
+        # below is only the no-source fallback.
+        fmt = pick_tableau_format(z['formats'], label) || pick_tableau_format(z['formats'], base) ||
+              pick_column_default_format(label) || pick_column_default_format(base)
+        fmt ||= label.to_s =~ /(rate|margin|pct|percent|ratio|share)/i ?
+                  { 'kind' => 'number', 'formatString' => ',.1%' } :
+                  { 'kind' => 'number', 'formatString' => ',.0f' }
         # The calc itself was matched above by the label sans table-calc addressing tail
         # ("Rank - Mo along Table (Down)" is the calc "Rank - Mo"). A TABLE shows Tableau's full
         # header text, so its column keeps the label verbatim (display-only: nothing references a
@@ -5947,15 +6614,15 @@ layout.each do |dash|
 
     dim_col_obj = { 'id' => "x-#{el_id}", 'name' => dim['name'], 'formula' => dim_formula }
     if dim_trunc
-      dim_col_obj['format'] = { 'kind' => 'datetime',
-                                'formatString' =>
-                                  if dim_trunc == 'week'
-                                    '%b %d, %Y'
-                                  elsif dim_trunc == 'month'
-                                    '%B %Y'
-                                  else
-                                    '%b %Y'
-                                  end }
+      # Plan C8: source date format, else by grain (never a month format at
+      # quarter grain — Sigma has no quarter directive, so it stays default).
+      dt_fmt = date_axis_format(dim_trunc, pick_tableau_format(z['formats'], dim['name']) ||
+                                           pick_column_default_format(dim['name']))
+      dim_col_obj['format'] = dt_fmt if dt_fmt
+      if dim_trunc == 'quarter' && !dt_fmt
+        warnings << "'#{cap}' quarter-grain date axis: Sigma has no quarter label directive — left on Sigma's " \
+                    'default date label (no month format applied)'
+      end
     end
     # By-MEASURE (continuous) color: a measure on Tableau's Color shelf is a
     # color RAMP, not a categorical series. When the 3-channel dim path above
@@ -5987,6 +6654,7 @@ layout.each do |dash|
 
     color_col_obj = nil
     source_default_color_scheme = nil
+    tableau10_color_map = nil
     chart_color_members = []
     chart_color_palette = []
     if color_dim
@@ -5999,7 +6667,15 @@ layout.each do |dash|
                       .reject(&:empty?).uniq
         chart_color_members = members
         chart_color_palette = palette
-        if color_dim['agg_flag'] && members.any? && palette.size >= members.size
+        # C5: no explicit assignment and no non-default palette (none in the workbook, or only
+        # the Tableau-10 swatches) → Tableau's default: TABLEAU10 in MEMBER order (manual sort
+        # if the source has one, else ascending alphabetical), not CSV row order.
+        if members.size >= 2 && !color_dim['agg_flag'] && (palette - SeriesColors::TABLEAU10).empty?
+          tableau10_color_map = SeriesColors.resolved_member_map(members, {}, z['color_manual_order'])
+        end
+        if tableau10_color_map
+          source_default_color_scheme = nil
+        elsif color_dim['agg_flag'] && members.any? && palette.size >= members.size
           # A boolean aggregate-calc color has no explicit member map: Tableau hands the default
           # palette out in MEMBER ORDER (False = first colour, True = second), not in the order
           # the rows happen to export — and Sigma binds a scheme positionally in ascending
@@ -6247,15 +6923,15 @@ layout.each do |dash|
     if measure_formula.to_s =~ %r{/} &&
        (meas['name'].to_s =~ /attain|\bshare\b|sell[-\s]?through|win[-\s]?rate|conversion/i ||
         measure_formula.to_s =~ /\b(goal|target|budget|quota|plan|forecast)\b/i)
-      meas_col_obj['format'] = { 'kind' => 'number', 'formatString' => ',.1%' }
+      meas_col_obj['format'] = percent_override_format(z, ',.1%', [meas_hdr, meas['name']], meas_col_obj['format'])
     end
     # Windowed-measure format overrides: a rank named "Revenue Rank" would
     # otherwise inherit the $-currency heuristic from the /revenue/ name match.
     if window_plan && window_plan['mode'] == 'inline'
       case window_plan['formula']
-      when /\A\s*RankPercentile\(/ then meas_col_obj['format'] = { 'kind' => 'number', 'formatString' => ',.1%' }
+      when /\A\s*RankPercentile\(/ then meas_col_obj['format'] = percent_override_format(z, ',.1%', [meas_hdr, meas['name']], meas_col_obj['format'])
       when /\A\s*(Rank|RankDense|RowNumber)\(/ then meas_col_obj['format'] = { 'kind' => 'number', 'formatString' => ',.0f' }
-      when /\A\s*(CumulativeSum\(PercentOfTotal|PercentOfTotal)\(/ then meas_col_obj['format'] = { 'kind' => 'number', 'formatString' => ',.2%' }
+      when /\A\s*(CumulativeSum\(PercentOfTotal|PercentOfTotal)\(/ then meas_col_obj['format'] = percent_override_format(z, ',.2%', [meas_hdr, meas['name']], meas_col_obj['format'])
       end
     end
 
@@ -6647,6 +7323,10 @@ layout.each do |dash|
         warnings << "'#{cap}' category colors pinned from a SIBLING chart's explicit .twb map for " \
                     "'#{color_col_obj['name']}' (per-category consistency: same category, same color " \
                     'on every chart of the dashboard)'
+      elsif tableau10_color_map
+        element['color']['scheme'] = SeriesColors.scheme_from_map(tableau10_color_map)
+        warnings << "'#{cap}' category colors: Tableau 10 default palette in Tableau's member order " \
+                    "(#{tableau10_color_map.keys.join(' → ')})"
       elsif source_default_color_scheme
         element['color']['scheme'] = source_default_color_scheme
         warnings << "'#{cap}' category colors derived from Tableau member order + source palette " \
@@ -6666,7 +7346,24 @@ layout.each do |dash|
                   'palette in the Sigma editor if Tableau used one'
     end
 
-    if (legend = legend_config_for(z, dash))
+    if element.dig('color', 'by') == 'category' && (lref = legend_master_ref(element, mmap, data_elements))
+      $legend_color_registry[[lref['source']['elementId'], lref['columnId']]] <<
+        legend_custom_colors(chart_color_members, element.dig('color', 'scheme'))
+    end
+    legend_zone = matching_legend_zone(z, dash)
+    legend_colors = if legend_zone && opts[:pages_mode] == :dashboard && element.dig('color', 'by') == 'category'
+                      legend_custom_colors(chart_color_members, element.dig('color', 'scheme'))
+                    end
+    if legend_colors
+      # C14: the source has a separate legend zone -> hidden chart legend + native legend control
+      # (built per page once the final chart id is known).
+      element['legend'] = { 'visibility' => 'hidden' }
+      # score: exact caption/view match beats a substring match when several charts share one legend zone.
+      exact = [legend_zone['caption'], legend_zone['view_ref']].compact.any? { |v| v.to_s == z['caption'].to_s }
+      $legend_plans[[dash['dashboard'], el_id]] = { 'zone_id' => legend_zone['id'], 'custom_colors' => legend_colors,
+                                                    'score' => exact ? 2 : 1, 'fallback' => legend_config_for(z, dash) }
+      warnings << "'#{cap}' separate Tableau legend zone '#{legend_zone['id']}' emitted as a native Sigma legend control"
+    elsif (legend = legend_config_for(z, dash))
       element['legend'] = legend
       warnings << "'#{cap}' explicit Tableau legend zone mapped to Sigma legend.position=#{legend['position']}"
     elsif element['color'] && element['color']['by'] != 'single'
@@ -6779,12 +7476,20 @@ layout.each do |dash|
             elsif %w[Min Max Median].include?(fagg)
               warnings << "'#{cap}' #{fagg} reference line emitted ROW-LEVEL; Tableau computes it over the plotted marks — verify vs Tableau at Phase 6f (mark-level Min/Max/Median needs a windowed formula)"
             end
-            ref_emit << {
+            ref = {
               'type'  => 'line',
               'axis'  => 'series',
-              'value' => { 'type' => 'formula', 'formula' => value_formula },
-              'label' => { 'visibility' => 'shown', 'text' => label_text }.compact
+              'value' => { 'type' => 'formula', 'formula' => value_formula }
             }
+            # Plan C4: the caption follows the source. Sigma's label/annotation
+            # visibility enums are ["shown"] only — omitting the key IS hidden
+            # (label hidden/null/empty-text 400 or fall back to a default caption).
+            case rm['label_type'].to_s
+            when 'none'  then nil # Label: None -> neither label nor annotation
+            when 'value' then ref['annotation'] = { 'visibility' => 'shown' } # value only, no caption
+            else ref['label'] = { 'visibility' => 'shown', 'text' => label_text }.compact
+            end
+            ref_emit << ref
           else
             ref_skip << rm
           end
@@ -7095,10 +7800,9 @@ layout.each do |dash|
         'fontSize' => 11,
         'allowLongerLabels' => true
       }
-      element['xAxis']['format']['title'] = {
-        'text' => slash_renamed_caption(dim) || dim['name'], # a slash-renamed column shows its Tableau caption
-        'fontSize' => 10
-      }
+      dim_title = (slash_renamed_caption(dim) || dim['name']).to_s
+      # never a title object without non-empty text (Sigma 400s on it)
+      element['xAxis']['format']['title'] = { 'text' => dim_title, 'fontSize' => 10 } unless dim_title.strip.empty?
 
       # Bar orientation (bead: bar-orientation). Tableau puts the DIMENSION on
       # the Rows shelf and the MEASURE on Columns for a HORIZONTAL bar (bars grow
@@ -7145,9 +7849,21 @@ layout.each do |dash|
       horizontal = element['orientation'] == 'horizontal'
       dim_scope, meas_scope = horizontal ? %w[rows cols] : %w[cols rows]
       hidden_scopes = Array(z['field_labels_hidden'])
+      # Plan C3: the category-axis title follows the source too. A last-wins
+      # axis style rule on the dimension's scope that clears the title (value='')
+      # or turns the axis header off omits it; a custom non-empty text replaces
+      # the default dimension name. Never `{text:''}` (400) or format.visibility
+      # 'hidden' (also kills the tick labels) — omit the key.
+      dim_rule = Array(z['axis_titles']).select { |t| t['scope'] == dim_scope && ['', '0'].include?(t['class'].to_s) }.last
+      dim_title_hidden = dim_rule && (dim_rule['hidden'] || (dim_rule.key?('text') && dim_rule['text'].to_s.strip.empty?))
       if hidden_scopes.include?(dim_scope)
         element.dig('xAxis', 'format')&.delete('title')
         warnings << "'#{cap}' hides its #{dim_scope} field label (Show Field Labels off) — category axis title omitted"
+      elsif dim_title_hidden
+        element.dig('xAxis', 'format')&.delete('title')
+        warnings << "'#{cap}' category axis title is hidden/cleared in the source — omitted"
+      elsif dim_rule && dim_rule.key?('text') && element.dig('xAxis', 'format', 'title')
+        element['xAxis']['format']['title']['text'] = dim_rule['text'].to_s.strip
       end
       if %w[bar-chart line-chart area-chart].include?(kind) && y_column_ids.size == 1 && !extra_meas_col &&
          !hidden_scopes.include?(meas_scope)
@@ -7169,18 +7885,49 @@ layout.each do |dash|
       # Tableau→Sigma scope mapping: rows→yAxis, cols→xAxis. class='0' is
       # primary, class='1' is secondary (dual-axis right side, currently
       # unverified from Sigma side — emit primary only for now).
+      # Plan C8: a datetime category axis (date-grain dim) gets scale time; its
+      # tick spacing comes only from an explicit major-tick step + an anchor
+      # fact (major-origin / fixed axis start). A date range is never a numeric
+      # domain, and a linear axis only gets tickSpacing from an explicit step.
+      date_axis = dim_trunc && element.dig('xAxis', 'columnId') == dim_col_obj['id']
+      if date_axis
+        element['xAxis']['format'] ||= {}
+        element['xAxis']['format']['scale'] = { 'type' => 'time' }
+      end
       (z['axis_formats'] || []).each do |af|
         next unless af['class'].to_s == '0'  # primary only
+        if date_axis && af['scope'] == dim_scope
+          ts = date_tick_spacing(af)
+          if ts
+            element['xAxis']['format']['tickSpacing'] = ts
+            warnings << "'#{cap}' date axis tick spacing (#{ts['step']} #{ts['unit']}) from the Tableau major-tick settings"
+          elsif !af['major_units'].to_s.empty? || !af['major_spacing'].to_s.empty?
+            warnings << "'#{cap}' date axis has major-tick settings without a usable step/anchor — left on Sigma's automatic ticks"
+          end
+          next
+        end
         target = af['scope'] == 'rows' ? 'yAxis' : 'xAxis'
         scale = {}
         scale['type']   = 'log' if af['scale'] == 'log'
-        if af['range_type'] == 'fixed' && af['min'] && af['max']
+        if af['range_type'] == 'fixed' && af['min'] && af['max'] && af['min_raw'].nil?
           scale['domain'] = { 'min' => af['min'], 'max' => af['max'] }
+        end
+        lin_step = af['major_units'].to_s.empty? ? af['major_spacing'].to_s.to_f : 0.0
+        lin_anchor = if af['major_origin'].to_s =~ /\A-?[\d.]+\z/ then af['major_origin'].to_f
+                     elsif scale['domain'] then scale['domain']['min']
+                     end
+        if lin_step > 0 && lin_anchor && af['scale'] != 'log'
+          scale['type'] = 'linear'
         end
         next if scale.empty?
         element[target] ||= {}
         element[target]['format'] ||= {}
         element[target]['format']['scale'] = scale
+        if scale['type'] == 'linear' && lin_step > 0 && lin_anchor
+          element[target]['format']['tickSpacing'] = { 'type' => 'interval', 'scale' => 'linear',
+                                                       'step' => lin_step == lin_step.to_i ? lin_step.to_i : lin_step,
+                                                       'anchor' => lin_anchor == lin_anchor.to_i ? lin_anchor.to_i : lin_anchor }
+        end
         warnings << "'#{cap}' auto-emitted #{target}.format.scale from Tableau axis override (scale=#{af['scale']}, range=#{af['range_type']}) — verify visual fidelity"
       end
     end
@@ -7268,9 +8015,19 @@ layout.each do |dash|
       has_label_channel = (z.dig('channels', 'label', 'column') || z.dig('channels', 'text', 'column')) && !label_carried
       has_mark_labels   = z['mark_labels_show'] == true && !label_carried
       if has_label_channel || has_mark_labels
-        element['dataLabel'] = { 'labels' => 'shown' }
+        element['dataLabel'] = bar_data_label(element, kind, z['mark_label_align'])
+        if %w[pie-chart donut-chart].include?(kind) && !has_label_channel
+          # Circular charts need an explicit display mode; labels:shown alone
+          # can round-trip successfully while rendering no slice values.
+          element['dataLabel'].merge!('donutLabelDisplay' => 'as-label', 'labelDisplay' => 'value')
+        end
         src = has_label_channel ? 'Label/Text encoding' : 'worksheet "Show Mark Labels" toggle'
-        warnings << "'#{cap}' auto-emitted dataLabel:{labels:shown} from Tableau #{src} — verify formatting (Sigma defaults are minimal)"
+        if element.dig('dataLabel', 'totals', 'display') == 'shown'
+          warnings << "'#{cap}' bar is coloured by its own axis dimension (one segment per bar) — value label " \
+                      "from Tableau #{src} emitted as the stack total (dark, past the bar end, like Tableau); segment labels hidden"
+        else
+          warnings << "'#{cap}' auto-emitted dataLabel:{labels:shown} from Tableau #{src} — verify formatting (Sigma defaults are minimal)"
+        end
       end
     end
 
@@ -7521,9 +8278,24 @@ layout.each do |dash|
           # keeps the lowest — rank by the sign-inverted measure instead.
           rank_formula = keep_high ? ranked : "-(#{ranked})"
           ranked_col = (element['columns'] || []).find { |c| norm_f.call(c['formula']) == norm_f.call(rank_formula) }
+          # The ranking expression IS the tile's plotted measure (SUM([x]) with
+          # the same field+aggregation on the shelf): rank the PLOTTED column.
+          # A separate unplotted helper is evaluated below the chart's grouping,
+          # so Sigma's top-n trimmed ROWS, not customers — the live proof showed
+          # all 25 customers at ~52% of their revenue instead of the top 10.
+          ranked_col ||= keep_high ? topn_plotted_measure_col(element, z, tn['order_expr']) : nil
+          # …or the plotted column is the DM-metric binding of the same formula
+          # ([Metrics/Total X] for Sum([Master/X])).
+          if ranked_col.nil? && keep_high
+            bound = MetricBinding.metric_ref_or_inline(rank_formula, 'Master', opts[:metrics])
+            ranked_col = (element['columns'] || []).find { |c| norm_f.call(c['formula']) == norm_f.call(bound) } if bound != rank_formula
+          end
           if ranked_col.nil?
             ranked_col = { 'id' => "topnq-#{el_id}", 'name' => 'Top-N Rank Measure', 'formula' => rank_formula }
             element['columns'] << ranked_col
+            warnings << "'#{cap}' top-N ranks by an UNPLOTTED helper (#{rank_formula[0..80]}) — on the live proof such a " \
+                        'filter trimmed rows instead of categories (all bars kept at partial values); VERIFY the bar count ' \
+                        'and values against the source CSV'
           end
           el_filters << {
             'columnId' => ranked_col['id'], 'kind' => 'top-n',
@@ -7611,7 +8383,7 @@ layout.each do |dash|
         # A Tableau categorical filter with NO members = "All" (the member list
         # is only materialized for explicit selections). An empty Sigma
         # include-list would filter out EVERY row — skip it (bead 320u).
-        if (f['members'] || []).empty?
+        if typed_filter_members(f).empty?
           warnings << if f['exclude']
                         "'#{cap}' EXCLUDE quick filter on '#{fcap}' carries no explicit members — nothing to exclude; no Sigma element filter emitted"
                       else
@@ -7739,7 +8511,7 @@ layout.each do |dash|
                                   column: carried_col && carried_col['name'],
                                   formula: carried_col && carried_col['formula'], dashboard: dash['dashboard'])
     end
-    # Every element filter needs a unique `id` (the live /v2/workbooks/.../spec
+    # Every element filter needs a unique `id` (the live GET /v2/workbooks/{id}?includeContents=true
     # readback shows `id: flt-<element>-<n>`); the API rejects filters without it.
     el_filters.each_with_index { |nf, i| nf['id'] = "flt-#{el_id}-#{i}" }
     element['filters'] = el_filters unless el_filters.empty?
@@ -7938,13 +8710,27 @@ layout.each do |dash|
       rtype = region_type_for_geo_role(z['geo_role'], geo_members)
       if geo_col && val_col && rtype
         %w[xAxis yAxis dataLabel legend orientation refMarks trendLines].each { |k| element.delete(k) }
+        # Sigma draws a default continuous-scale legend panel for color {by: scale}; Tableau shows one
+        # only when the dashboard carries a legend zone for the map (plan C live regression R3).
+        element['legend'] = { 'visibility' => 'hidden' } unless matching_legend_zone(z, dash)
         element['region'] = { 'columnId' => geo_col['id'], 'regionType' => rtype }
         # The source ramp (inline stops or a built-in named palette) when the
         # .twb carries one — Tableau's blue map must not turn yellow→red.
         map_ramp = z['heat_scheme'].is_a?(Array) && z['heat_scheme'].size >= 2 ?
                      [z['heat_scheme'].first, z['heat_scheme'][z['heat_scheme'].size / 2], z['heat_scheme'].last].uniq : nil
         element['color'] = { 'by' => 'scale', 'column' => val_col['id'], 'scheme' => map_ramp || MEASURE_COLOR_SCHEME.dup }
-        ($region_map_built ||= {})[cap] = true
+        map_plan = region_map_style_plan(z['map_style'])
+        # Sigma's default basemap IS light (live: a POSTed baseStyle light is
+        # omitted on GET-back, dark/streets round-trip), so light is carried by
+        # the default and only another style is written.
+        if map_plan[:base_style] && map_plan[:base_style] != SIGMA_DEFAULT_MAP_BASE_STYLE
+          element['mapStyle'] = { 'baseStyle' => map_plan[:base_style] }
+        end
+        ($region_map_built ||= {})[cap] = map_plan[:residuals]
+        map_plan[:residuals].each do |r|
+          tag = r[:catalog_id] && platform_difference_ids.include?(r[:catalog_id]) ? "platform difference #{r[:catalog_id]}" : 'not carried'
+          warnings << "'#{cap}' map styling — #{tag}: #{r[:detail]}"
+        end
         warnings << "'#{cap}' filled map (geographic role #{z['geo_role']}) → Sigma region-map keyed on '#{geo_col['name']}' " \
                     "(regionType #{rtype}), filled by '#{val_col['name']}' on a sequential scale — the generated " \
                     'Latitude/Longitude are not referenced'
@@ -7958,6 +8744,7 @@ layout.each do |dash|
     end
 
     route_scalar_lods!(element, opts[:master_id], mmap, scalar_helpers, data_elements, warnings, cap)
+    add_null_first_sort_key!(element, meta, warnings, cap, z)
 
     # Stamp with worksheet + dashboard so the page emitters can group.
     element['_worksheet'] = cap
@@ -8135,7 +8922,7 @@ visual_key = ->(value) { value.to_s.strip.downcase }
 layout.each do |dashboard|
   Array(dashboard['zones']).each do |zone|
     view = view_by_name[zone['caption']]
-    csv_path = view && File.join(opts[:tab], 'views', "#{view['id']}.csv")
+    csv_path = view && McpSource.csv_path(opts[:tab], view)
     csv_rows = csv_path && File.file?(csv_path) ? CSV.read(csv_path, encoding: 'bom|utf-8') : []
     matching_tiles = visual_tiles.select do |tile|
       tile.is_a?(Hash) && visual_key.call(tile['worksheet'] || tile['title']) == visual_key.call(zone['caption']) &&
@@ -8518,14 +9305,13 @@ unless opts[:pages_mode] == :worksheet
           }
           emitted_actions << manifest_entry
           (emitted_action_index[[dash['dashboard'], host]] ||= []) << manifest_entry
+          # Active tab = the button whose target is the dashboard it sits on.
+          style = ButtonFallback.nav_style(z, active: z['button_nav_target'] == dash['dashboard'])
+          warnings << style[:residual] if style[:residual]
           e = { 'id' => host, 'kind' => 'button', 'text' => label,
-                'appearance' => 'filled', 'align' => 'center', 'size' => 'small',
-                'actions' => [action] }
-          # The button's own fill is on its visual state (button_fill_color); the zone
-          # fill is the fallback for a button drawn as a filled zone.
-          btn_fill = z['button_fill_color'] || z['fill_color']
-          e['fillColor'] = btn_fill[0, 7] if btn_fill
-          e['fontColor'] = z['button_font_color'] if z['button_font_color']
+                'align' => 'stretch', 'size' => 'large',
+                'borderRadius' => 'square', 'fontWeight' => 'bold',
+                'actions' => [action] }.merge(style[:fields])
           e
         else
           # Text-pill opt-out (proven live): bold markdown link, pill bg.
@@ -8739,6 +9525,17 @@ end
 # ({controlId, source_signal, intended matchers, targets, unreachable}) so the
 # downstream coverage lint can assert it and allowlist by-design gaps.
 control_scope_records = []
+ds_value_filters.each do |filter|
+  next unless ds_filter_applications[filter.object_id].empty?
+  caption = filter['column_caption'].to_s
+  next if caption.empty?
+  control_scope_records << {
+    'controlId' => "ctl-#{caption.downcase.gsub(/\W+/, '-').sub(/-$/, '')}", 'name' => caption,
+    'mechanism' => 'filters', 'status' => 'needs-master-default', 'datasource_filter' => true,
+    'is_active_flag' => (filter['is_active_flag'] == true), 'members' => Array(filter['members']),
+    'source_signal' => 'Tableau always-on source filter; apply to every sourcing tile before verification'
+  }
+end
 helpers_by_id = data_elements.to_h { |d| [d['id'], d] }
 norm_cap = ->(s) { s.to_s.strip.downcase.gsub(/[^a-z0-9]+/, '') }
 # PR-18: decode columns the ORCHESTRATOR must add to the master element (a
@@ -8751,7 +9548,7 @@ master_decode_columns = []
 master_calc_columns = []
 (meta['worksheets'] || {}).each_value do |worksheet|
   (Array(worksheet['filters']) + Array(worksheet['hidden_filters'])).each do |filter|
-    next if Array(filter['members']).empty?
+    next if typed_filter_members(filter).empty?
     caption = (filter['column_caption'] || filter['caption']).to_s.strip
     formula = calc_formula_by_caption[caption]
     next if caption.empty? || formula.to_s.empty?
@@ -8930,6 +9727,21 @@ def control_display_for(layout, cap, norm)
     end
   end
   nil
+end
+
+# A Tableau single-value (radiolist) quick filter lists an "(All)" choice first and opens on
+# it when no member is saved. A Sigma segmented control has no `placeholder` (that field is
+# list-only), so with no value it shows nothing selected, and a narrow one collapses to a
+# dropdown that reads "Select...". Its clear option is the faithful shape: `showClearLabel`
+# adds a first segment labelled `clearLabel` that clears the selection (= no filter, Tableau's
+# All). Live-probed 2026-11-10 (wb 8793373b): a wide control renders an "All" segment,
+# selected; a narrow one collapses to a dropdown reading "All". Display-only: `value` and
+# the filter semantics are unchanged. No parser records Tableau's "Show All value" toggle
+# yet, so the Tableau default (shown) is assumed.
+def segmented_all_option!(spec)
+  spec['showClearLabel'] = true
+  spec['clearLabel'] = 'All'
+  spec
 end
 
 # Map a Tableau control_display (zone `mode`) to a Sigma controlType for a
@@ -9158,6 +9970,7 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
   # declaration produces colliding element/control ids → "Duplicate id" on POST.
   # Dedup by caption so each parameter yields exactly one control.
   seen_param_caps = {}
+  twb_text_for_params = (File.read(File.join(opts[:tab], 'workbook-content.twb'), encoding: 'UTF-8') rescue nil)
   (meta['parameters'] || []).each_with_index do |p, i|
     cap = p['caption'].to_s.strip
     next if cap.empty?
@@ -9168,6 +9981,8 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       next
     end
     unreferenced_param = !referenced_caps.include?(cap)
+    ignored_unused = false
+    param_warn_mark = warnings.size
     if unreferenced_param
       # "Never miss a parameter": an unreferenced param is usually a filter /
       # period picker whose driving calc was materialized to a column (so no
@@ -9325,6 +10140,19 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       spec['_scope_dashboards'] = inert_dashes
       warnings << "parameter '#{cap}' is not read by any worksheet but sits on dashboard(s) #{inert_dashes.join(', ')} — " \
                   'emitted as a source-inert control (visible, default kept, filters nothing — as in Tableau)'
+    elsif unreferenced_param && pft['candidates'].empty? && param_declared_only?(twb_text_for_params, p['name'])
+      # Declared, read by no worksheet calc or filter calc, scoping no column,
+      # and shown on no dashboard: there is no source control to port. NOT
+      # emitted (an unwired "needs-wiring" slider failed gate 7c + the
+      # reconstruction-integrity gate and forced a waiver on the live proof);
+      # recorded as an ignored signal instead — accounted, never silent.
+      status = 'dropped'
+      mechanism = 'none'
+      ignored_unused = true
+      signal = "tableau parameter '#{cap}' (declared only: referenced by no sheet calc or filter, on no dashboard — not a control)"
+      # the emission notes written above describe a control that is not built
+      warnings.slice!(param_warn_mark..)
+      warnings << "parameter '#{cap}' is declared but referenced by no sheet and on no dashboard — NOT emitted (control-scope.json ignoredSignals)"
     elsif unreferenced_param
       status = 'needs-wiring'
       mechanism = 'formula'
@@ -9343,7 +10171,7 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       signal = "tableau parameter '#{cap}' (referenced by worksheet calcs)"
     end
 
-    param_controls << spec
+    param_controls << spec unless ignored_unused
     # Record the consumer set so the coverage lint knows the mechanism.
     rec = {
       'controlId' => spec['controlId'], 'name' => cap, 'mechanism' => mechanism,
@@ -9357,6 +10185,15 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
     }
     rec['targets'] = filter_targets if filter_targets.any?
     rec['candidate_columns'] = pft['candidates'] if !filter_targets.any? && pft['candidates'].any?
+    # Declared, read by no worksheet calc or filter calc, no filter target:
+    # if no dashboard ends up carrying it either (source-inert covers the
+    # dashboard-shown case above) it is NOT a source filter signal — the
+    # sidecar writer moves it to ignoredSignals instead of counting it.
+    if ignored_unused
+      rec['unreferencedParam'] = true
+      rec['reason'] = 'parameter declared but referenced by no sheet and not on any dashboard'
+      rec['intended'] = []
+    end
     if status == 'source-inert'
       # The explicit marker the gates honour (control_lint, probe-controls flip gate): a bare
       # empty-reach control is still a dead-control failure.
@@ -9470,7 +10307,7 @@ end
 auto_controls = []
 unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filter
   ((meta['shared_filters'] || []) + promoted_zone_filters).each_with_index do |f, i|
-    next if f['is_action']
+    next if f['is_action'] || f['is_datasource_filter']
     cap = f['column_caption']
     if cap.nil?
       warnings << "shared filter ##{i} has no resolvable column_caption (raw_param=#{f['raw_param']}) — skipping auto-control"
@@ -9673,12 +10510,26 @@ unless opts[:no_auto_controls]   # default-on: never miss a .twb parameter/filte
       # with Tableau's hidden values hidden, not shown.
       disp = control_display_for(layout, cap, norm_cap)
       spec['controlType'] = disp == 'radiolist' && !f['exclude'] ? 'segmented' : 'list'
+      segmented_all_option!(spec) if spec['controlType'] == 'segmented'
       if spec['controlType'] == 'list'
         spec['mode']          = f['exclude'] ? 'exclude' : 'include'
         spec['selectionMode'] = 'multiple'
-        # include: default to all, user adjusts in UI. exclude: the selection
-        # IS the excluded member set — shipping [] would show the hidden rows.
-        spec['values']        = f['exclude'] ? (f['members'] || []) : []
+        # Preserve saved selection. Decoded integer dimensions target Text()
+        # columns; other include filters retain the source scalar types.
+        spec['values'] = if f['exclude'] || f['integer_dim']
+                           Array(f['members'])
+                         elsif full_boolean_domain_filter?(f)
+                           []
+                         else
+                           typed_filter_members(f)
+                          end
+        spec['values'] = (spec['values'] + [nil]).uniq if f['includes_null'] || f['excludes_null']
+        # Plan C11: a quick filter left at (All) selects nothing, so the closed
+        # Sigma control would read "Select values" where Tableau reads "All".
+        # `placeholder` is the list-control empty-state text (values stays [] —
+        # never "All" in values, never every value selected). A filter with a
+        # saved selection keeps the default. Display-only: no filter changes.
+        spec['placeholder'] = 'All' if spec['values'].empty?
       end
       spec['source'] = {
         'kind'     => 'source',
@@ -10352,6 +11203,15 @@ reconcile_control_coverage = lambda do |unplaced|
       row['reason'] = SOURCE_INERT_REASON if row['status'] == 'source-inert'
       row
     end
+    # Declared-only parameters (ignoredSignals) are accounted, but they are
+    # not source control signals: listed under "ignored", never as a detail
+    # row a controls gate would demand a build / declaration / waiver for.
+    ignored_names = control_scope_records.select { |r| r['unreferencedParam'] }.map { |r| r['name'].to_s.strip.downcase }
+    ignored_rows, rows = rows.partition { |r| r['kind'] == 'parameter' && ignored_names.include?(r['name'].to_s.strip.downcase) }
+    ignored_rows.each do |r|
+      r['status'] = 'not-applicable'
+      r['reason'] = 'parameter declared but referenced by no sheet and not on any dashboard (control-scope.json ignoredSignals)'
+    end
     missing = rows.select { |r| r['status'] == 'UNACCOUNTED' }
     cov = {
       'params_total'  => (meta['parameters'] || []).size,
@@ -10364,6 +11224,7 @@ reconcile_control_coverage = lambda do |unplaced|
       'unaccounted'   => missing.map { |r| "#{r['kind']}:#{r['name']}" },
       'detail'        => rows
     }
+    cov['ignored'] = ignored_rows unless ignored_rows.empty?
     if opts[:meta]
       cp = opts[:meta].to_s.sub(/(-meta)?\.json$/, '-controls-coverage.json')
       File.write(cp, JSON.pretty_generate(cov)) rescue nil
@@ -10372,6 +11233,7 @@ reconcile_control_coverage = lambda do |unplaced|
           "#{cov['emitted']} emitted, #{cov['needs_wiring']} needs-wiring, #{cov['dropped']} dropped" +
           (cov['dropped_unused'].positive? ? ", #{cov['dropped_unused']} dropped-unused (no page carries the control)" : '') +
           (cov['source_inert'].positive? ? ", #{cov['source_inert']} source-inert (shown, as in Tableau; filters nothing)" : '') +
+          (ignored_rows.any? ? ", #{ignored_rows.size} ignored (declared-only parameter: no sheet reads it, no dashboard shows it)" : '') +
           (missing.any? ? "; #{missing.size} UNACCOUNTED (#{missing.map { |r| r['name'] }.join(', ')}) — must be 0" : '; 0 unaccounted ✓')
     if control_coverage_warning_at
       warnings[control_coverage_warning_at] = msg
@@ -10820,7 +11682,8 @@ data_elements.each { |e| e.delete('_worksheet') }
 # v5.1: HIDDEN-TITLES sidecar. The source hides worksheet titles via the zone
 # attr show-title='false' (parser: zone show_title) — three rounds leaked
 # "Sheet 9"/"Bi assets" chrome because nothing carried the signal. The live
-# API rejects name:{text, visibility:'hidden'} ("cannot mix"), and bare
+# API rejects name:{text, visibility:'hidden'} ("cannot mix"; SUPERSEDED for maps by
+# the 2026-11-05 live-probed verdict map-title-overlay, probes 9073fa58 / e01d5b2d), and bare
 # {visibility:'hidden'} breaks every name-keyed matcher upstream — so titles
 # are hidden as the FINAL spec mutation in put-layout.rb, driven by this
 # sidecar. kpi-chart excluded (its name IS the rendered KPI label).
@@ -11256,11 +12119,14 @@ if opts[:pages_mode] == :worksheet
   # reaches the spec is a dangling source ref (review-caught regression).
   data_elements.each { |e| e.delete('_owner_element'); e.delete('_ctl_rewritten') }
   _out = { 'pages' => pages, 'data_elements' => data_elements, 'theme' => theme }
+  _out['source_hides_tabs'] = true if SOURCE_HIDES_TABS
   # PR-18: decode columns the orchestrator injects into the master element (only
   # when a master-rooted integer-dim control was routed — additive/byte-identical).
   _out['master_decode_columns'] = master_decode_columns if master_decode_columns.any?
   _out['master_calc_columns'] = master_calc_columns if master_calc_columns.any?
   rewrite_slash_caption_refs!(_out)
+  apply_null_member_display!(_out)
+  sanitize_axis_titles!(_out)
   File.write(opts[:out], JSON.pretty_generate(_out))
   warn "wrote #{opts[:out]} (page-per-worksheet: #{pages.size} pages, #{auto_controls.size} auto-controls per page" \
        "#{data_elements.any? ? ", #{data_elements.size} hidden data element(s)" : ''})"
@@ -11537,6 +12403,7 @@ elsif opts[:pages_mode] == :dashboard
     # element's own JSON to rewrite id + column ids + grouping refs in lock-step
     # (formulas reference [Master/..]/[ctl-..], never the element id, so they're
     # untouched).
+    pre_ns_ids = els.map { |e| e['id'] }
     els.map! do |el|
       stem = el['id']
       if stem && seen_el_ids[stem]
@@ -11600,7 +12467,56 @@ elsif opts[:pages_mode] == :dashboard
         el
       end
     end
+    # C14: legend controls for this page's charts (final ids known here). At most ONE control per
+    # legend zone per page: strongest caption match, then element order. A chart that loses its
+    # zone to another chart gets the pre-C14 legend.position behaviour back.
+    legend_by_zone = {}
+    els.each_with_index do |el, i|
+      plan = $legend_plans[[dash_name, pre_ns_ids[i]]]
+      next unless plan && el.dig('color', 'column')
+
+      (legend_by_zone[plan['zone_id']] ||= []) << [el, i, plan]
+    end
+    legend_slots = []
+    # one legend control per (master, column) on this page: it recolours every chart on that column
+    emitted_cols = {}
+    legend_by_zone.each_value.sort_by { |cands| cands.map { |_, i, _| i }.min }.each do |cands|
+      # only a chart whose colour column binds to a master column can host the control, and only when
+      # EVERY chart in the workbook coloured by that column shows the same member->colour map (the
+      # control's customColors would otherwise override the others); the rest (and the losers of the
+      # per-zone / per-column dedupe) get the pre-C14 legend.position behaviour back
+      bindable = cands.filter_map do |el, i, plan|
+        r = legend_master_ref(el, mmap, data_elements)
+        key = r && [r['source']['elementId'], r['columnId']]
+        next unless r && $legend_color_registry[key].all? { |m| m == plan['custom_colors'] }
+
+        [el, i, plan, r]
+      end
+      win = bindable.min_by { |_, i, plan, _| [-plan['score'], i] }
+      win = nil if win && emitted_cols[[win[3]['source']['elementId'], win[3]['columnId']]]
+      cands.each do |el, _i, plan|
+        next if win && el.equal?(win[0])
+
+        el['legend'] = plan['fallback'] if plan['fallback']
+      end
+      next unless win
+
+      emitted_cols[[win[3]['source']['elementId'], win[3]['columnId']]] = true
+      legend_slots << [page_extras.length, win[0], win[2]]
+      page_extras << build_legend_control(win[3], win[2])
+    end
     page = { 'name' => dash_name, 'elements' => namespace_ids.call(page_extras) + els }
+    legend_slots.each do |idx, el, plan|
+      # The layout post-pass (build-dashboard-layout) needs the pre-C14 legend when the control cannot be
+      # placed; the chart cannot carry it (internal keys never reach the POST), so it rides the provenance sidecar.
+      pv = $chart_provenance[el['id']]
+      next unless pv
+
+      # the control names the master column, not the chart, so the layout finds the chart through this
+      pv['legend_control_id'] = page['elements'][idx]['id']
+      pv['legend_fallback'] = plan['fallback'] if plan['fallback']
+    end
+
     # v5.0: full-canvas designed background (the Figma/PPT card-art pattern) →
     # page-level backgroundImage (data URI live-verified rendering behind the
     # page's elements). image_asset_records carries the extracted asset.
@@ -11622,11 +12538,14 @@ elsif opts[:pages_mode] == :dashboard
   theme = ThemeDerive.derive(layout)
   data_elements.each { |e| e.delete('_owner_element'); e.delete('_ctl_rewritten') }
   _out = { 'pages' => pages, 'data_elements' => data_elements, 'theme' => theme }
+  _out['source_hides_tabs'] = true if SOURCE_HIDES_TABS
   # PR-18: decode columns the orchestrator injects into the master element (only
   # when a master-rooted integer-dim control was routed — additive/byte-identical).
   _out['master_decode_columns'] = master_decode_columns if master_decode_columns.any?
   _out['master_calc_columns'] = master_calc_columns if master_calc_columns.any?
   rewrite_slash_caption_refs!(_out)
+  apply_null_member_display!(_out)
+  sanitize_axis_titles!(_out)
   File.write(opts[:out], JSON.pretty_generate(_out))
   warn "wrote #{opts[:out]} (page-per-dashboard: #{pages.size} page(s), #{data_elements.size} hidden data element(s), #{(param_controls + auto_controls).size} controls per page)"
 else
@@ -11636,6 +12555,8 @@ else
   all_elements = all_extras + styled_text_all + elements
   rewrite_slash_caption_refs!(all_elements)
   rewrite_slash_caption_refs!(data_elements)
+  apply_null_member_display!(all_elements)
+  sanitize_axis_titles!(all_elements)
   File.write(opts[:out], JSON.pretty_generate(all_elements))
   warn "wrote #{opts[:out]}  (#{all_elements.size} elements: #{all_extras.size} controls/text + " \
        "#{styled_text_all.size} styled-text + #{elements.size} charts)"
@@ -11798,12 +12719,22 @@ unless control_scope_records.empty?
       [to_contract.call(r, r['controlId'], nil)]
     end
   end
+  # Unreferenced + unplaced parameters (declared, read by no sheet calc/filter,
+  # carried by no dashboard page) are not filter signals: counting them made
+  # control_lint demand a control for a parameter nothing uses (exit 4).
+  ignored_rs, dropped_rs = dropped_rs.partition { |r| r['unreferencedParam'] }
   sidecar = {
     'version' => 1, 'source' => 'tableau',
-    'sourceFilterSignals' => control_scope_records.size,
+    'sourceFilterSignals' => control_scope_records.size - ignored_rs.size,
     'controls' => contract_controls,
     'dropped' => dropped_rs
   }
+  unless ignored_rs.empty?
+    sidecar['ignoredSignals'] = ignored_rs.map do |r|
+      { 'name' => r['name'], 'controlId' => r['controlId'],
+        'reason' => 'parameter declared but referenced by no sheet and not on any dashboard' }
+    end
+  end
   scope_path = File.join(opts[:tab], 'control-scope.json')
   File.write(scope_path, JSON.pretty_generate(sidecar))
   warn "wrote #{scope_path} (#{contract_controls.size} control scope entr(y/ies), #{dropped_rs.size} dropped)"
@@ -11872,6 +12803,20 @@ def warning_severity(w)
   return :approximated if s =~ /drill path (?:#\d+ )?'.*'.*(NOT emitted as a drill control|no drill control emitted|not targeted)/
   return :degraded if s =~ /STAYS[ -]MANUAL|could not be auto-decomposed|not composable as agg-of-agg|not auto-emitted|falling (through|back)|learned-rule matched .* NOT placed/i
   :note
+end
+
+# The source object a build warning names, as [visual, source_type] for
+# coverage.json: a leading quoted caption, or the caption after a known prefix.
+# A warning that names no object gets a nil visual — a placeholder name reads
+# to the migration report as an object missing from the census.
+def coverage_warning_subject(message)
+  case message.to_s
+  when /\A'([^']+)'/ then [Regexp.last_match(1), 'field/calc']
+  when /\AZONE DROPPED[^:']*: '([^']+)'/ then [Regexp.last_match(1), 'worksheet']
+  when /\Adashboard '([^']+)'/ then [Regexp.last_match(1), 'dashboard']
+  when /\A(?:parameter|param measure-picker) '([^']+)'/ then [Regexp.last_match(1), 'parameter']
+  else [nil, 'field/calc']
+  end
 end
 warnings.each do |w|
   warn(warning_severity(w) == :note ? "  NOTE  #{w}" : "  WARN  #{w}")
@@ -12057,9 +13002,18 @@ def spec_api_limit_entries(layout, cmp_wired = {}, info_icons = true)
       end
       # Filled map / choropleth with a color gradient — limited Sigma geo support.
       if z['geo_role'] && (mk =~ /map|polygon/i || ck =~ /map|choropleth/i)
-        if $region_map_built && $region_map_built[cap]
+        if $region_map_built && $region_map_built.key?(cap)
+          # Only what the region-map spec cannot carry is a residual, each one
+          # named. A residual that is a catalogued Sigma platform difference
+          # (refs/sigma-platform-differences.json) is recorded, never an
+          # approximation; any other keeps the tile approximated.
+          residuals = Array($region_map_built[cap])
+          open_residuals = map_open_residuals(residuals, platform_difference_ids)
+          next if open_residuals.empty?
           add.call(cap, 'approximated',
-                   'filled map → native Sigma region-map (sequential value fill) — Tableau map styling / background layers are not carried',
+                   'filled map → native Sigma region-map (source fill ramp' \
+                   "#{residuals.size > open_residuals.size ? ', catalogued platform differences recorded' : ''}) — not carried: " +
+                   open_residuals.map { |r| r[:detail] }.join('; '),
                    'Verify the region fill and regionType in Sigma; restyle in the editor if the source map style matters.')
           next
         end
@@ -12135,7 +13089,9 @@ end
 coverage_unresolved = []
 
 # (1) dropped controls — a source filter/parameter that resolved to no target.
-control_scope_records.select { |r| r['status'] == 'dropped' }.each do |r|
+# A declared-only parameter (ignoredSignals) had no source control to port —
+# it is not a dropped component.
+control_scope_records.select { |r| r['status'] == 'dropped' && !r['unreferencedParam'] }.each do |r|
   coverage_unresolved << {
     'visual' => (r['source_signal'] || r['sourceName'] || 'filter/control').to_s,
     'source_type' => 'filter', 'severity' => 'dropped', 'recoverable' => true,
@@ -12175,10 +13131,10 @@ warnings.each do |w|
   sev = warning_severity(w)
   next if sev == :note
   ws = w.to_s.gsub(/\s+/, ' ').strip
-  vis = (ws[/\A'([^']+)'/, 1] || 'field/calc')
+  vis, vis_type = coverage_warning_subject(ws)
   recoverable = !(ws =~ /unmapped|master|master-col|could not be auto-decomposed|STAYS MANUAL/i).nil?
   coverage_unresolved << {
-    'visual' => vis, 'source_type' => 'field/calc',
+    'visual' => vis, 'source_type' => vis_type,
     'severity' => sev.to_s, 'recoverable' => recoverable,
     'detail' => ws[0, 300],
     'action' => (recoverable ? 'Resolve the field on the master (map it / add the calc column), then re-run.' : nil)

@@ -368,6 +368,27 @@ module DashboardRead
   end
 
   # Returns [ok(Boolean), errors(Array<String>)].
+  PIT_FIELD_RE = /\b(?:year|date|month|quarter|period|fiscal)\b/i.freeze
+  PIT_CALC_RE = /\b(?:LAST|FIRST)\s*\(\s*\)|\b(?:TODAY|NOW)\s*\(|\{\s*(?:FIXED\s*:)?\s*MAX\s*\(\s*(?:YEAR|DATEPART|DATETRUNC|\[)|YEAR\s*\([^)]*\)\s*=\s*(?:YEAR\s*\(|\{|\[Parameters\])/i.freeze
+
+  # true / false from dashboard-layout.json (nil when it can't be read — the
+  # caller then keeps the point_in_time requirement). A signal is a sheet
+  # filter on a year/date-like field that keeps specific members or a range,
+  # or a calc with latest-period logic (LAST()/TODAY()/{MAX(YEAR(..))}/
+  # YEAR(x) = <year expr or parameter>).
+  def self.point_in_time_signals?(dir)
+    layout = (JSON.parse(File.read(File.join(dir.to_s, 'dashboard-layout.json'), encoding: 'UTF-8')) rescue nil)
+    return nil unless layout.is_a?(Array)
+
+    zones = layout.flat_map { |d| d.is_a?(Hash) ? Array(d['zones']) : [] }.select { |z| z.is_a?(Hash) }
+    zones.any? do |z|
+      Array(z['filters']).any? do |f|
+        next false unless f.is_a?(Hash) && f['column_caption'].to_s =~ PIT_FIELD_RE
+        Array(f['members']).any? || f['range'] || f['relative'] || f['min'] || f['max']
+      end || Array(z['calculations']).any? { |c| c.is_a?(Hash) && c['formula'].to_s =~ PIT_CALC_RE }
+    end
+  end
+
   def self.validate(dir)
     p = path(dir)
     return [false, ["#{p} does not exist — the Phase 1d dashboard-read step was skipped."]] unless File.exist?(p)
@@ -491,6 +512,16 @@ module DashboardRead
     # When any control highlights (the multi-metric pattern), the recipe's
     # latest-year + real-entity rewrite needs a `point_in_time` block — require it
     # so the bars/Top-N aren't silently left as all-year sums / aggregate rows.
+    # No point-in-time semantics anywhere in the source (no sheet filters a
+    # year/date field to a member or range, no latest-period calc): nothing for
+    # a latest_year to pin, so a missing point_in_time block is not a stop
+    # (live re-proof: a param-recolor highlight forced not_applicable+reason).
+    pit0 = doc['point_in_time']
+    ly0 = pit0.is_a?(Hash) ? pit0['latest_year'] : nil
+    undecided = !pit0.is_a?(Hash) || (pit0['not_applicable'] != true && (ly0.nil? || (ly0.respond_to?(:empty?) && ly0.empty?)))
+    if any_highlight && undecided && point_in_time_signals?(dir) == false
+      any_highlight = false
+    end
     if any_highlight
       pit = doc['point_in_time']
       if !pit.is_a?(Hash)
@@ -502,7 +533,9 @@ module DashboardRead
         end
       else
         errs << 'point_in_time.year_column is required' if pit['year_column'].to_s.strip.empty?
-        errs << 'point_in_time.latest_year is required (scalar year or {metric: year} map)' \
+        errs << 'point_in_time.latest_year is required (scalar year or {metric: year} map) — or, when the source shows ' \
+                'no point-in-time (latest-year) values, set point_in_time.not_applicable=true with a reason. Top-N/RANK ' \
+                'tiles with no source year filter are never pinned to latest_year.' \
           if pit['latest_year'].nil? || (pit['latest_year'].respond_to?(:empty?) && pit['latest_year'].empty?)
         errs << 'point_in_time must include an `entity_discriminator` key (set null if the source has no aggregate rows)' \
           unless pit.key?('entity_discriminator')

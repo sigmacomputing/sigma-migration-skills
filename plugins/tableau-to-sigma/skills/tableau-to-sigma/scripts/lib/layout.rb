@@ -24,6 +24,21 @@ module SigmaLayout
   #   page width only — re-verify at other widths before trusting universally
   #   (if row px turns out to vary with page width, make this a lookup from
   #   canvas_w; the page_rows formula structure is unchanged either way).
+  # Page rows that keep the SOURCE dashboard aspect (plan C9):
+  # round(source_h / source_w * 24 * col_px / SIGMA_ROW_PX), col_px = one grid
+  # column's px at the Sigma page width. A fixed canvas carries its own width
+  # into the theme (theme_derive.derive_page_width: custom maxPageWidth = w), so
+  # col_px = w / 24 and this equals h / SIGMA_ROW_PX: source pixels map 1:1.
+  # nil unless both canvas dims are positive.
+  def aspect_page_rows(canvas_px, page_w_px = nil)
+    return nil unless canvas_px.is_a?(Hash)
+    w = canvas_px['w'].to_f
+    h = canvas_px['h'].to_f
+    return nil unless w.positive? && h.positive?
+    col_px = (page_w_px || w).to_f / GRID_COLS
+    (h / w * GRID_COLS * col_px / SIGMA_ROW_PX).round
+  end
+
   MIN_BAND_FILL = 0.60 # a band must fill >=60% of the grid columns (lint parity)
   # Generic auto-names (Sigma page names / source section names) that must
   # NEVER become a header-band title — "Page 1" / "Sheet 3" / "Dashboard 2".
@@ -106,6 +121,15 @@ module SigmaLayout
   def header_text_el(id, title, color = nil)
     span = color ? %(<span style="color: #{color}">#{title}</span>) : title.to_s
     { 'id' => id, 'kind' => 'text', 'body' => "# #{span}" }
+  end
+
+  # Text element for a map's worksheet title (plan C16). Sigma draws a normal element title at
+  # 20px regular; header_text_el's "# " heading is the 48px page heading, far too large over a
+  # map. A 20px span (live-verified: the text schema allows an integer-px span font-size)
+  # matches the sibling chart titles. & < > are escaped so a worksheet name cannot inject markup.
+  def map_title_text_el(id, title)
+    safe = title.to_s.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;')
+    { 'id' => id, 'kind' => 'text', 'body' => %(<span style="font-size: 20px">#{safe}</span>) }
   end
 
   # Header band XML: dark full-width container at the top of the page wrapping
@@ -467,6 +491,65 @@ module SigmaLayout
     end
     rows.select { |r| r.length >= 2 }
         .map { |r| r.sort_by { |z| [(z['x_pct'] || 0).to_f, z['id'].to_s] } }
+  end
+
+  # ---- KPI/BAN band (plan C6) ---------------------------------------------
+  # A KPI row whose members are ALL declared-KPI chart zones with no fill or
+  # border of their own, and which sit side by side in ONE source container, is
+  # a Tableau BAN band: the container's tint is the band, the BANs are bare.
+  # Returns nil (keep today's per-card style) or { fill: <container fill|nil> }.
+  # The source container's fill is the ONLY tint source - never invented.
+  BAN_BORDER_KEYS = %w[border_color border_style border_sides].freeze
+
+  def ban_own_style?(z)
+    return true if z['fill_color'].to_s != ''
+    return true if BAN_BORDER_KEYS.any? { |k| z[k].is_a?(Hash) ? !z[k].empty? : z[k].to_s != '' }
+    z['border_width'].to_i.positive?
+  end
+
+  # The direct parent container node of zone `zid` in the nested zone tree.
+  def zone_parent_node(nodes, zid, parent = nil)
+    Array(nodes).each do |n|
+      return parent if n['id'] == zid && parent
+      next unless n['children']
+      found = zone_parent_node(n['children'], zid, n)
+      return found if found
+    end
+    nil
+  end
+
+  def ban_band(row, zone_tree)
+    return nil if Array(row).length < 2 || Array(row).length > 24
+    return nil unless row.all? { |z| z['chart_kind'].to_s == 'kpi' && !ban_own_style?(z) }
+    parents = row.map { |z| zone_parent_node(zone_tree, z['id']) }
+    return nil if parents.any?(&:nil?) || parents.map { |pn| pn['id'] }.uniq.length != 1
+    fill = parents.first['fill_color'].to_s
+    { fill: fill.empty? ? nil : fill }
+  end
+
+  # The element-side half of the band recipe (verdict kpi-strip-no-cards):
+  # flat transparent cell, default padding, centred label-over-value. Applied by
+  # put-layout from the layout's kpi-band-style sidecar ONLY for KPIs the layout
+  # actually placed inside a band container, so card style and band always agree.
+  def ban_kpi_patch
+    { 'style' => { 'backgroundColor' => 'transparent', 'borderRadius' => 'square', 'borderWidth' => 0 },
+      'layout' => { 'anchor' => 'center', 'titleOrient' => 'top' } }
+  end
+
+  # (The kpi-band-style sidecar holds per-element patches: KPI band style, map title name.)
+  # put-layout reads <layout>.kpi-band-style.json by default. A path that does
+  # NOT regenerate the layout (reuse-workbook preserve, spec-generator layout)
+  # must drop any sidecar a previous run left in the workdir.
+  def clear_band_style_sidecar(layout_path)
+    path = "#{layout_path}.kpi-band-style.json"
+    File.delete(path) if File.exist?(path)
+  end
+
+  # Equal column spans of `cols` split across n cards, remainder given to the
+  # leftmost cards ([5,5,5,5,4] for n=5, cols=24).
+  def equal_spans(n, cols = 24)
+    base, rem = cols.divmod(n)
+    Array.new(n) { |i| base + (i < rem ? 1 : 0) }
   end
 
   # A narrow (< SIDEBAR_MAX_W_PCT) column of filter/parameter zones hugging the

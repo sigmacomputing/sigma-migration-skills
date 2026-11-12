@@ -6,6 +6,12 @@ connections, and saved control defaults. Tableau MCP supplies rendered images
 and query results. Sigma CLI authentication and Sigma MCP are independent of
 Tableau authentication; neither should trigger a Tableau PAT setup request.
 
+`--twb` also accepts a local `.twbx` containing exactly one TWB. The importer
+reads only that member, never extracts package paths or loads bundled data, and
+snapshots the decoded XML. Packages over 512 MiB or XML over 32 MiB stop with a
+named limit; obtain a standalone TWB instead. Multiple TWBs require an explicit
+standalone selection, not a guessed member.
+
 ## Start
 
 Run bootstrap with Sigma authentication available, then:
@@ -35,7 +41,7 @@ probe, PAT signin, GraphQL call, or REST discovery lane runs.
    available, and `views: { "view": [{ "id": "...", "name": "..." }] }`.
    Use MCP `list-views` for worksheet IDs omitted by `get-workbook`; retain their
    exact source names and IDs. Never invent a view or relabel a dashboard CSV as
-   a worksheet export.
+   a worksheet export. For hidden worksheets, see the explicit handoff below.
 2. Re-run the same command. The request now names exact MCP view IDs and output
    paths. Start worksheet `get-view-data` requests **serially**. Increase
    concurrency only when the deployment's limits and successful requests support
@@ -87,6 +93,35 @@ Every re-entry rechecks the evidence hashes. Changed exports require a new
 source-match check and seal. A different TWB requires a new workdir rather than
 silently overwriting an existing migration's baseline. No synthetic REST
 `discovery-stamp.json` or fabricated `timings.json` is necessary.
+
+## Hidden Worksheets
+
+When an in-scope worksheet has no standalone view ID, the request can name its
+one real parent dashboard's `get-view-data` call. The `worksheet`, `output`, and
+`mapping_file` fields describe the local evidence handoff, not extra MCP API
+parameters. Only the real `view_id` goes to `get-view-data`.
+
+Use this route only if the full returned data explicitly identifies the named
+worksheet's complete result. Preserve its columns and rows in the requested
+CSV, and record the attribution in `mcp-worksheet-files.json`:
+
+```json
+[
+  {
+    "worksheet": "Selected Worksheet",
+    "dashboard_view_id": "<real-parent-view-id>",
+    "path": "views/worksheet-<request-hash>.csv"
+  }
+]
+```
+
+Do not substitute the dashboard's first sheet, manufacture worksheet IDs, or
+infer attribution by matching numbers. If the tool omits or cannot distinguish
+the worksheet, keep the source-evidence stop. A worksheet used by multiple
+selected dashboards needs a single-dashboard scope because saved filter states
+can differ. The importer verifies the parent relationship, scope, local path,
+and sealed CSV/mapping hashes; it cannot independently prove an agent's worksheet
+attribution. `--confirm-source-match` still requires supporting source evidence.
 
 ## Boundaries
 

@@ -142,4 +142,46 @@ class SourceVisualsTest < Minitest::Test
     SourceVisuals.apply!(element, { 'rows_shelf' => '[Period]', 'cols_shelf' => '[Units]' }, {}, [], {}) { false }
     assert_nil element.dig('xAxis', 'format')
   end
+
+  PRESENTATION_STYLE_KEYS = {
+    'preset' => 'presentation', 'gridLines' => 'none', 'outerBorder' => 'hidden',
+    'banding' => 'shown', 'bandingColor' => '#f5f5f5'
+  }.freeze
+
+  def single_value_pivot(table_style = nil)
+    el = { 'kind' => 'pivot-table', 'columns' => [], 'values' => ['v1'] }
+    el['tableStyle'] = table_style if table_style
+    SourceVisuals.apply!(el, {}, { 'source_locale' => 'en_US' }, [], {}) { false }
+    el
+  end
+
+  # R6 follow-up: SourceVisuals must merge into, not skip over, an existing tableStyle.
+  def test_unstyled_single_value_pivot_without_existing_style_is_unchanged
+    ts = single_value_pivot['tableStyle']
+    assert_equal 'large', ts['cellSpacing']
+    assert_equal 12, ts.dig('textStyles', 'cell', 'fontSize')
+    assert_equal 12, ts.dig('textStyles', 'rowHeader', 'fontSize')
+    assert_equal 'presentation', ts['preset']
+  end
+
+  def test_squeezed_pivot_keeps_source_visuals_keys_and_r6_keys_win
+    require_relative 'lib/pivot_widths'
+    squeezed = PivotWidths.merge_squeezed_table_style(nil)
+    ts = single_value_pivot(squeezed)['tableStyle']
+    PRESENTATION_STYLE_KEYS.each { |k, v| assert_equal v, ts[k], "SourceVisuals #{k} merged in" }
+    assert_equal 'extra-small', ts['cellSpacing'], 'R6 spacing beats SourceVisuals large'
+    assert_equal 8, ts.dig('textStyles', 'columnHeader', 'fontSize')
+    assert_equal 9, ts.dig('textStyles', 'cell', 'fontSize')
+    assert_equal 9, ts.dig('textStyles', 'header', 'fontSize')
+    assert_equal 'normal', ts.dig('textStyles', 'columnHeader', 'fontWeight'), 'SourceVisuals columnHeader keys merge in'
+    assert_equal 'center', ts.dig('textStyles', 'cell', 'align')
+    assert_equal 12, ts.dig('textStyles', 'rowHeader', 'fontSize')
+  end
+
+  def test_non_squeezed_existing_style_is_not_overridden
+    ts = single_value_pivot({ 'cellSpacing' => 'small', 'banding' => 'hidden' })['tableStyle']
+    assert_equal 'small', ts['cellSpacing']
+    assert_equal 'hidden', ts['banding']
+    assert_equal 'presentation', ts['preset']
+  end
 end

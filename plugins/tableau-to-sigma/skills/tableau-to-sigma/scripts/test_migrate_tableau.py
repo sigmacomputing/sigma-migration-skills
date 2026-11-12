@@ -84,6 +84,7 @@ class MigrateTableauPythonTest(unittest.TestCase):
             "schema": "LANDING",
             "connection": "sigma-connection",
             "name": "Fixture",
+            "data_model_id": None,
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -468,6 +469,91 @@ class MigrateTableauPythonTest(unittest.TestCase):
             artifact = migrate.load(workdir / "extract-landing-offramp.json")
             self.assertEqual("prohibited", artifact["exact_parity_claim"])
             self.assertEqual("approved live repoint", artifact["reason"])
+
+    def test_explicit_reused_data_model_satisfies_extract_landing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            with zipfile.ZipFile(workdir / "workbook-content.twbx", "w") as archive:
+                archive.writestr("Data/Sample.hyper", b"fixture")
+
+            def never_land(command, check):
+                self.fail(f"landed copies the reused model never reads: {command}")
+
+            result = migrate.extract_landing_gate(
+                self.landing_args(data_model_id="dm-123", no_auto_land=False),
+                workdir,
+                self.embedded_classification(),
+                runner=never_land,
+                environment={"SNOWFLAKE_ACCOUNT": "account", "SNOWFLAKE_USER": "user"},
+                neutral_path=workdir / "missing-env",
+            )
+            self.assertEqual("reused-data-model", result["status"])
+            self.assertEqual("dm-123", result["data_model_id"])
+            self.assertEqual({"db": "DB", "schema": "LANDING"}, result["warehouse"])
+            self.assertNotIn("kind", result)
+            self.assertFalse((workdir / "extract-landing-offramp.json").exists())
+            self.assertEqual(
+                "reused-data-model",
+                migrate.load(workdir / "extract-landing-status.json")["status"],
+            )
+
+    def test_manifest_still_wins_over_reused_data_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            migrate.write(
+                workdir / "landing-manifest.json",
+                [
+                    {
+                        "datasource": "federated.extract",
+                        "caption": "Sample Extract",
+                        "hyper": "Sample.hyper",
+                        "sf_table": "DB.LANDING.SAMPLE",
+                        "columns": {"Region": "REGION"},
+                    }
+                ],
+            )
+            result = migrate.extract_landing_gate(
+                self.landing_args(data_model_id="dm-123"),
+                workdir,
+                self.embedded_classification(),
+            )
+            self.assertEqual("landed", result["status"])
+
+    def test_fresh_build_and_self_posted_model_keep_extract_landing_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            for label, args in (
+                ("fresh build", self.landing_args()),
+                ("blank id", self.landing_args(data_model_id="  ")),
+            ):
+                with self.subTest(label):
+                    with self.assertRaises(migrate.ExtractLandingRequired):
+                        migrate.extract_landing_gate(
+                            args,
+                            workdir,
+                            self.embedded_classification(),
+                            environment={},
+                            neutral_path=workdir / "missing-env",
+                        )
+            (workdir / "posted-datamodels.jsonl").write_text(
+                json.dumps({"id": "dm-123"}) + "\n", encoding="utf-8"
+            )
+            with self.assertRaises(migrate.ExtractLandingRequired):
+                migrate.extract_landing_gate(
+                    self.landing_args(data_model_id="dm-123"),
+                    workdir,
+                    self.embedded_classification(),
+                    environment={},
+                    neutral_path=workdir / "missing-env",
+                )
+
+    def test_refused_reuse_fires_deferred_extract_landing_stop_before_post(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        settle = source[source.index("settled = relationship_route.settle(") :]
+        settle = settle[: settle.index('"post-and-readback.py"')]
+        self.assertIn('state.get("extract_landing_status") == "reused-data-model"', settle)
+        self.assertIn('"EXTRACT LANDING REQUIRED"', settle)
+        self.assertIn("17,", settle)
 
     def test_auto_land_keeps_complete_manifest_after_nonzero_exit(self):
         with tempfile.TemporaryDirectory() as tmp:

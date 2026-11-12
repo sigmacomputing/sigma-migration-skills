@@ -19,6 +19,7 @@ require 'json'
 require 'set'
 require 'optparse'
 require_relative 'lib/workbook_code'
+require_relative 'lib/relationship_map'
 
 opts = {}
 OptionParser.new do |p|
@@ -28,6 +29,7 @@ OptionParser.new do |p|
   p.on('--twb PATH')         { |v| opts[:twb] = v }
   p.on('--out PATH')         { |v| opts[:out] = v }
   p.on('--punchlist PATH', 'W2.2: PUNCHLIST.md to embed VERBATIM (default: PUNCHLIST.md beside --out)') { |v| opts[:punchlist] = v }
+  p.on('--relationship-map PATH', 'reused-DM relationship deviations (default: relationship-map.json beside --out)') { |v| opts[:relmap] = v }
 end.parse!
 %i[meta specs wb out].each { |k| abort("missing --#{k.to_s.tr('_', '-')}") unless opts[k] }
 
@@ -122,6 +124,18 @@ rows.group_by { |r| r[:page] }.each do |pg, list|
     md << "- `#{r[:tile]}` (#{r[:kind]}) — **#{r[:category]}**#{also}: #{r[:reason]}#{refs}\n"
   end
   md << "\n"
+end
+# Reused-DM evidence route: every way the customer-built model differs from the
+# Tableau relationships, with the evidence behind it (lib/relationship_map.rb).
+relmap_path = opts[:relmap] || File.join(File.dirname(opts[:out]), 'relationship-map.json')
+if File.exist?(relmap_path)
+  begin
+    relmap = JSON.parse(File.read(relmap_path))
+    relmap_result = RelationshipMap.evaluate_workdir(File.dirname(relmap_path), final: false)
+    md << "\n---\n\n" << RelationshipMap.notes_markdown(relmap, relmap_result)
+  rescue JSON::ParserError, SystemCallError => e
+    md << "\n---\n\n## Relationship deviations (reused data model)\n\nrelationship-map.json unreadable: #{e.message[0, 120]}\n"
+  end
 end
 # W2.2: the factory punch list rides the report VERBATIM — the same
 # per-ledger-line re-entry commands the finalize terminal printed (rendered

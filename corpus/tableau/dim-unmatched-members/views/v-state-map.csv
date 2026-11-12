@@ -1,0 +1,7 @@
+State (STORE_DIM (DB.STORE_DIM)),Latitude (generated),Longitude (generated),Measure Names,Measure Values
+CA,36.1,-119.6,Net Revenue,"1,200"
+CA,36.1,-119.6,Orders,12
+AZ,34.2,-111.6,Net Revenue,
+AZ,34.2,-111.6,Orders,0
+TX,31.0,-99.9,Net Revenue,900
+TX,31.0,-99.9,Orders,9

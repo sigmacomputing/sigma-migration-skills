@@ -27,6 +27,7 @@
 # Usage: ruby scripts/test-wave2-wait.rb   (~90s, spawns offline fixture runs)
 
 require 'json'
+require_relative 'lib/sdk_route' # finalize_chain_predicate consults SdkRoute
 require 'tmpdir'
 require 'fileutils'
 require 'rbconfig'
@@ -155,6 +156,21 @@ Dir.mktmpdir do |d|
   ok, _why = finalize_chain_predicate(d)
   check(ok && chain_wait_class(ok, nil) == :chain,
         'discharged obligations (verdict + resolved ledger) → :chain', fails)
+end
+Dir.mktmpdir do |d| # hybrid route: an SDK session not yet exported back holds the chain
+  chain_fixture(d, verdict: 'pass', rcf: 1,
+                ledger: { 'entries' => [{ 'cls' => 'spec-fixable', 'resolved' => true }],
+                          'sdk' => { 'state' => 'open', 'sessions' => [{ 'id' => 's1' }] } })
+  ok, why = finalize_chain_predicate(d)
+  check(!ok && why =~ /\ASDK route:/ && chain_wait_class(ok, why) == :wait,
+        'open SDK session (writes not exported back) → :wait, never :chain', fails)
+end
+Dir.mktmpdir do |d|
+  chain_fixture(d, verdict: 'pass', rcf: 1,
+                ledger: { 'entries' => [{ 'cls' => 'spec-fixable', 'resolved' => true }],
+                          'sdk' => { 'state' => 'exported', 'sessions' => [{ 'id' => 's1' }] } })
+  ok, _why = finalize_chain_predicate(d)
+  check(ok, 'exported + re-gated SDK session → :chain', fails)
 end
 Dir.mktmpdir do |d|
   chain_fixture(d, marker: true)

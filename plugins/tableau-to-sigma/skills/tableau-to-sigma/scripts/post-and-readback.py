@@ -16,6 +16,8 @@ import code_rep  # noqa: E402
 import workdir_guard  # noqa: E402
 
 DERIVATION_FIELDS = {"derivedVia", "partial", "droppedConditions"}
+# The dry run requires a UUID-shaped folderId but never checks that it exists.
+DRY_RUN_FOLDER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 def load_object(path: str) -> dict:
@@ -43,7 +45,7 @@ def iter_elements(spec: dict, kind: str):
         for page in spec.get("pages") or []:
             yield from page.get("elements") or []
     else:
-        document = spec.get("document") or spec
+        document = code_rep.document(spec)
         yield from document.get("elements") or []
 
 
@@ -118,21 +120,27 @@ def verify_census(posted: dict, readback: dict, kind: str) -> dict:
 
 
 def request_paths(kind: str, object_id: str | None = None) -> tuple[str, str]:
+    """Write path (create, or update when object_id is set) and the id field."""
     if kind == "datamodel":
         return (
             f"/v2/dataModels/{object_id}/spec" if object_id else "/v2/dataModels/spec",
             "dataModelId",
         )
     return (
-        f"/v2/workbooks/{object_id}/spec" if object_id else "/v2/workbooks/spec",
+        code_rep.update_path(object_id) if object_id else code_rep.create_path(),
         "workbookId",
     )
 
 
+def readback_path(kind: str, object_id: str) -> str:
+    if kind == "datamodel":
+        return f"/v2/dataModels/{object_id}/spec"
+    return code_rep.read_path(object_id)
+
+
 def create_envelope(kind: str, spec: dict) -> dict:
     if kind == "workbook":
-        allowed = ("name", "folderId", "description", "document")
-        return {key: spec[key] for key in allowed if key in spec}
+        return code_rep.create_body(spec)
     return spec
 
 
@@ -153,23 +161,26 @@ def post_and_readback(
     method = "put" if update_id else "post"
     body = outgoing if update_id else create_envelope(kind, outgoing)
     if update_id and kind == "workbook":
-        body = {"document": outgoing.get("document") or outgoing}
+        body = code_rep.update_body(outgoing)
 
     if kind == "workbook" and not update_id:
+        # Server-side dry run (POST /v2/workbooks with dryRun: true). It needs a
+        # UUID-shaped folderId but never checks it exists.
+        extra = {} if outgoing.get("folderId") else {"folderId": DRY_RUN_FOLDER_ID}
         try:
             api.request(
                 "post",
-                "/v2/workbooks/spec/verify",
-                body=json.dumps(outgoing),
+                path,
+                body=json.dumps(code_rep.create_body(outgoing, extra=extra, dry_run=True)),
             )
         except Exception as exc:
-            raise ValueError(f"workbook spec/verify rejected the draft: {exc}") from exc
+            raise ValueError(f"workbook dry-run rejected the draft: {exc}") from exc
 
     response = api.request(method, path, body=json.dumps(body)) or {}
     object_id = update_id or response.get(id_field) or response.get("id")
     if not object_id:
         raise ValueError(f"{method.upper()} {path} returned no {id_field}")
-    read_path, _ = request_paths(kind, object_id)
+    read_path = readback_path(kind, object_id)
     readback = api.request("get", read_path)
     if not isinstance(readback, dict):
         raise ValueError(f"GET {read_path} returned no JSON object")

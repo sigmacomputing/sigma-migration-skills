@@ -335,7 +335,7 @@ The spec follows three mandatory rules — surfaced loudly in the skill's phase-
 <ul>
   <li><strong>Two pages, always.</strong> A hidden <code>Data</code> page holds the master table (sourced from the DM); a content page holds the charts, controls, and text. Co-locating master + charts puts a giant table on the dashboard the customer has to delete.</li>
   <li><strong>Master is the single source.</strong> Every chart element sets <code>source: {kind: "table", elementId: "master"}</code>, regardless of which page it lives on. Cross-page references are fully supported.</li>
-  <li><strong>POST once, PUT for every update.</strong> <code>POST /v2/workbooks/spec</code> is create-only. Re-POSTing during error recovery creates a duplicate workbook in the customer's My Documents — exactly the regression that motivated the orphan-cleanup tooling.</li>
+  <li><strong>POST once, PUT for every update.</strong> <code>POST /v2/workbooks</code> is create-only; updates go to <code>PUT /v2/workbooks/{id}/contents</code>. Re-POSTing during error recovery creates a duplicate workbook in the customer's My Documents — exactly the regression that motivated the orphan-cleanup tooling.</li>
 </ul>
 
 <aside class="positive">

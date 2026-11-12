@@ -52,11 +52,13 @@ check(theme['categoricalScheme'] == %w[#07b4a2 #e8519a #827bb8 #f28e2b],
 check(!(theme['categoricalScheme'] || []).include?('#e6e6e6'),
       "grey solid KPI-card fill excluded from the scheme", fails)
 
-# No styled containers → no theme (Sigma defaults; never worse).
+# No styled containers → only the C13 default font theme (Tableau Book → Lato);
+# no canvas / palette invented.
 plain = derive_theme([{ 'dashboard' => 'X', 'zone_tree' => [
   { 'id' => '1', 'kind' => 'container', 'children' => [{ 'id' => 'c', 'kind' => 'chart' }] }
 ] }])
-check(plain == {}, "unstyled dashboard → empty theme (got #{plain.inspect})", fails)
+check(plain == { 'fonts' => { 'textFont' => 'Lato', 'dataFont' => 'Lato' } },
+      "unstyled dashboard → only the default Lato font theme (got #{plain.inspect})", fails)
 
 # Tableau's default fixed dashboard canvas is white even when no explicit
 # background style is serialized; Sigma otherwise renders gray gutters.

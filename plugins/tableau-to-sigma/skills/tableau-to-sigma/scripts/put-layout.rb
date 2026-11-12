@@ -36,21 +36,13 @@ OptionParser.new do |p|
   p.on('--elements PATH', 'spec elements to inject (default: <layout>.elements.json if present)') { |v| opts[:elements] = v }
   p.on('--prune-elements PATH', 'explicit manual-composite elements to remove (default: <layout>.prune-elements.json if present)') { |v| opts[:prune_elements] = v }
   p.on('--nav-buttons PATH', 'nav-button sidecar (default: sibling *-nav-buttons.json) — rewrites the nav.invalid placeholder URLs to live page URLs') { |v| opts[:nav_buttons] = v }
-  # v5.4: the pivot grand-totals SHIP step. A pivot carrying a `totals` key
-  # 500s its CSV export (probe-isolated v5.4: `totals` is the SOLE trigger —
-  # value type is irrelevant; ratio/PercentOfTotal export fine), which poisons
-  # verify-anchors' pivot exports. Generated pivots carry the key from build;
-  # verify-anchors strips it around its own CSV exports (restoring after), and
-  # THIS pass — the final spec mutation, once the gates are green — repairs any
-  # pivot the bracket left totals-less. --apply-pivot-totals runs a totals-ONLY
-  # pass (no --layout needed): GET spec → set showGrandTotals:hidden on every
-  # pivot lacking a totals key (path-independent, like hidden-titles; an
-  # optional *-pivot-totals.json sidecar overrides per element id) → PUT.
-  # Idempotent. The sidecar is globbed from the --layout dir, the --workdir,
-  # and the cwd (v5.4.9 review fix: the finalize ship step passes no --layout,
-  # which made the documented sidecar override unreachable on the automated
-  # path — migrate-tableau.rb now passes --workdir).
-  p.on('--apply-pivot-totals', 'ship step: (re)hide pivot grand totals as a final PUT (see header). --layout optional.') { opts[:apply_pivot_totals] = true }
+   # Retained for explicit repairs of existing workbooks, before verification.
+   # Anchor exports now read JSON without stripping totals; finalization must
+   # not write the workbook after collecting its evidence. Any manual totals
+   # repair requires fresh readback, parity, and visual verification afterward.
+   # With no --layout this updates totals only; *-pivot-totals.json sidecars
+   # remain supported from --layout's directory, --workdir, and cwd.
+   p.on('--apply-pivot-totals', 'repair pivot grand totals before verification; --layout optional; rerun all gates afterward') { opts[:apply_pivot_totals] = true }
   p.on('--workdir DIR', 'migration workdir — where sidecars (*-pivot-totals.json) are globbed when --layout is absent') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
 end.parse!
 abort('missing --workbook') unless opts[:wb]
@@ -98,7 +90,7 @@ def http(method, path, body = nil)
   end
 end
 
-raw_spec = JSON.parse(http(:get, "/v2/workbooks/#{opts[:wb]}/spec").body)
+raw_spec = JSON.parse(http(:get, Sigma::CodeRep.read_path(opts[:wb])).body)
 # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
 # `document` key (live since 2026-08) and REJECTS the old flat body on PUT
 # with a 400 — unwrap the GET before any spec['pages'] access below; this
@@ -142,7 +134,7 @@ if opts[:layout]
     page_ids = Array(spec['pages']).filter_map { |page| page['id'] if page.is_a?(Hash) }
     invalid = records.reject do |record|
       record.is_a?(Hash) && !record['element_id'].to_s.empty? &&
-        record['reason'] == 'manual-composite' && page_ids.include?(record['page_id'])
+        %w[manual-composite legend-no-room].include?(record['reason']) && page_ids.include?(record['page_id'])
     end
     abort "FATAL: invalid explicit prune record(s) in #{prune_path}: #{invalid.inspect}" if invalid.any?
     prune_ids = records.map { |record| record['element_id'] }
@@ -161,10 +153,16 @@ if opts[:layout]
   end
 
   pruned = []
+  $pruned_injected_ids = pruned
   (spec['elements'] || []).reject! do |el|
     id = el['id'].to_s
     injected = (el['kind'] == 'container' && id.match?(/\A(tc|syn|band)-/)) ||
                (el['kind'] == 'text' && id.match?(/\A(tc|syn|band)-.*-hdrtext\z/)) ||
+               # C16: map title wrapper (container + heading text)
+               (el['kind'] == 'container' && id.start_with?('mapbox-')) ||
+               # C15: flush-tiles page container
+               (el['kind'] == 'container' && id.start_with?('flush-')) ||
+               (el['kind'] == 'text' && id.start_with?('maptitle-')) ||
                (el['kind'] == 'divider' && id.start_with?('dv-'))
     next false unless injected && !refd.include?(id)
     pruned << id
@@ -194,6 +192,49 @@ if elements_path && File.exist?(elements_path)
     end
   end
   puts "injected #{injected} container/header element(s) from #{elements_path}"
+end
+# Plan C6: KPIs the layout placed inside a flat BAN band take the band cell style
+# (written by build-dashboard-layout.rb only for rows it actually banded).
+# per-element patches: KPI band style, map title name, chart legend restore (C14: the layout could not
+# place the legend control beside its chart, so the chart's own pre-C14 legend comes back)
+band_style_path = opts[:layout] && "#{opts[:layout]}.kpi-band-style.json"
+if band_style_path && File.exist?(band_style_path)
+  patches = (JSON.parse(File.read(band_style_path)) rescue {})
+  patched = 0
+  map_titled = 0
+  legend_restored = 0
+  (spec['elements'] || []).each do |el|
+    pt = patches.is_a?(Hash) ? patches[el['id']] : nil
+    next unless pt.is_a?(Hash)
+    if el['kind'] == 'kpi-chart'
+      el['style'] = pt['style'] if pt['style']
+      el['layout'] = pt['layout'] if pt['layout']
+      patched += 1
+    end
+    if pt['legend'].is_a?(Hash)
+      # Plan C14: legend control pruned for lack of room -> the chart shows its own legend again
+      el['legend'] = pt['legend']
+      legend_restored += 1
+    end
+    if %w[region-map point-map geography-map].include?(el['kind']) && pt['name'].is_a?(Hash)
+      # Plan C16: the layout moved this map's title into a heading text above it
+      el['name'] = pt['name']
+      map_titled += 1
+    end
+  end
+  puts "band KPIs: #{patched} kpi-chart element(s) restyled flat for their band" if patched.positive?
+  puts "legends: #{legend_restored} chart(s) keep their own legend (no room for the legend control)" if legend_restored.positive?
+  puts "map titles: #{map_titled} map(s) titled by a heading above the map (own title hidden)" if map_titled.positive?
+end
+# C16 restore: a map whose title wrapper was pruned this run (and gets no new
+# patch) would keep its earlier hidden name and lose its title; the hidden
+# name still carries the title text, so put it back as the plain visible name.
+(spec['elements'] || []).each do |el|
+  nm = el['name']
+  next unless %w[region-map point-map geography-map].include?(el['kind']) && nm.is_a?(Hash)
+  next unless nm['visibility'] == 'hidden' && nm['text'].to_s != '' && Array($pruned_injected_ids).include?("mapbox-#{el['id']}")
+  el['name'] = nm['text']
+  puts "map titles: #{el['id']} title restored (wrapper no longer in the layout)"
 end
 # Page NAME -> live page id. Built ONCE here — both the nav.invalid URL
 # rewrite (below) and the navigate-button target.page repair (further below,
@@ -290,7 +331,9 @@ end
 # ---- v5.1: hidden-titles application ----------------------------------------
 # The source hides these elements' worksheet titles (zone show-title='false').
 # Applied HERE — the FINAL spec mutation — because the live API rejects
-# name:{text, visibility:'hidden'} ("cannot mix … Use one or the other",
+# name:{text, visibility:'hidden'} (SUPERSEDED for maps: the 2026-11-05
+# live-probed verdict map-title-overlay, probes 9073fa58 / e01d5b2d, accepts
+# that combination; "cannot mix … Use one or the other",
 # probed 2026-07-12) and the bare {visibility:'hidden'} object breaks every
 # upstream name-keyed matcher (layout els_by_name, parity, tile verify). At
 # this point nothing else needs names.
@@ -394,7 +437,7 @@ abort("FATAL: invalid workbook layout:\n  - #{shape_errors.join("\n  - ")}") if 
 
 # Preserve the complete document (settings, overlays/panels, agents, and any
 # future fields), changing only the fields above.
-resp = http(:put, "/v2/workbooks/#{opts[:wb]}/spec", JSON.pretty_generate(Sigma::CodeRep.wrap(spec)))
+resp = http(:put, Sigma::CodeRep.update_path(opts[:wb]), JSON.pretty_generate(Sigma::CodeRep.update_body(spec)))
 parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
 puts parsed['workbookId'] ? "PUT ok: workbookId=#{parsed['workbookId']}" : "ERROR: #{parsed.inspect}"
 exit(parsed['workbookId'] ? 0 : 1)

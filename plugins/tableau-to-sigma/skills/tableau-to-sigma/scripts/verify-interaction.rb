@@ -310,7 +310,7 @@ end
 # --- Sigma plumbing (same shapes as probe-controls.rb; that script is a
 # vendored shared artifact, so the two stay independent by design) -----------
 def fetch_spec(wb)
-  body = Sigma.request(:get, "/v2/workbooks/#{wb}/spec", accept: 'application/json')
+  body = Sigma.request(:get, Sigma::CodeRep.read_path(wb), accept: 'application/json')
   spec =
     if body.is_a?(Hash)
       body

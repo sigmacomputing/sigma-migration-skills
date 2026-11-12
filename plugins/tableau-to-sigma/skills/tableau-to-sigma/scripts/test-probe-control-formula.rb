@@ -29,7 +29,7 @@ REAL_SIGMA_REST = File.expand_path('lib/sigma_rest.rb', __dir__)
 # live under `document`; workbookId is metadata alongside it.
 DISCOVERY_SPEC = {
   'workbookId' => 'wb-src',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 3,
     'pages' => [{
       'id' => 'p1',
@@ -58,9 +58,9 @@ SIGMA_STUB = <<~RUBY
         { 'homeFolderId' => 'home-1' }
       when method == :get && path.start_with?('/v2/workbooks?')
         { 'entries' => [{ 'workbookId' => 'wb-src' }] }
-      when method == :get && path == '/v2/workbooks/wb-src/spec'
+      when method == :get && path == '/v2/workbooks/wb-src?includeContents=true'
         JSON.parse(JSON.generate(DISCOVERY_SPEC))
-      when method == :post && path == '/v2/workbooks/spec'
+      when method == :post && path == '/v2/workbooks'
         { 'workbookId' => 'wb-new' }
       when method == :post && path.include?('/export')
         { 'queryId' => 'q1' }
@@ -90,7 +90,7 @@ end
 def spec_posts(log)
   return [] unless File.exist?(log)
   File.readlines(log).map { |l| JSON.parse(l) }
-      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks/spec' }
+      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks' }
 end
 
 fails = []
@@ -112,13 +112,13 @@ Dir.mktmpdir do |dir|
   check(posts.size == 1, "exactly one probe-workbook POST captured (got #{posts.size})", fails)
   if posts.size == 1
     body = JSON.parse(posts.first['body'])
-    check(body.key?('document') && body['document'].is_a?(Hash),
-          'probe-workbook POST body carries a top-level `document` key', fails)
+    check(body.key?('contents') && body['contents'].is_a?(Hash),
+          'probe-workbook POST body carries a top-level `contents` key', fails)
     check(!body.key?('pages') && !body.key?('schemaVersion'),
           'probe-workbook POST body has NO top-level pages/schemaVersion (must be nested)', fails)
-    check(body['document']['schemaVersion'] == 3,
-          "wrapped document carries the borrowed schemaVersion=3 (got #{body['document']['schemaVersion'].inspect})", fails)
-    check(body['document']['pages'].is_a?(Array) && !body['document']['pages'].empty?,
+    check(body['contents']['schemaVersion'] == 3,
+          "wrapped document carries the borrowed schemaVersion=3 (got #{body['contents']['schemaVersion'].inspect})", fails)
+    check(body['contents']['pages'].is_a?(Array) && !body['contents']['pages'].empty?,
           'wrapped document carries pages', fails)
     check(body['name'] && body['folderId'] == 'home-1',
           'name/folderId stay OUTSIDE document as metadata', fails)

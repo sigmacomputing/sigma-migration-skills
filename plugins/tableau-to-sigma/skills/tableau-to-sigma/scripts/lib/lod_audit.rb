@@ -93,6 +93,15 @@ module LodAudit
 
   # Case/punctuation-insensitive normalization — one key space for display
   # names ('Enterprise Licenses') and physical names (ENTERPRISE_LICENSES).
+  # The source-unused field census (gap scan field_statistics) for a workdir:
+  # a calc no worksheet, dashboard or filter uses classifies `unused-source`
+  # (resolved, no waiver). [] when the report is absent.
+  def unused_fields_from(workdir)
+    path = Dir[File.join(workdir.to_s, '*gaps-report.json')].min
+    doc = path ? (JSON.parse(File.read(path, encoding: 'UTF-8')) rescue nil) : nil
+    doc.is_a?(Hash) ? Array(doc.dig('field_statistics', 'unused_field_names')) : []
+  end
+
   def norm(s)
     s.to_s.downcase.gsub(/[^a-z0-9]/, '')
   end

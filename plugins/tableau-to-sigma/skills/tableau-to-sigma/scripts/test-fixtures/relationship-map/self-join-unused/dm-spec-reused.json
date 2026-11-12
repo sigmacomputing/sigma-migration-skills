@@ -1,0 +1,39 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "emp",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "EMPLOYEES"
+            ]
+          },
+          "columns": [
+            {
+              "id": "emp-emp_id",
+              "formula": "[EMPLOYEES/EMP_ID]"
+            },
+            {
+              "id": "emp-emp_name",
+              "formula": "[EMPLOYEES/EMP_NAME]"
+            },
+            {
+              "id": "emp-manager_id",
+              "formula": "[EMPLOYEES/MANAGER_ID]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -79,7 +79,7 @@ check your final render against; a number you can't read goes in as
 RCF LOOP (Phase 5g — `refs/phase-5g-rcf.md`, mandatory)
 
 `fidelity-loop.rb render` → Read the render against the source PNG → `record`
-every delta (spec-fixable | ui-only | sigma-capability | data) → author the
+every delta (spec-fixable | ui-only | sigma-capability | data; the middle two need `--catalog-id`, else spec-fixable) → author the
 fix from `refs/fidelity-recipes.md` → `apply-patch` (single layout-preserving
 PUT) → loop until `status` is clean. Pass budget default 5. During Phase 6f
 iterations you may record `record-visual-check.rb --verdict divergent` freely.

@@ -30,7 +30,8 @@ SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
   File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 
 USER_AGG_FN = { 'SUM' => 'Sum', 'AVG' => 'Avg', 'MIN' => 'Min', 'MAX' => 'Max', 'MEDIAN' => 'Median' }.freeze
-%w[map_column guid_from_text placeholder_calc? pick_kpi_measure resolve_shelf_field translate_kpi_measure_formula].each do |fn|
+%w[map_column guid_from_text placeholder_calc? pick_kpi_measure resolve_shelf_field split_top_level_args
+   tableau_iif_to_sigma translate_kpi_measure_formula].each do |fn|
   m = SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn} from build-charts-from-signals.rb")
   eval(m[0]) # rubocop:disable Security/Eval — test-only extraction of first-party code
 end
@@ -137,7 +138,7 @@ check(translate_kpi_measure_formula('[Ghost Col]/[Cost (copy)_30000000003]', RMM
 # FORMAT_KEY_CAPTIONS is normally built from meta['columns_by_guid'] at load;
 # stub it empty so format_key_match_keys resolves format keys on their own token.
 FORMAT_KEY_CAPTIONS = {} unless defined?(FORMAT_KEY_CAPTIONS)
-%w[format_key_match_keys parse_scaled_suffix_format scaled_suffix_column pick_tableau_format_raw].each do |fn|
+%w[format_header_keys format_key_match_keys parse_scaled_suffix_format scaled_suffix_column pick_tableau_format_raw].each do |fn|
   m = SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn}")
   eval(m[0]) # rubocop:disable Security/Eval
 end
@@ -162,6 +163,130 @@ check(f2['format'] == { 'kind' => 'number', 'formatString' => ',.1f', 'suffix' =
 raw = pick_tableau_format_raw({ '[federated.x].[sum:Revenue (current US$):qk]' => 'n#,##0,,,B;-#,##0,,,B' },
                               'Revenue (current US$)')
 check(raw == 'n#,##0,,,B;-#,##0,,,B', "raw format string resolvable by header (got #{raw.inspect})", fails)
+
+# ---- C6: KPI BAN band (borderless sibling BANs share ONE source container) ---
+# Real builder (offline harness) + real layout builder. The band fill comes only
+# from the source container's fill; bordered/filled source BANs keep card style.
+require 'open3'
+require 'rbconfig'
+require 'tmpdir'
+require_relative 'lib/builder_test_harness'
+require_relative 'lib/layout'
+
+def ban_zone(id, x, extra = {})
+  BuilderTestHarness.chart_zone(id: id, caption: "BAN #{id}", chart_kind: 'kpi', mark_class: 'Shape',
+                                extra: { 'x_pct' => x, 'y_pct' => 10, 'w_pct' => 18, 'h_pct' => 10,
+                                         'kpi_value_font_size' => 30 }.merge(extra))
+end
+
+def ban_tree(zones, container_extra = {})
+  [{ 'id' => 'band', 'kind' => 'container', 'caption' => nil, 'x_pct' => 0, 'y_pct' => 10,
+     'w_pct' => 100, 'h_pct' => 10, 'direction' => 'horz',
+     'children' => zones.map { |z| { 'id' => z['id'], 'kind' => 'chart', 'caption' => z['caption'] } } }
+     .merge(container_extra)]
+end
+
+xs = [0, 20, 40, 60, 80]
+plain = xs.each_with_index.map { |x, i| ban_zone("b#{i}", x) }
+res = BuilderTestHarness.run(plain, zone_tree: ban_tree(plain, 'fill_color' => '#f7f8fa'))
+kpis = res[:elements].select { |e| e['kind'] == 'kpi-chart' }
+check(kpis.length == 5, "5 BANs emitted as kpi-charts (got #{kpis.length})", fails)
+check(kpis.all? { |k| !k.dig('style', 'backgroundColor') || k.dig('style', 'backgroundColor') != 'transparent' },
+      'builder keeps the pre-band card style (band restyle is the layout\'s decision, applied by put-layout)', fails)
+check(kpis.all? { |k| k.dig('value', 'fontSize') == 30 },
+      'value size comes from the source BAN size', fails)
+check(SigmaLayout.ban_kpi_patch == { 'style' => { 'backgroundColor' => 'transparent', 'borderRadius' => 'square', 'borderWidth' => 0 },
+                                     'layout' => { 'anchor' => 'center', 'titleOrient' => 'top' } },
+      'band KPI patch is exactly {transparent, square, borderWidth 0} + centre/top layout', fails)
+
+filled = xs.each_with_index.map { |x, i| ban_zone("f#{i}", x, 'fill_color' => '#e0f0ff') }
+rf = BuilderTestHarness.run(filled, zone_tree: ban_tree(filled, 'fill_color' => '#f7f8fa'))
+fk = rf[:elements].select { |e| e['kind'] == 'kpi-chart' }
+check(fk.length == 5 && fk.all? { |k| k.dig('style', 'backgroundColor') == '#e0f0ff' },
+      'filled source BANs keep today per-card style (fill carried)', fails)
+bordered = xs.each_with_index.map { |x, i| ban_zone("r#{i}", x, 'border_color' => '#888888', 'border_width' => '1') }
+rb = BuilderTestHarness.run(bordered, zone_tree: ban_tree(bordered, 'fill_color' => '#f7f8fa'))
+bk = rb[:elements].select { |e| e['kind'] == 'kpi-chart' }
+check(bk.length == 5 && bk.none? { |k| k.dig('style', 'backgroundColor') == 'transparent' },
+      'bordered source BANs keep per-card style (no band restyle)', fails)
+loose = xs.each_with_index.map { |x, i| ban_zone("l#{i}", x) }
+rl = BuilderTestHarness.run(loose) # no container tree -> no shared source container
+check(rl[:elements].select { |e| e['kind'] == 'kpi-chart' }.none? { |k| k.dig('style', 'backgroundColor') == 'transparent' },
+      'no shared source container -> no band restyle', fails)
+
+# Layout: one band container, source fill, equal spans with remainder left-to-right.
+def layout_for(zones, tree, args = [])
+  dl = [{ 'dashboard' => 'Overview', 'zones' => zones, 'zone_tree' => tree }]
+  els = zones.map { |z| { 'id' => "el-#{z['id']}", 'kind' => 'kpi-chart', 'name' => z['caption'] } }
+  wb = { 'pages' => [
+    { 'name' => 'Data', 'id' => 'page-data', 'elements' => [{ 'id' => 'master', 'kind' => 'table', 'name' => 'M' }] },
+    { 'name' => 'Overview', 'id' => 'page-ov', 'elements' => [{ 'id' => 'title-ov', 'kind' => 'text', 'name' => nil }] + els }
+  ] }
+  Dir.mktmpdir do |d|
+    File.write("#{d}/dl.json", JSON.generate(dl))
+    File.write("#{d}/wb.json", JSON.generate(wb))
+    out = "#{d}/layout.xml"
+    # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+    _o, _e, _s = Open3.capture3(RbConfig.ruby, File.join(DIR, 'build-dashboard-layout.rb'), '--layout', "#{d}/dl.json",
+                                '--wb-ids', "#{d}/wb.json", '--out', out, *args)
+    xml = File.exist?(out) ? File.read(out) : ''
+    extra = File.exist?("#{out}.elements.json") ? JSON.parse(File.read("#{out}.elements.json")).values.flatten : []
+    $last_patches = File.exist?("#{out}.kpi-band-style.json") ? JSON.parse(File.read("#{out}.kpi-band-style.json")) : nil
+    [xml, extra]
+  end
+end
+
+xml, extra = layout_for(plain, ban_tree(plain, 'fill_color' => '#f7f8fa'))
+band = extra.find { |e| e['kind'] == 'container' && e['id'].to_s.include?('-kpi-') }
+check($last_patches && $last_patches.keys.sort == (0..4).map { |i| "el-b#{i}" },
+      'layout writes the band KPI restyle for exactly the 5 banded KPIs', fails)
+check(band && band.dig('style', 'backgroundColor') == '#f7f8fa',
+      "one band container carries the SOURCE container fill (got #{band && band['style'].inspect})", fails)
+check(band && band['style'] && band['style']['padding'] == 'none' && band['style']['borderRadius'] == 'square',
+      'band container style is padding none + square corners', fails)
+spans = xml.scan(/elementId="el-b\d"[^>]*gridColumn="(\d+) \/ (\d+)"|gridColumn="(\d+) \/ (\d+)"[^>]*elementId="el-b\d"/)
+                .map { |m| m.compact.map(&:to_i) }.map { |a, b| b - a }
+check(spans == [5, 5, 5, 5, 4], "equal spans for 5 cards on 24 cols, remainder left to right (got #{spans.inspect})", fails)
+
+nofill_xml, nofill_extra = layout_for(plain, ban_tree(plain))
+nb = nofill_extra.find { |e| e['kind'] == 'container' && e['id'].to_s.include?('-kpi-') }
+check(nb && !nb.fetch('style', {}).key?('backgroundColor'),
+      'source container without a fill -> band has NO invented tint', fails)
+
+bxml, bextra = layout_for(bordered, ban_tree(bordered, 'fill_color' => '#f7f8fa'))
+bbk = bextra.find { |e| e['kind'] == 'container' && e['id'].to_s.include?('-kpi-') }
+check(bbk && bbk['style'].nil?, 'bordered BANs -> plain KPI container (no band style)', fails)
+
+# Fallback agreement: no band container -> no KPI restyle (BANs keep card style).
+nc_xml, nc_extra = layout_for(plain, ban_tree(plain, 'fill_color' => '#f7f8fa'), ['--no-containers'])
+check(nc_extra.none? { |e| e['kind'] == 'container' && e['style'] && e['style']['padding'] == 'none' && e['id'].to_s.include?('-kpi-') },
+      '--no-containers: no band container emitted', fails)
+check($last_patches == {}, "--no-containers: no KPI band restyle emitted (got #{$last_patches.inspect})", fails)
+layout_for(bordered, ban_tree(bordered, 'fill_color' => '#f7f8fa'))
+check($last_patches == {}, 'bordered BANs: no KPI band restyle emitted', fails)
+
+# Stale-sidecar hazard: migrate-tableau's two non-regenerating layout paths
+# (reuse-workbook preserve, spec-generator layout) must neutralise a sidecar an
+# earlier run left in WORK, before put-layout reads it by default.
+Dir.mktmpdir do |wd|
+  lp = File.join(wd, 'layout.xml')
+  File.write("#{lp}.kpi-band-style.json", '{"el-b0":{"style":{}}}')
+  SigmaLayout.clear_band_style_sidecar(lp)
+  check(!File.exist?("#{lp}.kpi-band-style.json"), 'clear_band_style_sidecar removes a stale sidecar', fails)
+  SigmaLayout.clear_band_style_sidecar(lp) # idempotent when absent
+end
+mt = File.read(File.join(DIR, 'migrate-tableau.rb'))
+pres = mt[/if _lr_preserve
+.*?
+elsif layout_xml/m].to_s
+gen  = mt[/elsif layout_xml
+.*?
+elsif File\.exist\?\(layout_json\)/m].to_s
+check(pres.include?('File.write(layout_path, $layout_reuse[:xml])') && pres.include?('SigmaLayout.clear_band_style_sidecar(layout_path)'),
+      'migrate-tableau reuse-workbook preserve path clears the stale band sidecar', fails)
+check(gen.include?('File.write(layout_path, layout_xml)') && gen.include?('SigmaLayout.clear_band_style_sidecar(layout_path)'),
+      'migrate-tableau spec-generator layout path clears the stale band sidecar', fails)
 
 puts
 if fails.empty?

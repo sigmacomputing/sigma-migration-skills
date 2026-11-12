@@ -249,8 +249,8 @@ check(!s.match?(%r{Sigma\.request\(:get,[^)]*/columns"\)}),
 src = File.read(File.join(__dir__, 'fidelity-loop.rb'))
 check(src.include?('cols_unread'),
       'fidelity-loop.rb tracks an unread column guard so it cannot claim clean', fails)
-check(src.include?('column-type check SKIPPED'),
-      'fidelity-loop.rb reports a SKIPPED column check instead of implying it passed', fails)
+check(src.include?("die 'column-type guard: live columns could not be read; repair remains unverified', 5"),
+      'fidelity-loop.rb fails closed when the post-write column check cannot run', fails)
 
 puts ''
 if fails.empty?

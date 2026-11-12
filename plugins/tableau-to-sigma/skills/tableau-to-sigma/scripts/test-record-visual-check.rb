@@ -24,6 +24,7 @@ require 'open3'
 require 'tmpdir'
 require 'rbconfig'
 require 'digest'
+require 'fileutils'
 require_relative 'lib/blind_fixture'
 
 SCRIPT = File.join(__dir__, 'record-visual-check.rb')
@@ -130,12 +131,10 @@ check(err.include?('passes as RECORDED'),
       'divergent message states gate 8b passes as RECORDED (never claims it blocks)', fails)
 check(!err.include?('will still BLOCK'),
       'divergent message no longer makes the false will-still-BLOCK claim', fails)
-check(err.include?('visual-divergent') && err.include?('BUDGET-COUNTED'),
-      'divergent message names the visual-divergent census injection + budget cost', fails)
-check(err.include?('YELLOW') && err.include?('budget to hold'),
-      'divergent message states the choice: fix the gaps or accept YELLOW', fails)
-check(err.include?('PR-14'),
-      'divergent message carries the PR-14 verdict-capping forward pointer', fails)
+check(!err.include?('BUDGET-COUNTED') && err.include?('not a waiver'),
+      'divergent message states it is NOT budget-counted (blind-grade v2: not a waiver)', fails)
+check(err.include?('YELLOW') && err.include?('forfeits GREEN'),
+      'divergent message states the choice: fix the gaps or accept YELLOW (forfeits GREEN)', fails)
 
 # --- back-compat: omitted flag → loud WARN + assume true ----------------------
 _out, err, st, pf = run_case(%w[--verdict pass --notes legacy-caller] + ['--checklist', CL], blind: :valid)
@@ -353,6 +352,368 @@ check(!st.success? && err.include?('only applies to --verdict pass'),
 _out, err, st, _pf = run_case(PASS_ARGS + ['--no-vision-waiver', 'why'], blind: :valid)
 check(!st.success? && err.include?('mutually exclusive'),
       '--blind-grade + --no-vision-waiver together → fatal', fails)
+
+
+# =============================================================================
+# blind-grade/v2 — computed verdict, second grader, catalog, visual-residuals
+# =============================================================================
+CATALOG = File.expand_path('../refs/sigma-platform-differences.json', __dir__)
+V2_ARGS = %w[--agent-vision true --notes v2]
+
+# Runs the recorder on a v2 fixture workdir; returns [out, err, status, parity-final, residuals|nil].
+def v2_with_residuals(args, **kw)
+  Dir.mktmpdir('rvc-test') do |dir|
+    pf = File.join(dir, 'parity-final.json')
+    File.write(pf, JSON.pretty_generate('status' => 'PASS'))
+    kw[:pre]&.call(dir)
+    BlindFixture.install_v2(dir, catalog_path: CATALOG, score: kw[:score] || 85,
+                                 dim_fail: kw[:dim_fail] || [], gaps: kw[:gaps] || [],
+                                 per_tile: kw[:per_tile] || BlindFixture::DEFAULT_TILES,
+                                 extra: kw[:extra] || {})
+    extra = ['--blind-grade', File.join(dir, 'blind-grade.json')]
+    if kw[:second]
+      BlindFixture.install_v2(dir, catalog_path: CATALOG, name: 'blind-grade-2.json', score: kw[:second])
+      extra += ['--blind-grade-2', File.join(dir, 'blind-grade-2.json')]
+    end
+    extra += kw[:catalog_args] || []
+    # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+    out, err, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir,
+                                  *args, *extra)
+    res = File.exist?(File.join(dir, 'visual-residuals.json')) ? JSON.parse(File.read(File.join(dir, 'visual-residuals.json'))) : nil
+    return [out, err, st, JSON.parse(File.read(pf)), res]
+  end
+end
+
+# v2 faithful, NO --verdict / --checklist → computed pass + residuals file
+out, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 90)
+check(st.success? && pf['visual_verdict'] == 'pass' && pf['visual_checked'] == true,
+      'v2 faithful records pass (verdict computed, no --verdict/--checklist needed)', fails)
+check(!res.nil? && res['schema'] == 'visual-residuals/v1' && res['faithful'] == true,
+      'v2 faithful writes visual-residuals.json', fails)
+check(pf.dig('blind_grade', 'schema') == 'blind-grade/v2' && pf.dig('blind_grade', 'score') == 90.0 &&
+        pf.dig('blind_grade', 'faithful') == true &&
+        pf.dig('blind_grade', 'catalog_sha256').to_s =~ /\A[0-9a-f]{64}\z/,
+      'v2 stamp carries schema/score/faithful/catalog_sha256', fails)
+check(pf['style_checklist'].is_a?(Hash) && BlindFixture::KEYS.all? { |k| pf['style_checklist'][k] == 'pass' },
+      'v2 without --checklist derives it from dimensions', fails)
+check(pf.dig('blind_grade', 'grades').is_a?(Array) && pf['blind_grade']['grades'].size == 1 &&
+        pf['blind_grade']['grades'][0]['path'] == 'blind-grade.json' &&
+        pf['blind_grade']['grades'][0]['sha256'].to_s =~ /\A[0-9a-f]{64}\z/ &&
+        pf['blind_grade']['grades'][0]['overall_score'] == 90,
+      'v2 stamp grades[] = {path, sha256, overall_score}', fails)
+check(pf.dig('blind_grade', 'catalog_path') == '../refs/sigma-platform-differences.json' ||
+        pf.dig('blind_grade', 'catalog_path').to_s.end_with?('refs/sigma-platform-differences.json'),
+      'v2 stamp carries catalog_path', fails)
+check(res && res['catalog_sha256'] == pf['blind_grade']['catalog_sha256'] && res['score'] == 90.0 &&
+        res['grades'] == pf['blind_grade']['grades'] && res['reasons'] == [] &&
+        res['platform_differences'] == [] && res['residuals'] == [],
+      'visual-residuals.json shape for a clean pass', fails)
+
+# v2 unfaithful → divergent + reasons
+out, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 40, dim_fail: %w[chart_shapes_match],
+  gaps: [{ 'tile' => 'r2c1', 'dimension' => 'chart_shapes_match', 'description' => 'bar vs line',
+           'severity' => 'major', 'class' => 'fixable' }])
+check(st.success? && pf['visual_verdict'] == 'divergent' && pf['visual_checked'] == false &&
+        res && res['faithful'] == false && res['reasons'].any?,
+      'v2 unfaithful records divergent with reasons', fails)
+check(pf['style_checklist']&.fetch('chart_shapes_match') == 'fail', 'v2 divergent derives failing checklist', fails)
+
+# --verdict pass over unfaithful → refused
+_o, err, st, pf, res = v2_with_residuals(%w[--verdict pass --agent-vision true --notes x], score: 40,
+                                         dim_fail: %w[chart_shapes_match])
+check(st.exitstatus == 2 && err.downcase.include?('divergent') && !pf.key?('visual_verdict') && res.nil?,
+      '--verdict pass over unfaithful v2 refused exit 2, nothing written', fails)
+# --verdict divergent over faithful → refused
+_o, err, st, pf, res = v2_with_residuals(%w[--verdict divergent --agent-vision true --notes x], score: 90)
+check(st.exitstatus == 2 && err.downcase.include?('computed verdict is pass') && !pf.key?('visual_verdict') && res.nil?,
+      '--verdict divergent over faithful v2 refused exit 2, nothing written', fails)
+# agreeing explicit verdict ok
+_o, _e, st, pf, _r = v2_with_residuals(%w[--verdict pass --agent-vision true --notes x], score: 90)
+check(st.success? && pf['visual_verdict'] == 'pass', 'agreeing explicit --verdict accepted for v2', fails)
+
+# borderline single grade
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 78)
+check(st.exitstatus == 2 && err.include?('second blind grader required (score within ±5 of 75)') &&
+        err.include?('blind-grade-2.json') && err.include?('--blind-grade-2') &&
+        !pf.key?('visual_verdict') && res.nil?,
+      'borderline single grade refused exit 2 with the exact message, nothing written', fails)
+
+# two grades
+out, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 78, second: 82)
+check(st.success? && pf['visual_verdict'] == 'pass' && pf['blind_grade']['grades'].size == 2 &&
+        pf['blind_grade']['score'] == 80.0,
+      'two grades accepted: mean score decides, both shas stamped', fails)
+check(res && res['grades'].size == 2, 'residuals lists both grades', fails)
+_o, _e, st, pf, _r = v2_with_residuals(V2_ARGS, score: 78, second: 70)
+check(st.success? && pf['visual_verdict'] == 'divergent' && pf['blind_grade']['score'] == 74.0,
+      'two grades with mean below bar → divergent', fails)
+
+# --- KPI band: the live "Retail Command Center" regression (two faithful grades) --
+# Census [kpi,kpi,kpi,line,table,bar,bar,table,bar,map]. Grade 1 lists the KPI
+# strip as 3 tiles; grade 2 reads it as ONE kpi tile. Both must be accepted.
+RCC_FAMS = %w[kpi kpi kpi line table bar bar table bar map].freeze
+RCC_TILE = ->(pos, f) { { 'position' => pos, 'source_family' => f, 'target_family' => f } }
+RCC_T1 = [%w[r1c1 text], %w[r1c2 navigation], %w[r1c3 control], %w[r1c4 kpi], %w[r1c5 kpi], %w[r1c6 kpi],
+          %w[r2c1 line], %w[r2c2 table], %w[r3c1 bar], %w[r3c2 bar], %w[r4c1 table], %w[r5c1 bar],
+          %w[r5c2 map]].map { |pos, f| RCC_TILE.call(pos, f) }
+RCC_T2 = [%w[r1c1 text], %w[r1c2 navigation], %w[r1c3 control], %w[r1c4 kpi], %w[r1c5 line], %w[r1c6 table],
+          %w[r2c1 bar], %w[r2c2 bar], %w[r2c3 table], %w[r3c1 bar], %w[r3c2 map]].map { |pos, f| RCC_TILE.call(pos, f) }
+Dir.mktmpdir('rvc-kpiband') do |dir|
+  pf = File.join(dir, 'parity-final.json')
+  File.write(pf, JSON.pretty_generate('status' => 'PASS'))
+  elements = RCC_FAMS.each_with_index.map { |f, i| { 'id' => "e#{i}", 'kind' => (%w[table map].include?(f) ? f : "#{f}-chart") } }
+  File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(
+    'document' => { 'schemaVersion' => 4, 'kind' => 'workbook', 'pages' => [{ 'id' => 'p1', 'name' => 'Dash' }],
+                    'elements' => elements,
+                    'layout' => "<Page id=\"p1\">#{elements.map { |e| %(<Element elementId="#{e['id']}"/>) }.join}</Page>" }))
+  File.write(File.join(dir, 'png-read.json'), JSON.pretty_generate('tiles' => RCC_FAMS.map { |f| { 'kind' => f } }))
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 77, per_tile: RCC_T1)
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, name: 'blind-grade-2.json', score: 80, per_tile: RCC_T2)
+  _out, err, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, *V2_ARGS,
+                                 '--blind-grade', File.join(dir, 'blind-grade.json'),
+                                 '--blind-grade-2', File.join(dir, 'blind-grade-2.json'))
+  rec = JSON.parse(File.read(pf))
+  check(st.exitstatus == 0 && rec['visual_verdict'] == 'pass',
+        "KPI band: RCC grades 77+80 (strip as 3 tiles / as 1 band) accepted, verdict pass (#{err.lines.first&.strip})", fails)
+  check(rec.dig('blind_grade', 'cross_check', 'target').to_s.include?('KPI strip read as a band'),
+        'KPI band: stamped cross_check mentions the band reading', fails)
+end
+
+# --- minor = notes (TJ 2026-11-09): the live OEO regression, end to end ---------
+# The OEO executive dashboard graded 85 (faithful), 101/101 values, and finished
+# YELLOW only because its 4 minor fixable gaps went into the degradation ledger.
+# Fixture: the real grade's gaps/scores/per_tile (fixtures/oeo-2026-11-09-blind-grade.json).
+# record -> ledger -> report -> green-offer must now say GREEN with 4 polish notes.
+require_relative 'lib/degradation_ledger'
+OEO = JSON.parse(File.read(File.join(__dir__, 'fixtures', 'oeo-2026-11-09-blind-grade.json')))
+Dir.mktmpdir('rvc-oeo') do |dir|
+  pf = File.join(dir, 'parity-final.json')
+  File.write(pf, JSON.pretty_generate('status' => 'PASS', 'charts_pass' => 9, 'charts_total' => 9, 'waivers' => []))
+  fams = OEO['per_tile'].map { |t| t['source_family'] }.reject { |f| f == 'text' }
+  elements = fams.each_with_index.map { |f, i| { 'id' => "e#{i}", 'kind' => "#{f}-chart" } }
+  File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(
+    'document' => { 'schemaVersion' => 4, 'kind' => 'workbook', 'pages' => [{ 'id' => 'p1', 'name' => 'Executive Overview' }],
+                    'elements' => elements,
+                    'layout' => "<Page id=\"p1\">#{elements.map { |e| %(<Element elementId="#{e['id']}"/>) }.join}</Page>" }))
+  File.write(File.join(dir, 'png-read.json'), JSON.pretty_generate('tiles' => fams.map { |f| { 'kind' => f } }))
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, score: OEO['overall_score'], per_tile: OEO['per_tile'],
+                               gaps: OEO['gaps'], extra: { 'scores' => OEO['scores'], 'dimensions' => OEO['dimensions'] })
+  _out, err, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, *V2_ARGS,
+                                 '--blind-grade', File.join(dir, 'blind-grade.json'))
+  rec = JSON.parse(File.read(pf))
+  vr = JSON.parse(File.read(File.join(dir, 'visual-residuals.json')))
+  check(st.exitstatus == 0 && rec['visual_verdict'] == 'pass' && vr['faithful'] == true,
+        "OEO: grade 85 records pass (#{err.lines.first&.strip})", fails)
+  check(vr['residuals'].length == 4 && vr['platform_differences'].length == 1 && vr['fixable_major'].empty?,
+        'OEO: 4 minor residuals + 1 platform difference, no major', fails)
+  derived = DegradationLedger.derive(dir)
+  check(derived.none? { |e| e['item'].to_s.start_with?('visual residual') },
+        "OEO: no minor gap is a degradation (ledger: #{derived.map { |e| e['item'] }.inspect})", fails)
+  check(DegradationLedger.polish_notes(dir).length == 4, 'OEO: the 4 minor gaps are polish notes', fails)
+  DegradationLedger.write(dir, derived)
+  File.write(File.join(dir, 'inventory.json'), JSON.generate(
+    'objects' => [{ 'type' => 'dashboard', 'id' => 'd1', 'name' => 'Executive Overview', 'status' => 'migrated' }]))
+  File.write(File.join(dir, 'dashboard-render-health.json'), JSON.generate('status' => 'healthy', 'failed_count' => 0))
+  File.write(File.join(dir, 'dashboard-blank-risk.json'), JSON.generate('risk' => false, 'blank_count' => 0))
+  File.write(File.join(dir, 'waivers.json'), JSON.generate('waivers' => []))
+  md = File.join(dir, 'MIGRATION_REPORT.md')
+  _o, rerr, rst = Open3.capture3(RbConfig.ruby, File.join(__dir__, 'build-migration-report.rb'), '--workdir', dir, '--markdown', md)
+  res = (JSON.parse(File.read(File.join(dir, 'migration-result.json'))) rescue {})
+  check(rst.success? && res['verdict'] == 'GREEN' && res['degradations'] == [],
+        "OEO: migration report is GREEN with no degradations (#{res['verdict'].inspect} #{rerr.lines.first&.strip})", fails)
+  check(Array(res['polish_notes']).length == 4 && Array(res['platform_differences']).map { |p| p['catalog_id'] } == ['horizontal-axis-title-orientation'],
+        'OEO: report lists 4 polish notes and the platform difference', fails)
+  check(File.read(md).include?('## Minor polish notes') && File.read(md).include?('Trend line stroke is thinner'),
+        'OEO: markdown has the Minor polish notes section', fails)
+  fl = File.join(__dir__, 'fidelity-loop.rb')
+  Open3.capture3({ 'FIDELITY_LOOP_CLI' => '1' }, RbConfig.ruby, fl, 'init', '--workbook-id', 'WB', '--page-id', 'PG', '--workdir', dir)
+  go, = Open3.capture3({ 'FIDELITY_LOOP_CLI' => '1' }, RbConfig.ruby, fl, 'green-offer', '--workdir', dir)
+  offer = (JSON.parse(go) rescue {})
+  check(offer['realistic'] == false && offer['gaps'] == [] && offer['why_not'] == 'GREEN, optional polish: 4 notes',
+        "OEO: green-offer reports 'GREEN, optional polish: 4 notes' (#{offer['why_not'].inspect})", fails)
+end
+
+# two grades, different target sha
+_o, err, st, pf, res = (lambda do
+  Dir.mktmpdir('rvc-test') do |dir|
+    File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS'))
+    BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 78)
+    g2 = JSON.parse(File.read(File.join(dir, 'blind-grade.json')))
+    File.binwrite(File.join(dir, 'other.png'), BlindFixture.png_bytes('O'))
+    g2['target_png'] = File.join(dir, 'other.png')
+    g2['target_sha256'] = Digest::SHA256.file(File.join(dir, 'other.png')).hexdigest
+    File.write(File.join(dir, 'blind-grade-2.json'), JSON.pretty_generate(g2))
+    o, e, s = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, *V2_ARGS,
+                             '--blind-grade', File.join(dir, 'blind-grade.json'),
+                             '--blind-grade-2', File.join(dir, 'blind-grade-2.json'))
+    [o, e, s, JSON.parse(File.read(File.join(dir, 'parity-final.json'))), File.exist?(File.join(dir, 'visual-residuals.json'))]
+  end
+end).call
+check(st.exitstatus == 2 && err.include?('target_sha256') && !pf.key?('visual_verdict') && res == false,
+      'two grades with different target sha refused exit 2', fails)
+
+# --blind-grade-2 with v1 first grade; mixed schemas
+_o, err, st, pf = run_case(PASS_ARGS, blind: lambda { |dir|
+  BlindFixture.install(dir, stamp: false)
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, name: 'blind-grade-2.json')
+  ['--blind-grade', File.join(dir, 'blind-grade.json'), '--blind-grade-2', File.join(dir, 'blind-grade-2.json')]
+})
+check(st.exitstatus == 2 && err.include?('blind-grade-2') && !pf.key?('visual_verdict'),
+      '--blind-grade-2 with a v1 first grade refused exit 2', fails)
+_o, err, st, pf = run_case(V2_ARGS, blind: lambda { |dir|
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 78)
+  BlindFixture.install(dir, stamp: false)
+  FileUtils.mv(File.join(dir, 'blind-grade.json'), File.join(dir, 'blind-grade-2.json'))
+  BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 78)
+  ['--blind-grade', File.join(dir, 'blind-grade.json'), '--blind-grade-2', File.join(dir, 'blind-grade-2.json')]
+})
+check(st.exitstatus == 2 && !pf.key?('visual_verdict'), 'mixed v2 + v1 grades refused exit 2', fails)
+
+# catalog: unknown id / sha mismatch / load error / valid platform difference
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 90,
+  gaps: [{ 'tile' => 'r1c1', 'dimension' => 'palette_match', 'description' => 'd', 'severity' => 'minor',
+           'class' => 'no-such-id' }])
+check(st.exitstatus == 2 && err.include?('unknown catalog id') && err.include?('no-such-id') &&
+        !pf.key?('visual_verdict') && res.nil?,
+      'unknown catalog id refused, names the id', fails)
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 90, extra: { 'catalog_sha256' => 'f' * 64 })
+check(st.exitstatus == 2 && err.include?('catalog_sha256 mismatch') && !pf.key?('visual_verdict'),
+      'catalog sha mismatch refused', fails)
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 90, catalog_args: ['--catalog', CATALOG])
+check(st.exitstatus == 2 && err.include?('--catalog was removed') && !pf.key?('visual_verdict') && res.nil?,
+      'C2: --catalog is refused exit 2 (the shipped catalog is the only catalog)', fails)
+# a gap citing a SHIPPED catalog id (on its own dimension) is a platform difference, never a residual
+_o, _e, st, pf, res = v2_with_residuals(V2_ARGS, score: 90,
+  gaps: [{ 'tile' => 'r1c1', 'dimension' => 'labels_legible', 'description' => 'typeface', 'severity' => 'major',
+           'class' => 'font-family' }])
+check(st.success? && pf['visual_verdict'] == 'pass' && res['platform_differences'].size == 1 &&
+        res['residuals'].empty? && res['fixable_major'] == [] &&
+        pf['blind_grade']['catalog_path'].to_s.end_with?('refs/sigma-platform-differences.json'),
+      'shipped catalog-id gap is a platform difference; pass', fails)
+# M3: shipped id on the wrong dimension refused
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: 90,
+  gaps: [{ 'tile' => 'r1c1', 'dimension' => 'palette_match', 'description' => 'typeface', 'severity' => 'minor',
+           'class' => 'font-family' }])
+check(st.exitstatus == 2 && err.include?('font-family') && err.include?('labels_legible') && err.include?('palette_match') &&
+        !pf.key?('visual_verdict') && res.nil?,
+      'M3: catalog id on the wrong dimension refused exit 2, nothing written', fails)
+
+# I2: fixable major gaps of a divergent run are named in visual-residuals.json
+MAJOR_GAP = { 'tile' => 'r1c1', 'dimension' => 'composition_match', 'description' => 'KPI row missing', 'severity' => 'major',
+              'class' => 'fixable' }.freeze
+_o, _e, st, pf, res = v2_with_residuals(V2_ARGS, score: 90, gaps: [MAJOR_GAP])
+check(st.success? && pf['visual_verdict'] == 'divergent' && res['fixable_major'].map { |g| g['description'] } == ['KPI row missing'] &&
+        res['residuals'].empty?,
+      'I2: major fixable gap recorded in visual-residuals.json fixable_major (residuals stay minor-only)', fails)
+
+# C1: the second grade cannot be the same grade / a rescue / a sink
+_o, err, st, pf, res = (lambda do
+  Dir.mktmpdir('rvc-test') do |dir|
+    File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS'))
+    BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 78)
+    g = File.join(dir, 'blind-grade.json')
+    o, e, s = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, *V2_ARGS,
+                             '--blind-grade', g, '--blind-grade-2', g)
+    [o, e, s, JSON.parse(File.read(File.join(dir, 'parity-final.json'))), File.exist?(File.join(dir, 'visual-residuals.json'))]
+  end
+end).call
+check(st.exitstatus == 2 && err.include?('same grade') && !pf.key?('visual_verdict') && res == false,
+      'C1: --blind-grade-2 pointing at the same file refused exit 2', fails)
+_o, err, st, pf, res = (lambda do
+  Dir.mktmpdir('rvc-test') do |dir|
+    File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS'))
+    BlindFixture.install_v2(dir, catalog_path: CATALOG, score: 78)
+    FileUtils.cp(File.join(dir, 'blind-grade.json'), File.join(dir, 'copy.json'))
+    o, e, s = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, *V2_ARGS,
+                             '--blind-grade', File.join(dir, 'blind-grade.json'), '--blind-grade-2', File.join(dir, 'copy.json'))
+    [o, e, s, JSON.parse(File.read(File.join(dir, 'parity-final.json'))), File.exist?(File.join(dir, 'visual-residuals.json'))]
+  end
+end).call
+check(st.exitstatus == 2 && err.include?('same grade') && err.include?('identical bytes') && !pf.key?('visual_verdict') && res == false,
+      'C1: a byte-identical copy as the second grade refused exit 2', fails)
+[[60, 95], [50, 100], [95, 60], [90, 91]].each do |g1, g2|
+  _o, err, st, pf, res = v2_with_residuals(V2_ARGS, score: g1, second: g2)
+  check(st.exitstatus == 2 && err.include?('not borderline') && !pf.key?('visual_verdict') && res.nil?,
+        "C1: second grade #{g2} refused when grade 1 alone (#{g1}) is not borderline", fails)
+end
+
+# M4: an explicit --checklist contradicting the grade is refused; an agreeing one accepted
+_o, err, st, pf, res = v2_with_residuals(V2_ARGS + ['--checklist', CL], score: 90, dim_fail: %w[palette_match])
+check(st.exitstatus == 2 && err.include?('contradicts') && err.include?('palette_match') && !pf.key?('visual_verdict') && res.nil?,
+      'M4: --checklist claiming pass over a failing grade dimension refused exit 2', fails)
+_o, _e, st, pf, _r = v2_with_residuals(V2_ARGS + ['--checklist', CL], score: 90)
+check(st.success? && pf['style_checklist'].values.all? { |v| v == 'pass' }, 'M4: an agreeing --checklist accepted', fails)
+
+# M7: not-executable takes no grade
+_o, err, st, pf, res = v2_with_residuals(%w[--verdict not-executable --agent-vision false --notes nope], score: 90)
+check(st.exitstatus == 2 && err.include?('takes no blind grade') && !pf.key?('visual_verdict') && res.nil?,
+      'M7: --verdict not-executable with a v2 --blind-grade refused exit 2 with a clear message', fails)
+
+# M2 / I1: stale stamps never survive a later record
+stale_res = lambda do |dir|
+  File.write(File.join(dir, 'visual-residuals.json'), JSON.generate('schema' => 'visual-residuals/v1', 'faithful' => true))
+end
+_o, _e, st, pf, res = v2_with_residuals(V2_ARGS, score: 90, pre: lambda { |dir|
+  File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS', 'blind_grade_waiver' => { 'kind' => 'no-vision-grader', 'reason' => 'old' }))
+})
+check(st.success? && !pf.key?('blind_grade_waiver') && pf['blind_grade']['schema'] == 'blind-grade/v2',
+      'M2: the v2 record deletes a stale blind_grade_waiver', fails)
+_o, _e, st, pf, _r = run_case(PASS_ARGS + ['--no-vision-waiver', 'no grader'], blind: lambda { |dir|
+  File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS', 'blind_grade' => { 'schema' => 'blind-grade/v2' }))
+  stale_res.call(dir)
+  []
+})
+check(st.success? && pf.key?('blind_grade_waiver') && !pf.key?('blind_grade'),
+      'M2: the waiver record deletes a stale blind_grade', fails)
+Dir.mktmpdir('rvc-test') do |dir|
+  File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS'))
+  stale_res.call(dir)
+  _o, _e, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, '--agent-vision', 'true',
+                              '--verdict', 'pass', '--checklist', CL, '--no-vision-waiver', 'no grader', '--notes', 'w')
+  check(st.success? && !File.exist?(File.join(dir, 'visual-residuals.json')), 'I1: a no-vision waiver record deletes a stale visual-residuals.json', fails)
+  stale_res.call(dir)
+  _o, _e, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, '--agent-vision', 'false',
+                              '--verdict', 'not-executable', '--notes', 'no vision')
+  check(st.success? && !File.exist?(File.join(dir, 'visual-residuals.json')), 'I1: a not-executable record deletes a stale visual-residuals.json', fails)
+end
+_o, _e, st, pf, _r = run_case(PASS_ARGS, blind: lambda { |dir|
+  stale_res.call(dir)
+  BlindFixture.install(dir, stamp: false)
+  ['--blind-grade', File.join(dir, 'blind-grade.json')]
+})
+check(st.success? && pf['visual_verdict'] == 'pass', 'I1: a v1 pass record still succeeds with a stale residuals file present', fails)
+Dir.mktmpdir('rvc-test') do |dir|
+  File.write(File.join(dir, 'parity-final.json'), JSON.generate('status' => 'PASS'))
+  stale_res.call(dir)
+  BlindFixture.install(dir, stamp: false)
+  _o, _e, st = Open3.capture3({ 'AGENT_VISION' => nil }, RbConfig.ruby, SCRIPT, '--workdir', dir, '--agent-vision', 'true',
+                              '--verdict', 'pass', '--checklist', CL, '--blind-grade', File.join(dir, 'blind-grade.json'), '--notes', 'v1')
+  check(st.success? && !File.exist?(File.join(dir, 'visual-residuals.json')), 'I1: a v1 grade record deletes a stale visual-residuals.json', fails)
+end
+
+# census: nav buttons are non-chart (2 charts + 9 buttons)
+button_rb = lambda do |dir|
+  els = [{ 'id' => 'e1', 'kind' => 'kpi-chart' }, { 'id' => 'e2', 'kind' => 'line-chart' }] +
+        (1..9).map { |i| { 'id' => "b#{i}", 'kind' => 'button' } }
+  File.write(File.join(dir, 'wb-readback.json'), JSON.pretty_generate(
+    'workbookId' => 'wb', 'document' => { 'schemaVersion' => 4, 'kind' => 'workbook',
+      'pages' => [{ 'id' => 'p1', 'name' => 'Dashboard' }], 'elements' => els,
+      'layout' => "<Page id=\"p1\">#{els.map { |e| %(<Element elementId="#{e['id']}"/>) }.join}</Page>" }))
+end
+out, err, st, pf, _r = v2_with_residuals(V2_ARGS, score: 90, pre: button_rb)
+check(st.success? && pf.dig('blind_grade', 'cross_check', 'target').to_s.start_with?('ok'),
+      '2 charts + 9 nav buttons: per_tile of just the charts passes the census', fails)
+
+# v1 grade with no schema key behaves as v1
+_o, _e, st, pf = run_case(PASS_ARGS, blind: lambda { |dir|
+  g = BlindFixture.install(dir, stamp: false)
+  g.delete('schema')
+  File.write(File.join(dir, 'blind-grade.json'), JSON.pretty_generate(g))
+  ['--blind-grade', File.join(dir, 'blind-grade.json')]
+})
+check(st.success? && !pf['blind_grade'].key?('schema') && pf['visual_verdict'] == 'pass',
+      'schema-less grade follows the v1 path (no v2 fields stamped)', fails)
 
 puts
 if fails.empty?

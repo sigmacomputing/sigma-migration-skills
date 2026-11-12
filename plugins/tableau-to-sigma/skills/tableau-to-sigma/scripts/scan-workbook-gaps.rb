@@ -49,6 +49,7 @@ require 'workdir_guard' # refuse an output dir inside the installed plugin
 require 'calc_coverage' # masked function extraction + official catalog (v5.0)
 require_relative 'learned-rules' # validated customer rewrites rescue converter refusals
 require 'chart_calc_translate' # build-charts' own chart/pivot calc translators (shared lib)
+require 'lod_dim_helper' # apply-lod-dim-helpers' FIXED-LOD-as-dimension plan (same lib)
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -755,8 +756,14 @@ def detect_object_model(content)
           'no-serialized-key'
         end
       keys = b.scan(/<expression\s[^>]*op='\[([^\]']+)\]'/).flatten.each_slice(2).to_a
+      first_ep = b[/<(?:[^<>\s]*\.\.\.)?first-end-point\b([^>]*)>/, 1].to_s
+      second_ep = b[/<(?:[^<>\s]*\.\.\.)?second-end-point\b([^>]*)>/, 1].to_s
       { 'first' => base.call(first), 'second' => base.call(second), 'status' => status,
-        'keys' => keys }
+        'keys' => keys,
+        'first_unique_hint' => first_ep.match?(/\bunique-key='true'/i),
+        'second_unique_hint' => second_ep.match?(/\bunique-key='true'/i),
+        'first_db_unique' => first_ep.match?(/\bis-db-set-unique-key='true'/i),
+        'second_db_unique' => second_ep.match?(/\bis-db-set-unique-key='true'/i) }
     end
     degree = Hash.new(0)
     rel_rows.each { |r| degree[r['first']] += 1; degree[r['second']] += 1 }
@@ -764,6 +771,19 @@ def detect_object_model(content)
     fact_candidate = ranked[0] && (ranked[1].nil? || ranked[0][1] > ranked[1][1]) ? ranked[0][0] : nil
     untouched = logical.reject { |l| degree.key?(l) }
     unwired = rel_rows.reject { |r| r['status'] == 'wired' }
+    role_signals = logical.each_with_object({}) do |name, out|
+      token = name.to_s.upcase
+      out[name] = {
+        'relationship_degree' => degree[name].to_i,
+        'name_role' => if token.match?(/(?:^|_)(?:DIM|LOOKUP|SUMMARY)(?:_|$)/)
+                         'dimension'
+                       elsif token.match?(/(?:^|_)(?:FACT|EVENT|TRANSACTION|STREAM|MOVEMENT)(?:_|$)/)
+                         'fact'
+                       else
+                         'unknown'
+                       end
+      }
+    end
     caption = attrs[/\bcaption='([^']*)'/, 1] || ds_name
     plan_entries << {
       'datasource' => ds_name,
@@ -771,6 +791,7 @@ def detect_object_model(content)
       'objects' => logical,
       'fact_candidate' => fact_candidate,
       'relationships' => rel_rows,
+      'role_signals' => role_signals,
       'untouched_objects' => untouched
     }
     detail << { 'datasource' => ds_name, 'caption' => caption, 'objects' => logical.size,
@@ -1024,6 +1045,8 @@ def calculation_inventory(doc, content)
   {
     'inputs' => inputs,
     'plotted' => plotted_calc_contexts(doc),
+    'dimension_placements' => dimension_calc_placements(doc),
+    'non_dimension_uses' => non_dimension_calc_uses(doc),
     'datasources' => datasource_rows,
     'calculation_cycles' => datasource_rows.flat_map do |ds|
       ds['calculation_cycles'].map { |cycle| { 'datasource' => ds['name'], 'calculations' => cycle } }
@@ -1031,6 +1054,61 @@ def calculation_inventory(doc, content)
     'orphan_internal_calculation_references' => datasource_rows.flat_map { |ds| ds['orphan_internal_calculation_references'] },
     'unused_calculations' => datasource_rows.flat_map { |ds| ds['unused_calculations'] }
   }
+end
+
+# Where each calc sits as a plain DIMENSION on a built worksheet's Rows or
+# Columns shelf, keyed "<datasource name>\0[<internal name>]" → sorted
+# worksheet names. Only the `none:` (no aggregation, no date part) instance:
+# that is the one build-charts emits as a bare [Master/<caption>] column, which
+# apply-lod-dim-helpers.rb rewrites to a Lookup into a grouped helper. Same
+# built-worksheet rule as plotted_calc_contexts.
+def dimension_calc_placements(doc)
+  zone_names = doc.elements.to_a('/workbook/dashboards/dashboard//zone')
+                  .map { |z| z.attributes['name'].to_s }.reject(&:empty?).to_set
+  any_dashboard = !doc.elements.to_a('/workbook/dashboards/dashboard').empty?
+  instance_re = /\[((?:[^\]]|\]\])+)\]\.\[none:((?:[^\]:]|\]\])+):[a-z]{2}(?::\d+)?\]/
+  out = Hash.new { |h, k| h[k] = Set.new }
+  doc.elements.to_a('/workbook/worksheets/worksheet').each do |ws|
+    ws_name = ws.attributes['name'].to_s
+    next if any_dashboard && !zone_names.include?(ws_name)
+    %w[table/rows table/cols].each do |path|
+      ws.elements[path]&.text.to_s.scan(instance_re) { |ds, body| out["#{ds}\0[#{body}]"] << ws_name }
+    end
+  end
+  out.transform_values { |set| set.to_a.sort }
+end
+
+# Every OTHER use of a calc on a built worksheet, keyed "<datasource>\0[<internal>]":
+# a datasource-qualified instance ([ds].[<derivation>:<name>:<role>]) anywhere in
+# the sheet that is not a bare `none:` pill on Rows/Cols — an aggregate or date
+# part (sum:, yr:, usr:, …), a filter, an encoding (color, tooltip, detail), a
+# sort, a reference line, table-calc addressing or a title/tooltip text token.
+# apply-lod-dim-helpers only rewrites the bare [Master/<caption>] tile column, so
+# any of these could ship with a dangling ref: the audit must not call such a
+# calc built. FAIL CLOSED: only <format> styling (style rules / field formats)
+# is exempt — it never becomes a formula. Unqualified column-instance
+# DECLARATIONS are not uses.
+def non_dimension_calc_uses(doc)
+  zone_names = doc.elements.to_a('/workbook/dashboards/dashboard//zone')
+                  .map { |z| z.attributes['name'].to_s }.reject(&:empty?).to_set
+  any_dashboard = !doc.elements.to_a('/workbook/dashboards/dashboard').empty?
+  qualified_re = /\[((?:[^\]]|\]\])+)\]\.\[([a-z]+):((?:[^\]:]|\]\])+):[a-z]{2}(?::\d+)?\]/i
+  out = Set.new
+  doc.elements.to_a('/workbook/worksheets/worksheet').each do |ws|
+    next if any_dashboard && !zone_names.include?(ws.attributes['name'].to_s)
+    shelf = %w[table/rows table/cols].map { |path| ws.elements[path]&.text.to_s }.join("\n")
+    shelf_none = Hash.new(0)
+    shelf.scan(qualified_re) { |ds, prefix, body| shelf_none["#{ds}\0[#{body}]"] += 1 if prefix.casecmp?('none') }
+    # Styling only: drop <format …/> elements (style rules, field formats).
+    text = CGI.unescapeHTML(ws.to_s).gsub(%r{<format\b[^>]*/>}m, '')
+    all_none = Hash.new(0)
+    text.scan(qualified_re) do |ds, prefix, body|
+      key = "#{ds}\0[#{body}]"
+      prefix.casecmp?('none') ? all_none[key] += 1 : out << key
+    end
+    all_none.each { |key, count| out << key if count > shelf_none[key] }
+  end
+  out
 end
 
 # Where each calc is PLOTTED, keyed "<datasource name>\0<internal name>". Only
@@ -1110,6 +1188,10 @@ def plotted_calc_contexts(doc)
           'row'
         elsif addr && shelf_fields[0].include?(addr)
           'column'
+        elsif tc && tc.attributes['ordering-field'].nil? && tc.attributes['ordering-type'].to_s.casecmp('Rows').zero?
+          'row' # Table (Across)
+        elsif tc && tc.attributes['ordering-field'].nil? && tc.attributes['ordering-type'].to_s.casecmp('Columns').zero?
+          'column' # Table (Down)
         else
           shelf_fields[1].include?(calc.downcase) ? 'column' : 'row'
         end
@@ -1285,6 +1367,62 @@ def apply_chart_translators_to_audit!(batch, inventory)
   batch
 end
 
+# A converter refusal that is a single-dimension FIXED LOD used as a plain
+# DIMENSION on a built sheet (Cohort Year = {FIXED [Customer Id] :
+# MIN(YEAR([Order Date]))} on Rows) is NOT a gap: apply-lod-dim-helpers.rb
+# builds it mechanically (grouped helper + Lookup on the tile), using the SAME
+# LodDimHelper.plans parser. Reclassify chart_only with that translator as
+# evidence; the key and the aggregated field must be physical columns or calcs
+# the data model materializes (a ref to a refused calc ships a broken helper).
+# It must be used ONLY as that bare pill (no aggregate, date part, filter or
+# encoding on a built sheet) and no other calc may reference it. Runs after the
+# chart translators. The Python runtime keeps refusing (fail closed), like the
+# other build-path translators.
+def apply_lod_dim_helper_to_audit!(batch, inventory)
+  placements = inventory['dimension_placements'] || {}
+  sources = (inventory['datasources'] || []).each_with_object({}) { |ds, h| h[ds['datasource_index']] = ds }
+  calcs_by_ds = Hash.new { |h, k| h[k] = {} }
+  batch.fetch('formulas').each do |row|
+    [row['internal_name'], row['caption']].each do |name|
+      key = name.to_s.sub(/\A\[/, '').sub(/\]\z/, '').downcase
+      calcs_by_ds[row['datasource_index']][key] ||= { 'status' => row['status'],
+                                                      'caption' => row['caption'].to_s.sub(/\A\[(.*)\]\z/, '\1') }
+    end
+  end
+  other_uses = inventory['non_dimension_uses'] || Set.new
+  changed = false
+  batch.fetch('formulas').each do |row|
+    next unless %w[not_converted unmapped].include?(row['status'])
+    key = "#{row['datasource']}\0#{row['internal_name']}"
+    worksheets = placements[key]
+    next if worksheets.nil? || worksheets.empty?
+    # Used any other way on a built sheet → that use is not rewritten.
+    next if other_uses.include?(key)
+    # Another calc references it → the data model ships that calc with a
+    # dangling ref (the helper only rewrites tile columns): keep refusing so
+    # annotate_refusal_reach! still marks the dependents blocked_by it.
+    graph = sources.dig(row['datasource_index'], 'dependency_graph') || {}
+    next if graph.any? { |calc, deps| calc != row['internal_name'] && Array(deps).include?(row['internal_name']) }
+    cbg = sources.dig(row['datasource_index'], 'columns_by_guid') || {}
+    caption = row['caption'].to_s.sub(/\A\[(.*)\]\z/, '\1')
+    plan = LodDimHelper.plans([{ 'caption' => caption, 'formula' => row['formula'] }], cbg)[caption]
+    next unless plan
+    next unless chart_translation_refs_resolve?([plan[:key], plan[:field]], calcs_by_ds[row['datasource_index']])
+    row['converter_status'] = row['status']
+    row['status'] = 'chart_only'
+    row['chart_translator'] = {
+      'translator' => 'lod_dim_helper', 'mode' => 'grouped-helper-lookup',
+      'note' => "FIXED [#{plan[:key]}] dimension → grouped helper (#{plan[:agg]}" \
+                "(#{plan[:part] ? "#{plan[:part]}([#{plan[:field]}])" : "[#{plan[:field]}]"}) by #{plan[:key]}) " \
+                '+ Lookup on the tile (apply-lod-dim-helpers.rb)',
+      'contexts' => ['dimension'], 'worksheets' => worksheets
+    }
+    changed = true
+  end
+  recount_formula_audit!(batch) if changed
+  batch
+end
+
 # Where each still-refused formula actually reaches. A refusal nothing uses
 # (the inventory's own transitive unused set) is marked `unused` and never
 # gates. Otherwise the calcs built on top of it inherit the break — they pass
@@ -1359,6 +1497,7 @@ def run_formula_audit(inventory)
   batch = JSON.parse(stdout)
   apply_learned_rules_to_audit!(batch)
   apply_chart_translators_to_audit!(batch, inventory)
+  apply_lod_dim_helper_to_audit!(batch, inventory)
   annotate_refusal_reach!(batch, inventory)
   results_by_ds = batch.fetch('formulas').group_by { |row| row['datasource_index'] }
 

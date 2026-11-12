@@ -1,0 +1,65 @@
+{
+ "id": "el-rc-revenue-by-tier",
+ "kind": "pie-chart",
+ "source": {
+  "elementId": "master-customers",
+  "kind": "table"
+ },
+ "columns": [
+  {
+   "id": "x-el-rc-revenue-by-tier",
+   "formula": "[Master/Customer Value Tier]",
+   "name": "Customer Value Tier"
+  },
+  {
+   "id": "y-el-rc-revenue-by-tier",
+   "formula": "[Metrics/Total Net Revenue]",
+   "name": "Net Revenue",
+   "format": {
+    "kind": "number",
+    "formatString": "$,.0f",
+    "currencySymbol": "$"
+   }
+  },
+  {
+   "id": "lbl-el-rc-revenue-by-tier",
+   "formula": "PercentOfTotal(Sum([Master/Net Revenue]), \"grand_total\")",
+   "name": "Pct of Net Revenue",
+   "format": {
+    "kind": "number",
+    "formatString": ",.1%"
+   }
+  },
+  {
+   "id": "nn-x-el-rc-revenue-by-tier",
+   "formula": "Text(IsNotNull([Master/Customer Value Tier]))",
+   "name": "Customer Value Tier Not Null"
+  }
+ ],
+ "color": {
+  "columnId": "x-el-rc-revenue-by-tier",
+  "sort": {
+   "by": "y-el-rc-revenue-by-tier",
+   "direction": "descending"
+  }
+ },
+ "value": {
+  "columnId": "y-el-rc-revenue-by-tier"
+ },
+ "filters": [
+  {
+   "id": "flt-el-rc-revenue-by-tier-0",
+   "columnId": "nn-x-el-rc-revenue-by-tier",
+   "kind": "list",
+   "mode": "include",
+   "values": [
+    "true"
+   ]
+  }
+ ],
+ "name": "Net Revenue by Customer Value Tier (% of total)",
+ "style": {
+  "padding": "none",
+  "backgroundColor": "transparent"
+ }
+}

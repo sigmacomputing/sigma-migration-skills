@@ -1984,12 +1984,34 @@ class WorkbookBuilder:
                 }
             )
         elif datatype in {"string", "nominal", "boolean"}:
+            saved_filters = []
+            for item in self.meta.get("shared_filters") or []:
+                if not isinstance(item, dict) or item.get("is_datasource_filter"):
+                    continue
+                resolved = self.resolve_field(item.get("raw_param") or item.get("column_guid"))
+                if resolved == field and item not in saved_filters:
+                    saved_filters.append(item)
+            if len(saved_filters) > 1 or (saved_filters and saved_filters[0].get("kind") != "list"):
+                self.residue(dashboard, zone, "unsupported-saved-control",
+                             "saved filter state is ambiguous or not a categorical selection",
+                             filters=saved_filters)
+                return None
+            saved = saved_filters[0] if saved_filters else {}
+            values = list(saved.get("members") or [])
+            if datatype == "boolean":
+                booleans = {"true": True, "1": True, "false": False, "0": False}
+                if any(str(value).lower() not in booleans for value in values):
+                    self.residue(dashboard, zone, "unsupported-saved-control", "invalid saved boolean selection")
+                    return None
+                values = [booleans[str(value).lower()] for value in values]
+            if saved.get("includes_null") or saved.get("excludes_null"):
+                values.append(None)
             control.update(
                 {
                     "controlType": "list",
-                    "mode": "include",
+                    "mode": "exclude" if saved.get("exclude") else "include",
                     "selectionMode": "multiple",
-                    "values": [],
+                    "values": values,
                     "source": {
                         "kind": "source",
                         "source": {"kind": "table", "elementId": "master"},

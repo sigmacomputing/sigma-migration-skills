@@ -38,6 +38,7 @@ require 'net/http'
 require 'uri'
 require 'json'
 require 'csv'
+require_relative 'lib/code_rep'
 require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require 'securerandom'
@@ -124,7 +125,7 @@ spec = {
 }
 
 warn "probing: #{opts[:path]} via INFORMATION_SCHEMA (#{opts[:dialect]})"
-res = http(:post, '/v2/workbooks/spec', JSON.generate(spec))
+res = http(:post, Sigma::CodeRep.create_path, JSON.generate(Sigma::CodeRep.create_body(JSON.parse(JSON.generate(spec)))))
 # Response body may be JSON ({"workbookId":"..."}) or YAML; tolerate both.
 parsed = (JSON.parse(res.body) rescue nil)
 wb_id  = parsed && parsed['workbookId']

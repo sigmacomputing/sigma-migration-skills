@@ -584,7 +584,12 @@ end
 # membership is PENDING on the .twb, the watcher below enqueues instead.
 enqueue_csv = lambda do |v|
   queue << lambda do
-    csv = run_task("csv:#{v['name']}") { Tableau.view_data(v['id']) }
+    # maxAge=1: bypass Tableau's view-data cache so the capture reflects the
+    # source NOW (a cached answer pre-dating a warehouse load made parity
+    # fail on a correct migration — lib/source_drift.rb).
+    csv = run_task("csv:#{v['name']}") do
+      Tableau.respond_to?(:view_data_filtered) ? Tableau.view_data_filtered(v['id']) : Tableau.view_data(v['id'])
+    end
     if csv
       atomic_write(File.join(opts[:out], 'views', "#{v['id']}.csv"), csv)
       log "wrote views/#{v['id']}.csv  (#{v['name']}, #{csv.bytesize} bytes)"

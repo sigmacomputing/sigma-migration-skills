@@ -33,7 +33,7 @@ SCRIPT = File.join(__dir__, 'export-chart-png.rb')
 # plus a control element that must NOT be selected (not chart-shaped).
 NESTED_SPEC = {
   'workbookId' => 'wb-test',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 4,
     'pages' => [{
       'id' => 'p1',
@@ -80,7 +80,7 @@ NET_HTTP_STUB = <<~RUBY
         end
         path = req.uri.request_uri
         case
-        when req.verb == 'GET' && path == '/v2/workbooks/wb-test/spec'
+        when req.verb == 'GET' && path == '/v2/workbooks/wb-test?includeContents=true'
           HTTPStubResp.new(200, JSON.generate(NESTED_SPEC))
         when req.verb == 'POST' && path == '/v2/workbooks/wb-test/export'
           HTTPStubResp.new(200, JSON.generate('queryId' => 'q1'))
@@ -134,7 +134,7 @@ Dir.mktmpdir do |dir|
   end
 
   reqs = File.exist?(log) ? File.readlines(log).map { |l| JSON.parse(l) } : []
-  check(reqs.any? { |r| r['verb'] == 'GET' && r['path'] == '/v2/workbooks/wb-test/spec' },
+  check(reqs.any? { |r| r['verb'] == 'GET' && r['path'] == '/v2/workbooks/wb-test?includeContents=true' },
         'spec GET issued', fails)
   check(reqs.any? { |r| r['verb'] == 'POST' && r['path'] == '/v2/workbooks/wb-test/export' },
         'export POST issued for the discovered chart', fails)

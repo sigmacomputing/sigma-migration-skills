@@ -93,13 +93,13 @@ elsif base.nil? || base.empty? || tok.nil? || tok.empty?
   exit 0
 end
 
-uri = URI("#{base}/v2/workbooks/#{wb_id}/spec")
+uri = URI("#{base}#{Sigma::CodeRep.read_path(wb_id)}")
 req = Net::HTTP::Get.new(uri)
 req['Authorization'] = "Bearer #{tok}"
 req['Accept'] = 'application/json'
 res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 30) { |h| h.request(req) }
 unless res.is_a?(Net::HTTPSuccess)
-  puts "[SKIP] datasource-filter gate: GET /v2/workbooks/#{wb_id}/spec returned HTTP #{res.code} — cannot verify"
+  puts "[SKIP] datasource-filter gate: GET #{Sigma::CodeRep.read_path(wb_id)} returned HTTP #{res.code} — cannot verify"
   exit 0
 end
 raw_spec =
@@ -110,8 +110,8 @@ raw_spec =
     require 'date'
     YAML.safe_load(res.body, permitted_classes: [Date, Time]) || {}
   end
-# Workbook code-rep GETs nest pages/elements under `document` (live since
-# 2026-08); DatasourceFilterCheck.violations expects a flat `spec['pages']`
+# Workbook code-rep GETs nest pages/elements under `contents` (`document` on
+# the retired /spec readbacks); DatasourceFilterCheck.violations expects a flat `spec['pages']`
 # (its contract stays "give me a plain document" per the shared lint-lib
 # decision — unwrap at the caller, not in the lib).
 spec = Sigma::CodeRep.document(raw_spec)

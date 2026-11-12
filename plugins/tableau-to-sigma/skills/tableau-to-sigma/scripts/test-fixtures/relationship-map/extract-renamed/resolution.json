@@ -1,0 +1,9 @@
+{
+  "db": "ANALYTICS",
+  "schema": "LANDED",
+  "table_mapping": {
+    "FACT_SALES": "SALES_WIDE",
+    "FACT_ORDERS": "SALES_WIDE",
+    "DIM_CUSTOMER": "CUSTOMERS"
+  }
+}

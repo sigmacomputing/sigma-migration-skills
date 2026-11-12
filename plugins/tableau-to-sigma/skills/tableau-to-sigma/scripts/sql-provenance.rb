@@ -14,11 +14,12 @@ OptionParser.new do |parser|
 end.parse!
 
 workdir = opts[:workdir] || abort('usage: sql-provenance.rb --workdir DIR [--dm-spec PATH] [--check]')
-dm_specs = %w[dm-spec.json dm-spec-reused.json].map { |name| File.join(workdir, name) }
-current_dm_spec = dm_specs.select { |path| File.file?(path) }.max_by do |path|
-  [File.mtime(path), File.basename(path) == 'dm-spec.json' ? 1 : 0]
+begin
+  dm_spec = opts[:dm_spec] || SqlProvenance.active_spec_path(workdir)
+rescue ArgumentError, JSON::ParserError, SystemCallError => error
+  warn "SQL PROVENANCE FAIL: #{error.message}"
+  exit 3
 end
-dm_spec = opts[:dm_spec] || current_dm_spec || File.join(workdir, 'dm-raw.json')
 artifact = File.join(workdir, 'sql-provenance.json')
 unless dm_spec && File.file?(dm_spec)
   warn 'SQL PROVENANCE FAIL: no data-model spec is available'

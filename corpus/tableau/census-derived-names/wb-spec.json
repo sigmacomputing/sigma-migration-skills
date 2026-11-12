@@ -1,0 +1,28 @@
+{
+  "document": {
+    "pages": [{ "id": "page-store-network", "name": "Store Network" }],
+    "elements": [
+      { "id": "el-store-rank-table", "kind": "table", "name": "Store Rank Table",
+        "source": { "kind": "table", "elementId": "master" },
+        "columns": [
+          { "id": "c1", "name": "Store Name", "formula": "[Master/Store Name]" },
+          { "id": "c2", "name": "Net Revenue", "formula": "Sum([Master/Net Revenue])" },
+          { "id": "c3", "name": "Revenue Rank along Store Name",
+            "formula": "If(IsNull(Sum([Master/Net Revenue])), Null, Rank(-(Sum([Master/Net Revenue])), \"asc\"))" } ] },
+      { "id": "el-store-scorecard", "kind": "table", "name": "Store Scorecard",
+        "source": { "kind": "table", "elementId": "master" },
+        "columns": [
+          { "id": "s1", "name": "Store Name", "formula": "[Master/Store Name]" },
+          { "id": "s2", "name": "Net Revenue", "formula": "Sum([Master/Net Revenue])" },
+          { "id": "s3", "name": "Low Margin Flag (flag)", "hidden": true,
+            "formula": "Sum([Master/Gross Profit]) / Sum([Master/Net Revenue]) < 0.66" } ] },
+      { "id": "el-store-state-map", "kind": "region-map", "name": "Store State Map",
+        "source": { "kind": "table", "elementId": "master" },
+        "columns": [
+          { "id": "m1", "name": "State", "formula": "[Master/State]" },
+          { "id": "m2", "name": "Net Revenue", "formula": "Sum([Master/Net Revenue])" } ],
+        "region": { "columnId": "m1", "regionType": "us-state" },
+        "color": { "by": "scale", "column": "m2", "scheme": ["#eaf3ea", "#2e7d32"] } }
+    ]
+  }
+}

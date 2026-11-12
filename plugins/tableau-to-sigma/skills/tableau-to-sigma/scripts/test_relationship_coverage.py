@@ -23,6 +23,12 @@ def metadata(entries):
 
 
 class RelationshipCoverageTest(unittest.TestCase):
+    def test_single_object_without_edges_is_not_applicable(self):
+        source = '<object-graph><objects><object id="one"/></objects></object-graph>'
+        self.assertEqual('not-applicable', relationship_coverage.evaluate({}, source)['status'])
+        self.assertEqual('fail', relationship_coverage.evaluate({}, source.replace('<object id="one"/>', '<object id="one"/><object id="two"/>'))['status'])
+        self.assertEqual('fail', relationship_coverage.evaluate({}, source.replace('</object-graph>', '<relationships><relationship/></relationships></object-graph>'))['status'])
+
     def test_non_object_graph_without_ledger_is_not_applicable(self):
         result = relationship_coverage.evaluate({}, "<workbook/>")
         self.assertEqual("not-applicable", result["status"])

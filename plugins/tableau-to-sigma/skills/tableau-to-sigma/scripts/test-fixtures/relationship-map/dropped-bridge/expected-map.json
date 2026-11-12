@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "e8c5115d534d314d5d218d468f9565e6f2103a7b10ee33b5a17d2f7a69a814bc",
+    "dm_sha256": "a8fbd65aaf67d5db890776e22a5e97bf98e0a02159cc34ca33e84c71d7683779"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.SHIPMENTS",
+      "datasource": "Chain",
+      "dm_element_ids": [
+        "ship"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "datasource": "Chain",
+      "dm_element_ids": [
+
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.REGIONS",
+      "datasource": "Chain",
+      "dm_element_ids": [
+        "reg"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "ship->reg",
+      "edge_sha": "5e77a51ff96abb2bb468709af520abdadbdc8f2dae4640742b16e94e60e375de",
+      "source_element": "ship",
+      "target_element": "reg",
+      "source_table": "ANALYTICS.PUBLIC.SHIPMENTS",
+      "target_table": "ANALYTICS.PUBLIC.REGIONS",
+      "keys": [
+        {
+          "source": "REGION_KEY",
+          "target": "REGION_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Chain",
+      "left": "ANALYTICS.PUBLIC.SHIPMENTS",
+      "right": "ANALYTICS.PUBLIC.ORDERS",
+      "tableau_keys": [
+        {
+          "left": "ORDER_ID",
+          "right": "ORDER_ID"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Chain",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.REGIONS",
+      "tableau_keys": [
+        {
+          "left": "REGION_KEY",
+          "right": "REGION_KEY"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 2,
+      "kind": "tableau",
+      "datasource": null,
+      "left": "ANALYTICS.PUBLIC.REGIONS",
+      "right": "ANALYTICS.PUBLIC.SHIPMENTS",
+      "tableau_keys": [
+
+      ],
+      "disposition": "replaced",
+      "dm_path": [
+        "ship->reg"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+        "Weight by Region"
+      ],
+      "reason": null,
+      "bridge_for": [
+        "ANALYTICS.PUBLIC.ORDERS"
+      ]
+    }
+  ],
+  "blockers": [
+
+  ]
+}

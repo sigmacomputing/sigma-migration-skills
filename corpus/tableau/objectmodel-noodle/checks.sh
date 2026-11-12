@@ -50,7 +50,27 @@ ruby -rjson -e '
   && note "ok: wired noodle detected as ✅-auto (no stop), plan sidecar names FACT_VISITS + 4 wired edges" \
   || { note "FAIL: wired-noodle gap-scan expectations"; fail=1; }
 
-# -- 2. gap scan: keyless noodle is a ❌ stop class with the punch list -------
+# -- 2. executable target-model plan: grain-aware hub + primary fact ----------
+ruby "$SCRIPTS/plan-target-model.rb" \
+  --object-plan "$TMP/object-graph-plan.json" \
+  --profiles "$CASE_DIR/target-model-profiles.json" \
+  --out "$TMP/target-model-plan.json" >"$TMP/model-plan.out" 2>&1 || fail=1
+ruby -rjson -e '
+  plan = JSON.parse(File.read(ARGV[0]))
+  abort "entitlement many-to-many should fail closed" unless plan["mode"] == "remodeled-star" && plan["accepted"] == false
+  ds = plan["datasources"][0]
+  abort "primary fact drifted: #{ds["primary_fact"].inspect}" unless ds["primary_fact"] == "FACT_VISITS"
+  site = ds["relationships"].find { |r| r["target"] == "DIM_SITES" }
+  abort "site dimension was not oriented as a unique target" unless site && site["carrier"] == "FACT_VISITS"
+  abort "summary hub candidate was not surfaced" unless ds["shared_hub_candidates"].any? { |h| h["table"] == "DIM_LABEL_SUMMARY" }
+  bad = ds["relationships"].select { |r| %w[many-to-many unresolved].include?(r["cardinality"]) }
+  abort "expected exactly the entitlement edge to remain unsafe: #{bad.inspect}" unless bad.length == 1 && bad[0]["first"] == "ENTITLEMENTS"
+  abort "unsafe edge lacks proof requirement" unless plan["required_proofs"].any? { |p| p["kind"] == "target-uniqueness" }
+' "$TMP/target-model-plan.json" \
+  && note "ok: target-model planner elects FACT_VISITS, recognizes shared hubs, and fails closed on the entitlement many-to-many edge" \
+  || { note "FAIL: target-model planner expectations"; fail=1; }
+
+# -- 3. gap scan: keyless noodle is a ❌ stop class with the punch list -------
 ruby "$SCRIPTS/scan-workbook-gaps.rb" "$CASE_DIR/workbook-nokeys.twb" "$TMP/gaps-nokeys.md" >"$TMP/gaps-nokeys.out" 2>&1 || fail=1
 ruby -rjson -e '
   plan = JSON.parse(File.read(File.join(ARGV[0], "object-graph-plan.json")))
@@ -64,7 +84,7 @@ ruby -rjson -e '
   && note "ok: keyless noodle is a ❌ Not-yet-handled row (exit-11 class) with per-pair punch list + --reuse-dm re-entry" \
   || { note "FAIL: keyless-noodle stop expectations"; fail=1; }
 
-# -- 3. converter goldens byte-stable (node runners only; CI may lack node) --
+# -- 4. converter goldens byte-stable (node runners only; CI may lack node) --
 if command -v node >/dev/null && command -v python3 >/dev/null; then
   cat > "$TMP/conv.mjs" <<'EOF'
 import { readFileSync } from 'node:fs';

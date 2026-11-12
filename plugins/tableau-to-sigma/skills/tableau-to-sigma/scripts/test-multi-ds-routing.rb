@@ -25,6 +25,7 @@ SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
   File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 %w[
   strip_tableau_comments translate_sla_ratio split_top_level_args
+  tableau_iif_to_sigma
   parse_tableau_function_call translated_calc_reference
   translate_user_agg_formula deep_gsub! route_multi_ds!
 ].each do |fn|

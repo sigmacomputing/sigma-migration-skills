@@ -124,16 +124,18 @@ VERDICT RULES (apply in order — first match wins)
 
   1. You have read the workdir artifacts, so even you are not context-free
      (PR-9): spawn a **fresh blind grader** subagent with
-     `refs/blind-grader-brief.md` as its prompt, passing ONLY the source
-     dashboard PNG path, the Sigma render PNG path, the rubric path, and the
-     output path `{{WORKDIR}}/blind-grade.json` — no other context. If it
+     `refs/blind-grader-brief.md` as its prompt, passing ONLY `{{SOURCE_PNG}}`,
+     `{{TARGET_PNG}}`, `{{RUBRIC_PATH}}`=`refs/fidelity-rubric.md`,
+     `{{CATALOG_PATH}}`=`refs/sigma-platform-differences.json`, and
+     `{{OUT_JSON}}`=`{{WORKDIR}}/blind-grade.json` — no other context. Only when
+     `record-visual-check.rb` says "second blind grader required", spawn a second
+     fresh grader with `OUT_JSON`=`blind-grade-2.json` and re-run with `--blind-grade-2`. If it
      cannot be spawned in your session, write the grade yourself is NOT an
      option; use `--no-vision-waiver "<reason>"` below (budget-counted).
-  2. Record, attaching the grade:
+  2. Record, attaching the grade (omit --verdict/--checklist: computed from the grade):
 
   ```bash
   ruby scripts/record-visual-check.rb --workdir {{WORKDIR}} --agent-vision true \
-    --verdict pass --checklist "<six dimensions per layout-visual-qa.md 1b>" \
     --blind-grade {{WORKDIR}}/blind-grade.json \
     --notes "VERIFIER: <pages compared, anchors checked, residual cosmetics if any>"
   ```
@@ -164,6 +166,18 @@ DELIVERABLE — write `{{WORKDIR}}/verification-result.json`:
 Your final message: the verdict, the divergence list (or "none"), and — for
 YELLOW — the itemized fixes. Your verdict is the workbook's final result; the
 builder's `self_assessed_tier` is superseded.
+
+After writing `verification-result.json`, regenerate the local punch list:
+
+```bash
+ruby scripts/build-punchlist.rb --workdir {{WORKDIR}}
+```
+
+This is a local reporting operation, not a workbook mutation. It includes your
+current findings without erasing the degradation ledger. An earlier pass or
+empty ledger cannot override your RED verdict; the completion check rejects a
+punch list that still references a different verification result. The builder
+must regenerate its accounting report and rerun finalization after any repairs.
 
 HOUSEKEEPING
 

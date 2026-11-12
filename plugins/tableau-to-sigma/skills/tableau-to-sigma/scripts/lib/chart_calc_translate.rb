@@ -222,6 +222,53 @@ def parse_tableau_function_call(text, function_name)
   nil
 end
 
+# Tableau IIF(test, then, else[, unknown]) returns `unknown` (default NULL) when
+# test is NULL; Sigma If() takes the else branch for a NULL condition. A bare
+# IIF→If rename therefore scores NULL rows as the else value —
+# AVG(IIF([Response]="Yes",1,0)) counts unanswered rows as 0 and drags the
+# rate down (field-caught). Emit If(IsNull(test), unknown-or-null, test, then,
+# else) instead. A 4-arg IIF also can't be renamed: If(t, a, b, u) reads b as a
+# second CONDITION. Rightmost IIF
+# first, so an IIF nested in another's args is rewritten before its parent.
+# Unbalanced or non-3/4-arg calls keep the plain rename.
+def tableau_iif_to_sigma(formula)
+  s = formula.to_s.dup
+  while (start = s.rindex(/\bIIF\s*\(/i))
+    open = s.index('(', start)
+    depth = 0
+    bracket_depth = 0
+    quote = nil
+    close = nil
+    (open...s.length).each do |index|
+      char = s[index]
+      if quote
+        quote = nil if char == quote
+      elsif %w[' "].include?(char)
+        quote = char
+      elsif char == '['
+        bracket_depth += 1
+      elsif char == ']' && bracket_depth.positive?
+        bracket_depth -= 1
+      elsif bracket_depth.zero?
+        depth += 1 if char == '('
+        depth -= 1 if char == ')'
+        if depth.zero?
+          close = index
+          break
+        end
+      end
+    end
+    args = close ? split_top_level_args(s[(open + 1)...close]) : []
+    unless [3, 4].include?(args.length)
+      s[start...open] = 'If'
+      next
+    end
+    test, then_val, else_val, unknown = args
+    s[start..close] = "If(IsNull(#{test}), #{unknown || 'null'}, #{test}, #{then_val}, #{else_val})"
+  end
+  s
+end
+
 # extra_fns: additional Sigma function names the residue validator should
 # accept (the window-calc path passes WINDOW_SIGMA_FNS so Cumulative*/Moving*/
 # Rank/Lag/... formulas validate; plain ratio decomposition passes none).
@@ -236,9 +283,9 @@ def translate_user_agg_formula(formula, mmap, columns_by_guid = {}, extra_fns: [
     info = columns_by_guid[Regexp.last_match(1)]
     info && info['caption'] ? "[#{info['caption']}]" : "[#{Regexp.last_match(1)}]"
   end
-  # IIF(c, t, e) → If(c, t, e) so guarded ratios (divide-by-zero protection)
-  # survive the decomposition.
-  s = s.gsub(/\bIIF\s*\(/i, 'If(')
+  # IIF(c, t, e) → If(IsNull(c), null, c, t, e) so guarded ratios (divide-by-
+  # zero protection) survive the decomposition with Tableau's NULL-test semantics.
+  s = tableau_iif_to_sigma(s)
   if (percentile = parse_tableau_function_call(s, 'PERCENTILE')) && percentile[0].length == 2
     value, raw_arg = percentile[0]
     translated_value =
@@ -386,7 +433,7 @@ def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   s = s.gsub(/\bDATEPART\s*\(\s*'([^']+)'\s*,/i) { "DatePart(\"#{Regexp.last_match(1)}\", " }
   s = s.gsub(/\bTODAY\s*\(\s*\)/i, 'Today()')
   s = s.gsub(/\bNOW\s*\(\s*\)/i, 'Now()')
-  s = s.gsub(/\bIIF\s*\(/i, 'If(')
+  s = tableau_iif_to_sigma(s)
   s = s.gsub(/\bIFNULL\s*\(/i, 'Coalesce(')
   s = s.gsub(/\bABS\s*\(/i, 'Abs(')
   s = s.gsub(/\bSTR\s*\(/i, 'Text(')
@@ -432,7 +479,8 @@ def translate_row_level_calc(formula, mmap, columns_by_guid = {}, depth: 0)
   residue = out.dup
   residue.gsub!(/"(?:\\.|[^"\\])*"/, '1')
   residue.gsub!(/\[Master\/[^\]]+\]/, '1')
-  residue.gsub!(/\b(DateDiff|DateAdd|DateTrunc|DatePart|Today|Now|If|Coalesce|Abs|Text|Year|Month|Day|Quarter|Hour|Minute|Second|Replace|Upper|Lower|Ltrim|Rtrim|Trim|Left|Right|Len|Contains|StartsWith|EndsWith|Mid|In)\b/, '')
+  residue.gsub!(/\b(DateDiff|DateAdd|DateTrunc|DatePart|Today|Now|If|IsNull|Coalesce|Abs|Text|Year|Month|Day|Quarter|Hour|Minute|Second|Replace|Upper|Lower|Ltrim|Rtrim|Trim|Left|Right|Len|Contains|StartsWith|EndsWith|Mid|In)\b/, '')
+  residue.gsub!(/\bnull\b/, '') # the lowercase literal tableau_iif_to_sigma emits
   return nil unless residue =~ %r{\A[\s()+\-*/.,\d!=<>]*\z}
   out
 end
@@ -698,7 +746,7 @@ end
 #   LAST()                   → no direct equiv; needs Count-RowNumber pattern
 #   ZN(x)                    → Coalesce(x, 0)
 #   COUNTD(x)                → CountDistinct(x)
-#   IIF(c, t, e)             → If(c, t, e)
+#   IIF(c, t, e)             → If(IsNull(c), null, c, t, e)  (NULL test → NULL, as Tableau)
 #   IFNULL(x, y)             → Coalesce(x, y)
 def translate_tableau_tc(formula)
   return [nil, nil] if formula.nil? || formula.empty?
@@ -846,7 +894,8 @@ def translate_tableau_tc(formula)
     s = out
     changed = true
   end
-  if s.gsub!(/\bIIF\s*\(/, 'If(')
+  if s =~ /\bIIF\s*\(/
+    s = tableau_iif_to_sigma(s)
     changed = true
   end
   if s.gsub!(/\bIFNULL\s*\(/, 'Coalesce(')

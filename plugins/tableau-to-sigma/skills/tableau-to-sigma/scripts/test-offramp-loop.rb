@@ -265,12 +265,14 @@ end
 # (explicit encoding: the source is UTF-8 prose; a C/US-ASCII locale must not
 # make these pins raise on it)
 src = File.read(File.join(DIR, 'migrate-tableau.rb'), encoding: 'UTF-8')
-check(src.include?("Offramp.failure_signature(script: 'migrate-tableau', context: 'finalize'"),
+check(src.include?("Offramp.failure_signature(script: 'migrate-tableau',\n                                      context: AttemptFingerprint.finalize_context(WORK, actuals: opts[:actuals]),"),
       'finalize call site builds its signature via Offramp.failure_signature', fails)
 check(src.include?('cleanup: clst.exitstatus'),
       'finalize signature keys the cleanup gate too (a cleanup-only NOT-GREEN is not "phase6=0:gate=0")', fails)
-check(src.include?("context: 'exit4'") && src.include?('error_class: e.class'),
-      'exit-4 call site keys script + context + error class', fails)
+# exit-4 context = 'exit4' + the input-spec digest (lib/attempt_fingerprint.rb)
+check(src.include?("AttemptFingerprint.context(\n    'exit4'") && src.include?('context: _exit4_ctx') &&
+      src.include?('error_class: e.class'),
+      'exit-4 call site keys script + context (with input-spec digest) + error class', fails)
 check(src.include?('handoff: 4, child: _child_exit'),
       'exit-4 signature keys the failing CHILD exit status, not just the handoff 4', fails)
 check(src.include?('Offramp.first_error_line(e.captured_output)'),

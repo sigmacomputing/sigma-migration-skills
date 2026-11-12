@@ -35,6 +35,7 @@ SQL `FROM` off the wrong table (mass `Dependency not found` at POST).
 | `workbook-fact-election.twb` | Adverse-orientation noodle (5 objects, dims as first-end-points, LODs + Top-N + colliding params + entitlement) |
 | `workbook-entitlement.twb` | Entitlement-table pattern, no user-function calc (structural RLS detection) |
 | `workbook-nokeys.twb` | Relationships with endpoints but no serialized keys (disconnected-tables stop) |
+| `target-model-profiles.json` | Synthetic warehouse grain/row-count evidence for the executable target-model planner |
 | `golden/data-model.json` | Converter output for `workbook-fact-election.twb`, id-normalized, full envelope + `security[]` |
 | `golden/data-model-entitlement.json` | Converter output for `workbook-entitlement.twb`, same envelope |
 | `checks.sh` | Executable expectations, run by `run-corpus.sh --check` |
@@ -93,6 +94,10 @@ node -e 'import("file://<repo>/plugins/tableau-to-sigma/skills/tableau-to-sigma/
    route (`--reuse-dm`, never hand-POST).
 3. **Golden byte-stability** (node runners): both workbooks reconvert
    byte-identically after id normalization.
+4. **Target-model planning**: the profile-backed planner keeps `FACT_VISITS`
+   as the primary fact, orients the site dimension as a unique target,
+   recognizes an external label-summary candidate, and fails closed on the unproven
+   entitlement-to-fact many-to-many edge.
 
 ## Expectations
 
@@ -102,6 +107,7 @@ node -e 'import("file://<repo>/plugins/tableau-to-sigma/skills/tableau-to-sigma/
     {"path": "workbook-fact-election.twb", "format": "xml"},
     {"path": "workbook-entitlement.twb", "format": "xml"},
     {"path": "workbook-nokeys.twb", "format": "xml"},
+    {"path": "target-model-profiles.json", "format": "json"},
     {"path": "checks.sh", "format": "text"}
   ],
   "goldens": {

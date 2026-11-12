@@ -39,6 +39,17 @@
 #                            #   or {"error": "<message>"}
 #   ruby scripts/probe-join-keys.rb --workdir <WORK> --resolve <INDEX> \
 #     --how <preaggregated|waived> --reason "<evidence>"
+#   ruby scripts/probe-join-keys.rb --workdir <WORK> \
+#     --relationship-map <WORK>/relationship-map.json \
+#     (--connection-id <id> [--folder-id <id>] | --fixture DIR)
+#                            # reused-DM evidence route: probe every dm_edges[]
+#                            # entry a non-matched relationship relies on —
+#                            # target unique on its key AND 0 source keys with
+#                            # no target match. Fixture: DIR/edge-<edge_id with
+#                            # -> as __>.json {"total":N,"distinct":M,"unmatched":K}.
+#                            # Writes probe blocks into the map only; never
+#                            # reads or writes join-plan.json (no gate-16
+#                            # double count). Exit 0 all pass, 2 any fail, 3 any error.
 #
 # IDENTIFIER LEGALITY (W2.9): every identifier interpolated into the probe SQL
 # passes through the single oracle, lib/sql_ident_check.rb — a legal bare name
@@ -88,11 +99,15 @@ OptionParser.new do |p|
   p.on('--resolve INDEX', Integer) { |v| opts[:resolve] = v }
   p.on('--how HOW', 'preaggregated|waived') { |v| opts[:how] = v }
   p.on('--reason R')           { |v| opts[:reason] = v }
+  p.on('--relationship-map PATH', 'probe relationship-map.json edges instead of join-plan.json') { |v| opts[:relationship_map] = v }
 end.parse!
+MAP_MODE = !opts[:relationship_map].nil?
 
 plan_path = opts[:plan] || (opts[:workdir] && File.join(opts[:workdir], 'join-plan.json'))
-abort 'usage: probe-join-keys.rb --workdir <WORK> [--plan PATH] (--connection-id <id> | --fixture DIR | --resolve N --how H --reason R)' unless plan_path
-abort "FATAL: #{plan_path} not found — run the DM build first (migrate-tableau.rb derives the ledger)" unless File.exist?(plan_path)
+unless MAP_MODE
+  abort 'usage: probe-join-keys.rb --workdir <WORK> [--plan PATH] (--connection-id <id> | --fixture DIR | --resolve N --how H --reason R)' unless plan_path
+  abort "FATAL: #{plan_path} not found — run the DM build first (migrate-tableau.rb derives the ledger)" unless File.exist?(plan_path)
+end
 
 # The current workbook-create contract requires folderId. Migration runs
 # already persist the selected destination on wb-spec.json and dm-spec.json,
@@ -100,7 +115,7 @@ abort "FATAL: #{plan_path} not found — run the DM build first (migrate-tableau
 # required UUID. Refuse before any live POST if neither source exists; guessing
 # a destination would violate the probe-cleanup/audit contract.
 if opts[:conn] && opts[:folder].to_s.empty? && opts[:workdir]
-  %w[wb-spec.json dm-spec.json].each do |name|
+  %w[wb-spec.json dm-spec.json dm-spec-reused.json].each do |name|
     path = File.join(opts[:workdir], name)
     next unless File.exist?(path)
     begin
@@ -118,7 +133,7 @@ if opts[:conn] && opts[:folder].to_s.empty?
   abort 'FATAL: live join probes require --folder-id <UUID>, or a workdir wb-spec.json/dm-spec.json carrying folderId'
 end
 
-doc = JSON.parse(File.read(plan_path))
+doc = MAP_MODE ? {} : JSON.parse(File.read(plan_path))
 entries = doc.is_a?(Hash) ? (doc['entries'] || []) : doc
 abort "FATAL: #{plan_path} is malformed (expected {\"entries\":[...]} or a bare array)" unless entries.is_a?(Array)
 
@@ -137,7 +152,7 @@ now_utc = Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')
 # --resolve: record evidence on a blocking entry, then fall through to the
 # summary so the exit code reflects what (if anything) still blocks.
 # ---------------------------------------------------------------------------
-if opts[:resolve]
+if opts[:resolve] && !MAP_MODE
   abort '--resolve requires --how <preaggregated|waived>' unless %w[preaggregated waived].include?(opts[:how].to_s)
   abort '--resolve requires a non-empty --reason (the evidence recorded in the ledger)' if opts[:reason].to_s.strip.empty?
   e = entries[opts[:resolve]]
@@ -232,7 +247,7 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, workdir: nil)
     # boundary as production workbooks; the legacy flat pages[].elements body
     # is rejected by the current API.
     post_body = WorkbookCode.canonicalize(spec)
-    r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+    r = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)))
   rescue Sigma::Error => e
     # Keep the HTTP status AND the response-body excerpt on one line so the
     # recorded probe_error names the real cause, not a bare "400 Bad Request".
@@ -302,6 +317,151 @@ rescue StandardError => e
   # truncation dropped the HTTP response body (line 2 of Sigma::Error),
   # leaving a bare "400 Bad Request" with no hint at the real cause.
   { 'error' => e.message.to_s.gsub(/\s+/, ' ').strip[0, 300] }
+end
+
+# ---------------------------------------------------------------------------
+# --relationship-map: reused-DM evidence route (relationship-map.json).
+# ---------------------------------------------------------------------------
+# Source keys with no target match. A NULL source key never joins, so it is
+# not a missing match; the count is of non-null keys only.
+def unmatched_sql(source, source_keys, target, target_keys)
+  not_null = source_keys.map { |k| "s.#{k} IS NOT NULL" }.join(' AND ')
+  on = source_keys.zip(target_keys).map { |s, t| "t.#{t} = s.#{s}" }.join(' AND ')
+  "SELECT COUNT(*) AS UNMATCHED FROM #{source} s WHERE #{not_null} AND NOT EXISTS (SELECT 1 FROM #{target} t WHERE #{on})"
+end
+
+# FROM target for a DM element: its warehouse path emitted part by part, or
+# its Custom SQL statement as a subquery (the caller adds the alias). A
+# trailing ';' is dropped and a newline closes any trailing line comment, so
+# the wrapper stays valid SQL. nil when an identifier is refused.
+def element_from(element, refused)
+  return nil unless element
+  if element.dig('source', 'kind') == 'sql'
+    statement = element.dig('source', 'statement').to_s.strip.sub(/;\s*(--[^\n]*)?\s*\z/) { " #{$1}".rstrip }
+    return "(#{statement}\n)"
+  end
+  parts = Array(element.dig('source', 'path')).map do |part|
+    form = SqlIdentCheck.sql_ident(part.to_s)
+    refused << [part, SqlIdentCheck.illegal_reason(part.to_s)] unless form
+    form
+  end
+  parts.empty? || parts.include?(nil) ? nil : parts.join('.')
+end
+
+def edge_fixture(dir, edge_id)
+  f = File.join(dir, "edge-#{edge_id.sub('->', '__')}.json")
+  return { 'error' => "no fixture #{File.basename(f)} in #{dir}" } unless File.exist?(f)
+  JSON.parse(File.read(f))
+rescue JSON::ParserError => e
+  { 'error' => "fixture unparseable: #{e.message[0, 80]}" }
+end
+
+# A probe count must be a whole number the warehouse actually returned: a
+# missing row, a missing column or a non-numeric value is never proof (it
+# would read as 0 unmatched keys). nil = unusable.
+def strict_count(value)
+  return value if value.is_a?(Integer)
+  s = value.to_s.strip.delete(',')
+  s =~ /\A-?\d+(\.0+)?\z/ ? s.to_i : nil
+end
+
+def emit_names(names, refused)
+  names.map do |name|
+    form = SqlIdentCheck.sql_ident(name.to_s)
+    refused << [name, SqlIdentCheck.illegal_reason(name.to_s)] unless form
+    form
+  end
+end
+
+if MAP_MODE
+  map_path = opts[:relationship_map]
+  abort "FATAL: #{map_path} not found — run emit-relationship-map.rb first" unless File.exist?(map_path)
+  abort 'provide --fixture DIR (offline) or --connection-id <id> (live probe)' unless opts[:fixture] || opts[:conn]
+  if opts[:conn]
+    $LOAD_PATH.unshift File.expand_path('lib', __dir__)
+    require 'sigma_rest'
+    require 'probe_registry'
+  end
+  map = JSON.parse(File.read(map_path))
+  dm_path = File.join(opts[:workdir].to_s, 'dm-spec-reused.json')
+  dm_spec = File.exist?(dm_path) ? JSON.parse(File.read(dm_path)) : {}
+  by_id = Array(dm_spec['pages']).flat_map { |p| Array(p['elements']) }.each_with_object({}) { |e, h| h[e['id']] = e }
+  needed = Array(map['entries']).select { |e| Array(e['requires']).include?('key_probe') }
+                                .flat_map { |e| Array(e['dm_path']) }.uniq
+  results = []
+  Array(map['dm_edges']).each do |edge|
+    next unless needed.include?(edge['edge_id'])
+    # Only a passing probe is kept: a failed or errored edge is re-run, so a
+    # warehouse fix is re-proven without touching the map by hand.
+    if edge['probe'] && edge['probe']['status'] == 'pass'
+      results << 'pass'
+      next
+    end
+    refused = []
+    source = element_from(by_id[edge['source_element']], refused)
+    target = element_from(by_id[edge['target_element']], refused)
+    source_keys = emit_names(edge['keys'].map { |k| k['source'] }, refused)
+    target_keys = emit_names(edge['keys'].map { |k| k['target'] }, refused)
+    probe = { 'probed_at' => now_utc }
+    if !refused.empty? || source.nil? || target.nil? || edge['keys'].empty?
+      detail = refused.map { |n, r| "#{n.inspect}: #{r}" }.join('; ')
+      probe['status'] = 'error'
+      probe['error'] = refused.empty? ? 'edge has no keys or an element is missing from dm-spec-reused.json' :
+                                        "identifier(s) not legal to send to the warehouse — #{detail}"
+    else
+      totals_from = target.start_with?('(') ? "#{target} t" : target
+      sql = { 'totals' => totals_sql(totals_from, target_keys), 'unmatched' => unmatched_sql(source, source_keys, target, target_keys) }
+      probe['sql'] = sql
+      res = if opts[:fixture]
+              edge_fixture(opts[:fixture], edge['edge_id'])
+            else
+              begin
+                tot = sigma_sql_rows(opts[:conn], opts[:folder], sql['totals'], %w[TOTAL_ROWS DISTINCT_KEYS], workdir: opts[:workdir]).first
+                unm = sigma_sql_rows(opts[:conn], opts[:folder], sql['unmatched'], %w[UNMATCHED], workdir: opts[:workdir]).first
+                { 'total' => tot && tot['TOTAL_ROWS'], 'distinct' => tot && tot['DISTINCT_KEYS'],
+                  'unmatched' => unm && unm['UNMATCHED'] }
+              rescue StandardError => e
+                { 'error' => e.message.to_s.gsub(/\s+/, ' ').strip[0, 300] }
+              end
+            end
+      unless res['error']
+        counts = %w[total distinct unmatched].each_with_object({}) { |k, h| h[k] = strict_count(res[k]) }
+        missing = counts.select { |_k, v| v.nil? }.keys
+        res = if missing.empty? then counts
+              else { 'error' => "probe returned no usable #{missing.join('/')} count — not proof; re-run the probe" }
+              end
+      end
+      if res['error']
+        probe['status'] = 'error'
+        probe['error'] = res['error']
+      else
+        probe['unique'] = { 'total' => res['total'], 'distinct' => res['distinct'] }
+        probe['unmatched'] = res['unmatched']
+        ok = res['total'].is_a?(Integer) && res['total'] == res['distinct'] && res['unmatched'] == 0
+        probe['status'] = ok ? 'pass' : 'fail'
+      end
+    end
+    edge['probe'] = probe
+    results << probe['status']
+    label = "#{edge['edge_id']} (#{edge['source_table']} -> #{edge['target_table']})"
+    case probe['status']
+    when 'pass' then puts "  PASS   #{label}: target unique (#{probe['unique']['total']} rows), 0 unmatched keys"
+    when 'fail' then puts "  FAIL   #{label}: #{probe['unique']['total']} rows over #{probe['unique']['distinct']} keys, " \
+                          "#{probe['unmatched']} unmatched source key(s)"
+    else puts "  ERROR  #{label}: #{probe['error']}"
+    end
+  end
+  File.write(map_path, "#{JSON.pretty_generate(map)}\n")
+  if results.include?('fail')
+    warn "probe-join-keys --relationship-map: #{results.count('fail')} edge(s) failed — the relationship gate blocks until the model is fixed."
+    exit 2
+  end
+  if results.include?('error')
+    warn "probe-join-keys --relationship-map: #{results.count('error')} edge(s) could not be probed — fix and re-run; the gate blocks until proven."
+    exit 3
+  end
+  puts "probe-join-keys --relationship-map: #{results.size} edge(s) proven. Map: #{map_path}"
+  exit 0
 end
 
 # ---------------------------------------------------------------------------

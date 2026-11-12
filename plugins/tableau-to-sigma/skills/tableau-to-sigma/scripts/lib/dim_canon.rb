@@ -89,9 +89,24 @@ module DimCanon
   # match, and coerce purely-numeric STRINGS to floats (a scatter x-axis value
   # reads back as a string in the workbook query and must compare equal to the
   # numeric expected side; live ground-truth CSV rows arrive all-string).
-  def round_row(row)
-    row.map do |v|
-      if v.is_a?(Numeric)
+  #
+  # null_members: pass the plan's MEASURE column indices (an Array, possibly
+  # empty) to additionally canonicalize null-ish DIMENSION members — the blank
+  # cell Tableau's CSV export writes for NULL, a nil, and the "Null" / "NULL" /
+  # "%null%" labels — into ONE null member (nil). Measure columns are never
+  # touched: a blank measure is nil and is not a zero. Omitted (nil) = legacy
+  # behaviour, used by the ground-truth oracle.
+  NULL_MEMBER_LABELS = ['', 'null', '%null%'].freeze
+
+  def null_member?(v)
+    v.nil? || (v.is_a?(String) && NULL_MEMBER_LABELS.include?(v.strip.downcase))
+  end
+
+  def round_row(row, null_members: nil)
+    row.each_with_index.map do |v, i|
+      if null_members && !null_members.include?(i) && null_member?(v)
+        nil
+      elsif v.is_a?(Numeric)
         v.to_f.round(2)
       elsif v.is_a?(String) && v.strip.match?(/\A-?\d+(\.\d+)?\z/)
         v.strip.to_f.round(2)

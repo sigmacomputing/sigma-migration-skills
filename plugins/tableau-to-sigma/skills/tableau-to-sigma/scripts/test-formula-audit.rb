@@ -32,9 +32,13 @@ batch = [
   { 'id' => 'refused', 'formula' => 'WINDOW_MEDIAN(SUM([SALES]), -3, 0)' },
   { 'id' => 'unsupported', 'formula' => 'SCRIPT_REAL([SALES])' }
 ]
-temp_before = Dir.glob(File.join(Dir.tmpdir, 'tableau-formula-audit-*')).sort
-stdout, stderr, status = run_helper(JSON.generate(batch))
-temp_after = Dir.glob(File.join(Dir.tmpdir, 'tableau-formula-audit-*')).sort
+stdout = stderr = status = nil
+shim_clean = false
+Dir.mktmpdir('formula-audit-cleanup') do |dir|
+  stdout, stderr, status = Open3.capture3({ 'TMPDIR' => dir, 'TMP' => dir, 'TEMP' => dir },
+                                        'node', HELPER, stdin_data: JSON.generate(batch))
+  shim_clean = Dir.glob(File.join(dir, 'tableau-formula-audit-*')).empty?
+end
 check('stdin batch exits 0', status.success?)
 check('stdin batch writes no stderr', stderr.empty?)
 parsed = status.success? ? JSON.parse(stdout) : {}
@@ -57,7 +61,7 @@ check('result includes Sigma formula, warnings, and both function-name lists',
       end)
 check('status counts use the closed deterministic vocabulary',
       parsed.fetch('counts', {}).keys == STATUSES)
-check('temporary shim directory is always removed', temp_after == temp_before)
+check('temporary shim directory is always removed', shim_clean)
 
 puts 'formula-audit.mjs: IN / AND / OR / NOT are operators, not unmapped functions'
 operators = [

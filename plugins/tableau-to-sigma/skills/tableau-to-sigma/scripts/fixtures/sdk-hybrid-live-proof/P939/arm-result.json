@@ -1,0 +1,82 @@
+{
+  "workbookId": "4d2d7596-fe9a-45a8-8372-0ca8a85da3fd",
+  "workbookUrl": "<redacted workbook url>",
+  "dataModelId": "49a6b5d2-0c95-4624-bc14-399813d75f35",
+  "pages": [
+    "Overview",
+    "Customers",
+    "Operations",
+    "Data"
+  ],
+  "verify_complete": {
+    "exit": 5,
+    "status": "NOT DONE (RED)",
+    "reason": "visual verdict divergent (2 blind grades FAIL), --skip-postpublish-guide waiver, dropped unused Year Filter param"
+  },
+  "parity": {
+    "status": "PASS",
+    "tiles": "10/10",
+    "score": 100.0,
+    "anchors": "17/17",
+    "ground_truth": "10/10 anchor-only"
+  },
+  "sdk_writes": 6,
+  "failed_sdk_writes": 1,
+  "behaviour_results": {
+    "begin": "PROVEN",
+    "write_ledger": "PROVEN",
+    "failed_write_reread": "PROVEN",
+    "export_guards": "PROVEN (pass path); guard-fail path NOT EXERCISED",
+    "parity_regate": "PROVEN (diverge exit7, pass, unverified->regate)",
+    "refusal_before_export": "PROVEN",
+    "drift_refusal": "PROVEN",
+    "rollback_recover": "recover-by-new-session PROVEN; rollback and recover commands NOT EXERCISED",
+    "finalize": "SDK guard PROVEN; run ended NOT GREEN (RED) on visual/waivers",
+    "edit_route": "PROVEN"
+  },
+  "negative_checks": {
+    "render_before_export": {
+      "exit": 4,
+      "msg": "FATAL: repair-pending.json records an unverified write outcome; recover and read back live state before continuing"
+    },
+    "finalize_before_export": {
+      "exit": 3,
+      "msg": "FINALIZE STOP (SDK route): an SDK session is open \u2014 its writes are not exported back to wb-spec.json; run sdk-export"
+    },
+    "export_before_reread": {
+      "exit": 2,
+      "msg": "FATAL: the last SDK write failed and the page was not re-read \u2014 run sdk-reread first"
+    },
+    "finalize_drift": {
+      "exit": 3,
+      "msg": "FINALIZE STOP (SDK route): live workbook is at document version 9, but the SDK route last exported 7 \u2014 an unrecorded write happened after sdk-export"
+    },
+    "export_parity_diverge": {
+      "exit": 7
+    },
+    "recovery": "new session sdk-begin at v9 + sdk-export exit 0"
+  },
+  "edit_test": {
+    "workdir": "P939-edit",
+    "route": "extend -> sdk-begin -> write v12 -> export(exit5 unverified) -> v13/v14 -> sdk-regate(0) -> render",
+    "category_filter_filters_all_overview_tiles": true,
+    "evidence": "probe-all.out: all 5 Overview tiles change under Category=Apparel; all source master-overview",
+    "tier_is_pie": true,
+    "other_layout_unchanged": true,
+    "finalize": "exit 3 stopped only at gate 8b (no blind grade run for edit render)"
+  },
+  "preexisting_issues": [
+    "no default db/schema",
+    "PNG exporter clip",
+    "auto-parity-plan VC header crash",
+    "pivot percent grand_total",
+    "Cohort Year FIXED LOD unresolved at pass1",
+    "xAxis title without text dry-run 400",
+    "guide-residue gate fails closed when all actions auto-wired",
+    "layout title/nav at bottom on Customers/Operations",
+    "ground-truth VC column resolution",
+    "gap-scan exit 11 needs --yes"
+  ],
+  "started": "2026-11-05T20:03:56Z",
+  "finished": "2026-11-05T20:57:11Z"
+}

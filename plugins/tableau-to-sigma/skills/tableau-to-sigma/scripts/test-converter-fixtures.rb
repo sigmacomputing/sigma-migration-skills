@@ -165,7 +165,15 @@ NODE_FIXTURES = [
   { id: 'N-X6',  input: 'WINDOW_SUM(SUM([Sales]))',              expect: 'GrandTotal(Sum([Sales]))' },
   { id: 'N-X7',  input: 'RUNNING_SUM(SUM([Sales]))',             expect: 'CumulativeSum(Sum([Sales]))',
     warn: 'CHART/grouped-element context ONLY' },
-  { id: 'N-X8',  input: 'IIF([Sales] > 0, 1, 0)',                expect: 'If([Sales] > 0, 1, 0)' }
+  # IIF keeps Tableau's NULL-test semantics: a NULL test is NULL (or the 4th
+  # `unknown` arg), never the else value — a bare If() rename scored unscored
+  # rows as 0 inside AVG and dragged rates down (field-caught).
+  { id: 'N-X8',  input: 'IIF([Sales] > 0, 1, 0)',
+    expect: 'If(IsNull([Sales] > 0), null, [Sales] > 0, 1, 0)' },
+  { id: 'N-X9',  input: 'AVG(IIF([Region] = "West", 1, 0))',
+    expect: 'Avg(If(IsNull([Region] = "West"), null, [Region] = "West", 1, 0))' },
+  { id: 'N-X10', input: 'IIF([Sales] > 0, 1, 0, -1)',
+    expect: 'If(IsNull([Sales] > 0), -1, [Sales] > 0, 1, 0)' }
 ].freeze
 
 # ---------------------------------------------------------------------------
@@ -194,6 +202,8 @@ MMAP = {
 
 RUBY_FIXTURES = [
   { id: 'R-F1',  entry: :row, input: 'IFNULL([Sales], 0)', expect: 'Coalesce([Master/SALES], 0)' },
+  { id: 'R-F1i', entry: :row, input: 'IIF([Region] = "West", 1, 0)',
+    expect: 'If(IsNull([Master/REGION] = "West"), null, [Master/REGION] = "West", 1, 0)' },
   # NOTE the DOUBLE space after `"day",` in the next three rows: the gsub
   # template carries a trailing space and the source comma-space survives.
   # Cosmetic (Sigma ignores it) but asserted EXACTLY as an intentional
@@ -414,6 +424,7 @@ o = Object.new
 end
 %w[
   map_column strip_tableau_comments translate_sla_ratio split_top_level_args
+  tableau_iif_to_sigma
   parse_tableau_function_call translated_calc_reference param_control_ref
   translate_user_agg_formula translate_row_level_calc translate_dim_calc
   translate_kpi_measure_formula translate_tableau_tc translate_window_calc

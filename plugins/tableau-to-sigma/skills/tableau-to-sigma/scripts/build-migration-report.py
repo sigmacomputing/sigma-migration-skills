@@ -65,6 +65,16 @@ def report(workdir: Path) -> str:
         "",
         f"- Numeric parity: {parity.get('status', 'MISSING')} "
         f"({len(parity.get('differences') or [])} differences)",
+    ]
+    # Ground-truth oracle substitutions (verify-ground-truth): a vds tile on an
+    # embedded source (no published LUID) verified by view-csv anchors instead.
+    for sub in ((parity.get("numeric_parity") or {}).get("oracle_substitutions") or []):
+        if isinstance(sub, dict):
+            lines.append(
+                f"- Ground-truth oracle substituted: {sub.get('tile')} ({sub.get('oracle')} for "
+                f"{sub.get('substituted_for')} — no published datasource LUID; not a waiver)"
+            )
+    lines += [
         f"- Machine visual floor: {'PASS' if visual.get('pass') else 'FAIL'} "
         f"(overall={visual.get('score_overall', 'n/a')})",
         f"- Semantic edits proof: {'PASS' if semantic.get('match') else 'FAIL'}",
@@ -91,6 +101,43 @@ def report(workdir: Path) -> str:
     lines.append(f"- Remaining workbook patterns: {len(patterns)}")
     security = metadata.get("security") or []
     lines.append(f"- Detected security rules: {len(security)}")
+    residuals = [
+        entry
+        for entry in result.get("degradations") or []
+        if isinstance(entry, dict) and entry.get("kind") == "fidelity-residual"
+    ]
+    if residuals:
+        lines += ["", "## Fidelity residuals", ""]
+        for entry in residuals:
+            reason = f" — {entry['reason']}" if entry.get("reason") else ""
+            lines.append(f"- {entry.get('item', '')}{reason}")
+    differences = [
+        entry for entry in result.get("platform_differences") or [] if isinstance(entry, dict)
+    ]
+    if differences:
+        lines += [
+            "",
+            "## Platform differences",
+            "",
+            "Recorded, not degradations: Sigma renders these differently from the source "
+            "and a build cannot change it. They do not affect the verdict.",
+            "",
+        ]
+        for entry in differences:
+            lines.append(f"- **{entry.get('catalog_id', '')}** — {entry.get('item', '')}")
+    notes = [entry for entry in result.get("polish_notes") or [] if isinstance(entry, dict)]
+    if notes:
+        lines += [
+            "",
+            "## Minor polish notes",
+            "",
+            "Not degradations: the blind visual grade passed, and these minor differences "
+            "are optional polish. They do not affect the verdict.",
+            "",
+        ]
+        for entry in notes:
+            dim = f" [{entry['dimension']}]" if entry.get("dimension") else ""
+            lines.append(f"- {entry.get('item', '')}{dim}")
     failures = result.get("failures") or []
     if failures:
         lines += ["", "## Blocking findings", ""]

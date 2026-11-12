@@ -249,7 +249,7 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, deadline, workdir: nil)
     # legacy flat pages[].elements body is rejected before either SQL probe can
     # run, leaving every declared semantic edit permanently unproven.
     post_body = WorkbookCode.canonicalize(spec)
-    r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+    r = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)))
   rescue Sigma::Error => e
     raise "probe workbook POST failed: #{e.message.to_s.gsub(/\s+/, ' ').strip[0, 240]}"
   end

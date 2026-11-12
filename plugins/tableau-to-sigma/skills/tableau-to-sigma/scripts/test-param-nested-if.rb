@@ -11,7 +11,7 @@ source = File.read(File.join(__dir__, 'build-charts-from-signals.rb')) +
   pivot_dimension_formula
   translate_row_level_calc translate_dim_calc
   translated_calc_reference translate_sla_ratio canonical_switch_value
-  split_top_level_args parse_tableau_function_call
+  split_top_level_args parse_tableau_function_call tableau_iif_to_sigma
   coerce_case_literal param_control_ref remap_param_branch split_outer_tableau_if
   translate_nested_param_if translate_case_on_param translate_if_chain_on_param
   translate_user_agg_formula decompose_nested_fixed

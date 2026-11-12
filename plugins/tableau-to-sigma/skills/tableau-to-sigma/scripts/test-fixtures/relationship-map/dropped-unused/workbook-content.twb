@@ -1,0 +1,124 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales' inline='true' name='federated.sales' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+          <relation connection='conn.0' name='DIM_CUSTOMER' table='[PUBLIC].[DIM_CUSTOMER]' type='table' />
+          <relation connection='conn.0' name='DIM_PRODUCT' table='[PUBLIC].[DIM_PRODUCT]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>ORDER_ID</remote-name>
+            <local-name>[ORDER_ID]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CUSTOMER_KEY</remote-name>
+            <local-name>[CUSTOMER_KEY]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>PRODUCT_KEY</remote-name>
+            <local-name>[PRODUCT_KEY]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>AMOUNT</remote-name>
+            <local-name>[AMOUNT]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CUSTOMER_KEY</remote-name>
+            <local-name>[CUSTOMER_KEY (DIM_CUSTOMER)]</local-name>
+            <parent-name>[DIM_CUSTOMER]</parent-name>
+            <object-id>[DIM_CUSTOMER_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CUSTOMER_NAME</remote-name>
+            <local-name>[CUSTOMER_NAME]</local-name>
+            <parent-name>[DIM_CUSTOMER]</parent-name>
+            <object-id>[DIM_CUSTOMER_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>PRODUCT_KEY</remote-name>
+            <local-name>[PRODUCT_KEY (DIM_PRODUCT)]</local-name>
+            <parent-name>[DIM_PRODUCT]</parent-name>
+            <object-id>[DIM_PRODUCT_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>PRODUCT_NAME</remote-name>
+            <local-name>[PRODUCT_NAME]</local-name>
+            <parent-name>[DIM_PRODUCT]</parent-name>
+            <object-id>[DIM_PRODUCT_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='ORDERS' id='ORDERS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+            </properties>
+          </object>
+          <object caption='DIM_CUSTOMER' id='DIM_CUSTOMER_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='DIM_CUSTOMER' table='[PUBLIC].[DIM_CUSTOMER]' type='table' />
+            </properties>
+          </object>
+          <object caption='DIM_PRODUCT' id='DIM_PRODUCT_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='DIM_PRODUCT' table='[PUBLIC].[DIM_PRODUCT]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[CUSTOMER_KEY]' /><expression op='[CUSTOMER_KEY (DIM_CUSTOMER)]' /></expression>
+            <first-end-point object-id='ORDERS_OBJ' />
+            <second-end-point object-id='DIM_CUSTOMER_OBJ' />
+          </relationship>
+          <relationship>
+            <expression op='='><expression op='[PRODUCT_KEY]' /><expression op='[PRODUCT_KEY (DIM_PRODUCT)]' /></expression>
+            <first-end-point object-id='ORDERS_OBJ' />
+            <second-end-point object-id='DIM_PRODUCT_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Revenue by Customer'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.sales' />
+          </datasources>
+            <datasource-dependencies datasource='federated.sales'>
+              <column name='[CUSTOMER_NAME]' />
+              <column name='[AMOUNT]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Overview'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Revenue by Customer' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

@@ -224,6 +224,77 @@ Dir.mktmpdir do |wd|
   check(DegradationLedger.verdict(entries) == 'YELLOW', 'resolution waivers → YELLOW', fails)
 end
 
+# ---- platform differences are recorded, never degradations -------------------
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'visual-residuals.json'), JSON.pretty_generate(
+    'schema' => 'visual-residuals/v1',
+    'platform_differences' => [
+      { 'tile' => 'Region filter', 'dimension' => 'composition_match', 'severity' => 'minor',
+        'description' => 'All placeholder is grey', 'class' => 'list-control-all-placeholder' }
+    ],
+    'residuals' => [
+      { 'tile' => 'Trend', 'dimension' => 'labels_legible', 'severity' => 'minor',
+        'description' => 'axis title slightly small', 'class' => 'fixable' }
+    ]))
+  File.write(File.join(wd, 'fidelity-ledger.json'), JSON.pretty_generate(
+    'pass' => 1, 'entries' => [
+      { 'id' => 'p1', 'cls' => 'sigma-capability', 'catalog_id' => 'map-basemap-labels',
+        'dimension' => 'labels_legible', 'delta' => 'basemap labels on map', 'resolved' => false },
+      { 'id' => 'p2', 'cls' => 'sigma-capability', 'catalog_id' => 'not-in-catalog',
+        'dimension' => 'kpi', 'delta' => 'uncatalogued claim', 'resolved' => false },
+      { 'id' => 'p3', 'cls' => 'sigma-capability',
+        'dimension' => 'kpi', 'delta' => 'no catalog id', 'resolved' => false }
+    ]))
+  entries = DegradationLedger.derive(wd)
+  check(items(entries).none? { |i| i.include?('p1') || i.include?('list-control-all-placeholder') || i.include?('All placeholder') },
+        'platform differences are not degradations', fails)
+  check(items(entries).any? { |i| i.include?('p2') } && items(entries).any? { |i| i.include?('p3') },
+        'sigma-capability with unknown or missing catalog id stays a degradation', fails)
+  check(entries.count { |e| e['class'] == 'fidelity-residual' && e['item'].include?('minor') } == 1,
+        'minor fixable residual is a degradation', fails)
+  pd = DegradationLedger.platform_differences(wd)
+  check(pd.size == 2, "platform differences listed from residuals + RCF (got #{pd.size})", fails)
+  check(pd.map { |d| d['catalog_id'] }.sort == %w[list-control-all-placeholder map-basemap-labels],
+        'platform differences carry their catalog ids', fails)
+  check(pd.all? { |d| d.keys.sort == %w[catalog_id item source_artifact] },
+        'platform difference shape is item/catalog_id/source_artifact', fails)
+end
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'visual-residuals.json'), JSON.pretty_generate(
+    'platform_differences' => [{ 'tile' => 'T', 'description' => 'd', 'severity' => 'minor',
+                                 'class' => 'font-family' }] * 2,
+    'residuals' => []))
+  File.write(File.join(wd, 'fidelity-ledger.json'), JSON.pretty_generate(
+    'entries' => [{ 'id' => 'u1', 'cls' => 'ui-only', 'catalog_id' => 'font-family',
+                    'delta' => 'font differs', 'resolved' => false }]))
+  entries = DegradationLedger.derive(wd)
+  check(entries == [], 'platform-only run derives an empty ledger', fails)
+  check(DegradationLedger.verdict(entries) == 'GREEN', 'platform-only run is GREEN', fails)
+  check(DegradationLedger.platform_differences(wd).size == 2,
+        'exact repeats de-duplicated; legacy ui-only folds into platform differences', fails)
+end
+
+# ---- final review: fixable_major is named; unknown platform ids are not differences ----
+Dir.mktmpdir do |wd|
+  File.write(File.join(wd, 'visual-residuals.json'), JSON.pretty_generate(
+    'schema' => 'visual-residuals/v1',
+    'platform_differences' => [
+      { 'tile' => 'T1', 'description' => 'invented', 'severity' => 'major', 'class' => 'missing-tile' },
+      { 'tile' => 'T2', 'description' => 'real', 'severity' => 'minor', 'class' => 'font-family' }
+    ],
+    'residuals' => [],
+    'fixable_major' => [{ 'tile' => 'KPI row', 'dimension' => 'composition_match', 'severity' => 'major',
+                          'description' => 'row missing', 'class' => 'fixable' }]))
+  entries = DegradationLedger.derive(wd)
+  check(items(entries).include?('visual residual (major): KPI row: row missing'),
+        'I2: each fixable_major gap is a fidelity-residual "visual residual (major): tile: description"', fails)
+  check(items(entries).any? { |i| i.include?('T1') && i.include?('invented') },
+        'C2: a platform_differences gap with an id outside the shipped catalog becomes a fidelity-residual', fails)
+  check(DegradationLedger.platform_differences(wd).map { |d| d['catalog_id'] } == %w[font-family],
+        'C2: platform_differences lists only ids in the shipped catalog', fails)
+  check(DegradationLedger.verdict(entries) == 'YELLOW', 'I2: a divergent run with named major gaps is YELLOW', fails)
+end
+
 # ---- verdict matrix ----------------------------------------------------------
 cut  = { 'class' => 'scope-cut', 'item' => 'dropped tile: X', 'reason' => 'r', 'source_artifact' => 'a' }
 qw   = { 'class' => 'quality-waiver', 'item' => '--skip-anchors-gate', 'reason' => 'r', 'source_artifact' => 'a' }

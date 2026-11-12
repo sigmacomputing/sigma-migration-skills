@@ -6,6 +6,11 @@
 # child-process output or an API error body then raises mid-pipeline. Field
 # names in real workbooks routinely carry non-ASCII ($, ©, accented captions).
 Encoding.default_external = Encoding::UTF_8
+# ...and children inherit the ENVIRONMENT, not Ruby's encoding: pin a UTF-8
+# locale in ENV early so every spawned ruby/python child (finalize gates, verify
+# scripts) decodes UTF-8 even when LANG is unset (US-ASCII crash otherwise).
+require_relative 'lib/utf8_locale'
+Utf8Locale.ensure!
 
 # migrate-tableau.rb — ONE-SHOT, single-process orchestrator for the
 # tableau-to-sigma pipeline. Runs the whole phased workflow in one Ruby process
@@ -161,9 +166,22 @@ require 'yaml'
 require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/migration_process'
+require_relative 'lib/layout' # SigmaLayout.clear_band_style_sidecar (plan C6)
 require_relative 'lib/execution_identity'
+require_relative 'lib/sql_provenance'
 require_relative 'lib/migration_diagnostics'
 require_relative 'lib/mcp_source'
+begin
+  require_relative 'lib/export_viewport' # headless-render viewport (11c); absent lib = today's sizing
+rescue LoadError
+  nil
+end
+require_relative 'lib/warehouse_fqn_resolver' # db/schema from fully-qualified relation names (11a)
+require_relative 'lib/layout_reuse' # --reuse-workbook layout preserve-vs-regenerate decision (9b)
+require_relative 'lib/layout_merge' # --reuse-workbook: place only NEW elements into the live layout
+require_relative 'lib/attempt_fingerprint' # loop-breaker attempt identity includes the input spec digest
+require_relative 'lib/finalize_remedy' # finalize LOOP STOP names what to change (failing check → artifact/command)
+require_relative 'lib/finalize_preflight' # --finalize prerequisite preflight (never counts toward the loop-log attempt cap)
 require 'fileutils'
 require 'open3'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
@@ -176,6 +194,7 @@ require_relative 'lib/scout_gate'
 require_relative 'lib/dashboard_read'
 require_relative 'lib/recipe_multimetric'
 require_relative 'lib/run_state'
+require_relative 'lib/sdk_route' # Phase 5g hybrid route finalize block (refs/phase-5g-sdk-hybrid.md)
 require_relative 'lib/offramp' # structured "where did this run leave the golden path" trail
 require_relative 'lib/fast_path' # FAST-PATH routing + BOM-tolerant JSON reads
 require_relative 'lib/phase_cache' # sha-stamped phase-output reuse on re-entry (refs/performance.md)
@@ -203,6 +222,8 @@ rescue LoadError, StandardError
   nil
 end
 require 'join_plan_resolutions' # join-plan.json gate-16 resolutions → consolidated report ([bead])
+require 'relationship_route' # reused-DM relationship evidence route (relationship-map.json)
+require 'extract_landing_route' # an explicit reused DM satisfies the extract-landing gate (exit 17)
 
 require 'rbconfig'
 # Children (post-and-readback.rb, phase6-parity.rb, …) inherit this marker so
@@ -305,6 +326,21 @@ OptionParser.new do |o|
                             'the master build from. Use when the announced election is wrong. LOCAL converter build ' \
                             'only — the hosted MCP arg schema cannot take it (a hosted run WARNs and keeps only the ' \
                             'Ruby-side pick_fact preference).') { |v| opts[:fact_table] = v }
+  o.on('--target-model-plan PATH', 'cardinality-aware target-model plan from plan-target-model.rb; remodeled/reuse ' \
+                                   'plans must carry explicit acceptance and all substitutions must carry proof') do |v|
+    opts[:target_model_plan] = File.expand_path(v)
+  end
+  o.on('--table-profiles PATH', 'warehouse grain/row-count/summary-table evidence used to generate ' \
+                                '<workdir>/target-model-plan.json before conversion') do |v|
+    opts[:table_profiles] = File.expand_path(v)
+  end
+  o.on('--accept-model-plan ACTOR', 'accept the generated target-model plan as ACTOR; requires ' \
+                                    '--model-plan-reason and never bypasses unresolved relationship/proof gates') do |v|
+    opts[:accept_model_plan] = v
+  end
+  o.on('--model-plan-reason TEXT', 'required with --accept-model-plan; recorded in target-model-plan.json') do |v|
+    opts[:model_plan_reason] = v
+  end
   o.on('--skip-sql-ident-gate REASON', 'waive the pre-POST Custom-SQL identifier gate (check-sql-idents against the ' \
                                        'fetched warehouse catalog) — REQUIRED reason; recorded as a quality waiver; ' \
                                        'name it in your report') { |v| opts[:skip_sql_ident_gate] = v }
@@ -407,6 +443,8 @@ OptionParser.new do |o|
   o.on('--dashboard NAME', 'Build/gate only this Tableau dashboard (repeatable). Enables one-tab-at-a-time large-workbook migration.') { |v| (opts[:dashboards] ||= []) << v }
   o.on('--page ID',        'Scope to the dashboard with this zone-root id (alt to --dashboard; repeatable).') { |v| (opts[:pages] ||= []) << v }
   o.on('--workbook-target ID', 'Existing Sigma workbook id to APPEND the scoped dashboard page to (PUT-append instead of POST-new).') { |v| opts[:wb_target] = v }
+  o.on('--regenerate-layout', 'with --reuse-workbook: regenerate the layout from the Tableau zones instead of preserving the layout ' \
+                              'already LIVE on the workbook (default is PRESERVE — RCF layout fixes survive a re-entry)') { opts[:regenerate_layout] = true }
   o.on('--reuse-workbook ID', 'Existing Sigma workbook id to UPDATE IN PLACE (PUT the freshly-built full spec to it, ' \
                               'same id/URL, layout preserved) instead of POSTing a NEW workbook — the workbook twin of ' \
                               '--reuse-dm. Iterating a fix? Re-run with --reuse-dm <id> --reuse-workbook <id> to edit the ' \
@@ -948,10 +986,19 @@ begin
     warn "WARN: skill clone is #{bc} commit(s) behind origin/main — newer fidelity machinery exists. " \
          'Run `git pull` in the marketplace clone before converting.'
   end
+  # agent_vision = the builder's own image-reading capability (doctor.sh:
+  # true/false, or null when neither SIGMA_AGENT_VISION nor SIGMA_MODEL_HINT
+  # said anything). The visual record (record-visual-check.rb --agent-vision)
+  # is the authoritative attestation; who graded is parity-final.json
+  # visual_graded_by.
   if dj['agent_vision'] == false
-    warn 'WARN: doctor.json records agent_vision=false — the visual gates (8/8b/8d) cannot legitimately ' \
-         'pass from this session (export SIGMA_AGENT_VISION=true from a vision-capable session); ' \
-         'see refs/model-fit.md.'
+    warn "WARN: doctor.json records agent_vision=false (source: #{dj['agent_vision_source'] || 'env'}) — the " \
+         'visual gates (8/8b/8d) cannot legitimately pass from this session (export SIGMA_AGENT_VISION=true ' \
+         'from a vision-capable session); see refs/model-fit.md.'
+  elsif dj.key?('agent_vision') && dj['agent_vision'].nil?
+    warn 'NOTE: doctor.json could not tell whether this session reads images (agent_vision=null: no ' \
+         'SIGMA_AGENT_VISION / SIGMA_MODEL_HINT). Export SIGMA_AGENT_VISION=true|false; the visual record ' \
+         '(record-visual-check.rb --agent-vision) is what the gates read.'
   end
 rescue StandardError
   # never fatal — the hard gate above already validated presence/shape
@@ -1024,6 +1071,33 @@ def hdr(n, title)
 end
 def line(m) puts "   #{m}"; end
 
+# Multi-DS sub-master → posted DM element, once the exact case-insensitive name
+# missed. The sub-master placeholder carries the Tableau datasource CAPTION,
+# which needn't equal the converter's element name. Tiers, first non-empty wins
+# (the caller refuses >1 as AMBIGUOUS):
+#   1. normalized-exact ("order_fact" ↔ "Order Fact");
+#   2. the caption's bare table — "WAREHOUSE_OPS.SHIPMENTS" or
+#      "Shipments (WAREHOUSE_OPS.SHIPMENTS)" ↔ "Shipments" (field-caught crash:
+#      tier 3's floor rejects 9-of-21 chars);
+#   3. containment with a length floor — the shorter normalized name must be
+#      ≥8 chars and ≥50% of the longer, so a short generic element name never
+#      absorbs an unrelated caption.
+def submaster_element_candidates(want, dm_els)
+  nrm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
+  wantn = nrm.call(want)
+  cands = dm_els.select { |e| nrm.call(e['name']) == wantn }
+  return cands unless cands.empty?
+  tables = [want.to_s.sub(/\s*\([^()]*\)\s*\z/, ''), want.to_s]
+  tails = tables.map { |t| nrm.call(t.split('.').last) }.uniq - ['', wantn]
+  cands = dm_els.select { |e| tails.include?(nrm.call(e['name'])) }
+  return cands unless cands.empty?
+  dm_els.select do |e|
+    en = nrm.call(e['name'])
+    shorter, longer = [en, wantn].sort_by(&:length)
+    shorter.length >= 8 && shorter.length >= (longer.length * 0.5).ceil && longer.include?(shorter)
+  end
+end
+
 # Phase-timing summary — printed at every terminal exit so the discovery
 # interleave speedup stays visible in every run (and regressions show up in
 # the first slow report instead of an investigation).
@@ -1063,7 +1137,7 @@ PHASE_BUDGET = {
   'assert-run-state'  => 10,
   'assert-phase6-ran' => 90,
   'assert-reconstruction-integrity' => 10,
-  'assert-datasource-filters' => 15, # one GET /v2/workbooks/<id>/spec + local checks (SKIPs offline)
+  'assert-datasource-filters' => 15, # one GET /v2/workbooks/<id>?includeContents=true + local checks (SKIPs offline)
   'assert-action-gates' => 10, # local checks only (spec + ledger + guide) — no network
   'phaseE'            => 240,
   'pivot-totals-ship' => 20   # one GET+PUT to re-hide pivot grand totals at ship
@@ -1137,36 +1211,28 @@ def run!(cmd, allow_fail: false, env: nil)
 end
 
 # Persist the render-only health record consumed by build-migration-report.rb.
-# visual-similarity.py already runs png_health over the target render, so reuse
-# that measured object when present. Otherwise analyze the canonical
-# sigma-render.png directly. No image or an unreadable artifact is left for the
-# report's render check to fail closed; this helper never fabricates health.
+# Measure the canonical image again: an older similarity file cannot vouch for
+# a replaced or missing render. This is local image analysis, not a new export.
 def refresh_render_health(work)
   output = File.join(work, 'render-health.json')
   FileUtils.rm_f(output)
-  similarity = File.join(work, 'visual-similarity.json')
-  if File.file?(similarity)
-    begin
-      doc = JSON.parse(File.read(similarity, encoding: 'UTF-8'))
-      health = doc['render_health'] if doc.is_a?(Hash)
-      if health.is_a?(Hash)
-        temporary = "#{output}.tmp.#{$$}"
-        File.write(temporary, JSON.pretty_generate(health) + "\n")
-        File.rename(temporary, output)
-        return [true, 'extracted visual-similarity.json render_health']
-      end
-    rescue JSON::ParserError, SystemCallError => e
-      warn "WARN: could not extract render_health from visual-similarity.json: #{e.message}"
-    ensure
-      File.delete(temporary) if defined?(temporary) && temporary && File.exist?(temporary)
-    end
-  end
-
   render = File.join(work, 'sigma-render.png')
-  return [false, 'no visual-similarity render_health or sigma-render.png'] unless File.file?(render)
+  # The screenshot may be saved under another name (e.g. rcf-pass-3.png);
+  # gate 8b already binds parity-final.json's screenshot_path to the final
+  # render, so it is current evidence when sigma-render.png is absent.
+  unless File.file?(render)
+    shot = begin
+      JSON.parse(File.read(File.join(work, 'parity-final.json')))['screenshot_path']
+    rescue StandardError
+      nil
+    end
+    shot = File.expand_path(shot, work) if shot.is_a?(String) && !shot.strip.empty?
+    render = shot if shot.is_a?(String) && File.file?(shot)
+  end
+  return [false, 'no current sigma-render.png or recorded screenshot; prior similarity health is not current evidence'] unless File.file?(render)
   _, status = run!(['python3', File.join(HERE, 'png_health.py'), render,
                     '--json-out', output], allow_fail: true)
-  [status.success?, "png_health.py #{status.success? ? 'PASS' : "exit #{status.exitstatus}"}"]
+  [status.success?, "png_health.py #{status.success? ? 'PASS' : "exit #{status.exitstatus}"} on #{File.basename(render)}"]
 end
 
 # Resolve a Sigma bearer through the shared browser-first provider policy.
@@ -1407,6 +1473,57 @@ if opts[:finalize]
   abort "FATAL: no #{state_path} — run pass 1 first (same --workbook/--out)" unless File.exist?(state_path)
   state = JSON.parse(File.read(state_path))
   wb_id = state['workbook_id'] or abort 'FATAL: state has no workbook_id (pass 1 never completed Phase 4)'
+  # Hybrid route: an SDK session that was never exported back (or whose
+  # exported spec failed its re-gate) leaves wb-spec.json non-authoritative.
+  _sdk_ledger = (JSON.parse(File.read(File.join(WORK, 'fidelity-ledger.json'))) rescue nil)
+  _sdk_why = SdkRoute.finalize_block_reason(_sdk_ledger)
+  if _sdk_why.nil? && _sdk_ledger.is_a?(Hash) && _sdk_ledger['sdk'].is_a?(Hash)
+    # `exported` must still describe the LIVE workbook: an SDK call made after
+    # the export (no sdk-begin) leaves wb-spec.json stale and the write unledgered.
+    _sdk_live = begin
+      _r = Sigma.request(:get, Sigma::CodeRep.read_path(wb_id))
+      _r.is_a?(Hash) ? (_r['latestDocumentVersion'] || _r['latestVersion'] || _r['documentVersion']) : nil
+    rescue StandardError
+      nil
+    end
+    _sdk_why = SdkRoute.live_version_block_reason(_sdk_ledger, _sdk_live)
+  end
+  if _sdk_why
+    warn "FINALIZE STOP (SDK route): #{_sdk_why}"
+    warn "  ruby scripts/fidelity-loop.rb sdk-export --workdir #{WORK}   # see refs/phase-5g-sdk-hybrid.md"
+    exit 3
+  end
+
+  # ── Finalize PREFLIGHT (defect 6) ──────────────────────────────────────────
+  # Compute every prerequisite artifact the final gate reads ONCE, run what can
+  # run non-interactively (verify-anchors, audit-lod-calcs, probe-join-keys when
+  # a connection id is known, ground-truth derive/run/verify), and stop with ONE
+  # ordered list of what is still missing — BEFORE any cap-counting gate. A
+  # preflight stop exits FinalizePreflight::EXIT_PREFLIGHT_STOP (29) and writes
+  # nothing to loop-log.jsonl, so it never consumes a finalize attempt.
+  unless ENV['SIGMA_SKIP_FINALIZE_PREFLIGHT'].to_s != ''
+    hdr(6, 'Finalize preflight (prerequisite artifacts)')
+    _pf_runner = lambda do |cmd|
+      argv = cmd.map { |c| c.to_s.start_with?('scripts/') ? File.join(HERE, File.basename(c)) : c }
+      out, st = sigma_run!(argv, allow_fail: true)
+      [st.success? || (File.basename(argv[1].to_s) == 'verify-ground-truth.rb' && st.exitstatus == 2), out]
+    end
+    _pf = FinalizePreflight.resolve(WORK, runner: _pf_runner, conn_id: opts[:conn],
+                                    actuals: opts[:actuals], wb_id: wb_id, tier: state['tier'])
+    _pf[:ran].each { |id, ok, _| line "preflight #{id}: #{ok ? 'ran' : 'FAILED'}" }
+    if _pf[:missing].any?
+      puts
+      puts '============ FINALIZE PREFLIGHT STOP (no gate ran; no attempt consumed) ============'
+      puts "#{_pf[:missing].size} prerequisite(s) missing. Do them IN ORDER, then re-run this exact --finalize:"
+      FinalizePreflight.render_missing(_pf[:missing]).each { |l| puts l }
+      puts "(exit #{FinalizePreflight::EXIT_PREFLIGHT_STOP}; this stop does NOT write loop-log.jsonl — it is not a NOT-GREEN finalize)"
+      puts '======================================================================================'
+      quiet_event('result', 'stage' => 'finalize-preflight', 'status' => 'STOP',
+                  'missing' => _pf[:missing].map { |i| i[:id] }) rescue nil
+      exit FinalizePreflight::EXIT_PREFLIGHT_STOP
+    end
+    line "finalize preflight: all prerequisites present#{_pf[:ran].empty? ? '' : " (ran #{_pf[:ran].map(&:first).join(', ')})"}"
+  end
 
   hdr(6, 'Parity (pass 2 — finalize)')
   $t_mark = Time.now
@@ -1417,6 +1534,23 @@ if opts[:finalize]
   p6out, p6st = sigma_run!(p6, allow_fail: true)
   line "phase6-parity finalize: #{p6st.success? ? 'PASS' : "FAIL (exit #{p6st.exitstatus})"}"
   mark('phase6-finalize')
+
+  # Visual-record PRECONDITION, re-checked now that Phase 6 has written
+  # parity-final.json (the recorder writes onto it, so the up-front preflight
+  # could not stop the FIRST finalize — live re-proof: it ran the full gate
+  # battery, burned a loop-log attempt and printed a command with no
+  # --screenshot). Parity passed and only the visual record is missing → a
+  # precondition stop: exit 29, NO loop-log attempt, the full command.
+  if p6st.success? && ENV['SIGMA_SKIP_FINALIZE_PREFLIGHT'].to_s == '' &&
+     (_vr = FinalizePreflight.check_visual_record(WORK, post_phase6: true))
+    puts
+    puts '============ FINALIZE PREFLIGHT STOP (visual record; no gate ran; no attempt consumed) ============'
+    FinalizePreflight.render_missing([_vr]).each { |l| puts l }
+    puts "(exit #{FinalizePreflight::EXIT_PREFLIGHT_STOP}; this stop does NOT write loop-log.jsonl — it is not a NOT-GREEN finalize)"
+    puts '===================================================================================================='
+    quiet_event('result', 'stage' => 'finalize-preflight', 'status' => 'STOP', 'missing' => ['visual-record']) rescue nil
+    exit FinalizePreflight::EXIT_PREFLIGHT_STOP
+  end
 
   # Cleanup: delete orphan workbooks from spec-iteration retries (keep the live one).
   clout, clst = sigma_run!(['ruby', File.join(HERE, 'cleanup-orphan-workbooks.rb'),
@@ -1432,6 +1566,19 @@ if opts[:finalize]
   line 'WARN: run-state chain audit found a missing phase (see above)' unless rsst.success?
   mark('assert-run-state')
 
+  # Evidence route: re-read the LIVE reused model (it may have been edited
+  # between passes) and re-derive the map before the gate; probes survive only
+  # for edges that did not change.
+  if RelationshipRoute.current(WORK) && state['data_model_id']
+    $LOAD_PATH.unshift File.expand_path('lib', HERE) unless $LOAD_PATH.include?(File.expand_path('lib', HERE))
+    require 'sigma_rest'
+    _rr_ok, _rr_msg = RelationshipRoute.refresh_reused_model(
+      WORK, fetch: -> { Sigma.request(:get, "/v2/dataModels/#{state['data_model_id']}/spec") }
+    )
+    line(_rr_ok ? _rr_msg : "FAIL: could not re-read reused DM #{state['data_model_id']} (#{_rr_msg}) — " \
+                            'the relationship gate blocks until the live model can be checked')
+    run!(['ruby', File.join(HERE, 'emit-relationship-map.rb'), '--workdir', WORK], allow_fail: true)
+  end
   relgout, relgst = run!(
     ['ruby', File.join(HERE, 'assert-relationship-coverage.rb'), '--workdir', WORK],
     allow_fail: true
@@ -1440,11 +1587,47 @@ if opts[:finalize]
     ['ruby', File.join(HERE, 'dashboard-coverage.rb'), '--workdir', WORK, '--check'],
     allow_fail: true
   )
-  sqlpout, sqlpst = run!(
-    ['ruby', File.join(HERE, 'sql-provenance.rb'), '--workdir', WORK, '--check'],
-    allow_fail: true
-  )
+  # SQL provenance is re-derived from the LIVE data model, which becomes the
+  # active spec. Pass 1 bound the spec it posted or reused, but the documented
+  # between-pass DM edits (exit-16 residue elements PUT via dm-spec.json) add
+  # Custom SQL that binding never saw. Without a readback the pass-1 record is
+  # checked as before.
+  sqlp_cmd = ['ruby', File.join(HERE, 'sql-provenance.rb'), '--workdir', WORK]
+  _final_dm = if state['data_model_id']
+                $LOAD_PATH.unshift File.expand_path('lib', HERE) unless $LOAD_PATH.include?(File.expand_path('lib', HERE))
+                require 'sigma_rest'
+                begin
+                  Sigma.request(:get, "/v2/dataModels/#{state['data_model_id']}/spec")
+                rescue StandardError => e
+                  line "WARN: could not read back DM #{state['data_model_id']} for SQL provenance " \
+                       "(#{e.class}: #{e.message.to_s[0, 100]}) — checking the pass-1 record instead"
+                  nil
+                end
+              end
+  if _final_dm.is_a?(Hash) && _final_dm['pages']
+    _final_dm_path = File.join(WORK, 'dm-spec-final.json')
+    File.write(_final_dm_path, JSON.pretty_generate(_final_dm))
+    SqlProvenance.record_active_spec(WORK, _final_dm_path, state['data_model_id'])
+    sqlp_cmd += ['--dm-spec', _final_dm_path]
+  else
+    sqlp_cmd << '--check'
+  end
+  sqlpout, sqlpst = run!(sqlp_cmd, allow_fail: true)
 
+  # A coverage waiver on a tile that has a view CSV, a matched valued anchor
+  # and a strict parity pass excuses nothing — retire it to coverage_notes
+  # BEFORE the gate derives the degradation ledger (else it is a
+  # resolution-waived degradation and GREEN is forfeited for a covered tile).
+  begin
+    require File.join(HERE, 'lib', 'coverage_retire')
+    _cr = CoverageRetire.retire!(WORK)
+    _cr[:retired].each do |r|
+      line "coverage waiver retired (covered — #{r['why']}): #{r['tile']} [#{r['file']} → coverage_notes]"
+    end
+    _cr[:kept].each { |k| line "coverage waiver kept (#{k['why']}): #{k['tile']} [#{k['file']}]" }
+  rescue StandardError => e
+    line "WARN: coverage-waiver retirement skipped (#{e.class}: #{e.message}) — waivers stay degrading"
+  end
   # Generate the missing action-accounting pair even for zero-action sources.
   # Preserve existing/partial pairs for validation, not silent regeneration.
   unless File.exist?(File.join(WORK, 'action-ledger.json')) ||
@@ -1600,14 +1783,22 @@ if opts[:finalize]
     puts 'Do this, then re-run this exact --finalize command:'
     puts "  1. Render the full page(s) of workbook #{wb_id}:"
     puts "       python3 scripts/sigma-export-png.py --workbook #{wb_id} \\"
-    puts "         --page <pageId> --out #{File.join(WORK, 'sigma-render.png')}"
+    _vp = begin
+      defined?(ExportViewport) ? ExportViewport.for(workdir: WORK) : nil
+    rescue StandardError
+      nil
+    end
+    puts "         --page <pageId> --out #{File.join(WORK, 'sigma-render.png')}#{_vp ? " --w #{_vp[0]} --h #{_vp[1]}" : ''}"
     puts "  2. READ #{File.join(WORK, 'sigma-render.png')} with the Read tool and compare it"
     puts "     side-by-side against the source dashboard PNG in #{WORK} (Phase 1d)."
     puts '     Fix any visual divergence (re-PUT the spec) and re-render until they match.'
-    puts '  3. Spawn the CONTEXT-FREE blind grader (PR-9: refs/blind-grader-brief.md — give it ONLY the'
-    puts "     two image paths + the rubric; it writes #{File.join(WORK, 'blind-grade.json')})."
+    puts '  3. Spawn the CONTEXT-FREE blind grader (refs/blind-grader-brief.md — give it ONLY SOURCE_PNG,'
+    puts '     TARGET_PNG, RUBRIC_PATH=refs/fidelity-rubric.md, CATALOG_PATH=refs/sigma-platform-differences.json,'
+    puts "     OUT_JSON=#{File.join(WORK, 'blind-grade.json')}). If record-visual-check says 'second blind grader required',"
+    puts "     spawn a second fresh grader (OUT_JSON=#{File.join(WORK, 'blind-grade-2.json')}) and re-run adding --blind-grade-2."
     puts '  4. Record the verdict so gate 8b confirms the comparison ran, then re-run --finalize:'
-    puts "       ruby scripts/record-visual-check.rb --workdir #{WORK} --verdict pass --notes \"<what you compared>\" --checklist \"<layout-visual-qa.md section 1b>\" --blind-grade #{File.join(WORK, 'blind-grade.json')}"
+    puts "       #{FinalizePreflight.record_command(WORK, verdict: nil).join(' ')}"
+    puts '     (a v2 grade computes the verdict; omit --verdict/--checklist. A legacy v1 grade needs --verdict pass --checklist "...")'
     puts '  If the workbook genuinely cannot be rendered (export API unavailable), the gate'
     puts '  can be waived ONLY via assert-phase6-ran.rb --skip-visual-gate "<reason>" —'
     puts '  name the reason in your migration report.'
@@ -1622,14 +1813,15 @@ if opts[:finalize]
     puts 'Do this, then re-run this exact --finalize command:'
     puts "  1. READ the rendered page (#{File.join(WORK, 'sigma-render.png')}) side-by-side"
     puts "     against the source dashboard PNG in #{WORK} (Phase 1d)."
-    puts '  2. Spawn the CONTEXT-FREE blind grader (PR-9: refs/blind-grader-brief.md — ONLY the two'
-    puts "     image paths + the rubric; it writes #{File.join(WORK, 'blind-grade.json')}). Your own"
+    puts '  2. Spawn the CONTEXT-FREE blind grader (refs/blind-grader-brief.md — ONLY SOURCE_PNG, TARGET_PNG,'
+    puts '     RUBRIC_PATH=refs/fidelity-rubric.md, CATALOG_PATH=refs/sigma-platform-differences.json,'
+    puts "     OUT_JSON=#{File.join(WORK, 'blind-grade.json')}; a second grader -> blind-grade-2.json + --blind-grade-2 only when told). Your own"
     puts '     read is the fix loop; the blind grade is the verdict.'
-    puts '  3. Record your verdict (this is what the gate checks):'
-    puts "       ruby scripts/record-visual-check.rb --workdir #{WORK} --verdict pass --notes \"<what matched>\" --checklist \"<layout-visual-qa.md section 1b>\" --blind-grade #{File.join(WORK, 'blind-grade.json')}"
-    puts '     If they DIVERGE (your read OR the blind grade): --verdict divergent --notes "<gap>",'
-    puts '     fix the spec, re-render, re-read, re-grade, then re-record --verdict pass. The gate'
-    puts '     stays blocked until a blind-graded pass is recorded.'
+    puts '  3. Record the grade (a v2 grade computes the verdict; this is what the gate checks):'
+    puts "       #{FinalizePreflight.record_command(WORK, verdict: nil).join(' ')}"
+    puts '     (a legacy v1 grade needs --verdict pass --checklist "..." instead; if they DIVERGE, fix the spec,'
+    puts '     re-render, re-read, re-grade with a fresh grader. A recorded divergent grade passes gate 8b; after the'
+    puts '     fix budget the run finishes YELLOW (refs/gates.md Finish).)'
     puts '============================================================================='
   end
 
@@ -1690,6 +1882,7 @@ if opts[:finalize]
     puts '     READ rcf-pass-N.png vs the source PNG, score against refs/fidelity-rubric.md.'
     puts '  2. Per delta:  ruby scripts/fidelity-loop.rb record --workdir '"#{WORK}"' --dimension <d> \\'
     puts '                   --delta "<what differs>" --class spec-fixable|ui-only|sigma-capability|data'
+    puts '                   [--catalog-id <id> required for ui-only|sigma-capability]'
     puts '  3. For spec-fixable deltas, author a patch (refs/fidelity-recipes.md) and apply it:'
     puts "       ruby scripts/fidelity-loop.rb apply-patch --workdir #{WORK} --patch patch.json --resolves <ids>"
     puts '     then render again. Loop until `fidelity-loop.rb status` is clean.'
@@ -1719,6 +1912,16 @@ if opts[:finalize]
   # runs on finalize (GREEN and non-GREEN gate batteries alike), before the
   # result banner. Exit 1 means it wrote a diagnostic RED report; that RED is a
   # real all_green input, not advisory output.
+  # Hand the finalize battery to the report (finalize-gates.json): a failed
+  # hard gate makes migration-result.json RED, never GREEN.
+  require_relative 'lib/final_verdict'
+  FinalVerdict.write_finalize_gates(
+    WORK,
+    'phase6' => [p6st.success? || (opts[:min_pass_rate] && gst.success?) ? true : false, p6st.exitstatus],
+    'cleanup' => clst, 'relationships' => relgst, 'dashboards' => dashgst, 'sql-provenance' => sqlpst,
+    'assert-phase6-ran' => gst, 'reconstruction' => reconst, 'ds-filters' => dsfst,
+    'action-gates' => agst, 'source-census' => census_st
+  )
   report_out, report_st = run!(
     ['ruby', File.join(HERE, 'build-migration-report.rb'), '--workdir', WORK],
     allow_fail: true
@@ -1727,13 +1930,49 @@ if opts[:finalize]
   report_verdict = report_doc['verdict'] || 'unavailable'
   line "migration report: #{report_verdict}#{report_st.success? ? '' : " (exit #{report_st.exitstatus})"}"
 
+  # The run verdict is the worse of the gate's ledger verdict (minted above,
+  # BEFORE this census + report existed) and the report's (lib/final_verdict.rb).
+  # Re-stamp both gate markers so parity-final.json / phase6-success.json never
+  # claim GREEN over a YELLOW report; gate_verdict keeps what the gate minted.
+  run_verdict = nil
+  if gst.success?
+    _gate_verdict, run_verdict = FinalVerdict.restamp(WORK, report_doc)
+    if run_verdict && run_verdict != _gate_verdict
+      line "run verdict: #{run_verdict} — #{FinalVerdict.report_reason(report_doc)}; the gate ledger alone was #{_gate_verdict}"
+    end
+  end
+
   # With an explicit --min-pass-rate (honest NAMED divergences), the census-
   # aware gate is the parity authority — phase6's own exit stays strict-100%.
   parity_ok = p6st.success? || (opts[:min_pass_rate] && gst.success?)
+  # Parity FAILED: was it the SOURCE moving after the capture? (lib/source_drift.rb)
+  # A uniform small delta on matching keys is labelled suspected-source-drift
+  # with the re-capture command — values stay strict, the run stays NOT GREEN.
+  unless parity_ok
+    begin
+      require_relative 'lib/source_drift'
+      _sd_read = ->(f) { (JSON.parse(File.read(File.join(WORK, f))) rescue nil) }
+      _sd = SourceDrift.assess(_sd_read.call('parity-plan.json'), _sd_read.call('parity-actuals.json'),
+                               Array((_sd_read.call('parity-final.json') || {})['fail_names']))
+      File.write(File.join(WORK, SourceDrift::FILE), JSON.pretty_generate(_sd))
+      if _sd['classification'] == 'suspected-source-drift'
+        line "SUSPECTED SOURCE DRIFT: #{_sd['tiles'].size} diverged tile(s), each only a small delta on the same keys " \
+             "(#{_sd['tiles'].map { |t| "#{t['chart']} #{(t['max_rel'].to_f * 100).round(2)}%" }.join('; ')}) — the warehouse " \
+             'likely loaded after the Tableau capture. Values stay strict (NOT GREEN). Prove it and re-run parity on a fresh capture:'
+        line "  ruby #{File.join(HERE, 'recapture-source-views.rb')} --workdir #{WORK}"
+      end
+    rescue StandardError => e
+      line "WARN: source-drift assessment skipped (#{e.class}: #{e.message.to_s[0, 100]})"
+    end
+  end
   accounting_ok = census_st.success? && report_st.success? && report_verdict != 'RED'
+  require_relative 'lib/factory_punchlist'
+  verification = FactoryPunchlist.read_verification(WORK)
+  verifier_ok = verification.nil? || verification['verdict'] == 'GREEN'
+  line "independent verification: #{verification['verdict']}" if verification
   all_green = parity_ok && clst.success? && relgst.success? && dashgst.success? && sqlpst.success? &&
               gst.success? && reconst.success? && dsfst.success? &&
-              agst.success? && accounting_ok
+              agst.success? && accounting_ok && verifier_ok
 
   # ---------------------------------------------------------------------------
   # Phase E (OPT-IN) — Enhance. Runs ONLY when --enhance was passed (here or on
@@ -1813,27 +2052,8 @@ if opts[:finalize]
 
   mark('phaseE') if enhance_requested
 
-  # ---- v5.4: pivot grand-totals SHIP step -------------------------------------
-  # A pivot carrying a `totals` key 500s its CSV export (probe-isolated v5.4:
-  # the key's PRESENCE is the sole trigger — value type irrelevant), which
-  # poisons verify-anchors' pivot exports, so verify-anchors STRIPS the key
-  # around its own pivot CSV exports and restores it after (generated pivots
-  # otherwise carry `totals` from build onward). Now that every gate is GREEN,
-  # repair any pivot the bracket left totals-less on the shipped workbook as
-  # the FINAL spec mutation — the same put-layout late-mutation channel
-  # hidden-titles uses. Runs AFTER Phase E (the enhance clone verifies against
-  # totals-free pivots too). Idempotent + non-fatal: a failure only means
-  # visible grand-total rows, a documented cosmetic residual (ROUND6 §2.4).
-  # --workdir (v5.4.9) lets the *-pivot-totals.json sidecar override apply on
-  # this automated path too (incl. the restore sidecar verify-anchors writes).
-  if all_green
-    _, tst = sigma_run!(['ruby', File.join(HERE, 'put-layout.rb'),
-                         '--workbook', wb_id, '--apply-pivot-totals',
-                         '--workdir', WORK], allow_fail: true)
-    line(tst.success? ? 'pivot grand-totals re-hidden on shipped workbook (final mutation)' :
-         'WARN: pivot totals re-apply failed — workbook ships with visible grand-total rows (cosmetic residual)')
-    mark('pivot-totals-ship')
-  end
+  # Anchor verification is read-only, including pivots. Do not restore totals
+  # after verification: a late PUT would invalidate the version just checked.
 
   pf = (JSON.parse(File.read(File.join(WORK, 'parity-final.json'))) rescue {})
   # ── W2.2 — factory punch list at EVERY finalize terminal ───────────────────
@@ -1847,7 +2067,7 @@ if opts[:finalize]
     _, _plst = run!(['ruby', File.join(HERE, 'build-punchlist.rb'), '--workdir', WORK], allow_fail: true)
     _pl = (JSON.parse(File.read(File.join(WORK, 'punchlist.json'))) rescue nil)
     if _plst.success? && _pl.is_a?(Hash)
-      _pl_note = "#{Array(_pl['items']).size} item(s), ledger verdict #{_pl['verdict']} → #{File.join(WORK, 'PUNCHLIST.md')}"
+      _pl_note = "#{Array(_pl['items']).size} degradation item(s), report verdict #{_pl['verdict']} → #{File.join(WORK, 'PUNCHLIST.md')}"
       Offramp.log(WORK, kind: 'punchlist-emitted', detail: _pl_note) if Array(_pl['items']).any?
       quiet_event('punchlist', 'items' => Array(_pl['items']).size, 'verdict' => _pl['verdict'])
     elsif !_plst.success?
@@ -1872,9 +2092,15 @@ if opts[:finalize]
   puts "GATES       : phase6=#{p6st.success? ? 'PASS' : 'FAIL'} cleanup=#{clst.success? ? 'PASS' : 'FAIL'} relationships=#{relgst.success? ? 'PASS' : "FAIL(#{relgst.exitstatus})"} dashboards=#{dashgst.success? ? 'PASS' : "FAIL(#{dashgst.exitstatus})"} sql-provenance=#{sqlpst.success? ? 'PASS' : "FAIL(#{sqlpst.exitstatus})"} assert-phase6-ran=#{gst.success? ? 'PASS' : "FAIL(#{gst.exitstatus})"} reconstruction=#{reconst.success? ? 'PASS' : "FAIL(#{reconst.exitstatus})"} ds-filters=#{dsfst.success? ? 'PASS' : "FAIL(#{dsfst.exitstatus})"} action-gates=#{agst.success? ? 'PASS' : "FAIL(#{agst.exitstatus})"} source-census=#{census_st.success? ? 'PASS' : "FAIL(#{census_st.exitstatus})"} report=#{report_verdict}#{report_st.success? ? '' : "(#{report_st.exitstatus})"}"
   puts "ENHANCE     : #{enhance_line}" if enhance_line
   puts "PUNCH LIST  : #{_pl_note}" if _pl_note
-  puts "STATUS      : #{all_green ? 'GREEN' : 'NOT GREEN'}"
+  # STATUS: GREEN only when every gate passed AND the run verdict is GREEN; a
+  # passing battery with a YELLOW/PARTIAL run verdict says so (exit stays 0 —
+  # DONE as YELLOW is a completed run, not a failure for the loop breaker).
+  _status_line = FinalVerdict.status_line(all_green, run_verdict, report_doc)
+  puts "VERDICT     : #{run_verdict}" if run_verdict
+  puts "STATUS      : #{_status_line}"
   puts '======================================='
   quiet_event('result', 'stage' => 'finalize', 'status' => all_green ? 'GREEN' : 'NOT GREEN',
+              'verdict' => run_verdict,
               'workbook_id' => wb_id, 'data_model_id' => state['data_model_id'],
               'gates' => { 'phase6' => p6st.exitstatus, 'cleanup' => clst.exitstatus,
                            'relationships' => relgst.exitstatus,
@@ -1885,7 +2111,8 @@ if opts[:finalize]
                            'ds_filters' => dsfst.exitstatus,
                            'action_gates' => agst.exitstatus, 'source_census' => census_st.exitstatus,
                            'migration_report' => report_st.exitstatus,
-                           'migration_report_verdict' => report_verdict })
+                           'migration_report_verdict' => report_verdict,
+                           'verification_verdict' => verification && verification['verdict'] })
   phase_summary
   # ── Same-failure loop breaker (signature + attempt cap) ────────────────────
   # A NOT-GREEN finalize records its gate signature; re-running --finalize into
@@ -1921,11 +2148,15 @@ if opts[:finalize]
                 elsif !dsfst.success? then dsfout
                 elsif !agst.success? then agout
                 elsif !census_st.success? then census_out
-                elsif !report_st.success? then report_out
+                 elsif !report_st.success? then report_out
+                 elsif !verifier_ok then JSON.generate(verification)
                 else clout
                 end
     _fregion = Offramp.error_region(_fail_out)
-    _fsig = Offramp.failure_signature(script: 'migrate-tableau', context: 'finalize',
+    # Agent-changed inputs are part of the attempt identity (lib/attempt_fingerprint.rb):
+    # anchors added / ground truth re-run between two finalizes is progress, not grinding.
+    _fsig = Offramp.failure_signature(script: 'migrate-tableau',
+                                      context: AttemptFingerprint.finalize_context(WORK, actuals: opts[:actuals]),
                                       exit_code: { phase6: p6st.exitstatus, relationships: relgst.exitstatus,
                                                    dashboards: dashgst.exitstatus,
                                                    sql_provenance: sqlpst.exitstatus,
@@ -1936,7 +2167,8 @@ if opts[:finalize]
                                                    actiongates: agst.exitstatus,
                                                    census: census_st.exitstatus,
                                                    report: report_st.exitstatus,
-                                                   report_verdict: report_verdict },
+                                                    report_verdict: report_verdict,
+                                                    verification_verdict: verification && verification['verdict'] },
                                       error_region: _fregion)
     _fverdict = Offramp.loop_check(WORK, signature: _fsig, scope: 'migrate-tableau:finalize')
     if _fverdict != :first
@@ -1954,7 +2186,13 @@ if opts[:finalize]
         _prior.each { |r| puts "  • #{r['at']}" }
         puts "  • (now)                #{_fsig}"
       end
-      puts 'Re-running the same --finalize will not converge. STOPPING — hand this to the'
+      puts 'Re-running the same --finalize will not converge. CHANGE THIS before the next attempt:'
+      FinalizeRemedy.lines({ phase6: p6st.exitstatus, relationships: relgst.exitstatus, dashboards: dashgst.exitstatus,
+                             sql_provenance: sqlpst.exitstatus, gate: gst.exitstatus, cleanup: clst.exitstatus,
+                             reconstruction: reconst.exitstatus, dsfilters: dsfst.exitstatus, actiongates: agst.exitstatus,
+                             census: census_st.exitstatus, report: report_st.exitstatus },
+                           error_line: Array(_fregion).first).each { |l| puts "  → #{l}" }
+      puts 'An attempt whose failing check or error text differs is a new attempt. STOPPING — hand this to the'
       puts "operator with the gate output above and the loop log (#{File.join(WORK, 'loop-log.jsonl')})."
       puts 'To re-arm the breaker once the cause is actually fixed: a GREEN finalize'
       puts "re-arms it automatically; otherwise clear #{File.join(WORK, 'loop-log.jsonl')} (operator-only)."
@@ -2090,6 +2328,16 @@ MANUAL_JSON_SPECS = !opts[:wb_spec].nil?
 # --finalize is route-neutral: it resumes whatever pass 1 recorded.
 # ---------------------------------------------------------------------------
 CURRENT_ROUTE = MANUAL_JSON_SPECS ? 'manual-authorized' : 'orchestrated'
+# A data model reused by explicit id that this workdir did not post is judged on
+# the relationship EVIDENCE route (relationship-map.json: key probes + parity +
+# field use) instead of an exact count against the converter's draft. Persisted
+# in migrate-state.json; --finalize and the gates read it from there.
+# Tentative until the reuse decision is final (RelationshipRoute.settle below):
+# a reuse candidate can still be refused, and then a fresh converter model is
+# built and must face the strict rule.
+relationship_route = RelationshipRoute.eligible?(workdir: WORK, reuse_dm: opts[:reuse_dm]) ? RelationshipRoute::EVIDENCE : nil
+rel_cov_deferred = false
+relationship_resolution = nil
 unless opts[:finalize]
   _prev_route = (JSON.parse(File.read(File.join(WORK, 'migrate-state.json')))['route'] rescue nil)
   if _prev_route && _prev_route != CURRENT_ROUTE
@@ -2267,6 +2515,12 @@ else
   # discovery's heavy includeExtract=true re-download instead of paying for an
   # unused multi-GB payload.
   disc << '--no-extract-refetch' if opts[:skip_extract_landing]
+  # An explicit reused DM satisfies the landing gate the same way (it reads its
+  # own warehouse tables), so the extract bytes are never consumed there either.
+  disc << '--no-extract-refetch' if !opts[:skip_extract_landing] &&
+                                    ExtractLandingRoute.reuse(workdir: WORK, reuse_dm: opts[:reuse_dm], db: opts[:db],
+                                                              schema: opts[:schema],
+                                                              table_mapping: opts[:table_mapping])[:satisfied]
   # W2.20 (lane F): thread the dashboard scope into discovery (member-sheet CSVs
   # only; discovery FAILS OPEN to all views, stated, when membership is unresolvable).
   (opts[:dashboards] || []).each { |d| disc += ['--dashboard', d] }
@@ -2546,6 +2800,8 @@ rescue StandardError => e
   line "WARN: could not derive db/schema from landing manifest (#{e.class}) — falling back"
   nil
 end
+wh_fqn_cache = [nil]
+wh_fqn_stop = [nil]
 wh_try = lambda do |twb_p|
   return [opts[:db], opts[:schema], '--db/--schema flags'] if opts[:db] && opts[:schema]
   mani = manifest_dbschema.call
@@ -2556,9 +2812,39 @@ wh_try = lambda do |twb_p|
          'using the first for catalog discovery; each datasource keeps its own connection path; --db/--schema overrides all'
   end
   return [pairs[0][0], pairs[0][1], 'workbook <connection> attributes'] if pairs.any?
+  # No <connection dbname=/schema=> (published datasource / virtual connection):
+  # fall back to fully-qualified relation names in the .twb/.tds (+ CSV headers)
+  # when they agree on ONE schema (never a guess between candidates).
+  # Virtual-connection qualifiers ("FACT_A (DB_A.FACT_A)") drop a level
+  # of the warehouse path; the Sigma connection catalog (GET
+  # /v2/connections/paths, read-only) says which database.schema actually
+  # holds every VC table. A lone --db or --schema narrows that match.
+  fq = (wh_fqn_cache[0] ||= [WarehouseFqn.resolve(
+    WORK, twb_path: twb_p,
+    hint_db: opts[:db], hint_schema: opts[:schema],
+    default_db_lookup: lambda {
+      Sigma.request(:get, "/v2/connections/#{opts[:conn]}").then { |c| WarehouseFqn.default_database_from(c) } if opts[:conn]
+    },
+    catalog_lookup: (opts[:conn] ? lambda {
+      WarehouseFqn.list_catalog_paths(opts[:conn], ->(path) { Sigma.request(:get, path) })
+    } : nil)
+  )])[0]
+  return [fq[:db], fq[:schema], fq[:source]] if fq[:status] == :resolved
+  wh_fqn_stop[0] = fq if %i[schema_only ambiguous vc_unresolved].include?(fq[:status])
   nil
 end
 wh_announced = false
+# Hard-stop addendum: the candidate pair(s) the fully-qualified-name scan found
+# and the exact flag line (empty when the scan found nothing).
+wh_stop_hint = lambda do
+  res = wh_fqn_stop[0]
+  next '' unless res
+  cands, flag = WarehouseFqn.describe(res)
+  why = WarehouseFqn.explain(res) ||
+        (res[:status] == :ambiguous ? 'more than one — NOT guessing.' : 'schema found but no database (the Sigma connection exposes no default database).')
+  found = cands.empty? ? '' : "\n    Candidate pair(s) found: #{cands.join(', ')}"
+  "#{found}\n    #{why}\n    Exact flag line:  #{flag}"
+end
 wh_require = lambda do |twb_p|
   got = wh_try.call(twb_p)
   abort <<~MSG unless got
@@ -2567,6 +2853,7 @@ wh_require = lambda do |twb_p|
     Searched, in order: --db/--schema flags (absent) → landing manifest (none) → the
     workbook's own <connection dbname=/schema=> attributes (none usable — published,
     virtual-connection, and extract-only connections don't carry a warehouse path).
+    Also tried fully-qualified relation names in the .twb/.tds (and CSV headers).#{wh_stop_hint.call}
     Re-run with explicit flags naming where this workbook's tables live in YOUR warehouse:
       --db <DATABASE> --schema <SCHEMA>
     Find them in the Tableau datasource's connection details (Data Source tab → connection),
@@ -2712,6 +2999,39 @@ if mechanical
   # to query — the frozen extract data must be LANDED first (scripts/
   # land-extracts.py; refs/extract-landing.md). Landing is byte-identical to what
   # Tableau rendered, so Phase 6 parity runs in EXACT mode — never drift mode.
+  # Set when an explicit reused DM satisfied the gate below; re-checked where
+  # the reuse decision is final (Phase 3), since a refused reuse ships a fresh
+  # converter model over the unlanded extract.
+  landing_by_reuse = false
+  landing_conn_classes = []
+  landing_reuse_dm = nil
+  extract_landing_required = lambda do |classes, hint = nil|
+    puts <<~MSG
+
+      ==================== EXTRACT LANDING REQUIRED (exit 17) ====================
+      Every datasource in this workbook is an EMBEDDED file extract
+      (#{classes.join(', ')}) — there is no live warehouse for Sigma to query.
+      #{hint ? "#{hint}\n" : ''}Land the frozen extract data first:
+
+        python3 scripts/land-extracts.py --twbx <workbook-with-extract.twbx> \\
+          --db <DB> --schema <SCHEMA> --prefix <WB_PREFIX> \\
+          --sigma-connection-id <connection-id> \\
+          --manifest-out #{File.join(WORK, 'landing-manifest.json')}
+
+      (Download the .twbx WITH extract payloads first:
+         GET .../workbooks/<luid>/content?includeExtract=true
+       Full guide incl. type rules + the /sync catalog step: refs/extract-landing.md.
+       The landed data is byte-identical to what Tableau rendered, so Phase 6
+       parity runs in EXACT mode — do NOT use extract-drift tolerance.)
+
+      Reusing an existing data model that already reads these tables? Re-run with
+      --reuse-dm <dataModelId> plus --db/--schema (or --table-mapping) — no landing needed.
+      Already landed under different names? Put the manifest in #{WORK} (or point
+      --db/--schema at the tables) and re-run with --skip-extract-landing "<reason>".
+      ============================================================================
+    MSG
+    exit 17
+  end
   embedded_classes = %w[excel-direct textscan hyper ogrdirect csv msexcel]
   # Basemap / non-data connection classes carry NO queryable data (map tile
   # providers, WMS). They must not defeat the embedded-extract detection the way
@@ -2757,6 +3077,15 @@ if mechanical
           landing_manifest = nil
         end
       end
+      # An explicit reused DM (the reused-DM evidence route) reads the warehouse
+      # tables it already names — landed copies would never be read, so it
+      # satisfies the gate with no escape and auto-landing stands aside. A
+      # manifest still wins (EXACT parity against the landed bytes).
+      landing_conn_classes = conn_classes
+      _landing_reuse = ExtractLandingRoute.reuse(workdir: WORK, reuse_dm: opts[:reuse_dm], db: opts[:db],
+                                                 schema: opts[:schema], table_mapping: opts[:table_mapping])
+      landing_by_reuse = landing_manifest.nil? && _landing_reuse[:satisfied]
+      landing_reuse_dm = opts[:reuse_dm] if landing_by_reuse
       # v5.2 (speed): AUTO-LAND when everything the manual step needs is
       # already on disk — discovery auto-refetched the .twbx WITH the extract
       # payload (v4.4), the connection id is a required arg, and --db/--schema
@@ -2796,7 +3125,7 @@ if mechanical
       # the loop stalled 30s on runs that were headed to the manual gate
       # anyway), and stop as soon as the discovery lane has exited — no
       # further .twbx replacement is possible after that.
-      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] &&
+      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] && !landing_by_reuse &&
          opts[:conn] && sf_ok && land_db && land_sch && File.exist?(twbx_payload)
         6.times do
           break if (File.binread(twbx_payload).include?('.hyper') rescue false)
@@ -2805,13 +3134,13 @@ if mechanical
           sleep 5
         end
       end
-      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] &&
+      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] && !landing_by_reuse &&
          File.exist?(twbx_payload) && opts[:conn] && sf_ok && !(land_db && land_sch)
         line 'auto-land: SKIPPED — landing target unknown, and there is NO default db/schema. ' \
              'Pass --db/--schema (or set SNOWFLAKE_DATABASE/SNOWFLAKE_SCHEMA in the env / ' \
              '~/.sigma-migration/env); the manual landing gate (exit 17) follows.'
       end
-      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] &&
+      if landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] && !landing_by_reuse &&
          File.exist?(twbx_payload) && opts[:conn] && sf_ok && land_db && land_sch
         # Prefix carries a LUID fragment so two workbooks whose names share the
         # slug can never clobber each other's landed tables (write_pandas
@@ -2845,7 +3174,7 @@ if mechanical
           File.delete(mani_p) if mani_body.is_a?(Array) && mani_body.empty?
           line 'WARN: auto-landing landed nothing (failure or payload-less .twbx) — manual landing gate (exit 17)'
         end
-      elsif landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] &&
+      elsif landing_manifest.nil? && !opts[:no_auto_land] && !opts[:skip_extract_landing] && !landing_by_reuse &&
             File.exist?(twbx_payload) && opts[:conn] && !sf_ok
         line 'NOTE: auto-landing available but SNOWFLAKE_ACCOUNT/SNOWFLAKE_USER are not in env or ' \
              '~/.sigma-migration/env — add them once to skip this manual gate on future runs.'
@@ -2853,6 +3182,11 @@ if mechanical
       if landing_manifest
         line "embedded-extract sources (#{conn_classes.join(', ')}) — landing manifest found " \
              "(#{File.basename(landing_manifest)}); parity mode is EXACT (frozen extract landed byte-identical)"
+      elsif landing_by_reuse
+        line "embedded-extract sources (#{conn_classes.join(', ')}) — no landing needed: explicit reused DM " \
+             "#{opts[:reuse_dm]} reads its own warehouse tables (resolved via " \
+             "#{opts[:db] && opts[:schema] ? "--db/--schema #{opts[:db]}.#{opts[:schema]}" : '--table-mapping'}); " \
+             'the landed copies would never be read'
       elsif opts[:skip_extract_landing]
         line "WARN: embedded-extract sources with NO landing manifest — proceeding on --skip-extract-landing " \
              "(#{opts[:skip_extract_landing]}); the DM's table paths are on you (--db/--schema)"
@@ -2860,29 +3194,8 @@ if mechanical
         Offramp.log(WORK, kind: 'skip-flag-waived', reason: opts[:skip_extract_landing],
                     detail: '--skip-extract-landing')
       else
-        puts <<~MSG
-
-          ==================== EXTRACT LANDING REQUIRED (exit 17) ====================
-          Every datasource in this workbook is an EMBEDDED file extract
-          (#{conn_classes.join(', ')}) — there is no live warehouse for Sigma to query.
-          Land the frozen extract data first:
-
-            python3 scripts/land-extracts.py --twbx <workbook-with-extract.twbx> \\
-              --db <DB> --schema <SCHEMA> --prefix <WB_PREFIX> \\
-              --sigma-connection-id <connection-id> \\
-              --manifest-out #{File.join(WORK, 'landing-manifest.json')}
-
-          (Download the .twbx WITH extract payloads first:
-             GET .../workbooks/<luid>/content?includeExtract=true
-           Full guide incl. type rules + the /sync catalog step: refs/extract-landing.md.
-           The landed data is byte-identical to what Tableau rendered, so Phase 6
-           parity runs in EXACT mode — do NOT use extract-drift tolerance.)
-
-          Already landed under different names? Put the manifest in #{WORK} (or point
-          --db/--schema at the tables) and re-run with --skip-extract-landing "<reason>".
-          ============================================================================
-        MSG
-        exit 17
+        extract_landing_required.call(conn_classes, _landing_reuse[:blocker] &&
+          "--reuse-dm #{opts[:reuse_dm]} would satisfy this gate once #{_landing_reuse[:blocker]} is passed.")
       end
     end
   end
@@ -2996,10 +3309,77 @@ if mechanical
   # hydrated conv_twb is the richest source — PDS splices stamped real
   # dbname/schema onto it above.
   wh_db, wh_schema, = wh_require.call(conv_twb)
+  # A target-model plan makes the assessment's topology executable. Generate
+  # one from the same object-graph detector when the caller supplied warehouse
+  # profiles, or consume an explicit accepted plan. Remodels remain fail-closed:
+  # no guessed carrier/target and no unproven table substitution reaches the
+  # converter.
+  target_model_plan = nil
+  target_plan_path = opts[:target_model_plan]
+  if target_plan_path
+    abort "FATAL: target-model plan not found: #{target_plan_path}" unless File.exist?(target_plan_path)
+    target_model_plan = JSON.parse(File.read(target_plan_path))
+  elsif opts[:table_profiles]
+    abort "FATAL: table profiles not found: #{opts[:table_profiles]}" unless File.exist?(opts[:table_profiles])
+    require_relative 'scan-workbook-gaps'
+    require_relative 'lib/target_model_plan'
+    _features, _detail, object_plan = detect_object_model(File.read(conv_twb, encoding: 'UTF-8'))
+    abort 'FATAL: --table-profiles requires a Tableau object-model datasource; none was detected' unless object_plan
+    target_model_plan = TargetModelPlan.build(
+      object_plan,
+      profiles: JSON.parse(File.read(opts[:table_profiles])),
+      field_map: (opts[:column_mapping] || {}),
+      table_map: (opts[:table_mapping] || {}),
+      join_plan: (JSON.parse(File.read(File.join(WORK, 'join-plan.json'))) if File.exist?(File.join(WORK, 'join-plan.json')))
+    )
+    if opts[:accept_model_plan]
+      abort 'FATAL: --model-plan-reason is required with --accept-model-plan' if opts[:model_plan_reason].to_s.strip.empty?
+      TargetModelPlan.accept!(
+        target_model_plan,
+        accepted_by: opts[:accept_model_plan],
+        reason: opts[:model_plan_reason]
+      )
+    end
+    target_plan_path = File.join(WORK, 'target-model-plan.json')
+    File.write(target_plan_path, JSON.pretty_generate(target_model_plan) + "\n")
+    line "target-model plan: generated #{target_plan_path} (mode #{target_model_plan['mode']}, " \
+         "accepted #{target_model_plan['accepted']})"
+  end
+  target_converter_options = {}
+  if target_model_plan
+    require_relative 'lib/target_model_plan'
+    begin
+      target_converter_options = TargetModelPlan.converter_options(target_model_plan)
+    rescue TargetModelPlan::Error => e
+      abort "TARGET MODEL STOP: #{e.message}\nPlan: #{target_plan_path}"
+    end
+    opts[:reuse_dm] ||= target_model_plan['reuse_dm_id'] if target_model_plan['reuse_dm_id']
+    opts[:table_mapping] = (target_model_plan['table_mapping'] || {}).merge(opts[:table_mapping] || {})
+    # A target-model plan may name the reuse DM: re-derive the (tentative) route.
+    relationship_route = RelationshipRoute.eligible?(workdir: WORK, reuse_dm: opts[:reuse_dm]) ? RelationshipRoute::EVIDENCE : nil
+    opts[:column_mapping] = (target_model_plan['field_mapping'] || {}).merge(opts[:column_mapping] || {})
+    _semantic_path = File.join(WORK, 'semantic-edits.json')
+    _semantic_doc = if File.exist?(_semantic_path)
+                      JSON.parse(File.read(_semantic_path))
+                    else
+                      { 'entries' => [], 'withdrawn' => [] }
+                    end
+    _plan_edits = TargetModelPlan.semantic_edit_entries(target_model_plan)
+    _plan_edits.each do |entry|
+      _semantic_doc['entries'] ||= []
+      _semantic_doc['entries'].reject! { |old| old['edit_description'] == entry['edit_description'] }
+      _semantic_doc['entries'] << entry
+    end
+    File.write(_semantic_path, JSON.pretty_generate(_semantic_doc) + "\n") if _plan_edits.any?
+    planned_facts = Array(target_model_plan['datasources']).map { |datasource| datasource['primary_fact'] }.compact.uniq
+    line "target-model plan: applying #{target_model_plan['mode']} topology; primary facts #{planned_facts.join(', ')}"
+  end
   conv = MechanicalSpecs.run_converter(
     twb_path: conv_twb, conn: opts[:conn], db: wh_db,
     schema: wh_schema, mcp_build: mcp_build, workdir: WORK,
-    table_mapping: opts[:table_mapping], fact_table: opts[:fact_table])
+    table_mapping: opts[:table_mapping], fact_table: opts[:fact_table],
+    table_row_counts: target_converter_options['table_row_counts'],
+    model_plan: target_model_plan)
   if opts[:table_mapping]&.any?
     line "table mapping: #{opts[:table_mapping].map { |k, v| "#{k}→#{v}" }.join(', ')}"
   end
@@ -3052,7 +3432,7 @@ if mechanical
      '--out', rel_coverage_path, '--strict'],
     allow_fail: true
   )
-  unless rel_cov_st.success?
+  relationship_coverage_stop = lambda do
     puts
     puts '================ RELATIONSHIP COVERAGE STOP (no Sigma writes) ================'
     puts 'The Tableau logical model contains an unwired or partial relationship.'
@@ -3066,6 +3446,16 @@ if mechanical
     mark('phase1-join')
     phase_summary
     exit 11
+  end
+  unless rel_cov_st.success?
+    # Evidence route: the converter draft is not the model that ships, so the
+    # STOP is deferred until the reuse decision is final (settled below).
+    rel_cov_deferred = true if relationship_route
+    if rel_cov_deferred
+      line "relationship coverage: the converter draft is incomplete — deferred: reused DM #{opts[:reuse_dm]} " \
+           'is judged on the evidence route (relationship-map.json) unless reuse is abandoned'
+    end
+    relationship_coverage_stop.call unless rel_cov_deferred
   end
 
   # ---- RLS gate (never silently drop) -------------------------------------
@@ -3383,9 +3773,10 @@ if opts[:reuse_dm]
         '--reuse-dm <dataModelId> or drop the flag to build new' unless reuse_dm_id
   line "REUSING data model #{reuse_dm_id} — Phase 3 build+POST will be skipped."
   line "  #{dm_match['warning']}" if dm_match['warning']
-  line '  NOTE: master-column formulas are derived against the reused DM\'s readback labels;'
-  line '  if its shape differs (separate dim elements), the workbook gate will stop with the'
-  line '  agent-path handoff (exit 4) — run SKILL.md Phase 1.5b (inspect-dm-shape.rb) then.'
+  denorm_plan = File.join(WORK, 'dm-denorm-plan.json')
+  sigma_run!(['ruby', File.join(HERE, 'inspect-dm-shape.rb'),
+              '--dm-id', reuse_dm_id.to_s, '--out', denorm_plan])
+  line "  DM shape inspected before workbook authoring → #{denorm_plan}"
 end
 mark('phase1.6-dm-scan')
 
@@ -3725,14 +4116,21 @@ empty_csvs = Dir[File.join(WORK, 'views', '*.csv')].select do |c|
 end.map { |c| File.basename(c, '.csv') }
 # E9.6 — a scoped run only surfaces the TARGET dashboard's views: an empty CSV
 # for an out-of-scope worksheet is not this build's decision. Matching is
-# normalized (case/punctuation-stripped) against the scoped zone tree; when the
-# scoped zones carry no usable names, fail OPEN (keep everything surfaced).
+# resolved through source metadata before comparing with the scoped zone tree.
+# Unknown or ambiguous export identities remain surfaced, never silently skipped.
 if scoped? && defined?(chart_zones) && chart_zones.any? && empty_csvs.any?
   _csv_norm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
   _scoped_views = chart_zones.flat_map { |z| [z['caption'], z['view_ref']] }
                              .compact.map { |s| _csv_norm.call(s) }.reject(&:empty?)
   if _scoped_views.any?
-    dropped = empty_csvs.reject { |v| _scoped_views.include?(_csv_norm.call(v)) }
+    _source_views = McpSource.views_for(WORK, gw)
+    dropped = empty_csvs.select do |basename|
+      matches = _source_views.select do |view|
+        File.basename(McpSource.csv_path(WORK, view), '.csv') == basename || view['name'] == basename
+      end
+      matches.size == 1 && !matches.first['name'].to_s.empty? &&
+        !_scoped_views.include?(_csv_norm.call(matches.first['name']))
+    end
     empty_csvs -= dropped
     line "scope: #{dropped.size} empty view CSV(s) outside the stated dashboard scope not surfaced (#{dropped.join(', ')[0, 120]})" if dropped.any?
   end
@@ -4376,6 +4774,19 @@ elsif DashboardRead.expected?(WORK)
   end
   line "dashboard-read gate: #{DashboardRead.tile_count(WORK)} tile(s) verified (png-read.json)"
   RunState.stamp(WORK, 'phase-1d', note: 'source dashboard-read (png-read.json)')
+  # Valued anchors for every tile at the source's displayed precision, BEFORE
+  # verify-anchors first locks the values (lib/anchor_seed.rb): gate 18 credits
+  # a tile only with a valued anchor, and a bare 9-digit CSV float can never
+  # match the export's rounding.
+  begin
+    require_relative 'lib/anchor_seed'
+    _as = AnchorSeed.apply!(WORK)
+    _as[:normalized].each { |n| line "source anchor #{n['id']}: #{n['from']} → #{n['to']} (source display precision)" }
+    line "source anchors: seeded #{_as[:seeded].size} valued anchor(s) from view CSVs (#{_as[:seeded].join(', ')})" if _as[:seeded].any?
+    line "source anchors: NO view CSV for #{_as[:no_csv].join(', ')} — transcribe a value from the dashboard PNG" if _as[:no_csv].any?
+  rescue StandardError => e
+    line "WARN: source-anchor seeding skipped (#{e.class}: #{e.message.to_s[0, 100]})"
+  end
 end
 
 # ---------------------------------------------------------------------------
@@ -4454,6 +4865,17 @@ unless RunState.load(WORK)['cost_estimate_acknowledged']
 end
 dm_spec_path = File.join(WORK, 'dm-spec.json')
 dm_ids_path = File.join(WORK, 'dm-ids.json')
+# The reuse decision is final here. A refused/abandoned reuse clears the
+# evidence route and fires the strict relationship STOP it had deferred.
+_rel_settled = RelationshipRoute.settle(route: relationship_route, reused: !reuse_dm_id.nil?, coverage_deferred: rel_cov_deferred)
+relationship_route = _rel_settled[:route]
+relationship_coverage_stop.call if _rel_settled[:stop]
+# Same for the extract-landing gate: an explicit reuse satisfied it, and if that
+# reuse was refused the fresh converter model would read unlanded extract tables.
+if ExtractLandingRoute.stop_after_settle?(satisfied_by_reuse: landing_by_reuse, reused: !reuse_dm_id.nil?)
+  extract_landing_required.call(landing_conn_classes,
+                                "Reuse of #{landing_reuse_dm} was not taken, so a fresh converter model would ship.")
+end
 if reuse_dm_id
   # REUSE: no build, no POST. Read the existing DM back into the same id-map
   # shape post-and-readback.rb emits (incl. per-element columnLabels — Phase 4's
@@ -4492,6 +4914,21 @@ if reuse_dm_id
   File.write(dm_ids_path, JSON.pretty_generate(dm_ids))
   dm_spec_path = File.join(WORK, 'dm-spec-reused.json')
   File.write(dm_spec_path, JSON.pretty_generate(dm_spec_rb))
+  if relationship_route
+    # Resolve Tableau relations exactly as the converter did (db / schema /
+    # table mapping); persisted below so --finalize and the gates re-derive
+    # the map identically.
+    relationship_resolution = { 'db' => (defined?(db) && db) || opts[:db], 'schema' => (defined?(schema) && schema) || opts[:schema],
+                                'table_mapping' => opts[:table_mapping] || {} }
+    _rm_args = ['--workdir', WORK]
+    _rm_args += ['--db', relationship_resolution['db']] if relationship_resolution['db']
+    _rm_args += ['--schema', relationship_resolution['schema']] if relationship_resolution['schema']
+    relationship_resolution['table_mapping'].each { |k, v| _rm_args += ['--table-mapping', "#{k}=#{v}"] }
+    _rm_out, _rm_st = run!(['ruby', File.join(HERE, 'emit-relationship-map.rb'), *_rm_args], allow_fail: true)
+    line 'WARN: relationship-map.json could not be derived — the final relationship gate will block (see above)' \
+      unless _rm_st.success?
+  end
+  SqlProvenance.record_active_spec(WORK, dm_spec_path, reuse_dm_id)
   _sql_prov_out, _sql_prov_st = run!(
     ['ruby', File.join(HERE, 'sql-provenance.rb'), '--workdir', WORK, '--dm-spec', dm_spec_path],
     allow_fail: true
@@ -4677,8 +5114,21 @@ begin
   # fall back to the explicit flags (nil-safe: an uncompleted right_table
   # keeps the probe erroring and the gate blocking — the safe direction).
   _jp_twb = have_twb ? File.read(twb, encoding: 'UTF-8') : JoinPlan.workdir_twb(WORK)
-  _jp = JoinPlan.derive(_jp_spec, _jp_twb,
-                        db: db || opts[:db], schema: schema || opts[:schema])
+  _jp_db = db || opts[:db]
+  _jp_schema = schema || opts[:schema]
+  if _jp_db.to_s.empty? || _jp_schema.to_s.empty?
+    # FAST PATH re-entry skips discovery, so db/schema were never resolved
+    # here; ask the same non-fatal resolver the full run used (cached), so
+    # virtual-connection labels get the same DB.SCHEMA.TABLE as the DM.
+    _jp_twb_path = [(twb if defined?(twb)), File.join(WORK, 'workbook-content.twb')].compact.find { |p| File.file?(p.to_s) }
+    _jp_got = (wh_try.call(_jp_twb_path) rescue nil) if _jp_twb_path
+    _jp_db, _jp_schema = _jp_got[0, 2] if _jp_got
+  end
+  _jp = JoinPlan.derive(_jp_spec, _jp_twb, db: _jp_db, schema: _jp_schema)
+  JoinPlan.remap_right_tables!(
+    _jp, opts[:table_mapping],
+    db: _jp_db, schema: _jp_schema
+  )
   JoinPlan.write(File.join(WORK, 'join-plan.json'), _jp)
   _jp_src = reuse_dm_id ? 'reuse path: .twb + live DM readback' : 'dm-spec + .twb'
   if _jp.any?
@@ -4897,6 +5347,7 @@ unless reuse_dm_id
               '--spec', dm_spec_path, '--out', dm_ids_path, '--workdir', WORK])
   dm_ids = JSON.parse(File.read(dm_ids_path))
   dm_id = dm_ids['dataModelId']
+  SqlProvenance.record_active_spec(WORK, dm_spec_path, dm_id)
   dm_els = dm_ids['pages'].flat_map { |p| p['elements'] }
   if mechanical
     # The master must source the SAME chart-ready element pick_fact chose (the
@@ -5169,16 +5620,7 @@ if mechanical
     # unrelated caption). Grain helpers keep the strict exact contract (their
     # names are converter-derived and DO match; fuzzy there is pure risk).
     if hit.nil? && de['id'].to_s.start_with?('submaster-')
-      nrm = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
-      wantn = nrm.call(want)
-      cands = dm_els.select { |e| nrm.call(e['name']) == wantn }
-      if cands.empty?
-        cands = dm_els.select do |e|
-          en = nrm.call(e['name'])
-          shorter, longer = [en, wantn].sort_by(&:length)
-          shorter.length >= 8 && shorter.length >= (longer.length * 0.5).ceil && longer.include?(shorter)
-        end
-      end
+      cands = submaster_element_candidates(want, dm_els)
       abort "FATAL: sub-master '#{de['name']}' needs DM element '#{want}' but the match is AMBIGUOUS " \
             "(#{cands.map { |e| e['name'] }.join(' | ')}) — rename to disambiguate" if cands.size > 1
       hit = cands.first
@@ -5336,6 +5778,7 @@ if mechanical
     chart_elements: (chart_pages && chart_pages.any? ? chart_pages : chart_elements),
     data_elements: data_elements,
     theme: (raw_charts.is_a?(Hash) ? raw_charts['theme'] : nil),
+    source_hides_tabs: (raw_charts.is_a?(Hash) && raw_charts['source_hides_tabs'] == true),
     folder_id: opts[:folder], canonical: false)
   if (theme_overrides = spec.dig('settings', 'theme', 'overrides'))
     line "theme: #{theme_overrides.keys.join(', ')} (derived from source style rules)"
@@ -5375,7 +5818,7 @@ else
   # Manual specs may already use the release document envelope. The
   # Tableau-specific transforms below still need a transient page assignment;
   # derive it from layout and never serialize this compatibility view.
-  if spec['document'].is_a?(Hash) || spec['elements'].is_a?(Array)
+  if spec['contents'].is_a?(Hash) || spec['document'].is_a?(Hash) || spec['elements'].is_a?(Array)
     spec = WorkbookCode.legacy_view(WorkbookCode.canonicalize(spec))
   end
   spec['name'] = display_wb_name if opts[:name]
@@ -5418,6 +5861,56 @@ if opts[:per_page_masters]
     line 'per-page-masters (PR-17): no split needed (<=1 page draws on the master) — shared master kept'
   end
 end
+# ---- FIXED LOD used as a dimension → grouped helper + Lookup (lib/lod_dim_helper.rb)
+# Runs AFTER the per-page split so the helper is built against the final
+# per-page master (and is never itself split/pruned as a master). Without it
+# every {FIXED [k] : AGG(f)} row/column dimension hit the exit-4 handoff.
+begin
+  require_relative 'lib/lod_dim_helper'
+  _lm_path = File.join(WORK, 'dashboard-layout-meta.json')
+  _lm = File.exist?(_lm_path) ? JSON.parse(File.read(_lm_path, encoding: 'UTF-8')) : {}
+  _lcalcs = (_lm['worksheets'] || {}).values.flat_map { |w| Array(w['calculations']) }
+  _lres = LodDimHelper.apply!(spec, LodDimHelper.plans(_lcalcs, _lm['columns_by_guid'] || {}))
+  _lres[:built].each do |b|
+    line "FIXED-LOD dimension: '#{b['calc']}' → grouped helper #{b['helper']} on the Data page (unfiltered: FIXED is " \
+         "computed before dimension filters) + Lookup on #{b['tiles'].join(', ')}"
+  end
+  _lres[:notes].each { |n| line "  LOD note: #{n}" }
+rescue StandardError => e
+  abort "FATAL: FIXED-LOD dimension helper failed (#{e.class}: #{e.message})"
+end
+# ---- Unmatched dimension members (lib/dim_preserve.rb) -----------------------
+# A Tableau relationship keeps dimension members with no fact rows (a store with
+# 0 orders still lists, blank measures / 0 counts). The master is fact-rooted,
+# so such a member vanished from every tile grouped by a related dimension
+# table's field. When the tile's view CSV proves an unmatched member exists, the
+# tile is re-based on the dimension table LEFT-joined to the fact.
+begin
+  require_relative 'lib/dim_preserve'
+  _dp_ctx = DimPreserve.context(WORK, dm: (reuse_dm_id && dm_spec_rb) || nil)
+  if _dp_ctx
+    _dp = DimPreserve.apply!(spec, _dp_ctx)
+    _dp[:built].each do |b|
+      line "unmatched dimension members: #{b['tiles'].join(', ')} re-based on #{b['clone']} " \
+           "(#{b['table']} LEFT JOIN fact — #{b['note']})"
+    end
+    _dp[:notes].each { |n| line "  dim-preserve note: #{n}" }
+  end
+rescue StandardError => e
+  abort "FATAL: unmatched-dimension-member pass failed (#{e.class}: #{e.message})"
+end
+# ---- Null-skipping ranks (lib/null_rank.rb) ---------------------------------
+# Tableau's RANK skips nulls; Sigma's Rank puts NULL first when descending, so
+# a member with a NULL measure (an unmatched dimension member kept above) took
+# rank 1 and shifted every other rank. Every Rank/RankDense/RankPercentile is
+# rewritten to rank nulls last and return NULL for a NULL measure.
+begin
+  require_relative 'lib/null_rank'
+  _nr = NullRank.apply!(spec)
+  line "null-skipping ranks: #{_nr} rank column(s) rewritten (NULL measure → NULL rank, no position consumed)" if _nr.positive?
+rescue StandardError => e
+  abort "FATAL: null-skipping rank pass failed (#{e.class}: #{e.message})"
+end
 # ---- PUT-APPEND: incremental one-tab-at-a-time into an EXISTING workbook ----
 # When --workbook-target <id> is set with a single-dashboard build, append the
 # newly-built page(s) to the existing workbook's spec instead of POSTing a brand
@@ -5434,9 +5927,9 @@ if opts[:wb_target]
   existing = begin
     # accept: application/json ⇒ Sigma.request returns an ALREADY-PARSED Hash
     # (see lib/sigma_rest.rb) — do not JSON.parse again.
-    raw_existing = Sigma.request(:get, "/v2/workbooks/#{opts[:wb_target]}/spec", accept: 'application/json')
-    # Workbook code-rep GETs nest pages/schemaVersion under a top-level `document`
-    # key (live since 2026-08); flatten metadata+document onto ONE hash so the
+    raw_existing = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:wb_target]), accept: 'application/json')
+    # Workbook code-rep GETs nest pages/schemaVersion under a top-level `contents`
+    # key (`document` on the retired /spec readbacks); flatten metadata+document onto ONE hash so the
     # existing['pages']/existing_el_ids reads below (and the eventual PUT via
     # post-and-readback --update-id, which re-wraps at the wire boundary) see the
     # same flat shape this file always worked with. Without this, a bare
@@ -5497,7 +5990,19 @@ end
 # sibling file and leave the authored source untouched.
 if MANUAL_JSON_SPECS
   resolved_path = File.join(WORK, 'wb-spec.resolved.json')
-  File.write(resolved_path, JSON.pretty_generate(WorkbookCode.canonicalize(spec)))
+  _rs = WorkbookCode.canonicalize(spec)
+  # An agent-authored edit can add an element (a new control) without placing
+  # it in the spec's layout; place it there (same-kind rail, else page bottom)
+  # instead of failing validation — the live-layout merge then keeps that spot.
+  _rs_doc = WorkbookCode.document(_rs)
+  _rs_fill = LayoutMerge.complete_layout(_rs_doc['layout'], WorkbookCode.elements(_rs))
+  if _rs_fill[:xml]
+    _rs_doc['layout'] = _rs_fill[:xml]
+    _rs_fill[:placed].each do |pl|
+      line "layout: authored spec left #{pl['id']} unplaced — placed it on #{pl['page']} in #{pl['parent']} (#{pl['how']}; rows #{pl['gridRow']})"
+    end
+  end
+  File.write(resolved_path, JSON.pretty_generate(_rs))
   line "resolved spec → #{File.basename(resolved_path)} (authored wb-spec.json left untouched — placeholders stay re-resolvable)"
   wb_spec_path = resolved_path
 else
@@ -5526,7 +6031,11 @@ begin
                                 dm_spec: _la_read.call(dm_spec_path) || (defined?(dm) ? dm : nil),
                                 wb_spec: spec,
                                 manual_residues: _la_read.call(File.join(WORK, 'manual-residues.json')),
-                                prior: _la_read.call(File.join(WORK, 'lod-audit.json')))
+                                prior: _la_read.call(File.join(WORK, 'lod-audit.json')),
+                                # a calc no sheet/dashboard/filter uses is `unused-source`
+                                # (resolved) — the CLI passed this census, the orchestrator
+                                # did not, so every run needed a waiver for it
+                                unused_fields: LodAudit.unused_fields_from(WORK))
   LodAudit.write(File.join(WORK, 'lod-audit.json'), _la_entries)
   _la_block = _la_entries.reject { |e| LodAudit.resolved?(e) }
   if _la_block.any?
@@ -5619,6 +6128,59 @@ begin
   line "reuse-workbook: PUT the full spec to existing workbook #{opts[:reuse_workbook]} (no new workbook)" \
     if opts[:reuse_workbook] && !append_update_id
   par_cmd += ['--update-id', update_wb] if update_wb
+  # ── --reuse-workbook layout preservation (defect 9b) ───────────────────────
+  # Default on re-entry: keep the layout already LIVE (RCF fixes) and re-apply it
+  # as the LAST write in Phase 5; regenerate only on --regenerate-layout or when
+  # the live layout cannot satisfy the new spec (decision logged either way).
+  if opts[:reuse_workbook] && !append_update_id
+    begin
+      _lr_live = Sigma.request(:get, Sigma::CodeRep.read_path(opts[:reuse_workbook]), accept: 'application/json')
+      _lr_live = (YAML.safe_load(_lr_live, permitted_classes: [Date, Time]) rescue nil) if _lr_live.is_a?(String)
+      _lr_doc = _lr_live.is_a?(Hash) ? WorkbookCode.document(_lr_live) : {}
+      _lr_new = (JSON.parse(File.read(wb_spec_path)) rescue {})
+      $layout_reuse = LayoutReuse.decide(
+        live_layout: _lr_doc['layout'].to_s,
+        new_ids: WorkbookCode.elements(_lr_new).map { |e| e['id'] },
+        live_ids: WorkbookCode.elements(_lr_live || {}).map { |e| e['id'] },
+        regenerate: !!opts[:regenerate_layout]
+      )
+      $layout_reuse[:xml] = _lr_doc['layout'].to_s
+      if $layout_reuse[:path] == :preserve && $layout_reuse[:merge]
+        _lr_new_doc = WorkbookCode.document(_lr_new)
+        _lr_live_ids = WorkbookCode.elements(_lr_live || {}).map { |e| e['id'].to_s }
+        $layout_reuse[:live_xml] = $layout_reuse[:xml]
+        $layout_reuse[:merge_args] = {
+          new_ids: WorkbookCode.elements(_lr_new).map { |e| e['id'].to_s },
+          keep_ids: _lr_live_ids.select { |id| LayoutReuse.chrome?(id) },
+          kinds: WorkbookCode.elements(_lr_new).each_with_object({}) { |e, h| h[e['id'].to_s] = e['kind'].to_s },
+          data_ids: LayoutMerge.data_element_ids(WorkbookCode.elements(_lr_new)),
+          spec_layout: _lr_new_doc['layout'].to_s
+        }
+        _lr_m = LayoutMerge.merge(live_xml: $layout_reuse[:live_xml], sources: [$layout_reuse[:merge_args][:spec_layout]],
+                                  **$layout_reuse[:merge_args].reject { |k, _| k == :spec_layout })
+        $layout_reuse[:xml] = _lr_m[:xml]
+        $layout_reuse[:placed] = _lr_m[:placed]
+        $layout_reuse[:pruned] = _lr_m[:pruned]
+        File.write(File.join(WORK, 'layout-merged.xml'), _lr_m[:xml])
+      end
+    rescue StandardError => e
+      $layout_reuse = { path: :regenerate, reason: "could not read the live layout (#{e.class}: #{e.message.to_s[0, 80]})", stale: [], unplaced: [] }
+    end
+    if $layout_reuse[:path] == :preserve
+      line "layout: PRESERVE the live workbook layout (#{$layout_reuse[:reason]}); re-applied as the last write — pass --regenerate-layout to rebuild from the Tableau zones"
+      Array($layout_reuse[:placed]).each do |pl|
+        line "layout:   placed new #{pl['id']} on #{pl['page']} in #{pl['parent']} (#{pl['how']}; rows #{pl['gridRow']}, cols #{pl['gridColumn']})"
+      end
+      line "layout:   pruned #{$layout_reuse[:pruned].size} removed element(s): #{$layout_reuse[:pruned].first(10).join(', ')}" if Array($layout_reuse[:pruned]).any?
+      par_cmd << '--preserve-live-layout'
+      par_cmd += ['--live-layout-xml', File.join(WORK, 'layout-merged.xml')] if $layout_reuse[:merge]
+    else
+      line "WARN: layout: REGENERATING from the Tableau zones — #{$layout_reuse[:reason]}" \
+        "#{$layout_reuse[:stale].to_a.any? ? " [stale ids: #{$layout_reuse[:stale].join(', ')}]" : ''}"
+    end
+    File.write(File.join(WORK, 'layout-reuse-decision.json'),
+               JSON.pretty_generate($layout_reuse.reject { |k, _| %i[xml live_xml merge_args].include?(k) }.transform_keys(&:to_s).merge('path' => $layout_reuse[:path].to_s)))
+  end
   p_log = sigma_run_wb!(par_cmd)
 rescue WorkbookBuildError => e
   # ── SELF-HEAL: auto-picked reuse DM couldn't satisfy the workbook ──────────
@@ -5693,11 +6255,17 @@ rescue WorkbookBuildError => e
     'reason' => _failure_reason, 'spec' => wb_spec_path
   ))
   _exit_key = _child_exit ? { handoff: 4, child: _child_exit } : 4
-  _mode = Offramp.failure_mode(script: 'migrate-tableau', context: 'exit4',
+  # The attempt's INPUT is part of its identity: a re-entry with an edited
+  # spec is a new attempt, not a repeat (the cap still bounds it).
+  _exit4_ctx = AttemptFingerprint.context(
+    'exit4', AttemptFingerprint.input_specs(wb_spec_opt: opts[:wb_spec], dm_spec_opt: opts[:dm_spec],
+                                            generated_wb_spec: wb_spec_path)
+  )
+  _mode = Offramp.failure_mode(script: 'migrate-tableau', context: _exit4_ctx,
                                exit_code: _exit_key, error_class: e.class,
                                error_region: _err_region)
   _measure = Offramp.region_measure(_err_region)
-  _sig = Offramp.failure_signature(script: 'migrate-tableau', context: 'exit4',
+  _sig = Offramp.failure_signature(script: 'migrate-tableau', context: _exit4_ctx,
                                    exit_code: _exit_key, error_class: e.class,
                                    error_line: _err_line, error_region: _err_region)
   _verdict = Offramp.loop_check(WORK, signature: _sig, mode: _mode, measure: _measure,
@@ -5718,7 +6286,9 @@ rescue WorkbookBuildError => e
       _prior.each { |r| puts "  • #{r['at']}  count=#{r['measure'] || '?'}" }
       puts "  • (now)                count=#{_measure || '?'}  #{_err_line.to_s[0, 120]}"
     end
-    puts 'Re-running the same command will not converge. STOPPING — hand this to the'
+    puts 'Re-running the same command will not converge. CHANGE THE INPUT: fix the error above in the'
+    puts '--wb-spec / --dm-spec (the spec digest is part of the attempt identity, so an edited spec is a'
+    puts 'new attempt; SIGMA_LOOP_ATTEMPT_CAP still bounds them). STOPPING — hand this to the'
     puts 'operator with the error above, the salvage inventory (if written), and the'
     puts "loop log (#{File.join(WORK, 'loop-log.jsonl')}). Signature: #{_sig}"
     puts 'To re-arm the breaker once the cause is actually fixed: a GREEN --finalize'
@@ -5808,6 +6378,32 @@ wb_ids = JSON.parse(File.read(wb_ids_path))
 wb_id = wb_ids['workbookId']
 line "workbookId = #{wb_id}"
 mark('phase4-workbook')
+# A rebuilt spec was just PUT in place over the workbook a 5g fidelity loop
+# already repaired: those repairs are no longer live. Reopen their ledger
+# entries (the 8d gate then blocks) and print the exact re-apply commands —
+# never leave fidelity-ledger.json claiming fixes the live workbook lost.
+begin
+  require_relative 'lib/rcf_revert'
+  # Mechanical rebuild only: an agent-authored --wb-spec is normally built from
+  # the live GET and already carries the repairs — re-render to confirm.
+  _rv = MANUAL_JSON_SPECS ? { reopened: [], commands: [] } : RcfRevert.reopen_after_rebuild!(WORK, workbook_id: wb_id)
+  if MANUAL_JSON_SPECS && File.exist?(File.join(WORK, RcfRevert::LOG))
+    line 'NOTE: agent-authored spec PUT over an RCF-repaired workbook — re-render (fidelity-loop.rb render) to confirm the ' \
+         'recorded repairs survived before trusting fidelity-ledger.json.'
+  end
+  if _rv[:reopened].any?
+    line "WARN: RCF repairs REVERTED by this rebuild: reopened fidelity-ledger entr(y/ies) #{_rv[:reopened].join(', ')} " \
+         '(the rebuilt spec replaced the patched workbook in place).'
+    if _rv[:commands].any?
+      line '  Re-apply the recorded patches (allowed past an exhausted render budget), then re-render:'
+      _rv[:commands].each { |c| line "    #{c}" }
+    else
+      line '  No recorded patch files (repairs predate rcf-patches/): re-apply the fixes, or re-record the deltas.'
+    end
+  end
+rescue StandardError => e
+  line "WARN: RCF revert check skipped (#{e.class}: #{e.message.to_s[0, 100]})"
+end
 
 # "Not Migrated (and why)" punch-list — turn every dropped tile into an actionable
 # entry (param measure-picker → control-driven Switch, field absent from source SQL,
@@ -5835,8 +6431,37 @@ end
 hdr(5, 'Layout')
 layout_path = File.join(WORK, 'layout.xml')
 census_path = File.join(WORK, 'layout-census.json') # gate 8c reads this (default: <WORK>)
-if layout_xml
+_lr_preserve = $layout_reuse.is_a?(Hash) && $layout_reuse[:path] == :preserve && !$layout_reuse[:xml].to_s.strip.empty?
+if _lr_preserve
+  # --reuse-workbook: the live (RCF-fixed) layout IS the layout; re-apply it as
+  # the last write below. The census scratch still derives from the zone tree so
+  # gate 8c has its placed/zones evidence.
+  File.write(layout_path, $layout_reuse[:xml])
+  SigmaLayout.clear_band_style_sidecar(layout_path) # stale band restyle from an earlier run must not apply
+  line 'layout: preserved from the live workbook (--reuse-workbook; not regenerated)'
+  if File.exist?(layout_json)
+    run!(['ruby', File.join(HERE, 'build-dashboard-layout.rb'),
+          '--layout', layout_json, '--wb-ids', wb_ids_path,
+          '--out', File.join(WORK, 'layout-census-scratch.xml'),
+          '--census-out', census_path], allow_fail: true)
+  end
+  # New elements the spec's own layout did not place get the zone-tree
+  # placement (when its parent exists live), else the nearest same-kind
+  # container / page bottom — the live placements never move.
+  if $layout_reuse[:merge] && $layout_reuse[:live_xml]
+    _scratch = File.join(WORK, 'layout-census-scratch.xml')
+    _srcs = [$layout_reuse[:merge_args][:spec_layout], (File.exist?(_scratch) ? File.read(_scratch) : nil)]
+    _m5 = LayoutMerge.merge(live_xml: $layout_reuse[:live_xml], sources: _srcs,
+                            **$layout_reuse[:merge_args].reject { |k, _| k == :spec_layout })
+    File.write(layout_path, _m5[:xml])
+    _m5[:placed].each { |pl| line "layout: placed new #{pl['id']} on #{pl['page']} in #{pl['parent']} (#{pl['how']})" }
+    _lrd = File.join(WORK, 'layout-reuse-decision.json')
+    _lrd_doc = (JSON.parse(File.read(_lrd)) rescue {})
+    File.write(_lrd, JSON.pretty_generate(_lrd_doc.merge('placed' => _m5[:placed], 'pruned' => _m5[:pruned])))
+  end
+elsif layout_xml
   File.write(layout_path, layout_xml)
+  SigmaLayout.clear_band_style_sidecar(layout_path) # layout not regenerated: drop any stale band restyle
   line 'layout from spec generator'
   # The spec generator's layout XML doesn't emit a fill census, so gate 8c
   # would have nothing to check on a dashboard build. Derive one from the
@@ -5873,8 +6498,11 @@ line "layout fill census → #{census_path}" if File.exist?(census_path)
 # Layout is cosmetic: a bad grid PUT must NOT fail an otherwise-good migration
 # (the workbook still renders + queries). Apply best-effort.
 if File.exist?(layout_path)
-  _, pst = sigma_run!(['ruby', File.join(HERE, 'put-layout.rb'),
-                       '--workbook', wb_id, '--layout', layout_path], allow_fail: true)
+  _pl_cmd = ['ruby', File.join(HERE, 'put-layout.rb'), '--workbook', wb_id, '--layout', layout_path]
+  # A preserved live layout already contains its injected chrome; never re-inject
+  # a stale sidecar from an earlier generation.
+  _pl_cmd += ['--elements', File.join(WORK, 'layout-live-no-elements.json')] if _lr_preserve
+  _, pst = sigma_run!(_pl_cmd, allow_fail: true)
   line(pst.success? ? "layout applied to workbook #{wb_id}" :
        'WARN: layout PUT rejected (Invalid element position) — keeping default stacked layout; charts unaffected')
 end
@@ -5961,6 +6589,18 @@ def visual_render_dimensions(page, dash_layout, layout_xml = nil)
   block = layout_xml.to_s[%r{<Page\b[^>]*\bid="#{Regexp.escape(page['id'].to_s)}".*?</Page>}m].to_s
   last_row = block.scan(%r{gridRow="\d+\s*/\s*(\d+)"}).flatten.map(&:to_i).max
   height = [height, ((last_row - 1) * 28) + 64].max if last_row
+  # sigma-export-png.py defaults to 1600x900 and clips tall dashboards; widen to
+  # the shared ExportViewport estimate (source PNG / layout rows) when present.
+  # Guarded: a missing/failing lib falls back to the sizing above unchanged.
+  begin
+    if defined?(ExportViewport)
+      ew, eh = ExportViewport.for(workdir: WORK, page_id: page['id'])
+      width = [width, ew].max unless canvas.is_a?(Hash) && canvas['sizing_mode'] == 'fixed'
+      height = [height, eh].max
+    end
+  rescue StandardError
+    nil
+  end
   [width, height]
 end
 
@@ -5978,7 +6618,7 @@ vqa = File.join(WORK, 'visual-qa'); FileUtils.mkdir_p(vqa)
 wbspec_local = (JSON.parse(File.read(wb_spec_path)) rescue {})
 content_pages = WorkbookCode.pages(wbspec_local).reject { |p| p['id'].to_s.downcase.include?('data') }
 vqa_dash_layout = (JSON.parse(File.read(File.join(WORK, 'dashboard-layout.json'))) rescue [])
-vqa_layout_xml = (wbspec_local['document'] || wbspec_local)['layout'].to_s
+vqa_layout_xml = (wbspec_local['contents'] || wbspec_local['document'] || wbspec_local)['layout'].to_s
 # v5.2 (speed): pages render CONCURRENTLY (pool 3) — each export is a 30-90s
 # server-side render; multi-page workbooks paid it serially.
 rendered = 0
@@ -6076,6 +6716,8 @@ state = { 'workbook_id' => wb_id, 'data_model_id' => dm_id,
           'reused_dm' => !!reuse_dm_id, 'pass1_at' => Time.now.utc.iso8601,
           'enhance_requested' => !!opts[:enhance],
           'run_id' => RUN_ID, 'route' => CURRENT_ROUTE,
+          'relationship_route' => relationship_route,
+          'relationship_resolution' => (relationship_route ? relationship_resolution : nil),
           # W2.1: tier rides the state file (lane B's gate reads 'tier'/'tier_basis';
           # strings pinned in shared/lib/testdata/wave2-tier-state.json). Preserved
           # from the 0c write; keys absent on routes that never resolved a tier.
@@ -6249,9 +6891,12 @@ if rcf_passes.to_i.positive?
   end
   puts "                ruby scripts/fidelity-loop.rb render --workdir #{WORK}"
   puts '              READ rcf-pass-N.png vs the source PNG, score against refs/fidelity-rubric.md, then'
-  puts '              per delta: fidelity-loop.rb record (classify spec-fixable/ui-only/sigma-capability/data),'
+  puts '              per delta: fidelity-loop.rb record (classify spec-fixable/ui-only/sigma-capability/data;'
+  puts '              --catalog-id <id> required for ui-only|sigma-capability),'
   puts '              author a patch from refs/fidelity-recipes.md, fidelity-loop.rb apply-patch --resolves,'
   puts '              and render again. Loop until `fidelity-loop.rb status` is clean (0 unresolved spec-fixable).'
+  puts '              Sigma MCP build_workbook/screenshot/query available? Run the fixes through the SDK instead'
+  puts '              (hybrid route: sdk-begin → sdk-write per call → sdk-export) — refs/phase-5g-sdk-hybrid.md.'
 end
 # v5.0-P2 advisory oracles (never gate; results ride the report):
 wc_side = File.join(WORK, 'window-calcs.json')
@@ -6284,6 +6929,20 @@ puts '              LINK the guide in your migration report and walk the user th
 finalize_cmd = "  ruby scripts/migrate-tableau.rb #{opts[:wb_id] ? "--workbook-id #{opts[:wb_id]}" : "--workbook \"#{opts[:wb_name]}\""}" \
                "#{opts[:out] ? " --out #{WORK}" : ''} \\\n    --finalize --actuals #{File.join(WORK, 'parity-actuals.json')}"
 puts finalize_cmd
+# The same command as argv, for record-visual-check.rb: an agent that tries to
+# record the visual verdict before the first finalize (no parity-final.json
+# yet) is refused with THIS exact command (both 2026-11-09 regression runs).
+begin
+  File.write(File.join(WORK, 'finalize-command.json'), JSON.pretty_generate(
+    'schema' => 'finalize-command/v1',
+    'argv' => ['ruby', 'scripts/migrate-tableau.rb',
+               *(opts[:wb_id] ? ['--workbook-id', opts[:wb_id].to_s] : ['--workbook', opts[:wb_name].to_s]),
+               *(opts[:out] ? ['--out', WORK] : []),
+               '--finalize', '--actuals', File.join(WORK, 'parity-actuals.json')]
+  ) + "\n")
+rescue SystemCallError => e
+  line "WARN: could not write finalize-command.json (#{e.message}) — record-visual-check will print a generic hint"
+end
 puts '(--finalize runs phase6 finalize + orphan cleanup + the census-aware'
 puts ' assert-phase6-ran hard gate; exit 0 there is the ONLY green exit.)'
 puts 'PHASE E     : requested (--enhance) — runs at --finalize AFTER all gates are green' if opts[:enhance]
@@ -6432,6 +7091,10 @@ def finalize_chain_predicate(work, fast: false)
       e.is_a?(Hash) && %w[spec-fixable data].include?(e['cls'].to_s) && !e['resolved']
     end
     return [false, "#{unresolved} unresolved spec-fixable/data RCF delta(s) in fidelity-ledger.json — gate 8d would stop the chained finalize"] if unresolved.positive?
+    # Hybrid route (refs/phase-5g-sdk-hybrid.md): SDK writes not yet exported
+    # back + re-gated would make wb-spec.json non-authoritative.
+    sdk_why = SdkRoute.finalize_block_reason(ledger)
+    return [false, "SDK route: #{sdk_why}"] if sdk_why
   elsif rcf_staged
     return [false, 'RCF loop staged (rcf_passes > 0) but no fidelity-ledger.json — gate 8d would stop the chained finalize']
   end
@@ -6448,7 +7111,8 @@ end
 WAITABLE_CHAIN_RES = [/\Ano recorded visual verdict/,
                       /\ARCF loop staged \(rcf_passes > 0\) but no fidelity-ledger\.json/,
                       /unresolved spec-fixable\/data RCF delta/,
-                      /\Aunreadable fidelity-ledger\.json/].freeze
+                      /\Aunreadable fidelity-ledger\.json/,
+                      /\ASDK route:/].freeze
 def chain_wait_class(chain_ok, why)
   return :chain if chain_ok
   WAITABLE_CHAIN_RES.any? { |re| re =~ why.to_s } ? :wait : :terminal

@@ -1,0 +1,14 @@
+{
+  "(?i)^Region$": {
+    "id": "m-region",
+    "name": "Region"
+  },
+  "(?i)^Segment$": {
+    "id": "m-segment",
+    "name": "Segment"
+  },
+  "(?i)^Sales$": {
+    "id": "m-sales",
+    "name": "Sales"
+  }
+}

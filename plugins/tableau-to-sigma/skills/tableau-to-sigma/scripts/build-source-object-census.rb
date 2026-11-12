@@ -12,6 +12,7 @@ require 'set'
 
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'twb_xml'
+require 'chart_calc_translate' # strip_tc_addressing: build-charts' CSV-header column names
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -43,6 +44,7 @@ class SourceObjectCensus
     @built_pages = Set.new
     @built_elements = Set.new
     @built_columns = Set.new
+    @built_calc_columns = Set.new
     @built_controls = Set.new
     @built_source_worksheets = Set.new
     @provenance_artifact = nil
@@ -153,7 +155,7 @@ class SourceObjectCensus
 
   def document_root(doc)
     return {} unless doc.is_a?(Hash)
-    root = doc['document']
+    root = doc['contents'].is_a?(Hash) ? doc['contents'] : doc['document']
     root.is_a?(Hash) ? root : doc
   end
 
@@ -170,6 +172,8 @@ class SourceObjectCensus
       Array(value['columns']).each do |column|
         next unless column.is_a?(Hash)
         add_folded(@built_columns, column['name'])
+        base = built_calc_base_name(column['name'], column['formula'])
+        add_folded(@built_calc_columns, base) if base
       end
       value.each_value { |item| collect_built_nodes(item) if item.is_a?(Hash) || item.is_a?(Array) }
     end
@@ -488,13 +492,46 @@ class SourceObjectCensus
       names.any? { |name| @built_pages.include?(fold(name)) }
     when 'parameter'
       names.any? { |name| @built_controls.include?(fold(name)) }
-    when 'calculation', 'set'
+    when 'calculation'
+      names.any? do |name|
+        @built_columns.include?(fold(name)) || @built_elements.include?(fold(name)) ||
+          @built_calc_columns.include?(fold(name))
+      end
+    when 'set'
       names.any? { |name| @built_columns.include?(fold(name)) || @built_elements.include?(fold(name)) }
     when 'blend'
       names.any? { |name| @built_elements.include?(fold(name)) }
     else
       names.any? { |name| @built_elements.include?(fold(name)) }
     end
+  end
+
+  # The builder names a calc's column for what the SOURCE shows, not always the
+  # bare caption: a table calc takes its Tableau CSV export header ("Revenue
+  # Rank along Store Name", so parity matches the CSV), and a boolean flag on
+  # the Color shelf becomes the hidden conditional-format driver "<flag>
+  # (flag)" (build-charts-from-signals.rb pivot_flag_color_rules). Both are the
+  # calc built under a derived name; nil for any other column name.
+  FLAG_COLUMN_SUFFIX = ' (flag)'
+
+  # Only a CALCULATED column (not a bare physical reference or its aggregate)
+  # is a calc under a derived name: a physical column such as
+  # "Stops along Route" must never mark a calc named "Stops" built.
+  PHYSICAL_COLUMN_FORMULA = %r{
+    \A\s*(?:
+      \[[^\[\]]+\] |
+      (?:Sum|Avg|Min|Max|Median|Count|CountDistinct|StdDev|StdDevPop|Variance|VariancePop)
+        \(\s*\[[^\[\]]+\]\s*\) |
+      CountIf\(\s*IsNotNull\(\s*\[[^\[\]]+\]\s*\)\s*\)
+    )\s*\z
+  }ix.freeze
+
+  def built_calc_base_name(name, formula)
+    text = name.to_s.strip
+    return nil if text.empty? || formula.to_s.strip.empty? || formula.to_s.match?(PHYSICAL_COLUMN_FORMULA)
+    return text.delete_suffix(FLAG_COLUMN_SUFFIX).strip if text.end_with?(FLAG_COLUMN_SUFFIX)
+    base = strip_tc_addressing(text)
+    base == text || base.empty? ? nil : base
   end
 
   def provenance_built?(object)
@@ -527,7 +564,7 @@ class SourceObjectCensus
       end
     end
     docs(:controls).each do |(key, doc)|
-      records_for(doc, %w[detail controls objects records coverage unresolved]).each do |record|
+      records_for(doc, %w[detail controls objects records coverage unresolved ignored]).each do |record|
         next unless record_matches?(record, object)
         status = negative_status(record['terminal_status'] || record['status'] ||
                                  record['severity'] || record['outcome'])
@@ -640,6 +677,9 @@ class SourceObjectCensus
     # and so turned `not-emitted` / `needs-review` into words that never match
     # the hyphenated lists below).
     word = value.to_s.strip.downcase.tr('_ ', '--').gsub(/-+/, '-')
+    # A controls-coverage "ignored" row (declared-only parameter) is not a
+    # source object the migration had to build.
+    return 'not-applicable' if word == 'not-applicable'
     return 'skipped' if %w[dropped dropped-unused skipped omitted excluded not-emitted].include?(word)
     return 'approximated' if %w[approximated approximate substituted source-inert].include?(word)
     return 'needs-review' if %w[

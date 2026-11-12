@@ -72,7 +72,6 @@ else
   abort('--workbook-id required for pass 1') unless opts[:wb]
 end
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
@@ -108,10 +107,10 @@ end
 if !opts[:finalize]
   # PASS 1 — build plan + emit per-chart MCP instructions
   warn "Phase 6 PASS 1: reading workbook spec #{opts[:wb]}"
-  raw_spec = http_json("/v2/workbooks/#{opts[:wb]}/spec")
+  raw_spec = http_json(Sigma::CodeRep.read_path(opts[:wb]))
   live_document_version = document_version(raw_spec)
   # Preserve the full live response: metadata (workbookId and
-  # latestDocumentVersion) sits beside `document`. WorkbookCode transparently
+  # latestVersion) sits beside `contents`. WorkbookCode transparently
   # reads the nested release shape, while evidence/readback freshness gates
   # need the outer version metadata to reject stale artifacts.
   File.write(File.join(opts[:tab], 'wb-readback.json'), JSON.pretty_generate(raw_spec))
@@ -338,7 +337,27 @@ if !opts[:finalize]
 end
 
 # PASS 2 — finalize: inject actuals + run verifier
-abort("plan not found at #{plan_path}; run pass 1 first") unless File.exist?(plan_path)
+# An RCF repair archives the plan/actuals under repair-checkpoints/. Name the
+# re-collection, never a bare "pass 1" (the orchestrator's pass 1 reverts the
+# patch — 2026-11-03 live run).
+unless File.exist?(plan_path) && File.exist?(opts[:actuals].to_s)
+  require_relative 'lib/repair_state'
+  wb_hint = (JSON.parse(File.read(File.join(opts[:tab], 'migrate-state.json')))['workbook_id'] rescue nil) || '<workbookId>'
+  archived = RepairState.archived_by_repair(opts[:tab], File.exist?(plan_path) ? File.basename(opts[:actuals].to_s) : 'parity-plan.json')
+  if archived
+    warn "Phase 6 finalize blocked: #{File.basename(archived)} was archived by an RCF repair (#{archived})."
+    if File.exist?(plan_path)
+      warn "  Re-collect: ruby scripts/collect-parity-actuals.rb --plan #{plan_path} --workbook-id #{wb_hint} " \
+           "--workbook-spec #{File.join(opts[:tab], 'wb-spec.json')} --out #{opts[:actuals]}"
+    else
+      warn "  Rebuild + collect: ruby scripts/phase6-parity.rb --tableau #{opts[:tab]} --workbook-id #{wb_hint}"
+    end
+    warn "  Then re-run finalize; #{RepairState::REENTRY_WARNING}."
+    exit 1
+  end
+end
+abort("plan not found at #{plan_path}; run phase6-parity.rb pass 1 first (--tableau #{opts[:tab]} --workbook-id <id>)") unless File.exist?(plan_path)
+abort("actuals not found at #{opts[:actuals]}; collect them first (collect-parity-actuals.rb)") unless File.exist?(opts[:actuals].to_s)
 plan = JSON.parse(File.read(plan_path))
 actuals = JSON.parse(File.read(opts[:actuals]))
 
@@ -347,7 +366,7 @@ actuals = JSON.parse(File.read(opts[:actuals]))
 # document version so finalize can never combine stale mappings with current
 # actuals and screenshots.
 if plan['workbook_id']
-  live_spec = http_json("/v2/workbooks/#{plan['workbook_id']}/spec")
+  live_spec = http_json(Sigma::CodeRep.read_path(plan['workbook_id']))
   live_version = document_version(live_spec)
   planned_version = plan['workbook_document_version'].to_s
   if live_version && planned_version != live_version

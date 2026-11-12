@@ -42,8 +42,11 @@ eur = t.call('€#,##0')
 check(eur && eur['formatString'] == '$,.0f' && eur['currencySymbol'] == '€',
       "€#,##0 → $,.0f + currencySymbol € (got #{eur.inspect})", fails)
 loc = t.call('C1033')
-check(loc && loc['formatString'] == '$,.0f' && loc['currencySymbol'] == '$',
-      'locale code C1033 → $,.0f + $', fails)
+check(loc && loc['formatString'] == '$,.2f' && loc['currencySymbol'] == '$',
+      'Currency Standard C1033 preserves cents by default', fails)
+check(fs.call('C1033.000') == '$,.3f', 'explicit currency decimal mask wins', fails)
+check(fs.call('N') == ',.2~f', 'Number Standard preserves fractional values without fixed trailing zeros', fails)
+check(fs.call('N1033') == ',.2~f', 'locale Number Standard is not rounded to an integer', fails)
 check(fs.call('$#,##0;($#,##0)') == '($,.0f',
       "paren-negative segment → leading '(' sign modifier (got #{fs.call('$#,##0;($#,##0)').inspect})", fails)
 nul = t.call('#,##0;-#,##0;0;"—"')
@@ -122,6 +125,19 @@ check(rec && rec['field'] == 'Calculation_AOV' && rec['source_format'] == 'n"$"#
 no_bridge = FormatMap.emitted_records([kpi_el], ws_meta, {})
 check(no_bridge.first && no_bridge.first['status'] == 'unmapped',
       'without columns_by_guid the internal-id key cannot match the caption (pre-fix behavior)', fails)
+
+wrong_format = Marshal.load(Marshal.dump(kpi_el))
+wrong_format['columns'][0]['format'] = { 'kind' => 'number', 'formatString' => ',.0f' }
+check(FormatMap.emitted_records([wrong_format], ws_meta, {}, cbg).first['status'] == 'unmapped',
+      'a correct field with the wrong emitted format is not reported mapped', fails)
+substring = Marshal.load(Marshal.dump(kpi_el))
+substring['columns'][0]['name'] = 'Average Order Value Ratio'
+check(FormatMap.emitted_records([substring], ws_meta, {}, cbg).first['status'] == 'unmapped',
+      'a similarly named field cannot satisfy another measure format', fails)
+ambiguous = Marshal.load(Marshal.dump(kpi_el))
+ambiguous['columns'] << ambiguous['columns'][0].merge('id' => 'k2', 'name' => 'Average-Order Value')
+check(FormatMap.emitted_records([ambiguous], ws_meta, {}, cbg).first['status'] == 'unmapped',
+      'normalized field collisions are reported unmapped, not resolved by first match', fails)
 
 puts
 if fails.empty?

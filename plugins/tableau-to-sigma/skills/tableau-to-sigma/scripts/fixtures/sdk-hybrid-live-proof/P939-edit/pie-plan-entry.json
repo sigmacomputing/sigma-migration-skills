@@ -1,0 +1,73 @@
+{
+ "chart": "Net Revenue by Customer Value Tier (% of total)",
+ "tableau_view": "RC Revenue by Tier",
+ "sigma_element_id": "el-rc-revenue-by-tier",
+ "sigma_kind": "pie-chart",
+ "sigma_columns": [
+  "x-el-rc-revenue-by-tier",
+  "lbl-el-rc-revenue-by-tier",
+  "y-el-rc-revenue-by-tier"
+ ],
+ "sigma_column_names": [
+  "Customer Value Tier",
+  "Pct of Net Revenue",
+  "Net Revenue"
+ ],
+ "matched_via": "provenance",
+ "expected": [
+  [
+   "Platinum",
+   0.41200000000000003,
+   81526.98
+  ],
+  [
+   "Silver",
+   0.281,
+   55467.27
+  ],
+  [
+   "Gold",
+   0.19699999999999998,
+   38933.31
+  ],
+  [
+   "Bronze",
+   0.11,
+   21748.94
+  ]
+ ],
+ "measure_indices": [
+  2
+ ],
+ "expected_decimals": [
+  null,
+  3,
+  2
+ ],
+ "sql_template": "SELECT \"x-el-rc-revenue-by-tier\" AS f0, \"lbl-el-rc-revenue-by-tier\" AS f1, \"y-el-rc-revenue-by-tier\" AS f2 FROM \"workbook\".\"el-rc-revenue-by-tier\" ORDER BY 1",
+ "workbookId": "4d2d7596-fe9a-45a8-8372-0ca8a85da3fd",
+ "actual": {
+  "rows": [
+   [
+    "Bronze",
+    0.1100228909354425,
+    21748.94
+   ],
+   [
+    "Gold",
+    0.19695467088905358,
+    38933.31
+   ],
+   [
+    "Platinum",
+    0.4124262620999461,
+    81526.98
+   ],
+   [
+    "Silver",
+    0.28059617607555776,
+    55467.27
+   ]
+  ]
+ }
+}

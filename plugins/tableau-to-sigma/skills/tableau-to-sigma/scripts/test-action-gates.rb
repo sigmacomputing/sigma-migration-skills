@@ -287,6 +287,37 @@ Dir.mktmpdir do |dir|
         'failure names the marker absence and points at build-postpublish-guide.rb to regenerate', fails)
 end
 
+# ---- live proof: every detected action auto-wired, zero residue → PASS ------
+# render_guide writes no per-entry markers when there is no residue; it stamps
+# `<!-- ledger-residue: none -->` instead, and the gate accepts exactly that
+# (the proof false-FAILed here and needed a budget-counted waiver).
+load File.join(__dir__, 'build-postpublish-guide.rb') unless defined?(PostpublishGuide)
+all_wired_guide = PostpublishGuide.render_guide([], workbook_name: 'WB', twb: 'workbook-content.twb', built: [], emitted_count: 1)
+Dir.mktmpdir do |dir|
+  base_workdir(dir)
+  File.write(File.join(dir, 'action-ledger.json'),
+             JSON.pretty_generate('schemaVersion' => 1, 'detectedCount' => 1,
+                                   'emitted' => [EMITTED_NAV_BUTTON], 'residue' => []))
+  File.write(File.join(dir, 'POSTPUBLISH_GUIDE.md'), all_wired_guide)
+  out, err, st = run_gate(dir)
+  check(st.success? && out.include?('guide matches ledger residue'),
+        "all-auto-wired guide (zero residue, residue-none marker) → PASS (#{err.lines.grep(/FAIL/).first})", fails)
+  check(all_wired_guide.include?('all 1 interaction(s)') && !all_wired_guide.include?('No interactive actions detected'),
+        'the guide says the interactions were auto-wired, not that none were detected', fails)
+end
+# ---- residue-none marker but the ledger has residue → FAIL --------------------
+Dir.mktmpdir do |dir|
+  base_workdir(dir)
+  File.write(File.join(dir, 'action-ledger.json'),
+             JSON.pretty_generate('schemaVersion' => 1, 'detectedCount' => 2,
+                                   'emitted' => [EMITTED_NAV_BUTTON],
+                                   'residue' => [{ 'kind' => 'highlight-action', 'caption' => 'Hover Region' }]))
+  File.write(File.join(dir, 'POSTPUBLISH_GUIDE.md'), all_wired_guide)
+  _out, err, st = run_gate(dir)
+  check(!st.success? && err.include?('declares no residue'),
+        'a residue-free guide over a ledger WITH residue → FAIL (stale guide)', fails)
+end
+
 # ---- marker-less guide, nothing emitted → still PASS (over-failing guard) ---
 # The legitimate zero case: a marker-less guide is FINE when `emitted` is
 # empty — nothing was auto-wired, so open-work prose with no markers cannot

@@ -1,0 +1,49 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Fact' name='federated.fixture'>
+      <column caption='Customer Id' datatype='string' name='[Customer Id]' role='dimension' type='nominal' />
+      <column caption='Order Date' datatype='date' name='[Order Date]' role='dimension' type='ordinal' />
+      <column caption='Loyalty Tier' datatype='string' name='[Loyalty Tier]' role='dimension' type='nominal' />
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[Net Revenue]' role='measure' type='quantitative' />
+      <column caption='Cohort Year' datatype='integer' name='[Calculation_7700000000000001]' role='dimension' type='ordinal'>
+        <calculation class='tableau' formula='{FIXED [Customer Id] : MIN(YEAR([Order Date]))}' />
+      </column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Customer Cohorts'>
+      <table>
+        <view>
+          <datasources><datasource caption='Fact' name='federated.fixture' /></datasources>
+          <datasource-dependencies datasource='federated.fixture'>
+            <column caption='Customer Id' datatype='string' name='[Customer Id]' role='dimension' type='nominal' />
+            <column caption='Order Date' datatype='date' name='[Order Date]' role='dimension' type='ordinal' />
+            <column caption='Loyalty Tier' datatype='string' name='[Loyalty Tier]' role='dimension' type='nominal' />
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+            <column caption='Cohort Year' datatype='integer' name='[Calculation_7700000000000001]' role='dimension' type='ordinal'>
+              <calculation class='tableau' formula='{FIXED [Customer Id] : MIN(YEAR([Order Date]))}' />
+            </column>
+            <column-instance column='[Calculation_7700000000000001]' derivation='None' name='[none:Calculation_7700000000000001:ok]' pivot='key' type='ordinal' />
+            <column-instance column='[Loyalty Tier]' derivation='None' name='[none:Loyalty Tier:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Customer Id]' derivation='CountD' name='[ctd:Customer Id:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.fixture].[none:Region:nk]' filter-group='1'>
+            <groupfilter function='level-members' level='[none:Region:nk]' user:ui-enumeration='all' user:ui-marker='enumerate' />
+          </filter>
+          <aggregation value='true' />
+        </view>
+        <panes><pane><mark class='Text' /><encodings><text column='[federated.fixture].[ctd:Customer Id:qk]' /></encodings></pane></panes>
+        <rows>[federated.fixture].[none:Calculation_7700000000000001:ok]</rows>
+        <cols>[federated.fixture].[none:Loyalty Tier:nk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Customers'>
+      <zones><zone h='100000' id='1' name='Customer Cohorts' w='100000' x='0' y='0' /></zones>
+    </dashboard>
+  </dashboards>
+</workbook>

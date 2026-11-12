@@ -142,6 +142,10 @@ jobs:
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_template.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_parity.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_complete.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_active_dm_spec.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_collect_parity_actuals.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_relationship_coverage.py
+          python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_relationship_map.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_migrate_tableau.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_diagnostics.py
           python3 plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_migration_report.py
@@ -884,6 +888,9 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_template.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_parity.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_verify_complete.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_active_dm_spec.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_collect_parity_actuals.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_relationship_coverage.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_migrate_tableau.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_migration_report.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_discover_columns.py
@@ -893,6 +900,7 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_workbook_from_signals.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_phase6_ran.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_build_source_object_census.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_blind_grade_v2.py
             shared/scripts/test_runtime_profile.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_scout_ledger_integrity.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_warehouse_column_refs.py

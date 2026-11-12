@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "de67f1094a22dc8157806d601fc0dac50ca19b2873caaaf3c83ee2cf5c848e8f",
+    "dm_sha256": "ce4406ebea224d7635327522c3430ec8456f2c6fd31801f8430becaf207e858a"
+  },
+  "tables": [
+    {
+      "table": "HR.HIRES",
+      "datasource": "HR",
+      "dm_element_ids": [
+        "hires"
+      ]
+    },
+    {
+      "table": "HR.DATE_DIM",
+      "datasource": "HR",
+      "dm_element_ids": [
+
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "hires->date",
+      "edge_sha": "df25aaee24aeaf36f9f7af4d559f187ef16c6781fc2988990fadb93f057e9914",
+      "source_element": "hires",
+      "target_element": "date",
+      "source_table": "HR.HIRES",
+      "target_table": null,
+      "keys": [
+        {
+          "source": "DATE_KEY",
+          "target": "DATE_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "HR",
+      "left": "HR.HIRES",
+      "right": "HR.DATE_DIM",
+      "tableau_keys": [
+        {
+          "left": "DATE_KEY",
+          "right": "DATE_KEY"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "extra",
+      "datasource": null,
+      "left": "HR.HIRES",
+      "right": null,
+      "tableau_keys": [
+
+      ],
+      "disposition": "extra",
+      "dm_path": [
+        "hires->date"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+        "Hires"
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

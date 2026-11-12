@@ -27,6 +27,12 @@ ruby scripts/fidelity-loop.rb apply-patch --workdir <WORK> \
   --patch patch.json --resolves e2,e3        # marks those ledger entries resolved on success
 ```
 
+**Deleting keys:** a JSON `null` in the patch DELETES that key from the merged spec (at any
+depth, inside id-keyed array elements too); `null` for a key that is absent is a no-op. Use it
+where an empty value is rejected — e.g. removing an axis title (Sigma rejects empty title text):
+`{"elements":[{"id":"x","xAxis":{"format":{"title":null}}}]}`. No `--full-spec` / hand-bumped
+versions needed. The pre-PUT lint honors `<WORK>/control-scope.json` the same as the post-patch lint.
+
 `apply-patch` re-runs the column-type guard + layout lint + control lint after the PUT, so a
 fix that introduces an `error` column or a dead zone fails the pass instead of shipping.
 
@@ -40,7 +46,7 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 - **Page/canvas background wrong color** → `settings.theme.overrides.colorOverrides: [{ name: "backgroundCanvas", color: "#RRGGBB" }]` (`document.settings.theme`).
 - **Chart series / donut-pie slice colors are generic** → `settings.theme.overrides.categoricalScheme: [...]` — a **positional** array applied in category-sort order. This is the **only** spec path to donut/pie slice colors (per-element `color.scheme` is silently dropped on donut/pie). Extract the source hexes from the `.twb` (`composition-recipe.md` §"Extract brand colors").
 - **Series colors INVERTED / swapped across members** (Top-500 gold on the Bottom-500 series) → the scheme must be **ordered ascending by member** so `scheme[i]` binds to the i-th category in Sigma's sort order. Where the `.twb` carries an explicit member→color map (`<encoding attr='color' type='palette'><map to='#hex'><bucket>…`), the builder now pins per-chart `color.scheme` AND orders `settings.theme.overrides.categoricalScheme` mechanically (PR-12, `scripts/lib/series_colors.rb`); check `formats-emitted.json` → `series_color_maps` (`pinned|theme|unpinned`) before hand-fixing a `palette_match` delta. Frequency-ranked palettes only apply when no explicit map exists.
-- **Fonts don't match the source** → `settings.theme.overrides.fonts.{textFont, dataFont}`. Map the Tableau family to a web-safe family (Tableau "Tableau Book"/"Benton"→`Inter`/`Helvetica Neue`; a serif → `Georgia`). Only families Sigma ships round-trip.
+- **Fonts don't match the source** → `settings.theme.overrides.fonts.{textFont, dataFont}`. Map the Tableau family to one Sigma renders (Tableau Book/Regular, other bundled or unknown families → `Lato`; Arial → `Arial`; Georgia → `Georgia`) — unsupported names persist but silently fall back to the default. The converter does this automatically (ThemeDerive, plan C13).
 - **Accent sprayed on every tile** (AI tell) → pull the tint back to the header band + the hero KPI only; default the rest to the neutral surface. See `layout-visual-qa.md` §3.
 
 ### Containers, cards & bands
@@ -58,7 +64,7 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 - **KPI hero number too small / not the focal point** → `value.fontSize` up + transparent element `style` + widen the tile's `layout.anchor`/grid span.
 - **KPI value in the wrong format** (`$473.0k` vs source `$473.0K`) → emit an **exact-format text-formula column** (e.g. an uppercase-K suffix builder) and point the KPI value at it; don't rely on the number-format enum when the source uses a non-standard suffix. Format basics: money `$,.0f`; compact `$,.2s`. A KPI printing plain-raw where the source shows `$`/`%` is now a builder bug, not an RCF chore — the build maps the worksheet pill format and the column's `.twb` `default-format` mechanically (see §"Number & date formats" + `formats-emitted.json`).
 - **KPI shows its own title *and* the card label** (duplicated) → set the KPI value-column `name: ' '` (single space; `''` re-derives the title).
-- **KPI title clipped** → the tile is < ~5 grid rows; grow `gridRow`. Sparkline/comparison KPIs need ~8+ rows. NOTE on KPI sparklines + comparison/delta badges (live-probed 2026-07-11): the spec ACCEPTS `comparison`/`trend` FORMATTING blocks (spec/verify 200), but there is **no create-spec property that binds** the comparison column / trend axis, and the PUT rejects formatting-without-binding (`comparison.display: requires a comparison column or period comparison on the KPI`). Classify `ui-only` for creation; once a user binds it in the UI, the styling round-trips.
+- **KPI title clipped** → the tile is < ~5 grid rows; grow `gridRow`. Sparkline/comparison KPIs need ~8+ rows. NOTE on KPI sparklines + comparison/delta badges (live-probed 2026-07-11): the spec ACCEPTS `comparison`/`trend` FORMATTING blocks (spec/verify 200), but there is **no create-spec property that binds** the comparison column / trend axis, and the PUT rejects formatting-without-binding (`comparison.display: requires a comparison column or period comparison on the KPI`). Classify `ui-only --catalog-id <id>` if the shipped catalog has the entry, else `spec-fixable` (it becomes a named YELLOW residual after the fix budget), for creation; once a user binds it in the UI, the styling round-trips.
 
 ### Number & date formats (mechanical since PR-12)
 - When Tableau uses an automatic display format, its CSV can contain more
@@ -100,14 +106,12 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 - **Status chip / traffic-light cell** → `conditionalFormats` `type: single` with a **flat** `condition`/`value` (not nested).
 - **Reference line / band / trendline** (Tableau analytics-pane marks) → NATIVE `refMarks` + `trendlines` (live-probed 2026-07-11: POST + readback + PNG render all green). Shapes: `refMarks: [{type: 'line'|'band', axis: 'axis'|'series'|'series2', value: {type: 'constant', value: N} | {type: 'column', columnId, func} | {type: 'formula', formula}, endValue: {…} (band only)}]`; `trendlines: [{columnId, model: linear|quadratic|polynomial|exponential|logarithmic|power}]`. Emit from parse-twb-layout's `ref_marks`. The computed-boolean + 2-color `scheme` trick is now only the fallback for layered-mark effects refMarks can't express.
 - **Table too dense vs the source's roomy grid** → `tableStyle.{preset: presentation, cellSpacing, textStyles}`. `presentation` is the default to reach for; keep `spreadsheet` only for a true data grid.
-- **Pivot rows do not stretch with the tile**: the documented `cellSpacing`
-  choices are presets, not row heights. In a synthetic native-pivot probe with
-  12px cell text and a 1100px PNG, `extra-small` produced 20px rows and `large`
-  produced 48px rows; increasing the tile from 25 to 51 grid rows left the data
-  rows at 48px. This does not reproduce Tableau's entire-view row stretching.
-  Record the measured composition difference and keep visual parity unresolved
-  until a supported equivalent or an explicit user acceptance is recorded.
-  Never insert fake data rows or replace the live pivot with a screenshot.
+- **Pivot rows do not stretch with the tile**: `cellSpacing` values are presets, not row heights
+  (probe: `extra-small` 20px rows, `large` 48px; a taller tile left rows at 48px). Record the
+  composition difference as a residual; never insert fake rows or a screenshot.
+- **Pivot widths fit or are discarded**: Sigma honours pivot `uniformWidth`s only if n_hdr x header +
+  cols x body fits the cell, else ALL are dropped (48px, clipped). Never widen the builder's pair
+  (apply-patch rejects overflow). Squeezed (body < 48) pivots keep `extra-small` spacing.
 - **In-cell data bars dropped** → `conditionalFormats: [{type: dataBars, columnIds: [<agg col id>], scheme: [<tint>, <hue>]}]`. **Scheme comes from the SOURCE, never a literal**: use the worksheet's parsed `heat_scheme` ramp when present, else derive `[mix(dominant, white, 88%), dominant]` from `settings.theme.overrides.categoricalScheme[0]`. The Sigma default royal `#1a70f1` family is the round-4 defect — never fall back to it. dataBars scheme is `[negative, positive]`, NOT a value gradient (probed) — value-shaded bars are a Sigma ceiling; add a parallel `backgroundScale` for the shading.
 - **Ranked pivot (rank order + numbered rank header)** — the 3-round alphabetical-pivot fix. Ranks down ROWS: hidden `SORT_ORD` column (`ROW_NUMBER() OVER (ORDER BY <bias> DESC, <label>)` in the feed) + `rowsBy: [{id: <label col>, sort: {direction: 'ascending', by: <SORT_ORD id>, aggregation: 'min'}}]`; tie-blank labels via `CASE WHEN ROW_NUMBER() OVER (PARTITION BY RNK ...) = 1 THEN TO_VARCHAR(RNK) ELSE '' END`. Ranks across COLUMNS: numeric `RNK` as the OUTER columnsBy level renders the numbered 1..N header AND merges ties into spanning cells (exact Tableau look) — REQUIRES `totals.showSubtotals: 'when-collapsed'` ('hidden' is rejected; without it per-rank "N total" columns appear). **Constant-sort-key guard (the round-4 opus trap)**: never `sort.by` a `PercentOfTotal(…,"row")` column on a rowsBy sort (or `"column"` on columnsBy) — the key is constant across that axis, verify accepts it, and the pivot silently sorts alphabetically; sort by the inner aggregate instead. Top-N pivots need the PRE-FILTERED SOURCE table (element filters don't prune pivots — bisect-proven); build-charts mechanizes this (`-topn-src` helpers + `topn-members.json`).
 - **Table at order-grain but source shows a rollup** → build a hidden grouped rollup element and source the table from it via `groupingId`.
@@ -129,8 +133,11 @@ Each row: **the visible delta** · the spec path · notes/gotcha.
 
 ## When NOT to loop (classify and move on)
 
-These are **ceilings**, not spec-fixable — `record` them `ui-only` / `sigma-capability` so the
-ledger flows them to the report instead of blocking the gate:
+These are **ceilings**, not spec-fixable — `record` them `ui-only` / `sigma-capability` WITH
+`--catalog-id <id>` (a shipped `refs/sigma-platform-differences.json` id; unknown or missing → exit 6)
+so the ledger flows them to the report instead of blocking the gate. A ceiling not in the catalog is
+recorded `spec-fixable` (blocks until the fix budget is spent, then a named YELLOW residual); new
+catalog entries need live proof in a shared PR:
 
 - KPI sparklines, comparison/delta badges (binding is UI-only; formatting blocks spec-round-trip — see §KPIs, probed 2026-07-11).
 - Tooltip beyond `columnNames`; trellis facet-column binding (UI-only — schema-confirmed 2026-07-11: the spec `trellis` object is facet STYLING only `{column/row: {border,labels,title}, share, tileSize}`; no property binds a facet column).
@@ -163,8 +170,8 @@ candle low / gantt start); visible series = the span. Base color = the card back
             "scheme": ["#FFFFFF", "#4e79a7"]} }
 ```
 - Series names: base column/category `zz base` (sorts last → stacks bottom), span series any name.
-- Candlestick: split span into up/down measures for green/red; tighten `yAxis.format.scale.domain` (e.g. 34–48). No high/low wicks — single mark layer; record `sigma-capability`.
-- **Positive-domain only.** Stacking splits pos/neg, so floating bars *crossing zero* are impossible — fall back to signed diverging bars (up/down/total colors + labels) and record `sigma-capability`.
+- Candlestick: split span into up/down measures for green/red; tighten `yAxis.format.scale.domain` (e.g. 34–48). No high/low wicks — single mark layer; record `sigma-capability` only with a catalog id, else `spec-fixable`.
+- **Positive-domain only.** Stacking splits pos/neg, so floating bars *crossing zero* are impossible — fall back to signed diverging bars (up/down/total colors + labels) and record `sigma-capability` (catalog id required, else `spec-fixable`).
 
 ### Waffle / gridplot — pivot + `backgroundScale`
 10×10 pivot (row bucket × col bucket via SQL `ROW_NUMBER` division) with a computed
@@ -206,7 +213,7 @@ value exactly; for sankey add normalized stacked bars per stage for the stage sh
   "conditionalFormats": [{ "type": "backgroundScale", "columnIds": ["c-flow"],
     "scheme": ["#FFFFFF", "#6a51a3"], "includeValues": true }] }
 ```
-Record the ribbon geometry itself as `sigma-capability` (no spec or UI path).
+Record the ribbon geometry itself `sigma-capability` only with a catalog id (no spec or UI path); uncatalogued → `spec-fixable`.
 
 ### Hex map — us-state choropleth fallback + sequential fill
 Tableau hex-tile maps (custom polygon grids) have no Sigma geometry; ship a `region-map`

@@ -96,8 +96,10 @@ pivot as an off-shelf column and lists the pivot in
 `<workdir>/auto-interactions.json` (kind `pivot-collapse`). When the Sigma MCP
 `build_workbook` tool is available:
 
-1. Wait until the last REST spec write is done (layout, repairs, finalize).
-   Any later `PUT /v2/workbooks/{id}/spec` expands the pivot again, so re-run
+1. Wait until the last REST spec write is done (layout, repairs, finalize). On
+   the hybrid SDK route (`refs/phase-5g-sdk-hybrid.md`), that means after
+   `sdk-export` and `--finalize`; a rollback is a contents PUT too.
+   Any later `PUT /v2/workbooks/{id}/contents` expands the pivot again, so re-run
    these steps after one.
 2. `ruby scripts/emit-pivot-collapse-program.rb --workdir <workdir> --json`
    (or the `.py` twin) prints `workbookId` and a Code Mode `program`.

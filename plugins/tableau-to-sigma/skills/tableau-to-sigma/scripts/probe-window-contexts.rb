@@ -103,7 +103,7 @@ end
 def find_schema_version
   (jget('/v2/workbooks?limit=30')['entries'] || []).each do |w|
     wid = w['workbookId'] || w['id']; next unless wid
-    s = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue next)
+    s = (Sigma.request(:get, Sigma::CodeRep.read_path(wid), accept: 'application/json') rescue next)
     next unless s.is_a?(Hash)
     # Workbook code-rep GETs nest schemaVersion/pages under `document` (live
     # since 2026-08); a bare s['schemaVersion'] read here was always nil,
@@ -171,7 +171,7 @@ wb_spec = { 'name' => 'ZZ probe-window-contexts (throwaway)', 'folderId' => HOME
 # Workbook code-rep POSTs require the nested `document` envelope (verified
 # live 2026-08-03/04: a flat body 400s) -- wrap the throwaway probe spec.
 wb_post_body = WorkbookCode.canonicalize(wb_spec)
-wresp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb_post_body),
+wresp = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(wb_post_body)),
                       content_type: 'application/json', accept: 'application/json')
 wb = wresp['workbookId'] || wresp['id']
 abort "workbook CREATE failed: #{wresp.inspect}" unless wb
@@ -243,7 +243,7 @@ begin
   # `dm_spec` POST just above (/v2/dataModels/spec) stays flat -- DM surface
   # is confirmed unchanged.
   wb2_post_body = WorkbookCode.canonicalize(wb2_spec)
-  w2resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(wb2_post_body),
+  w2resp = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(wb2_post_body)),
                          content_type: 'application/json', accept: 'application/json')
   wb2 = w2resp['workbookId'] || w2resp['id']
   raise "DM-WB CREATE failed: #{w2resp.inspect}" unless wb2

@@ -28,7 +28,7 @@ SCRIPT = File.expand_path('put-layout.rb', __dir__)
 # divider) alongside chrome the new layout still uses.
 LIVE_SPEC = {
   'workbookId' => 'wb-test',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 1,
     'kind' => 'workbook',
     'pages' => [
@@ -36,6 +36,7 @@ LIVE_SPEC = {
     ],
     'elements' => [
       { 'id' => 'el-a', 'kind' => 'bar-chart', 'name' => 'Margin Trend' },
+      { 'id' => 'el-map', 'kind' => 'region-map', 'name' => { 'text' => 'Sales Map', 'visibility' => 'hidden' } },
       { 'id' => 'title-profitability-watch', 'kind' => 'text', 'name' => nil },
       { 'id' => 'text-z9', 'kind' => 'text', 'name' => nil },              # user element, unreferenced — keep
       { 'id' => 'img-99', 'kind' => 'image', 'name' => nil },              # explicit manual-composite — prune
@@ -55,7 +56,8 @@ NEW_XML = <<~XML
     <Element elementId="title-profitability-watch" gridColumn="1 / 25" gridRow="1 / 4"/>
   </Container>
   <Container elementId="band-page-pw-1" type="grid" gridColumn="1 / 25" gridRow="4 / 15" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto">
-    <Element elementId="el-a" gridColumn="1 / 25" gridRow="1 / 12"/>
+    <Element elementId="el-a" gridColumn="1 / 13" gridRow="1 / 12"/>
+    <Element elementId="el-map" gridColumn="13 / 25" gridRow="1 / 12"/>
     <Element elementId="text-z9" gridColumn="1 / 4" gridRow="1 / 2"/>
   </Container>
   </Page>
@@ -88,6 +90,13 @@ def run_put(live_spec, prune_records)
     File.write("#{layout}.elements.json", JSON.generate(
       'page-pw' => [{ 'id' => 'band-page-pw-hdr', 'kind' => 'container' },
                     { 'id' => 'band-page-pw-1', 'kind' => 'container' }]))
+    File.write("#{layout}.kpi-band-style.json", JSON.generate(
+      'el-a' => { 'legend' => { 'position' => 'right' } },
+      'el-map' => {
+        'legend' => { 'position' => 'left' },
+        'name' => { 'text' => 'Sales Map', 'visibility' => 'visible' }
+      }
+    ))
     File.write("#{layout}.prune-elements.json", JSON.pretty_generate(
       'version' => 1, 'elements' => prune_records))
 
@@ -121,7 +130,7 @@ raw_put = put_bodies.empty? ? {} : (JSON.parse(put_bodies.first) rescue {})
 # Without this unwrap `spec['pages']` was nil, so `ids` came out EMPTY — which
 # made the negative "pruned" assertions pass vacuously. The envelope-sanity
 # check keeps that from recurring.
-spec = raw_put['document'].is_a?(Hash) ? raw_put['document'] : raw_put
+spec = raw_put['contents'].is_a?(Hash) ? raw_put['contents'] : raw_put
 els = spec['elements'] || (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
 ok('the PUT body carries document pages and elements (envelope sanity)') do
   spec['pages'].is_a?(Array) && !els.empty?
@@ -134,7 +143,15 @@ ok('explicit manual-composite image pruned from flat document.elements') { !ids.
 ok('referenced injected container kept (band-page-pw-hdr, exactly once)') { ids.count('band-page-pw-hdr') == 1 }
 ok('sidecar container for the new layout injected (band-page-pw-1)') { ids.count('band-page-pw-1') == 1 }
 ok('user elements never pruned — even unreferenced-looking text ids') do
-  ids.include?('el-a') && ids.include?('title-profitability-watch') && ids.include?('text-z9')
+  ids.include?('el-a') && ids.include?('el-map') && ids.include?('title-profitability-watch') && ids.include?('text-z9')
+end
+map = els.find { |el| el['id'] == 'el-map' }
+ok('legend fallback is restored on charts and maps') do
+  els.find { |el| el['id'] == 'el-a' }&.dig('legend', 'position') == 'right' &&
+    map&.dig('legend', 'position') == 'left'
+end
+ok('map title and legend patches are both applied') do
+  map&.dig('name', 'visibility') == 'visible'
 end
 ok('stale chrome prune is reported on stdout') { out.include?('pruned 3 stale injected layout element(s)') }
 ok('explicit manual-composite prune is reported on stdout') do
@@ -146,7 +163,7 @@ ok('the new layout XML rode the PUT') { spec['layout'].to_s.include?('title-prof
 # element. Add one unreferenced image that is NOT in the sidecar: final workbook
 # coverage validation must abort before PUT and name it.
 with_arbitrary_missing = Marshal.load(Marshal.dump(LIVE_SPEC))
-with_arbitrary_missing['document']['elements'] << {
+with_arbitrary_missing['contents']['elements'] << {
   'id' => 'img-unlisted', 'kind' => 'image', 'name' => nil
 }
 out2, st2, put_bodies2 = run_put(with_arbitrary_missing, MANUAL_COMPOSITE)

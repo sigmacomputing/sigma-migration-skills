@@ -1,0 +1,148 @@
+{
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      {
+        "id": "page-data",
+        "name": "Data"
+      },
+      {
+        "id": "page-customers",
+        "name": "Customers"
+      }
+    ],
+    "elements": [
+      {
+        "id": "master-overview",
+        "kind": "table",
+        "name": "Master",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "dm-fixture",
+          "elementId": "fact-view"
+        },
+        "columns": [
+          {
+            "id": "o-date",
+            "name": "Order Date",
+            "formula": "[Fact View/Order Date]"
+          },
+          {
+            "id": "o-rev",
+            "name": "Net Revenue",
+            "formula": "[Fact View/Net Revenue]"
+          },
+          {
+            "id": "o-region",
+            "name": "Region",
+            "formula": "[Fact View/Region]"
+          }
+        ],
+        "order": [
+          "o-date",
+          "o-rev",
+          "o-region"
+        ]
+      },
+      {
+        "id": "master-customers",
+        "kind": "table",
+        "name": "Master",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "dm-fixture",
+          "elementId": "fact-view"
+        },
+        "columns": [
+          {
+            "id": "m-cust",
+            "name": "Customer Id",
+            "formula": "[Fact View/Customer Id]"
+          },
+          {
+            "id": "m-tier",
+            "name": "Loyalty Tier",
+            "formula": "[Fact View/Loyalty Tier]"
+          },
+          {
+            "id": "m-region",
+            "name": "Region",
+            "formula": "[Fact View/Region]"
+          }
+        ],
+        "order": [
+          "m-cust",
+          "m-tier",
+          "m-region"
+        ]
+      },
+      {
+        "id": "el-ctl-region-customers",
+        "kind": "control",
+        "name": "Region",
+        "controlId": "ctl-region-customers",
+        "controlType": "list",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "master-customers"
+          },
+          "columnId": "m-region"
+        },
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "master-customers"
+            },
+            "columnId": "m-region"
+          }
+        ]
+      },
+      {
+        "id": "el-customer-cohorts",
+        "kind": "pivot-table",
+        "name": "Customers by Cohort Year and Loyalty Tier",
+        "source": {
+          "kind": "table",
+          "elementId": "master-customers"
+        },
+        "columns": [
+          {
+            "id": "p-row-cohort-year",
+            "name": "Cohort Year",
+            "formula": "[Master/Cohort Year]"
+          },
+          {
+            "id": "p-col-loyalty-tier",
+            "name": "Loyalty Tier",
+            "formula": "[Master/Loyalty Tier]"
+          },
+          {
+            "id": "p-value-customer-id",
+            "name": "Customer Id",
+            "formula": "CountDistinct([Master/Customer Id])"
+          }
+        ],
+        "values": [
+          "p-value-customer-id"
+        ],
+        "rowsBy": [
+          {
+            "columnId": "p-row-cohort-year"
+          }
+        ],
+        "columnsBy": [
+          {
+            "columnId": "p-col-loyalty-tier"
+          }
+        ]
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master-overview\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n  <Element elementId=\"master-customers\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-customers\">\n  <Element elementId=\"el-ctl-region-customers\" gridColumn=\"1 / 5\" gridRow=\"1 / 4\"/>\n  <Element elementId=\"el-customer-cohorts\" gridColumn=\"5 / 25\" gridRow=\"1 / 18\"/>\n</Page>\n"
+  },
+  "name": "Fixed LOD Fixture",
+  "folderId": "folder-fixture"
+}

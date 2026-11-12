@@ -39,7 +39,9 @@ The picker is **non-destructive** — it never modifies any DM. The downstream p
 
 > **Before writing the workbook spec, inspect the reused DM's element graph.** Skipping this is the single biggest source of conversion-time waste — a workbook POST that fails with `Cannot resolve columns on table master: dependency not found: formula reference customer_dim/region` forces 2–3 minutes of spec-rework.
 
-Run:
+The orchestrator now runs this automatically whenever `--reuse-dm` resolves to
+an ID and writes `<WORK>/dm-denorm-plan.json`. For a hand-driven inspection,
+run:
 ```bash
 ruby scripts/inspect-dm-shape.rb \
   --dm-id <recommended_dm_id> \
@@ -54,6 +56,12 @@ For each dim column in `dm-denorm-plan.json`, the script provides the exact Look
 1. The primary master table sources from the fact element (use the `fact_element.id` from the plan).
 2. For each dim element referenced by the workbook's worksheets, add a **hidden master table** sourcing that dim element (`visibleAsSource: false`).
 3. Master-column formulas use the plan's `column_resolution["<col>"].formula` verbatim.
+
+**Relationships of a reused model.** An explicit `--reuse-dm <id>` puts the
+run on the reused-DM evidence route: the model's relationships are compared
+with the Tableau object-graph in `relationship-map.json` and each difference
+must be proven (see `refs/phase-3-datamodel.md`). A bare `--reuse-dm` stays on
+the strict `relationship-coverage.json` rule.
 
 The plan also surfaces `unmatched_dim_elements` — dim elements with no detectable FK on the fact (often calendar tables). If a worksheet references columns from one of these, you'll need to manually identify the join key.
 

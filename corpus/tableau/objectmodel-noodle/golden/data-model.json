@@ -328,35 +328,43 @@
               },
               {
                 "id": "id0044",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Day]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Day]",
+                "hidden": true
               },
               {
                 "id": "id0045",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Month]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Month]",
+                "hidden": true
               },
               {
                 "id": "id0046",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Year]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Year]",
+                "hidden": true
               },
               {
                 "id": "id0047",
-                "formula": "[FACT_VISITS/DIM_SITES/Site Name]"
+                "formula": "[FACT_VISITS/DIM_SITES/Site Name]",
+                "hidden": true
               },
               {
                 "id": "id0048",
-                "formula": "[FACT_VISITS/DIM_SITES/Site Region]"
+                "formula": "[FACT_VISITS/DIM_SITES/Site Region]",
+                "hidden": true
               },
               {
                 "id": "id0049",
-                "formula": "[FACT_VISITS/DIM_PROVIDERS/Provider Name]"
+                "formula": "[FACT_VISITS/DIM_PROVIDERS/Provider Name]",
+                "hidden": true
               },
               {
                 "id": "id0050",
-                "formula": "[FACT_VISITS/DIM_PROVIDERS/Provider Specialty]"
+                "formula": "[FACT_VISITS/DIM_PROVIDERS/Provider Specialty]",
+                "hidden": true
               },
               {
                 "id": "id0051",
-                "formula": "[FACT_VISITS/ENTITLEMENTS/User Email]"
+                "formula": "[FACT_VISITS/ENTITLEMENTS/User Email]",
+                "hidden": true
               }
             ],
             "order": [
@@ -377,6 +385,40 @@
               "id0049",
               "id0050",
               "id0051"
+            ],
+            "folders": [
+              {
+                "id": "id0052",
+                "name": "Dim Dates",
+                "items": [
+                  "id0044",
+                  "id0045",
+                  "id0046"
+                ]
+              },
+              {
+                "id": "id0053",
+                "name": "Dim Sites",
+                "items": [
+                  "id0047",
+                  "id0048"
+                ]
+              },
+              {
+                "id": "id0054",
+                "name": "Dim Providers",
+                "items": [
+                  "id0049",
+                  "id0050"
+                ]
+              },
+              {
+                "id": "id0055",
+                "name": "Entitlements",
+                "items": [
+                  "id0051"
+                ]
+              }
             ]
           }
         ]

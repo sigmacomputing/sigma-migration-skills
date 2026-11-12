@@ -147,7 +147,7 @@ module PngClassify
   # input (bad signature, truncated chunk/stream, unsupported depth/color/
   # interlace, oversized image, inflate error, bad filter byte) returns nil
   # and the caller maps nil -> art.
-  def decode_png(path)
+  def decode_png(path, max_pixels: MAX_PIXELS)
     data = File.binread(path)
     return nil unless data[0, 8] == SIG
 
@@ -180,7 +180,7 @@ module PngClassify
     w = ihdr[:w]
     h = ihdr[:h]
     return nil if w.nil? || h.nil? || w < 1 || h < 1
-    return nil if w * h > MAX_PIXELS
+    return nil if max_pixels && w * h > max_pixels
 
     bpp    = ihdr[:ct] == 6 ? 4 : 3
     raw    = Zlib::Inflate.inflate(idat)

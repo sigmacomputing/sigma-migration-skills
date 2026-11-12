@@ -1,0 +1,107 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "orders",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "ORDERS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "orders-order_id",
+              "formula": "[ORDERS/ORDER_ID]"
+            },
+            {
+              "id": "orders-customer_key",
+              "formula": "[ORDERS/CUSTOMER_KEY]"
+            },
+            {
+              "id": "orders-product_key",
+              "formula": "[ORDERS/PRODUCT_KEY]"
+            },
+            {
+              "id": "orders-amount",
+              "formula": "[ORDERS/AMOUNT]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-orders-0",
+              "targetElementId": "cust",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-customer_key",
+                  "targetColumnId": "cust-customer_key"
+                }
+              ]
+            },
+            {
+              "id": "rel-orders-1",
+              "targetElementId": "prod",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-product_key",
+                  "targetColumnId": "prod-product_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cust",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "DIM_CUSTOMER"
+            ]
+          },
+          "columns": [
+            {
+              "id": "cust-customer_key",
+              "formula": "[DIM_CUSTOMER/CUSTOMER_KEY]"
+            },
+            {
+              "id": "cust-customer_name",
+              "formula": "[DIM_CUSTOMER/CUSTOMER_NAME]"
+            }
+          ]
+        },
+        {
+          "id": "prod",
+          "kind": "table",
+          "source": {
+            "kind": "sql",
+            "connectionId": "conn-1",
+            "statement": "select product_key, product_name\n  from public.products where active"
+          },
+          "columns": [
+            {
+              "id": "prod-product_key",
+              "formula": "[PROD/PRODUCT_KEY]"
+            },
+            {
+              "id": "prod-product_name",
+              "formula": "[PROD/PRODUCT_NAME]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

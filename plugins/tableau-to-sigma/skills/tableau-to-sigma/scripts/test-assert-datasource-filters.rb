@@ -32,7 +32,7 @@ SCRIPT = File.expand_path('assert-datasource-filters.rb', __dir__)
 # a false FAIL.
 LIVE_SPEC = {
   'workbookId' => 'wb-test',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 3,
     'pages' => [{
       'id' => 'p1',
@@ -70,8 +70,8 @@ Dir.mktmpdir do |dir|
   srv = WEBrick::HTTPServer.new(Port: 0, BindAddress: '127.0.0.1',
                                  Logger: WEBrick::Log.new(File::NULL), AccessLog: [])
   port = srv.config[:Port]
-  srv.mount_proc('/v2/workbooks/wb-test/spec') do |req, res|
-    check(req.request_method == 'GET', 'gate issues a GET for the spec', fails)
+  srv.mount_proc('/v2/workbooks/wb-test') do |req, res|
+    check(req.request_method == 'GET' && req.query_string.to_s.include?('includeContents=true'), 'gate issues a GET for the spec (includeContents)', fails)
     res.body = JSON.generate(LIVE_SPEC)
     res['Content-Type'] = 'application/json'
     res.status = 200

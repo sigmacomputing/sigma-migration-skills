@@ -69,8 +69,8 @@ check(f == 'DateTrunc("month", [Master/Order Date])',
 check(f !~ /Month of Order Date/,
       'x-axis does NOT reference the broken passthrough [Master/Month of Order Date]', fails)
 check(xcol && xcol.dig('format', 'kind') == 'datetime' &&
-      xcol.dig('format', 'formatString') == '%B %Y',
-      "month-grain axis preserves full month-year labels (got #{xcol && xcol['format'].inspect})", fails)
+      xcol.dig('format', 'formatString') == '%b %Y',
+      "month-grain axis uses the short month-year label (plan C8) (got #{xcol && xcol['format'].inspect})", fails)
 check(line && line.dig('xAxis', 'format', 'labels') ==
       { 'labelAngle' => 0, 'fontSize' => 11, 'allowLongerLabels' => true },
       "x-axis labels are kept horizontal and long-form (got #{line && line.dig('xAxis', 'format', 'labels').inspect})", fails)

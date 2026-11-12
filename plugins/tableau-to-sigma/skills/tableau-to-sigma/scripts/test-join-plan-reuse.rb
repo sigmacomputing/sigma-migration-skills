@@ -33,8 +33,12 @@ check(!derive_at.nil?, 'ledger derivation present', fails)
 check(src.scan('JoinPlan.derive').size == 1, 'ONE shared derivation call (no build-only twin to drift)', fails)
 check(src.include?('_jp_spec = reuse_dm_id ? dm_spec_rb : dm'),
       'reuse path scans the LIVE DM readback spec (dm_spec_rb) for Lookup( synthesis', fails)
-check(src.match?(/JoinPlan\.derive\(_jp_spec,\s*_jp_twb,\s*\n?\s*db:\s*db \|\| opts\[:db\],\s*schema:\s*schema \|\| opts\[:schema\]\)/),
-      'derivation receives the resolved --db/--schema with a flag fallback (nil on the FAST PATH)', fails)
+# db/schema: resolved value → flag → (FAST PATH, where discovery never ran)
+# the same non-fatal resolver the full run used, so VC labels get DB.SCHEMA.T.
+check(src.include?('_jp_db = db || opts[:db]') && src.include?('_jp_schema = schema || opts[:schema]') &&
+      src.include?('wh_try.call(_jp_twb_path)') &&
+      src.match?(/JoinPlan\.derive\(_jp_spec,\s*_jp_twb,\s*db:\s*_jp_db,\s*schema:\s*_jp_schema\)/),
+      'derivation receives the resolved --db/--schema with a flag fallback, then the resolver on the FAST PATH', fails)
 # Twin-B live defect (2026-07-19): have_twb is only assigned inside the
 # full-pipeline block, so the FAST PATH derived from a nil .twb — the source
 # LEFT JOIN never landed and gate 16 passed on an EMPTY ledger. The .twb must

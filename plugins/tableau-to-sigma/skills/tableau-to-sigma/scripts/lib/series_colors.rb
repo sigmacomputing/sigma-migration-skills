@@ -35,6 +35,42 @@ module SeriesColors
 
   HEX = /\A#[0-9a-f]{6}\z/.freeze
 
+  # Tableau's default categorical palette ("Tableau 10"), in assignment order.
+  TABLEAU10 = %w[#4e79a7 #f28e2b #e15759 #76b7b2 #59a14f
+                 #edc948 #b07aa1 #ff9da7 #9c755f #bab0ac].freeze
+
+  # C5: members in Tableau's order — the source's manual sort first (only the
+  # members actually present), then the rest ascending alphabetical (Tableau's
+  # default). Pure.
+  def tableau_member_order(members, manual_order = nil)
+    ms = Array(members).map { |m| m.to_s.strip }.reject(&:empty?).uniq
+    manual = Array(manual_order).map { |m| m.to_s.strip }
+    lead = manual.select { |m| ms.include?(m) }.uniq
+    lead + (ms - lead).sort_by { |m| [m.downcase, m] }
+  end
+
+  # C5 (and the interface for the legend task): the resolved, ORDERED member →
+  # hex map for one colour dimension. With no explicit assignment Tableau hands
+  # TABLEAU10 out in member order (cycling past 10); an explicit per-member
+  # colour (case-insensitive lookup in `explicit`) always wins for that member.
+  # Hash order = Tableau's member order. Pure.
+  def resolved_member_map(members, explicit = {}, manual_order = nil)
+    lookup = (explicit.is_a?(Hash) ? explicit : {}).each_with_object({}) do |(k, v), h|
+      h[k.to_s.downcase] = v.to_s.downcase if v.to_s.downcase =~ HEX
+    end
+    tableau_member_order(members, manual_order).each_with_index.each_with_object({}) do |(m, i), h|
+      h[m] = lookup[m.downcase] || TABLEAU10[i % TABLEAU10.size]
+    end
+  end
+
+  # Sigma binds a categorical scheme positionally in ASCENDING member order, so
+  # the scheme is the resolved map's colours re-sorted to that order (a manual
+  # Tableau order is carried by each member's colour, not by slot position).
+  def scheme_from_map(map)
+    return nil unless map.is_a?(Hash) && map.size >= 2
+    map.keys.sort_by { |m| m.to_s.downcase }.map { |m| map[m] }
+  end
+
   # Ordered scheme for one chart: members ascending (case-insensitive), one
   # color per slot. nil unless there are ≥2 well-formed assignments.
   def ordered_scheme(pairs)

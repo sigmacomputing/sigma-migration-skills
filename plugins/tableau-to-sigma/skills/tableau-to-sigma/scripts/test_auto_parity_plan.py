@@ -128,9 +128,54 @@ class AutoParityPlanTest(unittest.TestCase):
         self.assertEqual("Sales Sheet", chart["tableau_view"])
         self.assertEqual("provenance", chart["matched_via"])
         self.assertEqual(["x-region", "y-sales"], chart["sigma_columns"])
+        self.assertEqual(["Region", "Sales"], chart["sigma_column_names"])
         self.assertEqual([["East", 100.0], ["West", 200.0]], chart["expected"])
         self.assertEqual("wb-1", chart["workbookId"])
         self.assertIn('"workbook"."el-sales"', chart["sql_template"])
+
+    def _pie_plan(self, kind):
+        root, spec_path = self.fixture("Region,Pct of Sales,Sales\nEast,33.3%,100\nWest,66.7%,200\n")
+        workbook = json.loads(spec_path.read_text(encoding="utf-8"))
+        element = workbook["document"]["elements"][1]
+        element["kind"] = kind
+        element.pop("xAxis")
+        element.pop("yAxis")
+        element["columns"].append({"id": "lbl-pct", "name": "Pct of Sales"})
+        element["color"] = {"columnId": "x-region"}
+        element["value"] = {"columnId": "y-sales"}
+        spec_path.write_text(json.dumps(workbook), encoding="utf-8")
+        plan = auto_parity_plan.build_plan(
+            root, spec_path, workbook_id="wb-1", dashboards_scope=["overview"]
+        )
+        return plan["charts"][0]
+
+    def test_pie_and_donut_plan_only_plotted_columns(self):
+        # 2026-11-05 live proof: a bar -> pie convert_to keeps its label column,
+        # which a pie's export and MCP query never return.
+        for kind in ("pie-chart", "donut-chart"):
+            chart = self._pie_plan(kind)
+            self.assertEqual(["x-region", "y-sales"], chart["sigma_columns"])
+            self.assertEqual(["Region", "Sales"], chart["sigma_column_names"])
+            self.assertEqual([["East", 100.0], ["West", 200.0]], chart["expected"])
+            self.assertEqual(["Pct of Sales"], chart["unplotted_columns"])
+            self.assertNotIn("lbl-pct", chart["sql_template"])
+
+    def test_pie_keeps_an_unplotted_text_column(self):
+        root, spec_path = self.fixture("Region,Segment,Sales\nEast,Retail,100\nWest,Online,200\n")
+        workbook = json.loads(spec_path.read_text(encoding="utf-8"))
+        element = workbook["document"]["elements"][1]
+        element["kind"] = "pie-chart"
+        element.pop("xAxis")
+        element.pop("yAxis")
+        element["columns"].append({"id": "seg", "name": "Segment"})
+        element["color"] = {"columnId": "x-region"}
+        element["value"] = {"columnId": "y-sales"}
+        spec_path.write_text(json.dumps(workbook), encoding="utf-8")
+        chart = auto_parity_plan.build_plan(
+            root, spec_path, workbook_id="wb-1", dashboards_scope=["overview"]
+        )["charts"][0]
+        self.assertEqual(["x-region", "seg", "y-sales"], chart["sigma_columns"])
+        self.assertNotIn("unplotted_columns", chart)
 
     def test_measure_names_values_csv_is_pivoted_to_wide(self):
         root, spec_path = self.fixture(
@@ -156,6 +201,126 @@ class AutoParityPlanTest(unittest.TestCase):
             ["x-month", "y-sales", "y-profit"],
             plan["charts"][0]["sigma_columns"],
         )
+
+    def test_long_export_preserves_every_dimension_and_rejects_duplicate_cells(self):
+        root, _ = self.fixture("Region,Segment,Measure Names,Measure Values\nNorth,007,Sales,10\nNorth,007,Profit,3\n")
+        headers, rows = auto_parity_plan.read_expected_csv(root / "views/v1.csv", "Panel")
+        self.assertEqual(["Region", "Segment", "Sales", "Profit"], headers)
+        self.assertEqual([["North", "007", 10.0, 3.0]], rows)
+        (root / "views/v1.csv").write_text("Region,Measure Names,Measure Values\nNorth,Sales,10\nNorth,Sales,20\n")
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "duplicate"):
+            auto_parity_plan.read_expected_csv(root / "views/v1.csv", "Panel")
+
+    def test_column_identity_never_falls_back_to_position_or_an_ambiguous_alias(self):
+        chart = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-birth", "name": "Birth"}, {"id": "y-year", "name": "Year of Birth"}],
+            "xAxis": {"columnId": "x-birth"}, "yAxis": {"columnIds": ["y-year"]}}
+        self.assertEqual(["y-year"], auto_parity_plan.select_columns(chart, ["Year of Birth"]))
+        with self.assertRaises(auto_parity_plan.PlanError):
+            auto_parity_plan.select_columns(chart, ["Unknown dimension", "Unknown measure"])
+        chart["columns"] = [{"id": "y-a", "name": "Value"}, {"id": "y-b", "name": "Value"}]
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "ambiguous"):
+            auto_parity_plan.select_columns(chart, ["Value"])
+
+    def _plan(self, csv_body):
+        root, spec_path = self.fixture(csv_body)
+        return auto_parity_plan.build_plan(
+            root, spec_path, workbook_id="wb-1", dashboards_scope=["overview"]
+        )["charts"][0]
+
+    def test_virtual_connection_qualified_headers_resolve_to_base_field(self):
+        for header in (
+            "Region (DIM_A (SCHEMA_A.DIM_A))",
+            "Region (DIM_A (SCHEMA_A.DIM_A)) (DIM_B (SCHEMA_A.DIM_B))",
+        ):
+            chart = self._plan(f"{header},Sales\nEast,100\n")
+            self.assertEqual(["x-region", "y-sales"], chart["sigma_columns"])
+            self.assertEqual([["East", 100.0]], chart["expected"])
+        chart = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-a", "name": "Region", "table": "DIM_A"},
+            {"id": "x-b", "name": "Region", "table": "DIM_B"}]}
+        self.assertEqual(["x-b"], auto_parity_plan.select_columns(chart, ["Region (DIM_B (SCHEMA_A.DIM_B))"]))
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "ambiguous"):
+            auto_parity_plan.select_columns(chart, ["Region (DIM_C (SCHEMA_A.DIM_C))"])
+
+    def test_vc_suffix_forms_match_both_ways(self):
+        # live-proof shape: the DM names the shared VC field "<field> (<table>)"
+        dm = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-state", "name": "State (DIM_A)"}, {"id": "y-sales", "name": "Sales"}]}
+        self.assertEqual(["x-state", "y-sales"], auto_parity_plan.select_columns(
+            dm, ["State (DIM_A (SCHEMA_A.DIM_A))", "Sales"]))
+        # plain header, Sigma suffix is a VC table another header names
+        mixed = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-state", "name": "State (DIM_A)"}, {"id": "c-city", "name": "City"},
+            {"id": "y-sales", "name": "Sales"}]}
+        self.assertEqual(["x-state", "c-city", "y-sales"], auto_parity_plan.select_columns(
+            mixed, ["State", "City (DIM_A (SCHEMA_A.DIM_A))", "Sales"]))
+        # a non-table parenthetical is never peeled
+        usd = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-region", "name": "Region"}, {"id": "y-sales", "name": "Sales (USD)"}]}
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "unresolved"):
+            auto_parity_plan.select_columns(usd, ["Region", "Sales"])
+
+    def test_vc_qualified_flag_column_is_skipped_with_reason(self):
+        element = {"kind": "bar-chart", "id": "panel", "columns": [
+            {"id": "x-region", "name": "Region (DIM_A)"}, {"id": "y-sales", "name": "Sales"}]}
+        header = ["Region (DIM_A (SCHEMA_A.DIM_A))", "Is Promo (DIM_P (SCHEMA_A.DIM_P))", "Sales"]
+        kept, body, skipped = auto_parity_plan.drop_unplotted_columns(
+            element, header, [["East", "True", "10"], ["West", "False", "20"]])
+        self.assertEqual([header[0], header[2]], kept)
+        self.assertEqual([["East", "10"], ["West", "20"]], body)
+        self.assertEqual(["Is Promo (DIM_P (SCHEMA_A.DIM_P))"], [s["header"] for s in skipped])
+        self.assertIn("formatting-only", skipped[0]["reason"])
+
+    def test_generated_geo_and_flag_columns_are_skipped_with_recorded_reason(self):
+        chart = self._plan(
+            "Region,Latitude (generated),Longitude (generated),Over Flag,Sales\n"
+            "East,1.5,2.5,true,100\nWest,3.5,4.5,false,200\n"
+        )
+        self.assertEqual(["x-region", "y-sales"], chart["sigma_columns"])
+        self.assertEqual([["East", 100.0], ["West", 200.0]], chart["expected"])
+        self.assertEqual(
+            ["Latitude (generated)", "Longitude (generated)", "Over Flag"],
+            [item["header"] for item in chart["skipped_columns"]],
+        )
+        self.assertTrue(all(item["reason"] for item in chart["skipped_columns"]))
+
+    def test_tooltip_only_field_is_skipped_with_reason(self):
+        # Stress 4 "Store State Map": the CSV exports the tooltip-only Orders
+        # field; the Sigma region map plots Net Revenue only.
+        dashboards = [{"zones": [{"kind": "chart", "caption": "Store State Map",
+                                  "channels": {"color": {"column": "[ds].[sum:Sales Rank:qk]"},
+                                               "tooltip": {"column": "[ds].[sum:Sales Rank:qk]"}},
+                                  "measures": [{"column": "[Sales Rank]"}, {"column": "[Sales]"}],
+                                  "tooltip_fields": ["[ds].[sum:Sales Rank:qk]", "[ds].[usr:Sales:qk]"]}]}]
+        meta = {"columns_by_guid": {"Sales Rank": {"caption": "Net Revenue"}, "Sales": {"caption": "Orders"}}}
+        self.assertEqual(["Orders"], auto_parity_plan.tooltip_only_captions(dashboards, meta, "Store State Map"))
+        element = {"kind": "region-map", "id": "map", "columns": [
+            {"id": "x-state", "name": "State (STORE_DIM)"}, {"id": "y-rev", "name": "Net Revenue"}]}
+        header = ["State (STORE_DIM (DB.STORE_DIM))", "Orders", "Net Revenue"]
+        kept, body, skipped = auto_parity_plan.drop_unplotted_columns(
+            element, header, [["AZ", "0", ""], ["CA", "107", "15,964.83"]], ["Orders"])
+        self.assertEqual([header[0], header[2]], kept)
+        self.assertEqual(["Orders"], [s["header"] for s in skipped])
+        self.assertIn("tooltip-only", skipped[0]["reason"])
+        # a field on a plotted channel is never tooltip-only
+        self.assertEqual([], auto_parity_plan.tooltip_only_captions(
+            [{"zones": [dict(dashboards[0]["zones"][0], tooltip_fields=["[ds].[sum:Sales Rank:qk]"])]}], meta, "Store State Map"))
+        # without the tooltip signal the unmatched column still aborts
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "unresolved"):
+            kept, _, _ = auto_parity_plan.drop_unplotted_columns(element, header, [["AZ", "0", ""]])
+            auto_parity_plan.select_columns(element, kept)
+
+    def test_unmatched_numeric_column_is_not_skipped(self):
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "unresolved"):
+            self._plan("Region,Mystery,Sales\nEast,5,100\nWest,6,200\n")
+
+    def test_unmatched_singleton_text_dimension_is_not_skipped(self):
+        with self.assertRaisesRegex(auto_parity_plan.PlanError, "unresolved"):
+            self._plan(
+                "Region,Mystery,Sales\n"
+                "East,Only Member,100\nWest,Only Member,200\n"
+            )
 
     def test_table_calc_addressing_is_stripped_from_measure_names_labels(self):
         root, spec_path = self.fixture(

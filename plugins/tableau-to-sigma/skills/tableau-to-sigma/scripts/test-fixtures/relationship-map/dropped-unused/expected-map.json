@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "a278bb7af85df20cc21e4cfbecbd952ad1bc3b87d40d453ee4e39731591e989c",
+    "dm_sha256": "7ec7419728c2b208589714ad3dbaa4527d2c1da3daa768591b97e01ab0779dec"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.ORDERS",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "orders"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "cust"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.DIM_PRODUCT",
+      "datasource": "Sales",
+      "dm_element_ids": [
+
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "orders->cust",
+      "edge_sha": "bd3558e93fc546581d51240d7cca7b121cfdf745585b7eb155472254f9a66b3f",
+      "source_element": "orders",
+      "target_element": "cust",
+      "source_table": "ANALYTICS.PUBLIC.ORDERS",
+      "target_table": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "keys": [
+        {
+          "source": "CUSTOMER_KEY",
+          "target": "CUSTOMER_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.DIM_CUSTOMER",
+      "tableau_keys": [
+        {
+          "left": "CUSTOMER_KEY",
+          "right": "CUSTOMER_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "orders->cust"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "ANALYTICS.PUBLIC.ORDERS",
+      "right": "ANALYTICS.PUBLIC.DIM_PRODUCT",
+      "tableau_keys": [
+        {
+          "left": "PRODUCT_KEY",
+          "right": "PRODUCT_KEY"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

@@ -114,9 +114,10 @@ When Phase 1d recorded a list control that **filters** some tiles (`target_tiles
 
 > **`folderId` is required here too.**
 
-> **The workbook body is `document`-wrapped, not flat (verified live 2026-08-03,
-> including on `POST /v2/workbooks/spec/verify` 2026-08-04).** `schemaVersion`,
-> `pages`, `kind`, and `layout` all nest under a top-level `document` key; only
+> **The workbook body is wrapped, not flat (verified live 2026-08-03,
+> including on the dry run 2026-08-04).** `schemaVersion`,
+> `pages`, `kind`, and `layout` all nest under a top-level `contents` key
+> (`document` on the retired `/spec` endpoints and in on-disk artifacts); only
 > ownership/location metadata (`name`, `folderId`, `ownerId`) stays outside it.
 > The old flat body (these fields at the request root) now 400s fleet-wide.
 > Data-model specs (`POST /v2/dataModels/spec`) are unaffected and remain flat
@@ -346,13 +347,13 @@ workbooks with no `<dashboard>` element, or a layout you want to redesign),
 write a per-workbook layout config that `require`s the helper library.
 Never hand-write layout XML directly.
 
-> **PUT /v2/workbooks/{id}/spec wipes the `layout` string** (`document.layout`
+> **PUT /v2/workbooks/{id}/contents wipes the `layout` string** (`contents.layout`
 > in the current wrapped shape). If you re-PUT the workbook spec after a
 > formula fix (or any other spec edit), the existing layout is **erased** and
 > the workbook reverts to a single auto-stacked column. Two ways to avoid the
 > round trip:
 > 1. **Preferred:** re-emit the layout XML in the same PUT body — set
->    `document.layout` to the assembled XML string before PUTting.
+>    `contents.layout` to the assembled XML string before PUTting.
 > 2. Or PUT layout separately AFTER spec via `scripts/put-layout.rb`. That
 >    script GETs the spec, replaces just the layout field, and PUTs back. Cost:
 >    one extra round trip (~5-15s) and an export to confirm.

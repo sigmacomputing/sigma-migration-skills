@@ -62,6 +62,12 @@ TWB = <<~XML
               <column-instance column='[a1b2c3d4-1111-2222-3333-444455556666]' derivation='None' name='[none:a1b2c3d4-1111-2222-3333-444455556666:nk]' pivot='key' type='nominal' />
               <column-instance column='[33b6c718-9b55-3dc0-9698-d1d57fac0f90]' derivation='Sum' name='[sum:33b6c718-9b55-3dc0-9698-d1d57fac0f90:qk]' pivot='key' type='quantitative' />
             </datasource-dependencies>
+            <manual-sort column='[federated.fact].[none:a1b2c3d4-1111-2222-3333-444455556666:nk]' direction='ASC'>
+              <dictionary>
+                <bucket>&quot;Top 500&quot;</bucket>
+                <bucket>&quot;Bottom 500&quot;</bucket>
+              </dictionary>
+            </manual-sort>
           </view>
           <style>
             <style-rule element='mark'>
@@ -142,6 +148,11 @@ check(sc == [{ 'member' => 'Top 500', 'color' => '#f2c037' },
       "series_colors = member→color pairs in .twb document order (got #{sc.inspect})", fails)
 check(tier && tier['series_color_field'] == 'Value Tier',
       "series_color_field resolves the encoding GUID → caption (got #{tier && tier['series_color_field'].inspect})", fails)
+
+# C5: manual member order on the colour dimension surfaces as color_manual_order
+check(tier && tier['color_manual_order'] == ['Top 500', 'Bottom 500'],
+      "color_manual_order = manual-sort buckets in order (got #{tier && tier['color_manual_order'].inspect})", fails)
+check(heat && heat['color_manual_order'].nil?, 'a sheet with no manual sort keeps color_manual_order nil', fails)
 
 # ---- 2. ramp encodings are NOT series maps ---------------------------------
 check(heat && heat['series_colors'].nil?,

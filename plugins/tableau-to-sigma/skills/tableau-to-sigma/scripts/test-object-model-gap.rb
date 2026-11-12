@@ -83,6 +83,9 @@ check(plan && plan['datasources'][0]['fact_candidate'] == 'FACT_VISITS',
       "plan sidecar carries the degree-based fact candidate (got #{plan && plan['datasources'][0]['fact_candidate']})")
 check(plan['datasources'][0]['relationships'].all? { |r| r['status'] == 'wired' },
       'plan sidecar: every relationship status wired')
+check(plan['datasources'][0]['role_signals']['FACT_VISITS']['name_role'] == 'fact' &&
+      plan['datasources'][0]['role_signals']['DIM_DATES']['name_role'] == 'dimension',
+      'plan sidecar carries neutral role signals for downstream topology planning')
 check(detail.is_a?(Array) && detail[0]['unwired'].zero?, 'detail row reports 0 unwired')
 
 puts 'Part B — missing serialized keys must TRIP with the per-pair punch list'

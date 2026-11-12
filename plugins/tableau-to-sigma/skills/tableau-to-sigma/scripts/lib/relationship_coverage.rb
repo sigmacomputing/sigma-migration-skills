@@ -3,6 +3,7 @@
 require 'digest'
 require 'json'
 require_relative 'ruby_compat'
+require_relative 'twb_xml'
 
 # Normalize and evaluate the Tableau converter's object-graph relationship
 # ledger. A wired-but-partial edge is blocking: dropping one computed
@@ -30,6 +31,17 @@ module RelationshipCoverage
     object_graph = source_text.to_s.match?(/<(?:[^<>\s]*\.true\.\.\.)?object-graph[\s>\/]/)
 
     unless coverage.is_a?(Hash)
+      if object_graph
+        begin
+          graphs = TwbXml.parse(source_text).elements.to_a('//object-graph')
+          no_edges = graphs.any? && graphs.all? do |graph|
+            graph.elements.to_a('.//object').size == 1 && graph.elements.to_a('.//relationship').empty?
+          end
+          object_graph = false if no_edges
+        rescue StandardError
+          # Unreadable/ambiguous source is not evidence of a zero-edge model.
+        end
+      end
       blockers = object_graph ? [{
         'kind' => 'coverage-missing',
         'reason' => 'source contains an object-graph but converter metadata has no relationshipCoverage ledger'

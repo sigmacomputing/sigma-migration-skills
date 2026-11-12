@@ -1,0 +1,289 @@
+{
+  "name": "Dim Unmatched Members",
+  "document": {
+    "pages": [
+      {
+        "id": "page-data",
+        "name": "Data"
+      },
+      {
+        "id": "page-dash-1",
+        "name": "Store Network"
+      }
+    ],
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master-stores\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n\n  <Element elementId=\"master-stores-keep-store-dim\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-dash-1\">\n  <Element elementId=\"el-ctl-store-type\" gridColumn=\"1 / 25\" gridRow=\"1 / 3\"/>\n  <Element elementId=\"el-store-state-map\" gridColumn=\"1 / 25\" gridRow=\"3 / 11\"/>\n  <Element elementId=\"el-store-scorecard\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n  <Element elementId=\"el-ship-method-bar\" gridColumn=\"1 / 25\" gridRow=\"21 / 29\"/>\n  <Element elementId=\"el-store-type-bar\" gridColumn=\"1 / 25\" gridRow=\"29 / 37\"/>\n</Page>",
+    "elements": [
+      {
+        "id": "master-stores",
+        "kind": "table",
+        "name": "Master",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "dm-fixture",
+          "elementId": "fact-view"
+        },
+        "columns": [
+          {
+            "id": "m-order-id",
+            "name": "Order Id",
+            "formula": "[Order Fact View/Order Id]"
+          },
+          {
+            "id": "m-net-revenue",
+            "name": "Net Revenue",
+            "formula": "[Order Fact View/Net Revenue]"
+          },
+          {
+            "id": "m-ship",
+            "name": "Ship Method",
+            "formula": "[Order Fact View/Ship Method]"
+          },
+          {
+            "id": "m-store-name",
+            "name": "Store Name",
+            "formula": "[Order Fact View/Store Name (STORE_DIM)]"
+          },
+          {
+            "id": "m-store-type",
+            "name": "Store Type",
+            "formula": "[Order Fact View/Store Type (STORE_DIM)]"
+          },
+          {
+            "id": "m-state",
+            "name": "State (STORE_DIM)",
+            "formula": "[Order Fact View/State (STORE_DIM)]"
+          }
+        ]
+      },
+      {
+        "id": "master-stores-keep-store-dim",
+        "kind": "table",
+        "name": "Master (all STORE_DIM members)",
+        "source": {
+          "kind": "join",
+          "name": "Store Dim (all members)",
+          "primarySource": {
+            "kind": "data-model",
+            "dataModelId": "dm-fixture",
+            "elementId": "store-tbl"
+          },
+          "joins": [
+            {
+              "name": "Order Fact View",
+              "joinType": "left-outer",
+              "left": {
+                "kind": "data-model",
+                "dataModelId": "dm-fixture",
+                "elementId": "store-tbl"
+              },
+              "right": {
+                "kind": "data-model",
+                "dataModelId": "dm-fixture",
+                "elementId": "fact-view"
+              },
+              "columns": [
+                {
+                  "left": "[Store Key]",
+                  "right": "[Order Store Key]"
+                }
+              ]
+            }
+          ]
+        },
+        "columns": [
+          {
+            "id": "master-stores-keep-store-dim-m-state",
+            "name": "State (STORE_DIM)",
+            "formula": "[Store Dim (all members)/State]"
+          },
+          {
+            "id": "master-stores-keep-store-dim-m-net-revenue",
+            "name": "Net Revenue",
+            "formula": "[Order Fact View/Net Revenue]"
+          },
+          {
+            "id": "master-stores-keep-store-dim-m-order-id",
+            "name": "Order Id",
+            "formula": "[Order Fact View/Order Id]"
+          },
+          {
+            "id": "master-stores-keep-store-dim-m-store-name",
+            "name": "Store Name",
+            "formula": "[Store Dim (all members)/Store Name]"
+          },
+          {
+            "id": "master-stores-keep-store-dim-m-store-type",
+            "name": "Store Type",
+            "formula": "[Store Dim (all members)/Store Type]"
+          }
+        ]
+      },
+      {
+        "kind": "control",
+        "controlId": "ctl-store-type",
+        "id": "el-ctl-store-type",
+        "name": "Store Type",
+        "controlType": "segmented",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "master-stores"
+          },
+          "columnId": "m-store-type"
+        },
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "master-stores"
+            },
+            "columnId": "m-store-type"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "master-stores-keep-store-dim"
+            },
+            "columnId": "master-stores-keep-store-dim-m-store-type"
+          }
+        ],
+        "value": null
+      },
+      {
+        "id": "el-store-state-map",
+        "kind": "region-map",
+        "name": "Net Revenue by Store State",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores-keep-store-dim"
+        },
+        "columns": [
+          {
+            "id": "x-map",
+            "name": "State (STORE_DIM)",
+            "formula": "[Master (all STORE_DIM members)/State (STORE_DIM)]"
+          },
+          {
+            "id": "y-map",
+            "name": "Net Revenue",
+            "formula": "(Sum([Master (all STORE_DIM members)/Net Revenue]))"
+          },
+          {
+            "id": "t-map",
+            "name": "Orders",
+            "formula": "(CountDistinct([Master (all STORE_DIM members)/Order Id]))"
+          }
+        ],
+        "region": {
+          "columnId": "x-map",
+          "regionType": "us-state"
+        },
+        "label": [
+          {
+            "columnId": "t-map"
+          }
+        ]
+      },
+      {
+        "id": "el-store-scorecard",
+        "kind": "pivot-table",
+        "name": "Store Scorecard",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores-keep-store-dim"
+        },
+        "columns": [
+          {
+            "id": "p-row-store",
+            "name": "Store Name",
+            "formula": "[Master (all STORE_DIM members)/Store Name]"
+          },
+          {
+            "id": "p-val-rev",
+            "name": "Net Revenue",
+            "formula": "Sum([Master (all STORE_DIM members)/Net Revenue])"
+          },
+          {
+            "id": "p-val-orders",
+            "name": "Orders",
+            "formula": "CountDistinct([Master (all STORE_DIM members)/Order Id])"
+          }
+        ],
+        "rowsBy": [
+          {
+            "columnId": "p-row-store"
+          }
+        ],
+        "values": [
+          "p-val-rev",
+          "p-val-orders"
+        ]
+      },
+      {
+        "id": "el-ship-method-bar",
+        "kind": "bar-chart",
+        "name": "Revenue by Ship Method",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "x-ship",
+            "name": "Ship Method",
+            "formula": "[Master/Ship Method]"
+          },
+          {
+            "id": "y-ship",
+            "name": "Net Revenue",
+            "formula": "[Metrics/Total Net Revenue]"
+          }
+        ],
+        "xAxis": {
+          "columnIds": [
+            "x-ship"
+          ]
+        },
+        "yAxis": {
+          "columnIds": [
+            "y-ship"
+          ]
+        }
+      },
+      {
+        "id": "el-store-type-bar",
+        "kind": "bar-chart",
+        "name": "Revenue by Store Type",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "x-type",
+            "name": "Store Type",
+            "formula": "[Master/Store Type]"
+          },
+          {
+            "id": "y-type",
+            "name": "Net Revenue",
+            "formula": "[Metrics/Total Net Revenue]"
+          }
+        ],
+        "xAxis": {
+          "columnIds": [
+            "x-type"
+          ]
+        },
+        "yAxis": {
+          "columnIds": [
+            "y-type"
+          ]
+        }
+      }
+    ]
+  }
+}

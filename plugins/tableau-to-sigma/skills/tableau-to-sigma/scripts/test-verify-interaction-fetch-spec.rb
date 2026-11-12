@@ -54,7 +54,7 @@ ELEMENTS = [
 ].freeze
 NESTED_SPEC = {
   'workbookId' => 'wb-test',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 4,
     'kind' => 'workbook',
     'pages' => [{ 'id' => 'p1', 'name' => 'Dashboard' }],
@@ -73,7 +73,7 @@ SIGMA_STUB = <<~RUBY
         File.open(ENV['SIGMA_STUB_LOG'], 'a') { |f| f.puts JSON.generate('method' => method.to_s, 'path' => path) }
       end
       case
-      when method == :get && path == '/v2/workbooks/wb-test/spec'
+      when method == :get && path == '/v2/workbooks/wb-test?includeContents=true'
         JSON.parse(JSON.generate(NESTED_SPEC))
       else
         raise Error, "stub: unexpected \#{method} \#{path}"
@@ -133,7 +133,7 @@ Dir.mktmpdir do |dir|
         "exits 2 (nothing PROBEABLE for Tableau pairing -- expected; unrelated to this fix) (got #{st.exitstatus})", fails)
 
   reqs = File.exist?(log) ? File.readlines(log).map { |l| JSON.parse(l) } : []
-  check(reqs.any? { |r| r['method'] == 'get' && r['path'] == '/v2/workbooks/wb-test/spec' },
+  check(reqs.any? { |r| r['method'] == 'get' && r['path'] == '/v2/workbooks/wb-test?includeContents=true' },
         'spec GET issued', fails)
 end
 

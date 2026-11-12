@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "a7b3014e60637645a76321fd9d1147d6fa28f8be0676191a6ea6550ceb438ef6",
+    "dm_sha256": "8a3a4f010e30c56742a8bdec5d732f1bf57ae7c209ac445888a1b4de9f02a674"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.EMPLOYEES",
+      "datasource": "People",
+      "dm_element_ids": [
+        "emp"
+      ]
+    }
+  ],
+  "dm_edges": [
+
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "People",
+      "left": "ANALYTICS.PUBLIC.EMPLOYEES",
+      "right": "ANALYTICS.PUBLIC.EMPLOYEES",
+      "tableau_keys": [
+        {
+          "left": "MANAGER_ID",
+          "right": "EMP_ID"
+        }
+      ],
+      "disposition": "disconnected",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

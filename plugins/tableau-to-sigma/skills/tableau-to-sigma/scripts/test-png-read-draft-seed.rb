@@ -117,6 +117,30 @@ Dir.mktmpdir do |d|
   ok, errs = DashboardRead.validate(d)
   check(!ok && errs.any? { |e| e =~ /point_in_time/ }, 'highlight pattern without point_in_time is rejected', fails)
 end
+# Live re-proof: the source has NO point-in-time semantics (no year/date sheet
+# filter, no latest-period calc) — a missing or seeded-but-null latest_year is
+# then not a stop; with a real year filter it still is.
+layout_no_pit = [{ 'dashboard' => 'D', 'zones' => [
+  { 'caption' => 'Trend', 'filters' => [{ 'column_caption' => 'Region', 'kind' => 'list', 'members' => [] }],
+    'calculations' => [{ 'formula' => '{ FIXED [Customer Id] : MIN(YEAR([Order Date])) }' }] }] }]
+[['no point_in_time block', ->(doc) { doc.delete('point_in_time') }],
+ ['seeded point_in_time with latest_year null', ->(doc) { doc['point_in_time']['latest_year'] = nil }]].each do |label, mut|
+  Dir.mktmpdir do |d|
+    doc = hl_doc
+    mut.call(doc)
+    File.write(DashboardRead.path(d), JSON.dump(doc))
+    File.write(File.join(d, 'dashboard-layout.json'), JSON.dump(layout_no_pit))
+    ok, errs = DashboardRead.validate(d)
+    check(ok, "no PIT signals in the source: #{label} is accepted (#{errs.inspect})", fails)
+    with_pit = JSON.parse(JSON.dump(layout_no_pit))
+    with_pit[0]['zones'][0]['filters'] << { 'column_caption' => 'Year', 'kind' => 'list', 'members' => ['2015'] }
+    File.write(File.join(d, 'dashboard-layout.json'), JSON.dump(with_pit))
+    ok, errs = DashboardRead.validate(d)
+    check(!ok && errs.any? { |e| e =~ /point_in_time/ }, "a year sheet filter keeps the requirement (#{label})", fails)
+  end
+end
+check(DashboardRead.point_in_time_signals?(Dir.mktmpdir).nil?, 'no dashboard-layout.json -> unknown (requirement kept)', fails)
+
 # A non-temporal source can explicitly prove the snapshot rewrite is not
 # applicable while retaining highlight-only control behavior.
 Dir.mktmpdir do |d|

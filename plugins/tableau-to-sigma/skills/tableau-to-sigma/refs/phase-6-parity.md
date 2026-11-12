@@ -85,8 +85,8 @@ The gate checks five independent things and rejects on any failure:
    in the Sigma UI but slipped past the initial POST's guard because it
    was introduced by a later PUT (layout update, spec edit during error
    recovery).
-4. **Layout applied** — fetches `/v2/workbooks/{id}/spec` and rejects
-   when the `layout` field (`document.layout` in the current wrapped spec
+4. **Layout applied** — fetches `/v2/workbooks/{id}?includeContents=true` and rejects
+   when the `layout` field (`contents.layout` in the current wrapped spec
    shape) is empty or has fewer than 2
    `<Element>` tags. Catches the CoCo regression where the agent
    forgot to PUT a layout and Sigma rendered every tile as a
@@ -106,9 +106,9 @@ code means downgrade to YELLOW (parity skipped or incomplete, orphans
 left, runtime errors visible, layout missing) or RED (parity failed).
 See [bead], [bead], [bead].
 
-> **POST vs PUT for spec updates.** `POST /v2/workbooks/spec` is
+> **POST vs PUT for spec updates.** `POST /v2/workbooks` is
 > create-only. After the first successful POST returns a workbook ID,
-> every subsequent spec update MUST use `PUT /v2/workbooks/{id}/spec`
+> every subsequent spec update MUST use `PUT /v2/workbooks/{id}/contents`
 > against that ID. Re-POSTing creates a duplicate workbook in the
 > customer's My Documents — and the gate will fail until you run
 > `cleanup-orphan-workbooks.rb`. `post-and-readback.rb` now prints a
@@ -229,8 +229,8 @@ After workbook PUT and before declaring GREEN you MUST:
 1. POST `/v2/workbooks/{wb}/export` with body `{pageId, format: {type: "png", pixelWidth: 1920, pixelHeight: 1500}}`.
 2. Poll `GET /v2/query/{q}/download` until content-type is `image/png` and save to `<WORK>/sigma-render.png`.
 3. Read `sigma-render.png` via the Read tool and visually compare against the source dashboard PNG you read in Phase 1d (and any per-sheet PNGs).
-4. **Blind grade (PR-9 — required for a pass):** your own read (step 3) drives the fix loop, but the PASS verdict must come from a **context-free blind grader**. Spawn a fresh subagent with `refs/blind-grader-brief.md` as its prompt, passing ONLY the source dashboard PNG path, `<WORK>/sigma-render.png`, the rubric path, and the output path `<WORK>/blind-grade.json` — no wb-spec, no run history, no builder context. It writes a sha256-bound `blind-grade.json` with per-dimension verdicts and per-tile chart-family readings (cross-checked against `wb-readback.json`/`png-read.json` — a fabricated grade is refused as inconsistent).
-5. **Record the verdict (machine-enforced — gate 8b):** run `ruby scripts/record-visual-check.rb --workdir <WORK> --agent-vision true --verdict pass --checklist "<six dimensions>" --blind-grade <WORK>/blind-grade.json --notes "<what you compared>"`. This stamps `visual_checked`/`blind_grade` into `parity-final.json`; `assert-phase6-ran.rb` (which `migrate-tableau.rb --finalize` runs for you) **exits 13** until a blind-graded pass is recorded — a pass without `--blind-grade` is refused by the recorder, and a self-attested/hand-stamped pass is refused by the gate (it re-verifies the grade sha-bound against the images on disk). If the render DIVERGES (your read OR the blind grade fails), record `--verdict divergent --notes "<gap>"` (the gate stays blocked), fix the spec, re-render, re-read, re-grade with a FRESH grader, then re-record `--verdict pass`. Sessions that cannot spawn a vision-capable grader: `--no-vision-waiver "<reason>"` (counted against the waiver budget). Any visual divergence forces YELLOW (or RED if a tile is missing or unreadable).
+4. **Blind grade (PR-9 — required for a pass):** your own read (step 3) drives the fix loop, but the PASS verdict must come from a **context-free blind grader**. Spawn a fresh subagent with `refs/blind-grader-brief.md` as its prompt, passing ONLY the five brief parameters (source PNG, `<WORK>/sigma-render.png`, rubric, catalog, `<WORK>/blind-grade.json`) — no wb-spec, no run history, no builder context. It writes a sha256-bound `blind-grade.json` with per-dimension verdicts and per-tile chart-family readings (cross-checked against `wb-readback.json`/`png-read.json` — a fabricated grade is refused as inconsistent).
+5. **Record the verdict (machine-enforced — gate 8b):** run `ruby scripts/record-visual-check.rb --workdir <WORK> --agent-vision true --blind-grade <WORK>/blind-grade.json --notes "<what you compared>"`; omit `--verdict`/`--checklist` (computed from the grade; a disagreeing one exits 2). This stamps `visual_checked`/`blind_grade` into `parity-final.json`; `assert-phase6-ran.rb` (which `migrate-tableau.rb --finalize` runs for you) **exits 13** until a blind grade is recorded — a pass without `--blind-grade` is refused, and a hand-stamped pass is refused by the gate (it re-verifies the grade against the images on disk). A recorded divergent grade passes gate 8b; after the fix budget the run finishes YELLOW — see `refs/gates.md` §Finish. If your own read finds a gap, fix the spec, re-render, re-grade with a FRESH grader, re-record. No vision-capable grader: `--no-vision-waiver "<reason>"` (budget-counted). Any visual divergence forces YELLOW (or RED if a tile is missing or unreadable).
 
 > **Visual QA is a mandatory gate — never skip, never declare done on HTTP 200.** A workbook that POSTs cleanly and passes CSV parity can still be visually broken (overlapping tiles, clipped titles, dead zones, floating filters; Sigma's grid has no z-order). After `export-chart-png.rb` renders the pages/elements:
 > 1. **Read each PNG** and check it against `refs/layout-visual-qa.md` (no overlaps/stacking, no dead zones, controls placed in-band, no clipped titles, even heights, right chart kind/format). Pair with the Tableau MCP `get-view-image` for source-vs-target.
@@ -320,19 +320,18 @@ only the export API's `parameters` map can flip a control programmatically).
 **Phase 6f — BLIND visual grade (PR-9, mandatory for a pass verdict).** Your own
 read is the fix loop, **not** the verdict — a field run self-graded its workbook
 6/6 PASS on visuals the customer rejected. When you believe the render matches,
-spawn a **FRESH context-free subagent** (Agent tool, `general-purpose`) whose
-prompt is `refs/blind-grader-brief.md` with exactly four parameters filled in:
-the source dashboard PNG path, the Sigma render PNG path, the rubric path
-(`refs/fidelity-rubric.md`), and the output path `<WORK>/blind-grade.json`.
-**Pass NOTHING else — no wb-spec, no parity artifacts, no run history, no
-transcript, no "context", no expected outcome.** Any run context anchors the
-grade and voids it. The grader Reads both images and writes `blind-grade.json`
+spawn a **FRESH context-free subagent** whose
+prompt is `refs/blind-grader-brief.md` with exactly five parameters: `{{SOURCE_PNG}}`,
+`{{TARGET_PNG}}`, `{{RUBRIC_PATH}}`=`refs/fidelity-rubric.md`,
+`{{CATALOG_PATH}}`=`refs/sigma-platform-differences.json`, `{{OUT_JSON}}`=`<WORK>/blind-grade.json`
+(second grader only when the recorder says so: `blind-grade-2.json`, `--blind-grade-2`).
+**Pass NOTHING else — no wb-spec, parity artifacts, run history, transcript,
+"context" or expected outcome.** Any run context voids the grade. The grader Reads both images and writes `blind-grade.json`
 (sha256-bound, per-dimension verdicts, per-tile chart families). Then record:
 `ruby scripts/record-visual-check.rb --workdir <WORK> --agent-vision true
---verdict pass --checklist "…" --blind-grade <WORK>/blind-grade.json` — a pass
-without a passing blind grade is REFUSED (and gate 8b re-verifies the grade
-hash-bound). Blind grade FAILS → record `--verdict divergent`, fix its top
-gaps, re-render, re-grade with a fresh grader. Only if the session cannot spawn
+--blind-grade <WORK>/blind-grade.json` (no `--verdict`/`--checklist`: computed from
+the grade) — a pass without a blind grade is REFUSED. Divergent grade → fix its top
+gaps, re-render, re-grade with a fresh grader (or finish YELLOW, `gates.md` §Finish). Only if the session cannot spawn
 a vision-capable subagent: `--no-vision-waiver "<reason>"` (budget-counted,
 named in the report). Finish with the gate sequence:
 ```bash

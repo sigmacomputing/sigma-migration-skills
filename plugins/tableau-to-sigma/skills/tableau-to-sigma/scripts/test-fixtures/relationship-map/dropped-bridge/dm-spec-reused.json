@@ -1,0 +1,78 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "ship",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "SHIPMENTS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "ship-shipment_id",
+              "formula": "[SHIPMENTS/SHIPMENT_ID]"
+            },
+            {
+              "id": "ship-order_id",
+              "formula": "[SHIPMENTS/ORDER_ID]"
+            },
+            {
+              "id": "ship-weight",
+              "formula": "[SHIPMENTS/WEIGHT]"
+            },
+            {
+              "id": "ship-region_key",
+              "formula": "[SHIPMENTS/REGION_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-ship-0",
+              "targetElementId": "reg",
+              "keys": [
+                {
+                  "sourceColumnId": "ship-region_key",
+                  "targetColumnId": "reg-region_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "reg",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "REGIONS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "reg-region_key",
+              "formula": "[REGIONS/REGION_KEY]"
+            },
+            {
+              "id": "reg-region_name",
+              "formula": "[REGIONS/REGION_NAME]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

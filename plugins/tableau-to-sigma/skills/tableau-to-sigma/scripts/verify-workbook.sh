@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify-workbook.sh — confirm a created workbook's elements compile to valid SQL.
 #
-# Why this exists: POST /v2/workbooks/spec is generous. It accepts specs whose
+# Why this exists: POST /v2/workbooks is generous. It accepts specs whose
 # column formulas don't actually resolve, then surfaces the failures at query
 # time as string literals embedded in the compiled SQL — e.g.
 #   select 'Unknown column "[ORDER_TOTAL]"' V_44 from ...

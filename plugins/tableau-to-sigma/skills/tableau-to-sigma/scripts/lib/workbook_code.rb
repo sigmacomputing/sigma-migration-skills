@@ -17,6 +17,11 @@ module WorkbookCode
   GRID_COLUMNS = 24
   LEGACY_DOCUMENT_KEY = '__workbook_code_original_document'
   LEGACY_METADATA_KEY = '__workbook_code_original_metadata'
+  # Elements no layout page places (a control added by an edit whose author
+  # did not place it). The page-assigned legacy view cannot hold them, so they
+  # ride here and canonicalize() restores them — dropping them silently made
+  # the --reuse-workbook PUT lose the new control (live re-proof, exit 4).
+  LEGACY_UNPLACED_KEY = '__workbook_code_unplaced_elements'
 
   def document(spec)
     Sigma::CodeRep.document(spec)
@@ -54,6 +59,38 @@ module WorkbookCode
 
   def pages(spec)
     Array(document(spec)['pages']).select { |page| page.is_a?(Hash) }
+  end
+
+  # Successful writes can coerce requested bar marks into lines. Compare
+  # channels by stable ids, independent of column display order.
+  def combo_readback_errors(expected, actual)
+    errors = []
+    live_elements = Sigma::CodeRep.workbook_elements(document(actual))
+    elements(expected).select { |element| element['kind'] == 'combo-chart' }.each do |chart|
+      matches = live_elements.select { |element| element['id'] == chart['id'] }
+      if matches.size != 1 || matches.first['kind'] != 'combo-chart'
+        errors << "combo #{chart['id']}: readback chart missing, ambiguous, or changed kind"
+        next
+      end
+      live = matches.first
+      errors << "combo #{chart['id']}: x-axis binding changed" unless chart.dig('xAxis', 'columnId') == live.dig('xAxis', 'columnId')
+      wanted = Array(chart.dig('yAxis', 'columnIds'))
+      received = Array(live.dig('yAxis', 'columnIds'))
+      ids = ->(entries) { entries.map { |entry| entry.is_a?(Hash) ? entry['columnId'] : entry } }
+      errors << "combo #{chart['id']}: y-axis series changed" unless ids.call(wanted) == ids.call(received)
+      wanted.each_with_index do |series, index|
+        next unless series.is_a?(Hash) && series['type']
+        returned = received[index]
+        # The documented default mark is bar; an explicit line is distinct.
+        kind = returned.is_a?(Hash) ? returned.fetch('type', 'bar') : 'bar'
+        next if series['type'] == kind
+        errors << "combo #{chart['id']} series #{series['columnId']}: requested #{series['type']}, readback #{kind.inspect}"
+      end
+      unless ids.call(Array(chart.dig('yAxis2', 'columnIds'))).sort == ids.call(Array(live.dig('yAxis2', 'columnIds'))).sort
+        errors << "combo #{chart['id']}: secondary-axis assignment changed"
+      end
+    end
+    errors
   end
 
   # Page id => element ids, in layout order. A nested Container,
@@ -103,6 +140,9 @@ module WorkbookCode
     # this plugin shipped from being reclassified as outer metadata or dropped.
     view[LEGACY_DOCUMENT_KEY] = doc
     view[LEGACY_METADATA_KEY] = metadata(spec)
+    paged = view['pages'].flat_map { |page| Array(page['elements']) }.map { |element| element.is_a?(Hash) ? element['id'] : nil }
+    unplaced = elements(doc).reject { |element| paged.include?(element['id']) }
+    view[LEGACY_UNPLACED_KEY] = unplaced if unplaced.any?
     view
   end
 
@@ -185,7 +225,7 @@ module WorkbookCode
       doc.delete('elements') unless spec.key?('elements')
       metadata_out = original_metadata.is_a?(Hash) ? original_metadata.dup : {}
       spec.each do |key, value|
-        next if [LEGACY_DOCUMENT_KEY, LEGACY_METADATA_KEY].include?(key)
+        next if [LEGACY_DOCUMENT_KEY, LEGACY_METADATA_KEY, LEGACY_UNPLACED_KEY].include?(key)
         next if Sigma::CodeRep::DOC_KEYS.include?(key) || original_doc.key?(key)
         metadata_out[key] = value
       end
@@ -207,6 +247,21 @@ module WorkbookCode
       next if id && seen[id]
       seen[id] = true if id
       flattened << element
+    end
+    # Restored unplaced elements keep their ORIGINAL document position (before
+    # their original next sibling), never appended last: spec dependencies
+    # resolve strictly forward-in-document-order, and a helper moved after
+    # its consumer fails the POST (live re-proof).
+    original_ids = Array(original_doc.is_a?(Hash) ? original_doc['elements'] : nil).map { |e| e.is_a?(Hash) ? e['id'] : nil }
+    Array(spec[LEGACY_UNPLACED_KEY]).each do |element|
+      next unless element.is_a?(Hash)
+      id = element['id']
+      next if id && seen[id]
+      seen[id] = true if id
+      at = original_ids.index(id)
+      after = at ? original_ids[(at + 1)..].to_a : []
+      pos = after.map { |nid| flattened.index { |e| e['id'] == nid } }.compact.first
+      pos ? flattened.insert(pos, element) : flattened << element
     end
 
     # If the caller already supplied flat elements, recover their page

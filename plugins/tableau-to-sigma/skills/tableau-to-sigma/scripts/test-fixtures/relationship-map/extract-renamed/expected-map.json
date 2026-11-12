@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "bf669056b874fb9a7de987bdb378c8da62bb48c0ef283220611f81abf09c53ff",
+    "dm_sha256": "65a92d9ab488e7a875bbbb773a4729abd101a1a7c1397fb68160add2bfb633b7",
+    "resolution": {
+      "db": "ANALYTICS",
+      "schema": "LANDED",
+      "table_mapping": {
+        "FACT_SALES": "SALES_WIDE",
+        "FACT_ORDERS": "SALES_WIDE",
+        "DIM_CUSTOMER": "CUSTOMERS"
+      }
+    }
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.LANDED.SALES_WIDE",
+      "datasource": "Extract",
+      "dm_element_ids": [
+        "orders",
+        "sales"
+      ]
+    },
+    {
+      "table": "ANALYTICS.LANDED.CUSTOMERS",
+      "datasource": "Extract",
+      "dm_element_ids": [
+        "cust"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "sales->cust",
+      "edge_sha": "724b22bd6b0fe00aa4946c53831603108ccfd06703153fe1ca79f63120ab902e",
+      "source_element": "sales",
+      "target_element": "cust",
+      "source_table": "ANALYTICS.LANDED.SALES_WIDE",
+      "target_table": "ANALYTICS.LANDED.CUSTOMERS",
+      "keys": [
+        {
+          "source": "CUSTOMER_KEY",
+          "target": "CUSTOMER_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "sales->orders",
+      "edge_sha": "38edd02629f2849099ecbc0e542d2b552e3fd513d8ab5ae87703028029521002",
+      "source_element": "sales",
+      "target_element": "orders",
+      "source_table": "ANALYTICS.LANDED.SALES_WIDE",
+      "target_table": "ANALYTICS.LANDED.SALES_WIDE",
+      "keys": [
+        {
+          "source": "ORDER_ID",
+          "target": "ORDER_ID"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Extract",
+      "left": "ANALYTICS.LANDED.SALES_WIDE",
+      "right": "ANALYTICS.LANDED.CUSTOMERS",
+      "tableau_keys": [
+        {
+          "left": "CUSTOMER_KEY",
+          "right": "CUSTOMER_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "sales->cust"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Extract",
+      "left": "ANALYTICS.LANDED.SALES_WIDE",
+      "right": "ANALYTICS.LANDED.SALES_WIDE",
+      "tableau_keys": [
+        {
+          "left": "ORDER_ID",
+          "right": "ORDER_ID"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "sales->orders"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

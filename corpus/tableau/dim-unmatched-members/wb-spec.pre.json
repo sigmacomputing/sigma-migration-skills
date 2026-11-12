@@ -1,0 +1,219 @@
+{
+  "name": "Dim Unmatched Members",
+  "document": {
+    "pages": [
+      {
+        "id": "page-data",
+        "name": "Data"
+      },
+      {
+        "id": "page-dash-1",
+        "name": "Store Network"
+      }
+    ],
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "elements": [
+      {
+        "id": "master-stores",
+        "kind": "table",
+        "name": "Master",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "dm-fixture",
+          "elementId": "fact-view"
+        },
+        "columns": [
+          {
+            "id": "m-order-id",
+            "name": "Order Id",
+            "formula": "[Order Fact View/Order Id]"
+          },
+          {
+            "id": "m-net-revenue",
+            "name": "Net Revenue",
+            "formula": "[Order Fact View/Net Revenue]"
+          },
+          {
+            "id": "m-ship",
+            "name": "Ship Method",
+            "formula": "[Order Fact View/Ship Method]"
+          },
+          {
+            "id": "m-store-name",
+            "name": "Store Name",
+            "formula": "[Order Fact View/Store Name (STORE_DIM)]"
+          },
+          {
+            "id": "m-store-type",
+            "name": "Store Type",
+            "formula": "[Order Fact View/Store Type (STORE_DIM)]"
+          },
+          {
+            "id": "m-state",
+            "name": "State (STORE_DIM)",
+            "formula": "[Order Fact View/State (STORE_DIM)]"
+          }
+        ]
+      },
+      {
+        "kind": "control",
+        "controlId": "ctl-store-type",
+        "id": "el-ctl-store-type",
+        "name": "Store Type",
+        "controlType": "segmented",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "master-stores"
+          },
+          "columnId": "m-store-type"
+        },
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "master-stores"
+            },
+            "columnId": "m-store-type"
+          }
+        ],
+        "value": null
+      },
+      {
+        "id": "el-store-state-map",
+        "kind": "region-map",
+        "name": "Net Revenue by Store State",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "x-map",
+            "name": "State (STORE_DIM)",
+            "formula": "[Master/State (STORE_DIM)]"
+          },
+          {
+            "id": "y-map",
+            "name": "Net Revenue",
+            "formula": "[Metrics/Total Net Revenue]"
+          },
+          {
+            "id": "t-map",
+            "name": "Orders",
+            "formula": "[Metrics/Orders]"
+          }
+        ],
+        "region": {
+          "columnId": "x-map",
+          "regionType": "us-state"
+        },
+        "label": [
+          {
+            "columnId": "t-map"
+          }
+        ]
+      },
+      {
+        "id": "el-store-scorecard",
+        "kind": "pivot-table",
+        "name": "Store Scorecard",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "p-row-store",
+            "name": "Store Name",
+            "formula": "[Master/Store Name]"
+          },
+          {
+            "id": "p-val-rev",
+            "name": "Net Revenue",
+            "formula": "Sum([Master/Net Revenue])"
+          },
+          {
+            "id": "p-val-orders",
+            "name": "Orders",
+            "formula": "CountDistinct([Master/Order Id])"
+          }
+        ],
+        "rowsBy": [
+          {
+            "columnId": "p-row-store"
+          }
+        ],
+        "values": [
+          "p-val-rev",
+          "p-val-orders"
+        ]
+      },
+      {
+        "id": "el-ship-method-bar",
+        "kind": "bar-chart",
+        "name": "Revenue by Ship Method",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "x-ship",
+            "name": "Ship Method",
+            "formula": "[Master/Ship Method]"
+          },
+          {
+            "id": "y-ship",
+            "name": "Net Revenue",
+            "formula": "[Metrics/Total Net Revenue]"
+          }
+        ],
+        "xAxis": {
+          "columnIds": [
+            "x-ship"
+          ]
+        },
+        "yAxis": {
+          "columnIds": [
+            "y-ship"
+          ]
+        }
+      },
+      {
+        "id": "el-store-type-bar",
+        "kind": "bar-chart",
+        "name": "Revenue by Store Type",
+        "source": {
+          "kind": "table",
+          "elementId": "master-stores"
+        },
+        "columns": [
+          {
+            "id": "x-type",
+            "name": "Store Type",
+            "formula": "[Master/Store Type]"
+          },
+          {
+            "id": "y-type",
+            "name": "Net Revenue",
+            "formula": "[Metrics/Total Net Revenue]"
+          }
+        ],
+        "xAxis": {
+          "columnIds": [
+            "x-type"
+          ]
+        },
+        "yAxis": {
+          "columnIds": [
+            "y-type"
+          ]
+        }
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"master-stores\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-dash-1\">\n  <Element elementId=\"el-ctl-store-type\" gridColumn=\"1 / 25\" gridRow=\"1 / 3\"/>\n  <Element elementId=\"el-store-state-map\" gridColumn=\"1 / 25\" gridRow=\"3 / 11\"/>\n  <Element elementId=\"el-store-scorecard\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n  <Element elementId=\"el-ship-method-bar\" gridColumn=\"1 / 25\" gridRow=\"21 / 29\"/>\n  <Element elementId=\"el-store-type-bar\" gridColumn=\"1 / 25\" gridRow=\"29 / 37\"/>\n</Page>"
+  }
+}

@@ -31,6 +31,9 @@ begin
   puts "punch list: #{built['verdict']} — #{built['items'].size} item(s) " \
        "(#{built['counts'].map { |k, v| "#{v} #{k}" }.join(', ')}) → #{File.join(opts[:dir], 'PUNCHLIST.md')}"
   puts "  source: #{built['source']}"
+  if (verification = built['verification'])
+    puts "  independent verification: #{verification['verdict']} (#{verification['divergences'].size} finding(s))"
+  end
   built['items'].first(10).each { |i| puts "  - [#{i['class']}] #{i['item']}" }
   puts "  … #{built['items'].size - 10} more (see PUNCHLIST.md)" if built['items'].size > 10
 rescue ArgumentError => e

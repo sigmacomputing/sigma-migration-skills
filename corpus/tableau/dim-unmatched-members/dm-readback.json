@@ -1,0 +1,156 @@
+{
+  "dataModelId": "dm-fixture",
+  "pages": [
+    {
+      "id": "dm-page",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "store-tbl",
+          "kind": "table",
+          "name": "Store Dim",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn",
+            "path": [
+              "DB",
+              "S",
+              "STORE_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "sd-key",
+              "name": "Store Key",
+              "formula": "[STORE_DIM/Store Key]"
+            },
+            {
+              "id": "sd-name",
+              "name": "Store Name",
+              "formula": "[STORE_DIM/Store Name]"
+            },
+            {
+              "id": "sd-type",
+              "name": "Store Type",
+              "formula": "[STORE_DIM/Store Type]"
+            },
+            {
+              "id": "sd-state",
+              "name": "State",
+              "formula": "[STORE_DIM/State]"
+            }
+          ],
+          "columnLabels": [
+            "Store Key",
+            "Store Name",
+            "Store Type",
+            "State"
+          ]
+        },
+        {
+          "id": "fact-tbl",
+          "kind": "table",
+          "name": "Order Fact",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn",
+            "path": [
+              "DB",
+              "S",
+              "ORDER_FACT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "fc-order-id",
+              "name": "Order Id",
+              "formula": "[ORDER_FACT/Order Id]"
+            },
+            {
+              "id": "fc-store-key",
+              "name": "Order Store Key",
+              "formula": "[ORDER_FACT/Store Key]"
+            },
+            {
+              "id": "fc-ship",
+              "name": "Ship Method",
+              "formula": "[ORDER_FACT/Ship Method]"
+            },
+            {
+              "id": "fc-rev",
+              "name": "Net Revenue",
+              "formula": "[ORDER_FACT/Net Revenue]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-store",
+              "name": "STORE_DIM",
+              "targetElementId": "store-tbl",
+              "keys": [
+                {
+                  "sourceColumnId": "fc-store-key",
+                  "targetColumnId": "sd-key"
+                }
+              ]
+            }
+          ],
+          "columnLabels": [
+            "Order Id",
+            "Order Store Key",
+            "Ship Method",
+            "Net Revenue"
+          ]
+        },
+        {
+          "id": "fact-view",
+          "kind": "table",
+          "name": "Order Fact View",
+          "source": {
+            "kind": "table",
+            "elementId": "fact-tbl"
+          },
+          "columns": [
+            {
+              "id": "v1",
+              "formula": "[Order Fact/Order Id]"
+            },
+            {
+              "id": "v2",
+              "formula": "[Order Fact/Order Store Key]"
+            },
+            {
+              "id": "v3",
+              "formula": "[Order Fact/Ship Method]"
+            },
+            {
+              "id": "v4",
+              "formula": "[Order Fact/Net Revenue]"
+            },
+            {
+              "id": "v5",
+              "formula": "[Order Fact/Store Name (STORE_DIM)]"
+            },
+            {
+              "id": "v6",
+              "formula": "[Order Fact/Store Type (STORE_DIM)]"
+            },
+            {
+              "id": "v7",
+              "formula": "[Order Fact/State (STORE_DIM)]"
+            }
+          ],
+          "columnLabels": [
+            "Order Id",
+            "Order Store Key",
+            "Ship Method",
+            "Net Revenue",
+            "Store Name (STORE_DIM)",
+            "Store Type (STORE_DIM)",
+            "State (STORE_DIM)"
+          ]
+        }
+      ]
+    }
+  ]
+}

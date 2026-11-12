@@ -54,6 +54,25 @@ require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plu
 require 'securerandom'
 require_relative 'lib/workbook_code'
 
+def ground_truth_folder(workdir, explicit = nil)
+  return explicit unless explicit.to_s.strip.empty?
+  %w[wb-spec.json dm-spec.json].each do |name|
+    path = File.join(workdir, name)
+    next unless File.file?(path)
+    document = JSON.parse(File.read(path, encoding: 'UTF-8'))
+    folder = document['folderId'] if document.is_a?(Hash)
+    return folder if folder.is_a?(String) && !folder.strip.empty?
+  end
+  path = File.join(workdir, 'mission.json')
+  return nil unless File.file?(path)
+  mission = JSON.parse(File.read(path, encoding: 'UTF-8'))
+  destination = mission['destination'] if mission.is_a?(Hash)
+  return nil unless destination.is_a?(Hash) && destination['provenance'] == 'stated'
+  folder = destination['folderId']
+  folder ||= destination.dig('value', 'folderId') if destination['value'].is_a?(Hash)
+  folder if folder.is_a?(String) && !folder.strip.empty?
+end
+
 opts = { timeout: 600, row_limit: 5000, pool: 5 }
 OptionParser.new do |p|
   p.on('--workdir DIR')      { |v| opts[:dir] = WorkdirGuard.check!(v, '--workdir') }
@@ -83,6 +102,10 @@ plan = JSON.parse(File.read(plan_path))
 entries = Array(plan['entries'])
 
 if opts[:conn]
+  unless opts[:fixture]
+    opts[:folder] = ground_truth_folder(opts[:dir] || File.dirname(plan_path), opts[:folder])
+    abort 'FATAL: supply --folder-id or a stated folderId in mission/spec metadata; a folder name or omitted folder is not a destination.' unless opts[:folder]
+  end
   $LOAD_PATH.unshift File.expand_path('lib', __dir__)
   require 'sigma_rest'
   require 'probe_registry' # E7.1/A11: probe workbooks register at POST time
@@ -107,10 +130,11 @@ def sigma_sql_rows(conn_id, folder_id, sql, columns, deadline, workdir: nil)
       'columns' => columns.each_with_index.map { |c, i| { 'id' => "c#{i}", 'name' => c, 'formula' => "[Custom SQL/#{c}]" } }
     }] }]
   }
-  spec['folderId'] = folder_id if folder_id # omitted key = My Documents (API default)
+  raise ArgumentError, 'ground-truth probe requires a folder id' if folder_id.to_s.strip.empty?
+  spec['folderId'] = folder_id
   begin
     post_body = WorkbookCode.canonicalize(spec)
-    r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+    r = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)))
   rescue Sigma::Error => e
     raise "probe workbook POST failed: #{e.message.to_s.gsub(/\s+/, ' ').strip[0, 240]}"
   end

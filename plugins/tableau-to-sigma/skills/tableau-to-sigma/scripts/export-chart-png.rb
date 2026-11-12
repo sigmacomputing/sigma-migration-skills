@@ -62,14 +62,15 @@ def http(method, path, body = nil, accept: 'application/json')
 end
 
 # 1. Discover elements to screenshot
-spec_resp = http(:get, "/v2/workbooks/#{opts[:workbook]}/spec", accept: 'application/json')
+spec_resp = http(:get, Sigma::CodeRep.read_path(opts[:workbook]), accept: 'application/json')
 abort "GET spec failed: #{spec_resp.code} #{spec_resp.body[0..200]}" unless spec_resp.code.to_i == 200
 spec = begin
   JSON.parse(spec_resp.body)
 rescue JSON::ParserError
   YAML.safe_load(spec_resp.body, permitted_classes: [Date, Time])
 end
-# Workbook code-rep GETs nest pages under `document` (live since 2026-08) — a
+# Workbook code-rep GETs nest pages under `contents` (`document` on the retired
+# /spec readbacks) — a
 # bare spec['pages'] read here was always nil, so `elements` came back empty
 # and every run hit the "no matching elements" abort below.
 spec = Sigma::CodeRep.document(spec)

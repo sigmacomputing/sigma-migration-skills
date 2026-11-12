@@ -37,6 +37,7 @@ require 'json'
 require 'csv'
 require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
+require_relative 'lib/code_rep'
 require 'securerandom'
 
 opts = { max_cardinality: 1000 }
@@ -88,7 +89,7 @@ def sigma_distinct(conn_id, folder_id, sql, workdir: nil)
     }] }]
   }
   spec['folderId'] = folder_id if folder_id
-  r = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(spec))
+  r = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(spec)))
   wb_id = r.is_a?(Hash) ? r['workbookId'] : nil
   raise "probe workbook POST failed: #{r.inspect[0, 160]}" unless wb_id
   ProbeRegistry.created(wb_id, name: spec['name'], workdir: workdir,

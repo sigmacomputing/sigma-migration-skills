@@ -487,11 +487,8 @@ def normalize_filter(f)
       enum_attr = gf.attributes['user:ui-enumeration'] || gf.attributes['ui-enumeration']
       exclude = true if fn == 'except' || enum_attr.to_s == 'exclusive'
       if fn == 'member'
-        # `%null%` is Tableau's Null member sentinel. unquote_member drops it
-        # (a Sigma list value can't carry null), but REMEMBER we saw it: in an
-        # exclude filter it means "Tableau hides the null bucket" — the signal
-        # the builder needs for the #417 option-source IsNotNull workaround
-        # (Sigma's `showNullOption:false` is accepted then silently dropped).
+        # Keep the sentinel separate from literal strings. Sigma selections
+        # support JSON null; dropping an included null changes the population.
         null_member = true if gf.attributes['member'].to_s.strip == '%null%'
         m = unquote_member(gf.attributes['member'])
         members << m if m
@@ -549,6 +546,7 @@ def normalize_filter(f)
     # control's option source (#417 workaround) instead of emitting the
     # silently-dropped `showNullOption:false`.
     out['excludes_null'] = true if exclude && null_member
+    out['includes_null'] = true if !exclude && null_member
     if topn
       topn['direction']  = (order_dir || 'DESC').to_s.upcase
       topn['order_expr'] = order_expr if order_expr
@@ -1086,6 +1084,12 @@ xml.elements.each('//worksheet') do |ws|
     }
     af['min'] = a['min'].to_f if a['min']
     af['max'] = a['max'].to_f if a['max']
+    # Plan C8: a date axis' fixed start ('#2024-01-01#' is not a number) and the
+    # explicit major-tick settings (origin / spacing / units).
+    af['min_raw'] = a['min'].to_s if a['min'].to_s.start_with?('#')
+    af['major_origin']  = a['major-origin'].to_s  if a['major-origin']
+    af['major_spacing'] = a['major-spacing'].to_s if a['major-spacing']
+    af['major_units']   = a['major-units'].to_s   if a['major-units']
     axis_formats << af.compact
   end
   measures = []
@@ -1244,6 +1248,9 @@ xml.elements.each('//worksheet') do |ws|
     ci.elements.each('table-calc') { |t| tcs << t }
     tc = tcs.find { |t| t.attributes['field'].nil? } || tcs.first
     of = tc && tc.attributes['ordering-field']
+    # Table(Across) serializes as ordering-type='Rows', Table(Down) as
+    # 'Columns' (no ordering-field). Only pivot partition direction matters.
+    atype = tc && { 'rows' => 'across', 'columns' => 'down' }[tc.attributes['ordering-type'].to_s.downcase]
     # v5.1.2: percent-of-total QUICK CALC on the MARKS CARD — the canonical
     # Tableau crosstab heatmap. The pill never touches rows/cols shelves
     # (MEASURE_PREFIXES can't see it); it serializes as
@@ -1258,12 +1265,18 @@ xml.elements.each('//worksheet') do |ws|
     # present in the reference twb itself); [a-z]+ silently missed those and
     # the second crosstab shipped raw counts (v5.1.3 review-caught).
     if (qm = ci.attributes['name'].to_s.match(/\A\[pcto:([a-z]+):([^:\]]+)(?::[a-z0-9]+)*\]\z/i))
-      addr = of && of.to_s[/\.\[(?:[a-z]+:)?([^:\]]+)(?::[a-z0-9]+)*\]\z/, 1]
-      quick_calc_pcto << { 'agg' => qm[1].downcase, 'col' => qm[2],
-                           'addressing' => addr, 'token' => ci.attributes['name'].to_s }
+      addr = of && of.to_s[/(?:\A|\.)\[(?:[a-z]+:)?([^:\]]+)(?::[a-z0-9]+)*\]\z/, 1]
+      qrec = { 'agg' => qm[1].downcase, 'col' => qm[2],
+               'addressing' => addr, 'token' => ci.attributes['name'].to_s }
+      qrec['addressing_type'] = atype if atype && !addr
+      quick_calc_pcto << qrec
+    end
+    if atype && !of
+      c0 = calcs.find { |x| x['name'].to_s.gsub(/^\[|\]$/, '') == ci_col }
+      c0['ordering_type'] = atype if c0 && !c0['ordering_type']
     end
     next unless of
-    inner = of.to_s[/\.\[(?:[a-z]+:)?([^:\]]+)(?::[a-z0-9]+)*\]\z/, 1]
+    inner = of.to_s[/(?:\A|\.)\[(?:[a-z]+:)?([^:\]]+)(?::[a-z0-9]+)*\]\z/, 1]
     next unless inner
     c = calcs.find { |x| x['name'].to_s.gsub(/^\[|\]$/, '') == ci_col }
     c['ordering_field'] = inner if c && !c['ordering_field']
@@ -1494,6 +1507,28 @@ xml.elements.each('//worksheet') do |ws|
     end
   end
 
+  # MAP STYLING (filled / point maps only): the basemap style, washout and
+  # any other <style-rule element='map'> format, the map sources (a WMS /
+  # Mapbox background map is a non-"Tableau" <mapsource>), and the color
+  # ramp's step count (num-steps = Tableau "Stepped Color"). build-charts
+  # carries what Sigma's region-map spec has a field for (mapStyle.baseStyle)
+  # and names every other setting as an explicit residual — never a blanket
+  # "map styling not carried". nil for a worksheet with no map.
+  map_style = nil
+  map_rule = ws.elements[".//style-rule[@element='map']"]
+  map_sources = ws.elements.to_a('.//mapsources/mapsource').map { |m| m.attributes['name'].to_s }.reject(&:empty?)
+  if map_rule || !map_sources.empty?
+    formats = {}
+    map_rule&.elements&.each('format') { |f| formats[f.attributes['attr'].to_s] = f.attributes['value'].to_s }
+    steps = nil
+    ws.elements.each(".//encoding[@attr='color']") do |enc|
+      next unless enc.attributes['type'].to_s.end_with?('interpolated')
+      n = enc.attributes['num-steps'].to_i
+      steps = n if n.positive?
+    end
+    map_style = { 'formats' => formats, 'sources' => map_sources.uniq, 'color_steps' => steps }
+  end
+
   # PR-12: explicit per-series COLOR ASSIGNMENTS — the member→color map Tableau
   # serializes on the CATEGORICAL color encoding (type='palette'):
   #   <encoding attr='color' field='[fed].[none:Value Tier:nk]' type='palette'>
@@ -1544,6 +1579,21 @@ xml.elements.each('//worksheet') do |ws|
     end
   end
 
+  # C5: the source's MANUAL member order on the colour dimension —
+  #   <manual-sort column='[ds].[none:Ship Mode:nk]'><dictionary><bucket>"A"</bucket>…
+  # Tableau hands its default palette out in that order, so the builder needs it.
+  # nil when the colour field has no manual sort (default = ascending alphabetical).
+  color_manual_order = nil
+  if (cc = channels['color']) && cc[:column] && (cg = guid_from_param(cc[:column].to_s))
+    ws.elements.each('.//manual-sort') do |n|
+      next unless guid_from_param(n.attributes['column'].to_s) == cg
+      members = n.elements.to_a('.//bucket').map { |b| unquote_member(b.text) }.compact.reject(&:empty?)
+      next if members.empty?
+      color_manual_order = members
+      break
+    end
+  end
+
   worksheets[name] = {
     mark_class:       mark_class,
     geo_role:         geo_role,
@@ -1554,9 +1604,11 @@ xml.elements.each('//worksheet') do |ws|
     shelf_sorts:      shelf_sorts,
     quick_calc_pcto:  quick_calc_pcto,
     heat_scheme:      heat_scheme,
+    map_style:        map_style,
     # PR-12: explicit member→color assignments + the encoded column's caption
     series_colors:      series_colors,
     series_color_field: series_color_field,
+    color_manual_order: color_manual_order,
     filters:          filters_info,
     hidden_filters:   hidden_filters,
     aggregations:     aggregations,
@@ -2256,6 +2308,7 @@ xml.elements.each('//dashboard') do |d|
       # PR-12: explicit member→color map (nil = no assignment; keep palette derivation)
       'series_colors'      => (kind == 'chart' ? ws_meta&.dig(:series_colors)      : nil),
       'series_color_field' => (kind == 'chart' ? ws_meta&.dig(:series_color_field) : nil),
+      'color_manual_order' => (kind == 'chart' ? ws_meta&.dig(:color_manual_order) : nil),
       # v5.1: zone show-title='false' = the source HIDES the worksheet title
       # (all 6 hero-art workbook tiles carry it; three rounds leaked "Sheet 9" because
       # nothing read the attribute). Absent attr = shown (fails safe).
@@ -2322,6 +2375,8 @@ xml.elements.each('//dashboard') do |d|
     if kind == 'chart' && ws_meta&.dig(:measure_names_sort)
       zones.last['measure_names_sort'] = ws_meta[:measure_names_sort]
     end
+    # Map styling (only stamped on map worksheets).
+    zones.last['map_style'] = ws_meta[:map_style] if kind == 'chart' && ws_meta&.dig(:map_style)
     # Info-popup text for Shape-mark icon sheets (only stamped when present).
     if kind == 'chart' && ws_meta&.dig(:tooltip_text)
       zones.last['tooltip_text'] = ws_meta[:tooltip_text]
@@ -2427,6 +2482,7 @@ if dashboards.empty? && !worksheets.empty?
         'quick_calc_pcto' => ws_meta[:quick_calc_pcto],
         'series_colors'      => ws_meta[:series_colors],
         'series_color_field' => ws_meta[:series_color_field],
+        'color_manual_order' => ws_meta[:color_manual_order],
         'filters'        => ws_meta[:filters],
         'hidden_filters' => ws_meta[:hidden_filters] || [],
         'aggregations'   => ws_meta[:aggregations],
@@ -2456,6 +2512,7 @@ if dashboards.empty? && !worksheets.empty?
     if ws_meta[:measure_names_sort]
       dashboards.last['zones'][0]['measure_names_sort'] = ws_meta[:measure_names_sort]
     end
+    dashboards.last['zones'][0]['map_style'] = ws_meta[:map_style] if ws_meta[:map_style]
   end
 end
 
@@ -2477,8 +2534,25 @@ end
 # whose key references an internal federated id (those map field-ids to display
 # strings, not data values — agent needs to wire those by hand).
 column_aliases = {}
+measure_name_aliases = {}
 xml.elements.each('//column') do |col|
   raw_name = col.attributes['name'].to_s
+  if raw_name == '[:Measure Names]'
+    owner = col.parent
+    owner = owner.parent while owner && !%w[datasource datasource-dependencies].include?(owner.name)
+    datasource = owner && (owner.attributes['datasource'] || owner.attributes['name'])
+    if datasource
+      col.each_element('aliases/alias') do |entry|
+        raw = unquote_value(entry.attributes['key']).to_s
+        token = raw.scan(/\[([^\]]+)\]/).flatten.last.to_s.sub(/:[a-z0-9]+\z/i, '').downcase
+        value = entry.attributes['value']
+        next if !token.include?(':') || value.to_s.empty?
+        aliases = (measure_name_aliases[datasource] ||= {})
+        aliases[token] = aliases.key?(token) && aliases[token] != value ? nil : value
+      end
+    end
+    next
+  end
   next if raw_name == '[:Measure Names]' || raw_name.empty?
   # Caption is the human-facing column name; fall back to the bracketed `name`
   # (with brackets stripped) when caption isn't set — Tableau leaves caption
@@ -2602,6 +2676,17 @@ ds_names = []
 xml.elements.each('/workbook/datasources/datasource') do |ds|
   n = ds.attributes['name'].to_s
   ds_names << n unless n.empty?
+  caption = ds.attributes['caption'].to_s
+  ds_names << caption unless caption.empty?
+end
+card_params = []
+selected_dashboards = dashboards.map { |dashboard| dashboard['dashboard'] }
+xml.elements.each('//dashboard') do |dashboard|
+  next unless selected_dashboards.include?(dashboard.attributes['name'])
+  dashboard.elements.each(".//zone[@type-v2='filter']") do |zone|
+    param = zone.attributes['param'].to_s
+    card_params << param unless param.empty?
+  end
 end
 xml.elements.each('//shared-view') do |sv|
   sv_name = sv.attributes['name']
@@ -2615,7 +2700,10 @@ xml.elements.each('//shared-view') do |sv|
     # datasource-filter gate blocks GREEN unless it was applied. Genuine
     # dashboard quick-filters (no database domain, shared-view not a datasource
     # name) stay untagged and flow through the normal auto-control path.
-    spec['is_datasource_filter'] = true if spec['ui_domain'] == 'database' || ds_names.include?(sv_name)
+    # A source-qualified visible card proves this shared-view filter is user
+    # adjustable. True datasource/extract filters are parsed separately below.
+    has_card = card_params.include?(spec['raw_param'])
+    spec['is_datasource_filter'] = true if !has_card && (spec['ui_domain'] == 'database' || ds_names.include?(sv_name))
     shared_filters << spec
   end
 end
@@ -2726,9 +2814,27 @@ if dashboard_scoping?
       used_filter_captions[c] = true if c
     end
   end
-  scoped_shared_filters = shared_filters.select do |f|
-    c = f['column_caption']
-    c.nil? || used_filter_captions[c]
+  # Datasource-hosted filters apply even without worksheet-local filter nodes.
+  used_datasources = []
+  xml.elements.each('//worksheet') do |worksheet|
+    next unless scoped_worksheets.key?(worksheet.attributes['name'])
+    worksheet.elements.each('table/view/datasources/datasource') do |datasource|
+      used_datasources.concat([datasource.attributes['name'], datasource.attributes['caption']].compact)
+    end
+    worksheet.elements.each('table/view/datasource-dependencies') do |dependency|
+      used_datasources << dependency.attributes['datasource']
+    end
+  end
+  xml.elements.each('/workbook/datasources/datasource') do |datasource|
+    pair = [datasource.attributes['name'], datasource.attributes['caption']].compact
+    used_datasources.concat(pair) if (pair & used_datasources).any?
+  end
+  scoped_shared_filters = shared_filters.select do |filter|
+    if ds_names.include?(filter['shared_view'])
+      used_datasources.include?(filter['shared_view'])
+    else
+      filter['column_caption'].nil? || used_filter_captions[filter['column_caption']]
+    end
   end
 end
 
@@ -2773,6 +2879,7 @@ meta = {
   }
 }
 meta['drill_paths'] = drill_paths unless drill_paths.empty?
+meta['measure_name_aliases'] = measure_name_aliases unless measure_name_aliases.empty?
 META_OUT = OUT.sub(/\.json$/, '-meta.json')
 File.write(META_OUT, JSON.pretty_generate(meta))
 scope_note = dashboard_scoping? ? " [scoped: #{(DASHBOARD_FILTERS + PAGE_FILTERS).join(', ')}]" : ''

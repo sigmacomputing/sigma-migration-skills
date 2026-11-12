@@ -22,11 +22,13 @@ The layout is a **single field on the workbook spec's `document` object** — NO
 field. It is one XML string containing all pages concatenated, each identified by the
 server-assigned page ID.
 
-> Workbook specs require a top-level `document` key wrapping `schemaVersion`/`pages`/`kind`/
-> `layout` (confirmed live 2026-08-03, including on `POST /v2/workbooks/spec/verify`
-> 2026-08-04); only `name`/`folderId`/`ownerId` stay outside it. Data-model specs remain
+> Workbook bodies wrap `schemaVersion`/`pages`/`kind`/`layout` in a top-level document key
+> (`contents` on `POST /v2/workbooks` and `PUT /v2/workbooks/{id}/contents`, including the
+> `dryRun` validation; `document` on the retired `/spec` endpoints and in on-disk
+> artifacts); only `name`/`folderId`/`ownerId` stay outside it. Data-model specs remain
 > flat — do not wrap those. `layout` lived at the request root before this change; every
-> `spec['layout']` / `spec.layout` reference below means `spec['document']['layout']` now.
+> `spec['layout']` / `spec.layout` reference below means `contents.layout` (`document.layout`
+> on disk) now.
 
 ```json
 {
@@ -275,7 +277,7 @@ curl -s -X PUT \
   -H "Authorization: Bearer $SIGMA_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d @/tmp/workbook-with-layout.json \
-  "$SIGMA_BASE_URL/v2/workbooks/<workbookId>/spec"
+  "$SIGMA_BASE_URL/v2/workbooks/<workbookId>/contents"
 ```
 
 ## Common mistakes

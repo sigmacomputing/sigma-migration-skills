@@ -88,6 +88,33 @@ e = entries.first || {}
 check(e['right_table'].to_s.start_with?('ab12cd34-'),
       "no resolution possible → VC inode FQN kept (safe: probe errors, gate blocks) (got #{e['right_table'].inspect})", fails)
 
+puts "\n== table mapping repoints join probes to the converter's warehouse target =="
+mapped = JoinPlan.remap_right_tables!(
+  entries,
+  { 'REV_OFFSET' => 'REGION_DIM' },
+  db: 'ANALYTICS',
+  schema: 'PUBLIC'
+)
+check(mapped.first['right_table'] == 'ANALYTICS.PUBLIC.REGION_DIM',
+      "bare mapped target receives run db/schema (got #{mapped.first['right_table'].inspect})", fails)
+mapped = JoinPlan.remap_right_tables!(
+  JoinPlan.derive(nil, vc_xml),
+  { 'REV_OFFSET (LEDGERSRC.REV_OFFSET)' => 'ALT_SCHEMA.REGION_UNIQUE' },
+  db: 'ANALYTICS',
+  schema: 'PUBLIC'
+)
+check(mapped.first['right_table'] == 'ANALYTICS.ALT_SCHEMA.REGION_UNIQUE',
+      "schema-qualified mapped target receives run db (got #{mapped.first['right_table'].inspect})", fails)
+
+extract_mapped = JoinPlan.remap_right_tables!(
+  [{ 'right' => 'Orders', 'right_table' => 'extract.Orders' }],
+  { 'Orders$' => 'SALES' },
+  db: 'ANALYTICS',
+  schema: 'PUBLIC'
+)
+check(extract_mapped.first['right_table'] == 'ANALYTICS.PUBLIC.SALES',
+      "extract suffix is ignored when matching table mappings (got #{extract_mapped.first['right_table'].inspect})", fails)
+
 # Non-VC .twbs are untouched by the new args.
 entries = JoinPlan.derive(nil, File.read(FIX1), db: 'OTHERDB', schema: 'OTHERSCHEMA')
 e = entries.first || {}

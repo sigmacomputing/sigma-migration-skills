@@ -194,6 +194,84 @@ Dir.mktmpdir do |d|
      'vds diverge surfaces the calc name')
 end
 
+puts '-- vds tile on an UNPUBLISHED source: view-csv anchors are the oracle (positive evidence only) --'
+# Live Stress 4 rerun: "% of Total Net Revenue by Store Region" (a table calc on
+# an embedded datasource over a virtual connection) — vds-oracle skipped-no-luid,
+# parity 10/10, view-csv anchors matched, yet gate 25 blocked. The anchors now
+# stand in as a RECORDED substitution, but only on positive evidence that the
+# source is not published: skipped-no-luid ALSO covers a published datasource
+# whose LUID lookup never ran (--offline, no creds), which must stay strict.
+TWB_DS = lambda do |caption, cls|
+  inner = cls == 'sqlproxy' ? "<connection class='sqlproxy' dbname='PubDS'/>" :
+          "<connection class='federated'><named-connections><named-connection name='vc'><connection class='publishedConnection'/></named-connection></named-connections></connection>"
+  "<datasource caption='#{caption}' inline='true' name='federated.#{caption.downcase.gsub(/\W/, '')}'>#{inner}</datasource>"
+end
+def vds_case(d, tiles, twb: nil, pds: nil)
+  entries = tiles.map { |t| entry(t[:name], 'vds', reason: 'table calc').merge('provenance' => { 'datasource' => t[:ds] }) }
+  stage(d, entries, {}, {})
+  File.write(File.join(d, 'vds-oracle.json'), JSON.pretty_generate('checks' => tiles.map do |t|
+    { 'element_id' => "el-#{t[:name].downcase.tr(' ', '-')}", 'element_name' => t[:name], 'calc' => 'Pct of Total', 'status' => t[:status] }
+  end))
+  File.write(File.join(d, 'anchors-verdict.json'), JSON.pretty_generate(
+    'checked' => tiles.size, 'matched' => tiles.size, 'missing' => [], 'pass' => true,
+    'detail' => tiles.each_with_index.map do |t, i|
+      { 'id' => "a#{i}", 'raw' => '41.2%', 'matched_in' => t[:name], 'kind' => 'percent',
+        'provenance' => t[:prov] || 'view-csv', 'valued' => (t[:prov] || 'view-csv') == 'view-csv' }
+    end))
+  File.write(File.join(d, 'workbook-content.twb'), "<workbook><datasources>#{twb}</datasources></workbook>") if twb
+  File.write(File.join(d, 'pds.json'), JSON.generate(pds)) if pds
+  out, _err, _st = run(d)
+  [JSON.parse(File.read(File.join(d, 'numeric-parity.json'))), out]
+end
+
+Dir.mktmpdir do |d|
+  np, out = vds_case(d, [
+    { name: 'Region Share', ds: 'Store Ops VC', status: 'skipped-no-luid' },
+    { name: 'Published Share', ds: 'Sales Pub', status: 'skipped-no-luid' },
+    { name: 'Errored Share', ds: 'Store Ops VC', status: 'error' },
+    { name: 'Eyeball Share', ds: 'Store Ops VC', status: 'skipped-no-luid', prov: 'png-eyeball' },
+    { name: 'Extract Share', ds: 'Landed', status: 'skipped-embedded-ds' }
+  ], twb: TWB_DS.call('Store Ops VC', 'federated') + TWB_DS.call('Sales Pub', 'sqlproxy'))
+  r = np['tiles']['Region Share']
+  ok(r['verdict'] == 'match' && r['oracle'] == 'anchors' && r['substituted_for'] == 'vds',
+     "embedded datasource (no sqlproxy) + skipped-no-luid + view-csv anchors → anchors stand in (#{r.inspect})")
+  ok(r['substitution_evidence'].to_s.include?('no sqlproxy connection') && r['reason'].include?('no published datasource'),
+     'the stamp records the evidence and why')
+  ok(out.include?('SUBSTITUTED for vds'), 'the printed report names the substitution')
+  pub = np['tiles']['Published Share']
+  ok(pub['verdict'] == 'unverified' && pub['oracle'] == 'vds',
+     'PUBLISHED datasource (sqlproxy) whose LUID did not resolve stays strict — skipped-no-luid is not enough')
+  ok(np['tiles']['Errored Share']['verdict'] == 'unverified', 'a vds check that errored stays strict')
+  ok(np['tiles']['Eyeball Share']['verdict'] == 'unverified', 'only png-eyeball anchors → no substitution')
+  x = np['tiles']['Extract Share']
+  ok(x['verdict'] == 'match' && x['substitution_evidence'] == 'vds-oracle: embedded/federated extract',
+     'skipped-embedded-ds (vds-oracle saw a landed embedded extract) → anchors stand in')
+  ok(np['oracle_substitutions'].map { |s| s['tile'] }.sort == ['Extract Share', 'Region Share'],
+     'oracle_substitutions lists exactly the substituted tiles')
+end
+Dir.mktmpdir do |d|
+  np, = vds_case(d, [{ name: 'Region Share', ds: 'Store Ops VC', status: 'skipped-no-luid' }])
+  ok(np['tiles']['Region Share']['verdict'] == 'unverified', 'no .twb (publication unknown) → strict')
+end
+Dir.mktmpdir do |d|
+  np, = vds_case(d, [{ name: 'Region Share', ds: 'Store Ops VC', status: 'skipped-no-luid' }],
+                 twb: TWB_DS.call('Store Ops VC', 'federated'), pds: [{ 'caption' => 'Store Ops VC', 'pdsLuid' => 'luid-1' }])
+  ok(np['tiles']['Region Share']['verdict'] == 'unverified', 'pds.json names the datasource as published → strict')
+end
+Dir.mktmpdir do |d|
+  np, = vds_case(d, [{ name: 'Region Share', ds: '', status: 'skipped-no-luid' }], twb: TWB_DS.call('Only DS', 'federated'))
+  ok(np['tiles']['Region Share']['verdict'] == 'match', 'no caption + the sole .twb datasource is embedded → anchors stand in')
+end
+Dir.mktmpdir do |d|
+  stage(d, [entry('Unrun Share', 'vds', reason: 'table calc')], {}, {})
+  File.write(File.join(d, 'vds-oracle.json'), '{"checks":[]}')
+  File.write(File.join(d, 'anchors-verdict.json'), JSON.generate('checked' => 1, 'matched' => 1, 'missing' => [], 'pass' => true,
+    'detail' => [{ 'id' => 'a', 'raw' => '1', 'matched_in' => 'Unrun Share', 'kind' => 'number', 'provenance' => 'view-csv', 'valued' => true }]))
+  run(d)
+  np = JSON.parse(File.read(File.join(d, 'numeric-parity.json')))
+  ok(np['tiles']['Unrun Share']['verdict'] == 'unverified', 'no vds check at all (oracle never ran) stays strict')
+end
+
 puts '-- anchors credit: VALUED anchors only (provenance rules) --'
 Dir.mktmpdir do |d|
   stage(d, [entry('Blend Tile', 'anchor-only', reason: 'data blend'),

@@ -1,0 +1,46 @@
+{
+  "tables": [
+    {
+      "name": "FACT_VISITS",
+      "role": "fact",
+      "row_count": 2400000,
+      "measures": ["VISIT_REVENUE", "VISIT_COST", "PATIENT_COUNT"]
+    },
+    {
+      "name": "DIM_DATES",
+      "role": "dimension",
+      "row_count": 3650,
+      "grain_keys": ["DATE_KEY"],
+      "unique": true
+    },
+    {
+      "name": "DIM_SITES",
+      "role": "dimension",
+      "row_count": 63,
+      "grain_keys": ["SITE_KEY"],
+      "unique": true
+    },
+    {
+      "name": "DIM_PROVIDERS",
+      "role": "dimension",
+      "row_count": 4200,
+      "grain_keys": ["PROVIDER_KEY"],
+      "unique": true
+    },
+    {
+      "name": "ENTITLEMENTS",
+      "role": "fact",
+      "row_count": 9500
+    },
+    {
+      "name": "DIM_LABEL_SUMMARY",
+      "role": "dimension",
+      "row_count": 9453,
+      "grain_keys": ["COUNTRY_CODE", "LABEL"],
+      "unique_on": [["COUNTRY_CODE", "LABEL"]],
+      "covers": ["FACT_VISITS", "ENTITLEMENTS"],
+      "precomputed_fields": ["LTM_STREAMS", "NUM_ARTISTS"],
+      "refresh": "monthly after source fact loads"
+    }
+  ]
+}

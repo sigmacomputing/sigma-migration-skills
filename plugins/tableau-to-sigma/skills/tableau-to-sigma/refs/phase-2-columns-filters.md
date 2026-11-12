@@ -139,7 +139,7 @@ Prefer a **workbook-level control filtering the master table** — every chart t
 > `values:[true]` is accepted by verify/PUT and by `/export`, but the UI renders
 > **"Invalid filter"** and blanks the tile (S11 / K20, live-confirmed 2026-08-05).
 > The Text()+string shape is enforced in render AND round-trips on
-> `GET /v2/workbooks/{id}/spec`. So if a filter *looks* like it "doesn't work," do
+> `GET /v2/workbooks/{id}?includeContents=true`. So if a filter *looks* like it "doesn't work," do
 > NOT assume the API silently dropped it — check both type/value shape and that
 > `columnId` resolves on that element (`validate-spec.rb` / `control_lint.rb` catch
 > the latter on the gated path). **Validate filter behavior via a rendered PNG —

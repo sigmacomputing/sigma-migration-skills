@@ -31,6 +31,24 @@ def field(guid, role, derivation):
 
 
 class BuildWorkbookFromSignalsTest(unittest.TestCase):
+    def test_shared_control_preserves_saved_include_and_null_selection(self):
+        layout, meta = self.signals()
+        for exclude in (False, True):
+            with self.subTest(exclude=exclude):
+                meta["shared_filters"] = [{
+                    "kind": "list", "column_guid": "REGION", "members": ["West"],
+                    "exclude": exclude, "excludes_null" if exclude else "includes_null": True,
+                }]
+                instance = builder_module.WorkbookBuilder(
+                    layout, meta, data_model_id="dm", element_id="fact",
+                    folder_id="folder", data_model_element_name="FACT",
+                )
+                control = instance.build_control("Executive Overview", {
+                    "id": "region", "kind": "filter", "view_ref": "[REGION]",
+                })
+                self.assertEqual(["West", None], control["values"])
+                self.assertEqual("exclude" if exclude else "include", control["mode"])
+
     def test_percentage_formats_use_number_kind(self):
         self.assertEqual(
             {"kind": "number", "formatString": ",.1%"},

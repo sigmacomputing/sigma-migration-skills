@@ -1,0 +1,101 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='People' inline='true' name='federated.people' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='EMPLOYEES' table='[PUBLIC].[EMPLOYEES]' type='table' />
+          <relation connection='conn.0' name='MANAGER' table='[PUBLIC].[EMPLOYEES]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>EMP_ID</remote-name>
+            <local-name>[EMP_ID]</local-name>
+            <parent-name>[EMPLOYEES]</parent-name>
+            <object-id>[EMPLOYEES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>EMP_NAME</remote-name>
+            <local-name>[EMP_NAME]</local-name>
+            <parent-name>[EMPLOYEES]</parent-name>
+            <object-id>[EMPLOYEES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>MANAGER_ID</remote-name>
+            <local-name>[MANAGER_ID]</local-name>
+            <parent-name>[EMPLOYEES]</parent-name>
+            <object-id>[EMPLOYEES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>EMP_ID</remote-name>
+            <local-name>[EMP_ID (MANAGER)]</local-name>
+            <parent-name>[MANAGER]</parent-name>
+            <object-id>[MANAGER_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>EMP_NAME</remote-name>
+            <local-name>[EMP_NAME (MANAGER)]</local-name>
+            <parent-name>[MANAGER]</parent-name>
+            <object-id>[MANAGER_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>MANAGER_ID</remote-name>
+            <local-name>[MANAGER_ID (MANAGER)]</local-name>
+            <parent-name>[MANAGER]</parent-name>
+            <object-id>[MANAGER_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='EMPLOYEES' id='EMPLOYEES_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='EMPLOYEES' table='[PUBLIC].[EMPLOYEES]' type='table' />
+            </properties>
+          </object>
+          <object caption='MANAGER' id='MANAGER_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='MANAGER' table='[PUBLIC].[EMPLOYEES]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[MANAGER_ID]' /><expression op='[EMP_ID (MANAGER)]' /></expression>
+            <first-end-point object-id='EMPLOYEES_OBJ' />
+            <second-end-point object-id='MANAGER_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Org Chart'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.people' />
+          </datasources>
+            <datasource-dependencies datasource='federated.people'>
+              <column name='[EMP_NAME]' />
+              <column name='[EMP_NAME (MANAGER)]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='People'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Org Chart' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

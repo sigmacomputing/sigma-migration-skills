@@ -118,8 +118,8 @@ The rules:
   `refs/blind-grader-brief.md`, which writes `<workdir>/blind-grade.json`):
 
   ```bash
+  # v2 grade: no --verdict/--checklist (computed from the grade). Legacy v1 grade: add --verdict pass --checklist "<six dimensions>".
   ruby scripts/record-visual-check.rb --workdir <workdir> --agent-vision true \
-    --verdict pass --checklist "<six dimensions>" \
     --blind-grade <workdir>/blind-grade.json \
     --notes "VERIFIER: <what was compared and matched>"
   ```
@@ -272,6 +272,159 @@ pattern per run:
    STOP (exit 19) listing the workbook's dashboards; unscoped missions are
    unchanged.
 
+## Re-entry with `--reuse-workbook` keeps the live layout
+
+`--reuse-dm <id> --wb-spec <path> --reuse-workbook <id>` now GETs the live workbook
+layout and, by default, **preserves** it (carried into the PUT, then re-applied by
+`put-layout.rb` as the last write) so RCF layout fixes survive an iteration. An edit
+that adds or removes elements is a **merge** onto the live layout
+(`scripts/lib/layout_merge.rb`), never a regeneration: every live placement is kept,
+ids the new spec dropped are pruned, and each NEW element is placed where the new
+spec's own layout puts it (when that parent page/container exists live), else after
+the last element of the same kind in the page's rail container (controls, text,
+buttons), else full-width below the page content — overlapping siblings are pushed
+down and an outgrown container grows. Each placement is printed and recorded under
+`placed` / `pruned` in `<workdir>/layout-reuse-decision.json`. The layout is
+regenerated from the Tableau zones only on `--regenerate-layout`, a blank live
+layout, or a full rebuild that keeps under 30% of the live element ids.
+
+## FIXED LOD used as a dimension
+
+A `{FIXED [k] : AGG(f)}` calc (one dimension, one MIN/MAX/SUM/AVG/COUNT/COUNTD
+over a field or its YEAR/QUARTER/MONTH/DAY) that a tile uses as a row/column
+dimension is built mechanically after the per-page master split
+(`scripts/lib/lod_dim_helper.rb`; offline / re-entry form:
+`scripts/apply-lod-dim-helpers.rb --workdir <WORK> --spec wb-spec.json`): a
+grouped helper on the Data page right after its master, reading the master's
+data-model element UNFILTERED (Tableau computes FIXED before dimension filters,
+so the page's controls deliberately do not reach it), and the tile column
+rewritten to `Lookup([<Cap> Helper/<Cap>], [Master/<k>], [<Cap> Helper/<k>])`,
+so the tile stays on its control-filtered master. No exit-4 handoff. Any
+element the layout leaves unplaced keeps its document position; a helper
+another element reads as its source is placed on the Data page.
+
+## Dimension members with no fact rows
+
+Tableau's relationship model keeps a dimension member with no fact rows (a
+store with 0 orders still lists, revenue blank, orders 0); the fact-rooted
+master drops it. After the FIXED-LOD pass, `scripts/lib/dim_preserve.rb`
+(offline / re-entry form: `scripts/apply-dim-preserve.rb --workdir <WORK> --spec
+wb-spec.json`) re-bases a tile on `<master>-keep-<table>` — the related
+dimension's data-model element LEFT-OUTER joined to the fact view on the DM
+relationship keys, placed right after the master — ONLY when every dimension in
+the tile's view CSV comes from that one related table AND the CSV shows a member
+whose every measure is blank or 0. DM metrics are inlined on the re-based tile
+(metrics do not exist on a join); controls that filter the master also filter
+the clone. A fact-table dimension, or a tile with no CSV, is never re-based.
+
+Tableau's RANK skips nulls; Sigma's `Rank` ranks NULL first when descending
+(no null option), so such a member took rank 1 and shifted every other rank.
+After that pass `scripts/lib/null_rank.rb` rewrites every
+`Rank/RankDense/RankPercentile(E, dir)` to `If(IsNull(E), Null, Fn(<E>,
+"asc"))`, ranking `-(E)` for a descending rank: a NULL measure gets a NULL rank
+and consumes no position (displayed ranks, Top-N rank helpers, table calcs). A
+descending rank over an operand that is not provably numeric is left as is.
+
+## Source drift between the Tableau capture and parity
+
+If the warehouse loads between the Phase 1 view-CSV capture and the Phase 6
+Sigma query, parity fails on a correct migration. Values stay STRICT; the
+handling (`scripts/lib/source_drift.rb`) only ever explains or re-captures:
+
+1. **Prevent:** Phase 1 captures view CSVs with `maxAge=1` (bypasses
+   Tableau's view-data cache, which can serve an answer older than the
+   warehouse).
+2. **Diagnose:** when finalize parity fails, `source-drift.json` labels the
+   failure `suspected-source-drift` if every diverged tile has the same keys on
+   both sides and a small tile-level delta (total |change| / total |expected|
+   <= 5%: a load lands in the newest rows, so the tile total moves by the loaded
+   fraction even when one month moves a lot). The run stays NOT GREEN.
+3. **Prove + recover:** `ruby scripts/recapture-source-views.rb --workdir <WORK>`
+   re-exports the diverged views fresh and byte-compares them with the capture.
+   A CHANGED CSV (evidence from the source itself) replaces the capture (old one
+   archived under `views/captures/<ts>/`) and the exact re-plan / re-collect /
+   finalize commands print — parity then re-runs strictly against it. An
+   UNCHANGED CSV means the divergence is real; nothing is swapped. Phase 1d
+   anchors transcribed from a moved view are listed as stale.
+
+Ground truth cannot arbitrate this on a virtual connection (measures there are
+anchor-only), which is why the proof comes from the source re-export.
+
+## RCF repairs and a pass-1 re-run
+
+`fidelity-loop.rb apply-patch` records every applied patch under
+`<WORK>/rcf-patches/`. A pass-1 re-run rebuilds the spec and PUTs it in place,
+reverting those repairs; the orchestrator then REOPENS the resolved
+spec-fixable ledger entries (the 8d gate blocks) and prints the exact re-apply
+commands. Re-applying a recorded patch is allowed past an exhausted render
+budget (it is not a new repair).
+
+## Seeded valued anchors (Tableau)
+
+When Phase 1d is accepted, and again in the finalize preflight,
+`scripts/seed-source-anchors.rb` gives every tile that has a view CSV but no
+valued anchor one `view-csv` anchor (`derived_by: seed-source-anchors`, from its
+first complete measure row), so gate 18 never needs a hand-added anchor; tiles
+with no CSV are listed for a person to transcribe (refs/source-anchors.md).
+Before the anchors lock exists it also rewrites a bare, over-precise `view-csv`
+value (`0.641016176`) at the tile's DISPLAYED precision (`64.1%`); after the
+lock, values are never changed (adding is not tampering; a change needs
+`verify-anchors --retranscribed`).
+
+A `coverage_waivers` entry is for a tile no anchor or oracle CAN cover (no view
+CSV). Before the final gate, a waiver on a tile that has a view CSV, a valued
+anchor matched in it (anchors-verdict.json) and a strict parity pass — or, for a
+ground-truth-plan.json waiver, a `numeric_parity` match — is moved to
+`coverage_notes` (`scripts/lib/coverage_retire.rb`): it excuses nothing, so it is
+not a `resolution-waived` degradation and does not forfeit GREEN. A waiver short
+of that keeps degrading.
+
+## Warehouse db/schema for virtual connections
+
+A virtual-connection workbook has no `<connection dbname=/schema=>`; its relations
+read `table='[<vc-table-uuid>].[FACT_A (DB_A.FACT_A)]'` and its export
+headers `State (DIM_B (DB_A.DIM_B))`. The UUID is the VC's table id, never a
+schema, and the 2-part qualifier names the database **or** the schema (the VC drops
+a level). The orchestrator lists the Sigma connection catalog (read-only
+`GET /v2/connections/paths`) and accepts the one `database.schema` that holds
+**every** VC table; a lone `--db` or `--schema` narrows the match. Two or more
+holders, none, or a truncated catalog listing hard-stop with the exact
+`--db … --schema …` line.
+
+## `--finalize` preflight
+
+`--finalize` first computes ONE prerequisite list (anchors verdict, join probe, LOD
+audit, ground-truth derive/run/verify, parity plan), auto-runs what the workdir
+allows, and otherwise stops with exit 29 and an ordered list of exact commands.
+That stop is not a NOT-GREEN finalize: it never writes `loop-log.jsonl`.
+Parity actuals older than `wb-spec.json` or `parity-plan.json` (an RCF patch
+or apply-patch changed the workbook after collection) are re-collected
+(`collect-parity-actuals.rb`) before any gate runs, so a finalize never spends
+an attempt comparing the previous workbook.
+
+Two pass-1 parity-plan and render stops are gone: a Tableau view-CSV column for
+a field that sits ONLY on the worksheet's tooltip (no plotted channel or shelf;
+`scripts/lib/tooltip_fields.rb`) is skipped with a recorded `skipped_columns`
+reason instead of aborting "column identity is unresolved" (Sigma tooltips are
+UI-only); the source dashboard PNG resolves `dashboards/<page name>.png` or
+discovery's underscore form (`scripts/lib/source_png.rb`), so the RCF source
+composite is written without copying files.
+The RCF render viewport uses the source PNG's LOGICAL size: a capture whose
+width is ~2x a dashboard's `canvas_px` width (discovery's `resolution=high`) is
+halved, so the first pass renders at the dashboard's own size.
+
+A `vds`-classified ground-truth tile whose source is NOT a published datasource
+is verified by valued `view-csv` anchors matched in the tile instead, on positive
+evidence only: every vds-oracle check is `skipped-embedded-ds` (a landed
+embedded/federated extract), or `skipped-no-luid` AND the .twb datasource has no
+`sqlproxy` connection and pds.json does not name it (`scripts/lib/ds_publication.rb`;
+an embedded datasource over a virtual connection qualifies). It is stamped
+`substituted_for: vds` with its `substitution_evidence`, listed in
+`numeric_parity.oracle_substitutions` and named in the Python migration report
+(the shared Ruby report: follow-up PR). It is a substitution, not a waiver. A
+published datasource whose LUID did not resolve (`--offline`, no creds, failed
+lookup) stays strict, as does an errored or unrun vds check.
+
 ## Still manual by design (the orchestrator stops and tells you)
 
 **Still manual by design (the orchestrator stops and tells you):**
@@ -310,6 +463,11 @@ pattern per run:
   wiring reached the chart's source. (Rolling emission verified 2026-07-01;
   shapes per `sigma-authoring` controls.md, live 2026-06-15.)
 - **❌-unhandled gap features** — gap-scout subagent or `--force` (degraded).
-- **DM-reuse shape preflight** — when `--reuse-dm` hits a differently-shaped DM
-  the workbook gate exits 4; run Phase 1.5b (`inspect-dm-shape.rb`) and the
-  agent path against the reused DM.
+- **DM-reuse shape preflight** — every resolved `--reuse-dm` now runs Phase
+  1.5b (`inspect-dm-shape.rb`) before workbook authoring and writes
+  `dm-denorm-plan.json`; unresolved columns still route to the exit-4 agent
+  repair path.
+- **Target-model plan** — `--target-model-plan` consumes an accepted
+  cardinality-aware topology. `--table-profiles` can generate the plan in-run;
+  remodeled/reuse modes require attributable acceptance, relationship targets
+  remain behind the join probe, and substitutions require equivalence evidence.

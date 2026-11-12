@@ -225,8 +225,8 @@ check(same_axis_color && same_axis_color.dig('color', 'by') == 'category',
 check(same_axis_color && same_axis_color.dig('color', 'column') != same_axis_color.dig('xAxis', 'columnId'),
       'axis+Color-shelf chart uses a duplicate column to satisfy channel exclusivity', fails)
 check(same_axis_color && same_axis_color.dig('color', 'scheme') ==
-        %w[#76b7b2 #e15759 #4e79a7 #f28e2b],
-      "source member order is rebound to Sigma's alphabetical color slots " \
+        %w[#4e79a7 #f28e2b #e15759 #76b7b2],
+      "C5: Tableau 10 is handed out in Tableau's member order (alphabetical), not CSV row order " \
       "(got #{same_axis_color && same_axis_color.dig('color', 'scheme').inspect})", fails)
 check(same_axis_color && same_axis_color['legend'] == { 'visibility' => 'hidden' },
       'color channel hides Sigma default legend when Tableau has no legend zone', fails)

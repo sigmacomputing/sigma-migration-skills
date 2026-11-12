@@ -1,0 +1,89 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Flights' inline='true' name='federated.f' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='FLIGHTS' table='[PUBLIC].[FLIGHTS]' type='table' />
+          <relation connection='conn.0' name='AIRPORTS' table='[PUBLIC].[AIRPORTS]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>FLIGHT_ID</remote-name>
+            <local-name>[FLIGHT_ID]</local-name>
+            <parent-name>[FLIGHTS]</parent-name>
+            <object-id>[FLIGHTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>ORIGIN_KEY</remote-name>
+            <local-name>[ORIGIN_KEY]</local-name>
+            <parent-name>[FLIGHTS]</parent-name>
+            <object-id>[FLIGHTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>AIRPORT_KEY</remote-name>
+            <local-name>[AIRPORT_KEY]</local-name>
+            <parent-name>[AIRPORTS]</parent-name>
+            <object-id>[AIRPORTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>AIRPORT_NAME</remote-name>
+            <local-name>[AIRPORT_NAME]</local-name>
+            <parent-name>[AIRPORTS]</parent-name>
+            <object-id>[AIRPORTS_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='FLIGHTS' id='FLIGHTS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='FLIGHTS' table='[PUBLIC].[FLIGHTS]' type='table' />
+            </properties>
+          </object>
+          <object caption='AIRPORTS' id='AIRPORTS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='AIRPORTS' table='[PUBLIC].[AIRPORTS]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[ORIGIN_KEY]' /><expression op='[AIRPORT_KEY]' /></expression>
+            <first-end-point object-id='FLIGHTS_OBJ' />
+            <second-end-point object-id='AIRPORTS_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Flights by Origin'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.f' />
+          </datasources>
+            <datasource-dependencies datasource='federated.f'>
+              <column name='[AIRPORT_NAME]' />
+              <column name='[FLIGHT_ID]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Ops'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Flights by Origin' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

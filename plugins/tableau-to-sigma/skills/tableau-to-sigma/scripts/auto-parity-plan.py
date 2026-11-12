@@ -235,7 +235,7 @@ def parse_cell(value):
     return number / 100.0 if percent else number
 
 
-def read_expected_csv(path: Path, chart_name: str) -> tuple[list[str], list[list]]:
+def read_expected_csv(path: Path, chart_name: str, with_dimension_count: bool = False):
     if not path.is_file():
         raise PlanError(f"displayed tile {chart_name!r} is missing source CSV {path}")
     with path.open(newline="", encoding="utf-8-sig") as handle:
@@ -258,8 +258,10 @@ def read_expected_csv(path: Path, chart_name: str) -> tuple[list[str], list[list
         (index for index, name in enumerate(header) if name.strip().casefold() == "measure values"),
         None,
     )
-    if measure_names is not None and measure_values is not None and len(header) == 3:
-        dimension = ({0, 1, 2} - {measure_names, measure_values}).pop()
+    dimension_count = 0 if len(header) == 1 else 1
+    if measure_names is not None and measure_values is not None:
+        dimensions = [index for index in range(len(header)) if index not in (measure_names, measure_values)]
+        dimension_count = len(dimensions)
         labels = []
         wide = {}
         order = []
@@ -269,23 +271,27 @@ def read_expected_csv(path: Path, chart_name: str) -> tuple[list[str], list[list
             label = strip_tc_addressing(row[measure_names])
             if label and label not in labels:
                 labels.append(label)
-            key = row[dimension]
+            key = tuple(row[index] for index in dimensions)
             if key not in wide:
                 wide[key] = {}
                 order.append(key)
+            if not label or label in wide[key]:
+                raise PlanError(f"source export reshape refused for {chart_name!r}: empty or duplicate measure cell; resolve source grain explicitly")
             wide[key][label] = row[measure_values]
-        header = [header[dimension], *labels]
-        body = [[key, *(wide[key].get(label) for label in labels)] for key in order]
+        header = [*(header[index] for index in dimensions), *labels]
+        body = [[*key, *(wide[key].get(label) for label in labels)] for key in order]
 
     expected = [
         [
             parse_cell(value)
-            if len(header) == 1 or index > 0
+            if index >= dimension_count
             else (None if value.strip() == "" else value)
             for index, value in enumerate(row)
         ]
         for row in body
     ]
+    if with_dimension_count:
+        return header, expected, dimension_count
     return header, expected
 
 
@@ -317,52 +323,222 @@ def header_base(header: str) -> str:
     return value.strip()
 
 
-def select_columns(element: dict, headers: list[str]) -> list[str]:
+def vc_split(header: str) -> tuple[str, list[str]]:
+    """Split "<field> (<table> (<schema>.<table>))" (possibly repeated) into (field, [table, ...])."""
+    current = str(header).strip()
+    tables: list[str] = []
+    pattern = re.compile(r"^(.*\S)\s*\(([^()]*)\(([^()]*\.[^()]*)\)\s*\)$", re.S)
+    while True:
+        match = pattern.match(current)
+        if not match:
+            return current, tables
+        tables.append(match.group(2).strip())
+        current = match.group(1).strip()
+
+
+GENERATED_GEO = re.compile(
+    r"^(?:latitude|longitude|country|state|state/province|county|city|postcode|zip code|region|continent)\s*\(generated\)$",
+    re.I,
+)
+FLAG_VALUES = {"true", "false", "yes", "no"}
+
+
+TOOLTIP_GUID = re.compile(r"\[(?:[a-z]+:)?([^:\]\[]+)(?::[a-z]+)?\]$", re.I)
+
+
+def field_guids(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [guid for item in value.values() for guid in field_guids(item)]
+    if isinstance(value, list):
+        return [guid for item in value for guid in field_guids(item)]
+    match = TOOLTIP_GUID.search(str(value))
+    return [match.group(1)] if match else []
+
+
+def tooltip_only_captions(dashboards: list[dict], meta: dict, worksheet: str) -> list[str]:
+    """Fields the worksheet's zone carries ONLY on its tooltip (no plotted
+    channel, no shelf): a Tableau view CSV exports them, a Sigma element has
+    no counterpart column (tooltips are UI-only). Mirrors lib/tooltip_fields.rb."""
+    zone = next(
+        (
+            z
+            for d in dashboards
+            for z in (d.get("zones") or [])
+            if isinstance(z, dict) and str(z.get("caption") or "") == str(worksheet) and z.get("tooltip_fields")
+        ),
+        None,
+    )
+    if not zone:
+        return []
+    # Plotted = a non-tooltip marks-card channel or a rows/columns shelf
+    # (measures / aggregations / calculations list every marks-card field).
+    channels = zone.get("channels") if isinstance(zone.get("channels"), dict) else {}
+    plotted = {k: v for k, v in channels.items() if k != "tooltip"}
+    elsewhere = set(field_guids([plotted, zone.get("rows_shelf"), zone.get("cols_shelf")]))
+    by_guid = meta.get("columns_by_guid") if isinstance(meta.get("columns_by_guid"), dict) else {}
+    out: list[str] = []
+    for ref in zone.get("tooltip_fields") or []:
+        match = TOOLTIP_GUID.search(str(ref))
+        if not match or match.group(1) in elsewhere:
+            continue
+        column = by_guid.get(match.group(1))
+        caption = column.get("caption") if isinstance(column, dict) else None
+        caption = caption or match.group(1)
+        if caption not in out:
+            out.append(caption)
+    return out
+
+
+def drop_unplotted_columns(
+    element: dict, header: list[str], body: list[list[str]], tooltip_only: list[str] | None = None
+) -> tuple[list[str], list[list[str]], list[dict]]:
+    """Drop export columns that have no Sigma counterpart AND are provably
+    Tableau-generated geo columns or formatting-only flags. Every drop is
+    returned as {header, reason}; anything else is left for select_columns to
+    resolve (or abort on)."""
+    if len(header) < 2:
+        return header, body, []
+    skipped: list[dict] = []
+    keep: list[int] = []
+    for index, name in enumerate(header):
+        reason = None
+        if select_columns(element, [name], probe=True, all_headers=header) is None:
+            values = [str(row[index]).strip() for row in body if row[index] is not None and str(row[index]).strip()]
+            if GENERATED_GEO.match(str(name).strip()):
+                reason = "Tableau-generated geographic column; no Sigma counterpart"
+            elif any(
+                cap.casefold() in {header_base(vc_split(name)[0]).casefold(), str(name).strip().casefold()}
+                for cap in (tooltip_only or [])
+            ):
+                reason = (
+                    "Tableau tooltip-only field (on the tooltip, no plotted channel); Sigma tooltips are "
+                    "UI-only, so the element has no counterpart column"
+                )
+            elif values and all(value.lower() in FLAG_VALUES for value in values):
+                reason = "formatting-only flag column (boolean/constant text values, not a plotted field of the Sigma element)"
+        if reason:
+            skipped.append({"header": name, "reason": reason})
+        else:
+            keep.append(index)
+    if not skipped:
+        return header, body, []
+    return [header[i] for i in keep], [[row[i] for i in keep] for row in body], skipped
+
+
+def project_plotted_columns(
+    element: dict, columns: list[str], expected: list[list], dimension_count: int
+) -> tuple[list[str], list[list], list[str]]:
+    """Pie / donut: keep only the plotted color + value columns.
+
+    Sigma's element export and MCP query return only a pie's plotted channels,
+    so a matched-but-unplotted column (a "% of total" label kept after a bar ->
+    pie convert_to) could never be collected. Drop unplotted MEASURE columns
+    (at or after the CSV's dimension count, every cell numeric or blank; the
+    same rule as the Ruby builder) from the plan and expected rows; an unplotted
+    dimension would change the grain, so the plan is then left as is.
+    Mirrors auto-parity-plan.rb.
+    """
+    if element.get("kind") not in ("pie-chart", "donut-chart"):
+        return columns, expected, []
+    encoded = [
+        (element.get(channel) or {}).get("columnId")
+        for channel in ("color", "value")
+        if isinstance(element.get(channel), dict)
+    ]
+    encoded = [column for column in encoded if column]
+    drop = [index for index, column in enumerate(columns) if column not in encoded]
+    measure_only = bool(expected) and all(
+        index >= dimension_count
+        and all(row[index] is None or isinstance(row[index], (int, float)) for row in expected)
+        for index in drop
+    )
+    if len(encoded) != 2 or not all(column in columns for column in encoded) or not drop or not measure_only:
+        return columns, expected, []
+    keep = [index for index in range(len(columns)) if index not in drop]
+    return (
+        [columns[index] for index in keep],
+        [[row[index] for index in keep] for row in expected],
+        [columns[index] for index in drop],
+    )
+
+
+def select_columns(element: dict, headers: list[str], probe: bool = False, all_headers: list[str] | None = None):
     all_columns = [
         column for column in (element.get("columns") or []) if isinstance(column, dict)
     ]
+    # The data model disambiguates a VC field shared by several tables as
+    # "<field> (<table>)" while the export header carries the fully qualified
+    # "<field> (<table> (<schema>.<table>))": match the forms BOTH ways. A
+    # Sigma-side "(<x>)" suffix is only peeled when <x> is a VC table named by
+    # some export header or element column, so "Revenue (USD)" never collapses.
+    known_tables = {
+        table.strip().casefold()
+        for text in list(all_headers or headers) + [str(c.get("name") or "") for c in all_columns]
+        for table in vc_split(text)[1]
+        if table.strip()
+    }
+
+    def column_forms(name: str) -> set[str]:
+        forms = {name, strip_tc_addressing(name)}
+        vc_base, _ = vc_split(name)
+        forms.add(vc_base)
+        match = re.match(r"^(.*\S)\s*\(([^()]+)\)$", vc_base)
+        if match and match.group(2).strip().casefold() in known_tables:
+            forms.add(match.group(1))
+        return {form.strip().casefold() for form in forms}
+
     selected = []
     for header in headers:
-        base = header_base(header)
+        stripped, vc_tables = vc_split(header)
+        base = header_base(stripped)
+        header_forms = {str(header).strip(), stripped, base}
+        for table in vc_tables:
+            header_forms.update({f"{stripped} ({table})", f"{base} ({table})"})
+        header_forms = {form.strip().casefold() for form in header_forms}
         # A table keeps Tableau's full header ("Rank - Mo along Table (Down)") as its column
         # name while the pivoted CSV header is the base name, so match the column's base too.
         candidates = [
             column
             for column in all_columns
             if str(column.get("name") or "").strip().casefold()
-            in {str(header).strip().casefold(), base.casefold()}
+            in {str(header).strip().casefold(), stripped.casefold(), base.casefold()}
             or strip_tc_addressing(str(column.get("name") or "")).casefold() == base.casefold()
+            or column_forms(str(column.get("name") or "").strip()) & header_forms
         ]
-        candidates.sort(
-            key=lambda column: next(
+        if len(candidates) > 1 and vc_tables:
+            # ambiguous base name: the table qualifier disambiguates
+            by_table = [
+                column
+                for column in candidates
+                if any(
+                    table and table.casefold() in " ".join(
+                        str(column.get(key) or "") for key in ("name", "table", "source", "id")
+                    ).casefold()
+                    for table in vc_tables
+                )
+            ]
+            candidates = by_table or candidates
+        def rank(column):
+            return (str(column.get("name") or "").strip().casefold() != str(header).strip().casefold(), next(
                 (
                     index
                     for index, prefix in enumerate(PREFERRED_COLUMN_PREFIXES)
                     if str(column.get("id") or "").startswith(prefix)
                 ),
                 99,
-            )
-        )
+            ))
+        candidates.sort(key=rank)
+        if len(candidates) > 1 and rank(candidates[0]) == rank(candidates[1]):
+            raise PlanError(f"ambiguous source column {header!r} on Sigma element {element.get('id')!r}")
         selected.append(candidates[0] if candidates else None)
+    if probe:
+        return selected[0]
     if all(selected) and len({column["id"] for column in selected}) == len(headers):
         return [column["id"] for column in selected]
-    if element.get("kind") == "kpi-chart" and all_columns:
+    if element.get("kind") == "kpi-chart" and len(all_columns) == 1 and len(headers) == 1:
         return [all_columns[0]["id"]]
 
-    x_id = (element.get("xAxis") or {}).get("columnId")
-    y_columns = (element.get("yAxis") or {}).get("columnIds") or []
-    first_y = y_columns[0] if y_columns else None
-    y_id = first_y.get("columnId") if isinstance(first_y, dict) else first_y
-    color_id = (element.get("color") or {}).get("column")
-    guessed = [color_id, x_id, y_id] if len(headers) >= 3 and color_id else [x_id, y_id]
-    if any(not value for value in guessed):
-        guessed = [column.get("id") for column in all_columns[: len(headers)]]
-    guessed = [str(value) for value in guessed if value]
-    if not guessed:
-        raise PlanError(
-            f"cannot map source CSV columns onto Sigma element {element.get('id')!r}"
-        )
-    return guessed
+    raise PlanError(f"source export column identity is unresolved for Sigma element {element.get('id')!r}: {headers!r}; positional guessing is not parity evidence")
 
 
 def layout_renames(dashboards: list[dict]) -> dict[str, str]:
@@ -575,6 +751,14 @@ def build_plan(
             raise PlanError("chart-provenance.json must contain an elements object")
         provenance = raw_provenance["elements"]
 
+    meta_path = tableau_dir / "dashboard-layout-meta.json"
+    try:
+        layout_meta = load_json(meta_path) if meta_path.is_file() else {}
+    except Exception:
+        layout_meta = {}
+    if not isinstance(layout_meta, dict):
+        layout_meta = {}
+
     charts = workbook_charts(spec, scope, master_ids or [])
     entries = []
     for element in charts:
@@ -595,19 +779,29 @@ def build_plan(
                 f"Sigma displayed element {element_id!r} maps to Tableau view "
                 f"{view['name']!r}, which is not a displayed source tile in scope"
             )
-        header, expected = read_expected_csv(
-            tableau_dir / "views" / f"{view['id']}.csv", sigma_name
+        header, expected, dimension_count = read_expected_csv(
+            tableau_dir / "views" / f"{view['id']}.csv", sigma_name, with_dimension_count=True
+        )
+        header, expected, skipped_columns = drop_unplotted_columns(
+            element, header, expected, tooltip_only_captions(all_dashboards, layout_meta, tableau_name)
         )
         columns = select_columns(element, header)
+        names_by_id = {column["id"]: column.get("name") for column in element.get("columns", [])}
+        columns, expected, unplotted = project_plotted_columns(element, columns, expected, dimension_count)
         entry = {
             "chart": sigma_name,
             "tableau_view": view["name"],
             "sigma_element_id": element_id,
             "sigma_kind": element.get("kind"),
             "sigma_columns": columns,
+            "sigma_column_names": [names_by_id[column] for column in columns],
             "matched_via": matched_via,
             "expected": expected,
         }
+        if unplotted:
+            entry["unplotted_columns"] = [names_by_id.get(column, column) for column in unplotted]
+        if skipped_columns:
+            entry["skipped_columns"] = skipped_columns
         if workbook_id:
             select = ", ".join(
                 f'"{column}" AS f{index}' for index, column in enumerate(columns)

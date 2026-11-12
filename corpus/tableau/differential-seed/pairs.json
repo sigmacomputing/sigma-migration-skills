@@ -156,15 +156,15 @@
     },
     {
       "id": "iif-three-valued",
-      "class": "IIF -> If with quoted-literal normalization (single->double quotes)",
+      "class": "IIF -> If keeping the NULL test NULL (Tableau three-valued IIF; a bare If() rename takes the else branch) + quoted-literal normalization (single->double quotes)",
       "context": "dm",
       "tableau": "IIF([NUM_A] > 0, 'pos', 'neg')",
-      "sigma_expected": "If([Num a] > 0, \"pos\", \"neg\")",
+      "sigma_expected": "If(IsNull([Num a] > 0), null, [Num a] > 0, \"pos\", \"neg\")",
       "warnings": [],
       "oracle": {
         "vds": null,
         "sql": {
-          "statement": "SELECT CASE WHEN NUM_A > 0 THEN 'pos' ELSE 'neg' END AS V FROM DEMO_DB.DEMO.SEED_ROWS",
+          "statement": "SELECT CASE WHEN NUM_A IS NULL THEN NULL WHEN NUM_A > 0 THEN 'pos' ELSE 'neg' END AS V FROM DEMO_DB.DEMO.SEED_ROWS",
           "rows": null
         },
         "batch_probe": null

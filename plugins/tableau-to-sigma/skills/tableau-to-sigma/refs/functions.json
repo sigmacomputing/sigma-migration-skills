@@ -4,7 +4,7 @@
   "note": "BUILD ARTIFACT — regenerate with `node scripts/dev/gen-translation-table.mjs`; never hand-edit. One row per live-catalog function; sigma_template is the translator's real output for the recorded probe.",
   "inputs": {
    "bundle": "converter/tableau.mjs",
-   "bundle_sha256": "7e47fe4c70e95eae6f89eddd59e68c4708aa2a0c3f7084788897970a696edc12",
+   "bundle_sha256": "7ab32a0823e279d005464b85a730b857e515e36ec5856dfe474c6f8bb3f5bb71",
    "catalog": "scripts/lib/tableau_functions.json",
    "catalog_sha256": "be92f472fae64fe8df5ca5028dd7655adc9fb9a3dc494656541bd7f23f420571"
   },
@@ -631,9 +631,10 @@
    "tableau_fn": "IIF",
    "category": "logical",
    "probe": "IIF([FLAG_A], 1, 0)",
-   "sigma_template": "If([Flag a], 1, 0)",
+   "sigma_template": "If(IsNull([Flag a]), null, [Flag a], 1, 0)",
    "sigma_functions": [
-    "If"
+    "If",
+    "IsNull"
    ],
    "arg_transform": "rewrite",
    "context": "spec",

@@ -25,7 +25,7 @@ recorded in `converter/PROVENANCE.json` / `refs/functions.json`):
 | `datename-week-text` | `DATENAME('week')` → `Text(DatePart("week", …))` |
 | `share-of-total-pattern` | `agg/TOTAL(agg)` → `PercentOfTotal(…, "grand_total")` (chart context) |
 | `window-avg-bounded` | bounded `WINDOW_AVG` → `MovingAvg` chart formula |
-| `iif-three-valued` | `IIF` → `If` + quote normalization |
+| `iif-three-valued` | `IIF` keeps a NULL test NULL — `If(IsNull(t), null, t, a, b)`, not a bare `If` rename that takes the else branch (field-caught: `AVG(IIF(…,1,0))` counted unscored rows as 0) — + quote normalization |
 
 **Three-oracle differential design.** Each pair carries slots for the three
 in-repo oracles — VDS (`tableau-vds-to-cdw` evaluates the Tableau side),

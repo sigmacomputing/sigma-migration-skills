@@ -273,7 +273,8 @@ confirms the low `COUNT(DISTINCT col)` against the warehouse (`--fixture` offlin
 
 ## YAML response from spec endpoints
 
-`POST /v2/dataModels/spec` and `POST /v2/workbooks/spec` return **YAML**, not JSON.
+`POST /v2/dataModels/spec` returns **YAML**, not JSON (the workbook endpoints, `POST /v2/workbooks`
+and `GET /v2/workbooks/{id}?includeContents=true`, return JSON by default).
 Piping to `jq` causes `parse error: Invalid numeric literal`.
 
 Parse with Ruby:

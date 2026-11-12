@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -132,6 +133,79 @@ class CollectParityActualsTest(unittest.TestCase):
             [["East", 10.0], ["West", 20.0], ["North", 30.0]], rows
         )
         self.assertEqual(["json", "json"], formats)
+
+    def test_json_keys_are_unioned_across_rows_and_pagination_chunks(self):
+        pages = [
+            [{}, {"Region": "East"}],
+            [{"Sales": 3, "Region": "West"}, {"Region": "North"}],
+            [],
+        ]
+        with patch.object(collector, "start_export", return_value="query"), patch.object(
+            collector, "poll_download", side_effect=[json.dumps(page).encode() for page in pages]
+        ):
+            headers, rows = collector.export_all_pages(
+                "wb", "el", fmt="json", page_size=2,
+                deadline=collector.Deadline(5), max_rows=None,
+            )
+        self.assertEqual(["Region", "Sales"], headers)
+        self.assertEqual([[None, None], ["East", None], ["West", 3], ["North", None]], rows)
+
+    def test_json_null_columns_require_unique_live_element_schema_evidence(self):
+        chart = {"chart": "Pivot", "sigma_element_id": "el", "sigma_kind": "pivot-table", "sigma_columns": ["g", "a"]}
+        element = {"columns": [{"id": "g", "name": "Group"}, {"id": "a", "name": "Amount"}]}
+        cases = [
+            (["Group"], [{"elementId": "el", "label": "Amount"}], True),
+            (["Group"], [{"elementId": "other", "label": "Amount"}], False),
+            (["Group"], [{"elementId": "el", "label": "Different"}], False),
+            (["Other"], [{"elementId": "el", "label": "Amount"}], False),
+            (["Group"], [{"elementId": "el", "label": "Amount"}, {"elementId": "el", "label": "amount"}], False),
+        ]
+        for headers, entries, succeeds in cases:
+            with self.subTest(headers=headers, entries=entries), patch.object(
+                collector, "export_all_pages", return_value=(headers, [["A"]])
+            ), patch.object(collector, "_request_raw", return_value=self.response(200, json.dumps({"entries": entries}))):
+                if succeeds:
+                    self.assertEqual([["A", None]], collector.collect_chart(chart, {"el": element}, "wb", 100, collector.Deadline(5), None))
+                else:
+                    with self.assertRaises(collector.CollectionError):
+                        collector.collect_chart(chart, {"el": element}, "wb", 100, collector.Deadline(5), None)
+
+    def test_json_null_schema_is_paginated_and_csv_fallback_is_still_json(self):
+        chart = {"chart": "Chart", "sigma_element_id": "el", "sigma_columns": ["g", "a"]}
+        element = {"columns": [{"id": "g", "name": "Group"}, {"id": "a", "name": "Amount"}]}
+        paths = []
+
+        def request(method, path, **kwargs):
+            self.assertEqual("get", method)
+            paths.append(path)
+            payload = {"entries": [{"elementId": "el", "label": "Amount"}]} if len(paths) == 2 else {"entries": [], "nextPageToken": "next / page"}
+            return self.response(200, json.dumps(payload))
+
+        with patch.object(collector, "export_all_pages", side_effect=[
+            collector.RestError("post", "/export", 500, b"export failed"), (["Group"], [["A"]])
+        ]), patch.object(collector, "_request_raw", side_effect=request):
+            self.assertEqual([["A", None]], collector.collect_chart(chart, {"el": element}, "wb", 100, collector.Deadline(5), None))
+        self.assertEqual(["/v2/workbooks/wb/columns", "/v2/workbooks/wb/columns?pageToken=next+%2F+page"], paths)
+
+    def test_json_rejects_invalid_utf8_nonrow_members_and_ambiguous_headers(self):
+        self.assertEqual([{"Group": "Caf\u00e9"}], collector.parse_json_rows(b'\xef\xbb\xbf[{"Group":"Caf\xc3\xa9"}]'))
+        for body in (b'[{"Group":"\xff"}]', b'[{"Group":"A"},3]', b'{"Group":"A"}\nnull', b'{"rows":[{},false]}'):
+            with self.subTest(body=body), self.assertRaises(collector.CollectionError):
+                collector.parse_json_rows(body)
+        with patch.object(collector, "start_export", return_value="query"), patch.object(
+            collector, "poll_download", return_value=b'[{"Amount":1," amount ":2}]'
+        ), self.assertRaisesRegex(collector.CollectionError, "ambiguous"):
+            collector.export_all_pages("wb", "el", fmt="json", page_size=10, deadline=collector.Deadline(5), max_rows=None)
+
+    def test_json_null_schema_cannot_pass_with_malformed_or_cyclic_inventory(self):
+        chart = {"chart": "Pivot", "sigma_element_id": "el", "sigma_kind": "pivot-table", "sigma_columns": ["g", "a"]}
+        element = {"columns": [{"id": "g", "name": "Group"}, {"id": "a", "name": "Amount"}]}
+        for inventory in ({"entries": {}}, {"entries": [None]}, {"entries": [], "nextPageToken": "cycle"}):
+            with self.subTest(inventory=inventory), patch.object(
+                collector, "export_all_pages", return_value=(["Group"], [["A"]])
+            ), patch.object(collector, "_request_raw", return_value=self.response(200, json.dumps(inventory))):
+                with self.assertRaises(collector.CollectionError):
+                    collector.collect_chart(chart, {"el": element}, "wb", 100, collector.Deadline(5), None)
 
     def test_download_poll_accepts_204_then_data_and_times_out(self):
         responses = [

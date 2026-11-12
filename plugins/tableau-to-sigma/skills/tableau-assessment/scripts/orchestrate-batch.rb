@@ -456,9 +456,9 @@ def agent_brief(sub, cluster, batch_results_path, leader_dm_id_path, out_dir, ov
     and retry the query. Do NOT skip Phase 6 because of a recoverable
     auth error — that's the 2026-05-22 cluster-follower regression.
 
-    **POST vs PUT for spec updates.** `POST /v2/workbooks/spec` is
+    **POST vs PUT for spec updates.** `POST /v2/workbooks` is
     create-only. After your first successful POST, every spec update
-    MUST be a `PUT /v2/workbooks/{id}/spec` against the same ID. Re-POSTing
+    MUST be a `PUT /v2/workbooks/{id}/contents` against the same ID. Re-POSTing
     creates a duplicate workbook in the customer's My Documents — exactly
     the 2026-05-28 regression that left three workbooks behind. post-and-
     readback.rb now logs every POST to posted-workbooks.jsonl and prints

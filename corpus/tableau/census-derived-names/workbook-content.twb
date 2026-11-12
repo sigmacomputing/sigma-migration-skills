@@ -1,0 +1,140 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Synthetic (invented names, neutral demo star): the store-operations
+     dashboard shape whose census held YELLOW after every value gate passed.
+     - "Store Rank Table": a crosstab of Store Name with RANK(SUM([Net Revenue]))
+       as its text value (the builder names the column for Tableau's CSV export
+       header, "Revenue Rank along Store Name").
+     - "Store Scorecard": the boolean "Low Margin Flag" on the Color shelf with
+       explicit true/false text colors (built as the hidden "(flag)" driver of
+       a conditional format).
+     - "Store State Map": a filled state map on a light basemap with 25% washout
+       and an 8-step custom sequential ramp. -->
+<workbook locale='en_US' version='18.1' xmlns:user='http://www.tableausoftware.com/xml/user'>
+  <datasources>
+    <datasource caption='Store Orders' inline='true' name='federated.cdn0001' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='wh' name='snowflake.cdn0001'>
+            <connection class='snowflake' dbname='DEMO_DB' schema='ANALYTICS' server='warehouse.example.com' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.cdn0001' name='STORE_ORDERS' table='[ANALYTICS].[STORE_ORDERS]' type='table' />
+      </connection>
+      <column caption='Store Name' datatype='string' name='[STORE_NAME]' role='dimension' type='nominal' />
+      <column caption='State' datatype='string' name='[STATE]' role='dimension' semantic-role='[State].[Name]' type='nominal' />
+      <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+      <column caption='Gross Profit' datatype='real' name='[GROSS_PROFIT]' role='measure' type='quantitative' />
+      <column caption='Revenue Rank' datatype='integer' name='[Calculation_5100000000000001]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RANK(SUM([NET_REVENUE]))' />
+      </column>
+      <column caption='Low Margin Flag' datatype='boolean' name='[Calculation_5100000000000002]' role='measure' type='nominal'>
+        <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &lt; 0.66' />
+      </column>
+      <style>
+        <style-rule element='mark'>
+          <encoding attr='color' field='[usr:Calculation_5100000000000002:nk]' type='palette'>
+            <map to='#d1495b'><bucket>true</bucket></map>
+            <map to='#f5a04a'><bucket>false</bucket></map>
+          </encoding>
+        </style-rule>
+      </style>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Store Rank Table'>
+      <table>
+        <view>
+          <datasources><datasource caption='Store Orders' name='federated.cdn0001' /></datasources>
+          <datasource-dependencies datasource='federated.cdn0001'>
+            <column caption='Store Name' datatype='string' name='[STORE_NAME]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Revenue Rank' datatype='integer' name='[Calculation_5100000000000001]' role='measure' type='quantitative'>
+              <calculation class='tableau' formula='RANK(SUM([NET_REVENUE]))' />
+            </column>
+            <column-instance column='[STORE_NAME]' derivation='None' name='[none:STORE_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_5100000000000001]' derivation='User' name='[usr:Calculation_5100000000000001:qk]' pivot='key' type='quantitative'>
+              <table-calc ordering-field='[federated.cdn0001].[none:STORE_NAME:nk]' ordering-type='Field' />
+            </column-instance>
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes><pane><mark class='Text' /><encodings><text column='[federated.cdn0001].[usr:Calculation_5100000000000001:qk]' /></encodings></pane></panes>
+        <rows>[federated.cdn0001].[none:STORE_NAME:nk]</rows>
+        <cols />
+      </table>
+    </worksheet>
+    <worksheet name='Store Scorecard'>
+      <table>
+        <view>
+          <datasources><datasource caption='Store Orders' name='federated.cdn0001' /></datasources>
+          <datasource-dependencies datasource='federated.cdn0001'>
+            <column caption='Store Name' datatype='string' name='[STORE_NAME]' role='dimension' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column caption='Low Margin Flag' datatype='boolean' name='[Calculation_5100000000000002]' role='measure' type='nominal'>
+              <calculation class='tableau' formula='SUM([GROSS_PROFIT]) / SUM([NET_REVENUE]) &lt; 0.66' />
+            </column>
+            <column-instance column='[STORE_NAME]' derivation='None' name='[none:STORE_NAME:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Calculation_5100000000000002]' derivation='User' name='[usr:Calculation_5100000000000002:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style />
+        <panes><pane><mark class='Text' /><encodings>
+          <color column='[federated.cdn0001].[usr:Calculation_5100000000000002:nk]' />
+          <text column='[federated.cdn0001].[sum:NET_REVENUE:qk]' />
+        </encodings></pane></panes>
+        <rows>[federated.cdn0001].[none:STORE_NAME:nk]</rows>
+        <cols />
+      </table>
+    </worksheet>
+    <worksheet name='Store State Map'>
+      <table>
+        <view>
+          <datasources><datasource caption='Store Orders' name='federated.cdn0001' /></datasources>
+          <mapsources><mapsource name='Tableau' /></mapsources>
+          <datasource-dependencies datasource='federated.cdn0001'>
+            <column caption='State' datatype='string' name='[STATE]' role='dimension' semantic-role='[State].[Name]' type='nominal' />
+            <column caption='Net Revenue' datatype='real' name='[NET_REVENUE]' role='measure' type='quantitative' />
+            <column-instance column='[STATE]' derivation='None' name='[none:STATE:nk]' pivot='key' type='nominal' />
+            <column-instance column='[NET_REVENUE]' derivation='Sum' name='[sum:NET_REVENUE:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+          <aggregation value='true' />
+        </view>
+        <style>
+          <style-rule element='mark'>
+            <encoding attr='color' field='[federated.cdn0001].[sum:NET_REVENUE:qk]' num-steps='8' type='custom-interpolated'>
+              <color-palette custom='true' name='' type='ordered-sequential'>
+                <color>#eaf3ea</color>
+                <color>#2e7d32</color>
+              </color-palette>
+            </encoding>
+          </style-rule>
+          <style-rule element='map'>
+            <format attr='washout' value='0.25' />
+            <format attr='map-style' value='light' />
+          </style-rule>
+        </style>
+        <panes><pane><mark class='Multipolygon' /><encodings>
+          <color column='[federated.cdn0001].[sum:NET_REVENUE:qk]' />
+          <lod column='[federated.cdn0001].[none:STATE:nk]' />
+        </encodings></pane></panes>
+        <rows>[federated.cdn0001].[Latitude (generated)]</rows>
+        <cols>[federated.cdn0001].[Longitude (generated)]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Store Network'>
+      <size maxheight='900' maxwidth='1400' minheight='900' minwidth='1400' />
+      <zones>
+        <zone h='100000' id='1' type-v2='layout-basic' w='100000' x='0' y='0'>
+          <zone h='50000' id='2' name='Store State Map' w='50000' x='0' y='0' />
+          <zone h='50000' id='3' name='Store Rank Table' w='50000' x='50000' y='0' />
+          <zone h='50000' id='4' name='Store Scorecard' w='100000' x='0' y='50000' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

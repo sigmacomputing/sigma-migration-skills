@@ -93,8 +93,7 @@ source's own logic, render + value-check EVERY page, never ship empty or waive
 silently, don't spin). Everything else is read **at the phase that consumes
 it** — the phase table below names the refs per phase.
 <!-- /mandatory-pre-read -->
-*(Redirect: the old flat 13-ref pre-read list became the "Read at this phase"
-column; per-script catalog: `refs/script-map.md`.)*
+*(Per-script catalog: `refs/script-map.md`.)*
 
 **For canonical workbook spec shape** (element kinds, controls, formulas,
 formatting), defer to the companion **`sigma-workbooks`** skill
@@ -171,8 +170,8 @@ ruby scripts/migrate-tableau.rb --workbook "<name>" \
 
 > **`--db`/`--schema` (always together) — there is NO default database.** The
 > orchestrator resolves: your flags → the landing manifest → the workbook's own
-> `<connection dbname=/schema=>` attributes — and **hard-stops asking** when
-> none resolve, never guessing: a fabricated pair 404s every table at DM POST.
+> `<connection dbname=/schema=>` attributes → FQN / virtual-connection names (the
+> catalog decides) — and **hard-stops** naming the flags, never guessing.
 
 > **PASS 1 has two agent handoffs:** (1d, exit 18) Read the dashboard PNG and
 > verify `<workdir>/png-read.json`; (tail, exit 12) discharge the visual verdict
@@ -260,7 +259,7 @@ phase by hand or need to understand why it stopped.
 | 4 | POST the DM + **read back** | `post-and-readback.rb --type datamodel` | `dm-ids.json` (server ids) | `refs/phase-4-post-dm.md` |
 | 5 | Build workbook | `build-charts-from-signals.rb` → `dashboard-coverage.rb` → `post-and-readback` → layout | every visible in-scope dashboard has a page; `preflight_lint` clean; layout places each element once and is the **LAST write**; LOD/aggregation audits resolved | `refs/phase-5-workbook.md`, `refs/workbook-code-release-gaps.md`, `refs/chart-patterns.md`, `refs/layout-grid.md`, `refs/story-points.md` |
 | 6 | **🚧 Parity + anchors + ground truth + visual** | `phase6-parity.rb`; `verify-anchors.rb`; ground-truth trio; then finalization and the gate sequence | 🚧 `parity-final.json` PASS + `anchors-verdict.json` + per-tile `numeric_parity` (exit 25) + recorded visual verdict + full `run-state.json` + `MIGRATION_REPORT.md` / `migration-result.json` with complete source-object and formula accounting | `refs/phase-6-parity.md`, `refs/source-anchors.md`, `refs/ground-truth-oracle.md`, `refs/gates.md`, `refs/migration-report-format.md`, `refs/blind-grader-brief.md`, `refs/visual-similarity.md`, `refs/control-parity.md`, `refs/orchestration.md` (verifier) |
-| 5g | **RCF fidelity loop** | `fidelity-loop.rb` render → compare → fix until clean | 🚧 (default-on) `fidelity-ledger.json` no unresolved spec-fixable deltas (gate 8d) | `refs/phase-5g-rcf.md`, `refs/fidelity-rubric.md`, `refs/fidelity-recipes.md`, `refs/layout-visual-qa.md` |
+| 5g | **RCF fidelity loop** | `fidelity-loop.rb` render → compare → fix until clean (Sigma MCP present: fix via SDK, then `sdk-export`) | 🚧 (default-on) `fidelity-ledger.json` no unresolved spec-fixable deltas (gate 8d) | `refs/phase-5g-rcf.md`, `refs/phase-5g-sdk-hybrid.md`, `refs/fidelity-rubric.md`, `refs/fidelity-recipes.md`, `refs/layout-visual-qa.md` |
 | E | Enhance (opt-in) | `enhance-scan.rb` → `enhance-apply.rb` | cloned "— Enhanced" workbook | `refs/phase-e-enhance.md`, `refs/postpublish-interactivity.md` |
 | — | Security RLS/CLS | detect always; apply opt-in | `apply_sigma_rls.py` | `refs/security-rls.md` |
 
@@ -272,23 +271,24 @@ On ANY nonzero exit or waiver: `refs/gates.md`. On a STOP naming a script:
 - **🚧 Phase 1a — ANY numeric Tableau URL MUST go through `resolve-project.rb`
   first.** Exit 0 → migrate exactly what it lists; **exit 2 → STOP and ask
   with the printed candidates — never guess** (a wrong guess field-cost 6
-  hours). Full rationale: `refs/phase-1-discover.md` §Phase 1a.
+  hours). Rationale: `refs/phase-1-discover.md` §1a.
 - **🚧 Phase 1d — dashboard-read + source-value anchors.** Read the source PNG
   → write `png-read.json` (EVERY tile + `kind`) AND transcribe printed numbers
   into `source-anchors.json` **exactly as printed**, ≥5, **anchor EVERY tile**
   (else `coverage_waivers` at transcription). Phase 6 verifies each anchor
-  (final gate exit 18) — two field migrations shipped wrong numbers behind
+  (final gate exit 18) — field migrations shipped wrong numbers behind
   passing visual verdicts. Schema: `refs/source-anchors.md`; gate +
   draft-seeding: `refs/phase-1-discover.md`.
-- **Phase 6f — your own read is the fix loop, NOT the verdict.** A pass needs
+- **Phase 6f — your own read is the fix loop, not the verdict.** A pass needs
   a sha-bound **blind grade** from a FRESH context-free grader
-  (`refs/blind-grader-brief.md`, exactly four parameters, NOTHING else),
-  recorded via `record-visual-check.rb --blind-grade`. Protocol + finishing
-  gate sequence: `refs/phase-6-parity.md` §Phase 6f. **Not done until
+  (`refs/blind-grader-brief.md`, five parameters, NOTHING else), a 2nd
+  grader when told, recorded via `record-visual-check.rb --blind-grade`; a
+  YELLOW finish offers GREEN once (`refs/gates.md` §Finish). Protocol:
+  `refs/phase-6-parity.md` §6f. **Not done until
   `assert-phase6-ran.rb` exits 0**, then `verify-complete.rb` prints ✅ DONE.
-- **Waiver discipline — waivers are for impossibilities, not obstacles.** >2
-  quality waivers caps at YELLOW (exit 19); data-class residuals can never be
-  waived; a third waiver means stop and fix. Verbatim: `refs/gates.md`.
+- **Waivers are for impossibilities, not obstacles.** >2
+  quality waivers caps at YELLOW (exit 19); data residuals can't be waived;
+  a third waiver means stop. Verbatim: `refs/gates.md`.
 - **Verdict model (PR-14) — GREEN / YELLOW / PARTIAL is derived, never
   self-reported.** GREEN needs an EMPTY `degradation-ledger.json`; any scope
   cut caps at PARTIAL; `verify-complete.rb` exits 6 if your report contradicts

@@ -21,6 +21,11 @@ o.define_singleton_method(:map_column) { |_cap, _mmap| nil }
 comments = src.match(/^def strip_tableau_comments\b.*?\n^end$/m)
 abort 'test bug: could not extract strip_tableau_comments' unless comments
 o.instance_eval(comments[0])
+%w[split_top_level_args tableau_iif_to_sigma].each do |fn|
+  m = src.match(/^def #{fn}\b.*?\n^end$/m)
+  abort "test bug: could not extract #{fn}" unless m
+  o.instance_eval(m[0])
+end
 defsrc = src.match(/^def translate_row_level_calc\b.*?\n^end$/m)
 abort 'test bug: could not extract translate_row_level_calc' unless defsrc
 o.instance_eval(defsrc[0])

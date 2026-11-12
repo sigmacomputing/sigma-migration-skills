@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "source": "tableau",
+  "sourceFilterSignals": 1,
+  "controls": [
+    {
+      "controlId": "ctl-region-customers",
+      "name": "Region",
+      "scope": "page"
+    }
+  ],
+  "dropped": []
+}

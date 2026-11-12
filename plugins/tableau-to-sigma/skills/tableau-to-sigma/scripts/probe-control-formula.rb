@@ -101,7 +101,7 @@ scalar_types = %w[checkbox switch number text]
 entries.each do |w|
   wid = w['workbookId'] || w['id']
   next unless wid
-  raw_spec = (Sigma.request(:get, "/v2/workbooks/#{wid}/spec", accept: 'application/json') rescue next)
+  raw_spec = (Sigma.request(:get, Sigma::CodeRep.read_path(wid), accept: 'application/json') rescue next)
   next unless raw_spec.is_a?(Hash)
   # Workbook code-rep GETs nest schemaVersion/pages under `document` (live
   # since 2026-08) -- a bare spec['schemaVersion'] read here was always nil,
@@ -166,7 +166,7 @@ spec = {
 # Workbook code-rep POSTs require the nested `document` envelope (verified
 # live 2026-08-03/04: a flat body 400s) -- wrap the throwaway probe spec.
 post_body = WorkbookCode.canonicalize(spec)
-resp = Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body),
+resp = Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)),
                      content_type: 'application/json', accept: 'application/json')
 wb = resp['workbookId'] || resp['id']
 abort "CREATE failed: #{resp.inspect}" unless wb

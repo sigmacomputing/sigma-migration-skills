@@ -169,8 +169,8 @@ check(!ctl.nil?, 'Region control emitted', fails)
 if ctl && helper
   check(ctl.dig('source', 'source', 'elementId') == helper['id'],
         "control option-source re-pointed at the helper (got #{ctl['source'].inspect})", fails)
-  check(ctl['mode'] == 'exclude' && ctl['values'] == ['Region B'],
-        'data-side exclude semantics untouched (mode:exclude, seeded members)', fails)
+  check(ctl['mode'] == 'exclude' && ctl['values'] == ['Region B', nil],
+        'data-side exclude selection contains both the named member and null', fails)
 end
 
 # ---- The silently-dropped field is NEVER emitted -----------------------------

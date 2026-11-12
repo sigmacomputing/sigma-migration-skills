@@ -233,6 +233,10 @@ def run_converter(args: argparse.Namespace) -> dict:
         "tableMapping": table_mapping,
         "factTable": args.fact_table or "",
         "datasourceIndex": args.datasource_index,
+        # This pipeline rewrites GUID-only virtual-connection date placeholders
+        # ([TABLE/Caption]) with the warehouse formula before POST, so the
+        # converter may wire computed keys over them (the upstream converter repo PR #132).
+        "guidDateRecovery": True,
     }
     shim.write_text(
         "\n".join(

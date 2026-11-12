@@ -1,0 +1,105 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "orders",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "ORDERS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "orders-order_id",
+              "formula": "[ORDERS/ORDER_ID]"
+            },
+            {
+              "id": "orders-date_key",
+              "formula": "[ORDERS/DATE_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-orders-0",
+              "targetElementId": "date",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-date_key",
+                  "targetColumnId": "date-date_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "targets",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PLAN",
+              "TARGETS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "targets-target_id",
+              "formula": "[TARGETS/TARGET_ID]"
+            },
+            {
+              "id": "targets-date_key",
+              "formula": "[TARGETS/DATE_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-targets-0",
+              "targetElementId": "date",
+              "keys": [
+                {
+                  "sourceColumnId": "targets-date_key",
+                  "targetColumnId": "date-date_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "date",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "DATE_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "date-date_key",
+              "formula": "[DATE_DIM/DATE_KEY]"
+            },
+            {
+              "id": "date-cal_date",
+              "formula": "[DATE_DIM/CAL_DATE]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

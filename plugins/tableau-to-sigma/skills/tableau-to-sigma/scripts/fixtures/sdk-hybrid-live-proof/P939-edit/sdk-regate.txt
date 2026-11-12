@@ -1,0 +1,23 @@
+sdk parity: phase6-parity.rb --finalize (10 chart(s) collected)
+Phase 6 PASS 2: injecting actuals (10 charts) → /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-plan.json
+Phase 6 PASS 2: running verifier (strict)
+value-parity score written → /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-score.json
+tile census: 10 dashboard zone(s), 10 built chart(s) in census inventory, 0 unmatched
+value-parity score: 100.0% (10/10 tiles exact)
+wrote /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-formula-coverage.json (21 formula record(s): 1 diverged, 0 dropped)
+wrote /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-final.json (status=PASS 10/10 parity=100.0%)
+PASS     [strict]   Net Revenue  (score 100%)
+PASS     [strict]   Gross Margin %  (score 100%)
+PASS     [strict]   Total Orders  (score 100%)
+PASS     [strict]   Selected Metric by Month  (score 100%)
+PASS     [strict]   Net Revenue % of Row Total: Category x Region  (score 100%)
+PASS     [strict]   Net Revenue by Customer Value Tier (% of total)  (score 100%)
+PASS     [strict]   Top 10 Customers by Net Revenue  (score 100%)
+PASS     [strict]   Customers by Cohort Year and Loyalty Tier  (score 100%)
+PASS     [strict]   Gross Revenue by Ship Method and Ship Speed  (score 100%)
+PASS     [strict]   Net Revenue by Store State  (score 100%)
+---
+10/10 pass
+value-parity score: 100.0%  (mean per-tile, 10 scored tile(s))
+[OK] phase-6 parity PASS on the SDK-exported spec. NEXT: one budgeted REST render
+     (fidelity-loop.rb render --workdir /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit) → blind grader → record-visual-check.rb → --finalize.

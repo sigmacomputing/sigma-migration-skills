@@ -21,6 +21,14 @@ end
 
 puts 'test-relationship-coverage-gate'
 
+single = '<object-graph><objects><object id="one"/></objects></object-graph>'
+check.call(RelationshipCoverage.evaluate({}, source_text: single)['status'] == 'not-applicable',
+           'one parsed object with no relationships needs no relationship ledger')
+check.call(RelationshipCoverage.evaluate({}, source_text: single.sub('<object id="one"/>', '<object id="one"/><object id="two"/>'))['status'] == 'fail',
+           'multiple objects without coverage still fail')
+check.call(RelationshipCoverage.evaluate({}, source_text: single.sub('</object-graph>', '<relationships><relationship/></relationships></object-graph>'))['status'] == 'fail',
+           'a source edge without coverage still fails')
+
 result = RelationshipCoverage.evaluate({}, source_text: '<workbook/>')
 check.call(result['status'] == 'not-applicable',
            'non-object-graph source without a ledger is not applicable')
@@ -129,6 +137,39 @@ result = RelationshipCoverage.evaluate(
 )
 check.call(result['status'] == 'pass' && result['model_relationships'] == 1,
            'computed-key coverage matches a readback relationship with its provenance fields stripped')
+
+# ---- reused-DM evidence route (relationship-map.json) ----------------------
+require 'open3'
+require 'tmpdir'
+require_relative 'test-fixtures/relationship-map/workdir_helper'
+assert_cli = lambda do |work|
+  Open3.capture3('ruby', File.join(__dir__, 'assert-relationship-coverage.rb'), '--workdir', work)
+end
+Dir.mktmpdir('relcov-route') do |work|
+  RelationshipMapWorkdir.build(work, 'replaced-key', parity: ['Revenue by Customer'])
+  out, err, st = assert_cli.call(work)
+  check.call(st.success? && out.include?('PASS (reused-dm evidence) — 1 matched, 1 replaced, 0 dropped, 0 disconnected, 0 extra (all verified)'),
+             "evidence route: proven replaced edge passes the gate (exit #{st.exitstatus}: #{(out + err).strip.lines.last})")
+end
+Dir.mktmpdir('relcov-route') do |work|
+  RelationshipMapWorkdir.build(work, 'replaced-key', probe: false, parity: ['Revenue by Customer'])
+  _, err, st = assert_cli.call(work)
+  check.call(st.exitstatus == 3 && err.include?('unprobed'), "evidence route: an unprobed edge blocks with exit 3 (got #{st.exitstatus})")
+end
+Dir.mktmpdir('relcov-route') do |work|
+  RelationshipMapWorkdir.build(work, 'replaced-key', parity: ['Revenue by Customer'])
+  File.delete(File.join(work, 'relationship-map.json'))
+  _, err, st = assert_cli.call(work)
+  check.call(st.exitstatus == 3 && err.include?('relationship-map.json'), "evidence route: a missing map blocks (got #{st.exitstatus})")
+end
+Dir.mktmpdir('relcov-route') do |work|
+  # A hand-placed map does not switch the rule: without the persisted route the
+  # strict object-graph check runs (and fails on its missing artifact).
+  RelationshipMapWorkdir.build(work, 'replaced-key', parity: ['Revenue by Customer'], route: false)
+  _, err, st = assert_cli.call(work)
+  check.call(st.exitstatus == 3 && err.include?('relationship-coverage.json is missing'),
+             "a map without the persisted route is ignored: strict rule (got #{st.exitstatus}: #{err.strip.lines.first})")
+end
 
 if fails.empty?
   puts 'ALL PASS'

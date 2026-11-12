@@ -97,6 +97,71 @@ module JoinPlan
     entries.concat(federated_joins(twb_xml, db, schema, dm_spec)) if twb_xml && !twb_xml.to_s.strip.empty?
     entries = mark_emitted_joins(entries, dm_spec) if dm_spec.is_a?(Hash)
     entries.concat(lookup_syntheses(dm_spec)) if dm_spec.is_a?(Hash)
+    align_right_tables_to_dm!(entries, dm_spec) if dm_spec.is_a?(Hash)
+    entries
+  end
+
+  # A probe target that is not a warehouse path — a virtual-connection
+  # relation's "<vc-table-uuid>.ORDER_FACT (DB_A.ORDER_FACT)" (no db/schema
+  # known yet on the re-entry fast path), or nil — is repointed at the table
+  # the DATA MODEL actually reads: the warehouse-table element whose physical
+  # table name matches the join's right side. One match only; an ambiguous or
+  # absent match leaves the entry for the gate to refuse (live proof: all 7
+  # VC joins were refused until right_table was hand-rewritten to DB.SCHEMA.T).
+  def align_right_tables_to_dm!(entries, dm_spec)
+    by_table = Hash.new { |h, k| h[k] = [] }
+    Array(dm_spec['pages']).flat_map { |p| Array(p['elements']) }.concat(Array(dm_spec['elements'])).each do |el|
+      next unless el.is_a?(Hash) && el.dig('source', 'kind') == 'warehouse-table'
+      path = el.dig('source', 'path')
+      next unless path.is_a?(Array) && path.size == 3
+      by_table[path.last.to_s.upcase] << path.join('.')
+    end
+    return entries if by_table.empty?
+
+    Array(entries).each do |entry|
+      next if warehouse_fqn?(entry['right_table'])
+      next unless entry['right_table'] || entry['right_sql'].nil?
+      cands = by_table[object_table_key(entry['right'])].uniq
+      next unless cands.size == 1
+      entry['right_table_source'] = entry['right_table'] if entry['right_table']
+      entry['right_table'] = cands.first
+      entry['right_table_via'] = 'data-model warehouse-table path'
+    end
+    entries
+  end
+
+  # DB.SCHEMA.TABLE of legal bare identifiers (no GUID part, no parentheses).
+  def warehouse_fqn?(fqn)
+    parts = fqn.to_s.split('.')
+    parts.size == 3 && parts.all? { |p| p.match?(/\A[A-Za-z_$][A-Za-z0-9_$]*\z/) }
+  end
+
+  # Repoint probe targets through the same source→warehouse table mapping the
+  # converter consumed. Without this, an embedded Hyper workbook can build a DM
+  # against mapped Snowflake tables while gate 16 still probes the extract's
+  # GUID.Extract.TABLE path and fails before sending SQL.
+  def remap_right_tables!(entries, table_mapping, db: nil, schema: nil)
+    mappings = Array(table_mapping).each_with_object({}) do |(source, target), out|
+      key = object_table_key(source)
+      out[key] = target.to_s unless key.empty? || target.to_s.strip.empty?
+    end
+    return entries if mappings.empty?
+
+    Array(entries).each do |entry|
+      target = mappings[object_table_key(entry['right'])]
+      next unless target
+
+      parts = target.split('.').map(&:strip).reject(&:empty?)
+      entry['right_table'] =
+        case parts.length
+        when 1
+          [db, schema, parts.first].compact.reject(&:empty?).join('.')
+        when 2
+          [db, *parts].compact.reject(&:empty?).join('.')
+        else
+          parts.join('.')
+        end
+    end
     entries
   end
 
@@ -429,7 +494,7 @@ module JoinPlan
     raw = name.to_s
     parenthesized = raw.scan(/\(([^()]*)\)/).flatten.last
     token = parenthesized.to_s.include?('.') ? parenthesized.to_s.split('.').last : raw
-    token.strip.upcase.gsub(/\s+/, '_')
+    token.strip.sub(/\$\z/, '').upcase.gsub(/\s+/, '_')
   end
 
   # A dm_spec column's PHYSICAL (warehouse) name: its explicit display `name`
@@ -593,6 +658,8 @@ module JoinPlan
     return nil unless rel
     parts = rel.attributes['table'].to_s.scan(/\[([^\]]+)\]/).flatten
     parts = [rel.attributes['name'].to_s] if parts.empty?
+    return parts.join('.') if parts.size == 3
+    return nil if parts.size > 3
     conn_name = rel.attributes['connection'].to_s
     db = nil
     unless conn_name.empty?

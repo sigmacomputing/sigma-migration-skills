@@ -423,3 +423,20 @@ If your geo dimension doesn't fit one of the five `regionType` values above (e.g
   "xAxis": {"columnId": "bar-city", "sort": {"by": "bar-sales", "direction": "descending"}}
 }
 ```
+
+## Builder polish defaults (live-probed 2026-11-10)
+
+The one-shot builder (`build-charts-from-signals.rb`) emits these four shapes; RCF should not undo them. Grader notes from the 2026-11-09 regression (Stress 4, Complex Pivot).
+
+- **Legend control shows an extra grey "Others" row** (and the row clips the legend cell) → `otherCategories: {mode: 'use-legend-palette'}` on the legend control. Sigma's default groups unlisted values under "Others" and draws that row even when `colorAssignment.customColors` covers every member; `nullValues: 'hidden'` does not remove it. A Tableau colour legend never has a synthetic Others bucket (an "Other" group member is an ordinary customColors value), so the builder always emits it. Live-probed 2026-11-10 (Stress 4 Store Type legend).
+- **Ratio measure prints `1`/`0`** (Gross Margin Pct, Return Rate, Pct of Total with NO source
+  format) → this is the source's own look: Tableau's Automatic format prints a crosstab real at 0
+  decimals, and the Complex Pivot source PNG shows the same `1`/`0`. **Decision (2026-11-10): match the
+  source's printed precision exactly and flag it; never silently re-format.** The builder keeps
+  `,.0f` and logs `PRECISION-AS-SOURCE: '<sheet>' pivot value '<measure>' …` for ratio-named
+  measures (the `heuristic_number_format` percent test), so a human can opt into `,.1%` after
+  publish. A grader seeing `1`/`0` beside the same source cells is comparing like with like; a
+  percent format would change every printed cell. When the source PNG shows real decimals, record
+  them as `display_formats` on the tile (`refs/fidelity-recipes.md` §"Number & date formats") and the builder emits them.
+- **Bar coloured by its own axis dimension shows white labels inside the bars** (Tableau: Region on Rows and on Colour → one dark label past each bar end) → `dataLabel: {labels: 'hidden', totals: {display: 'shown'}}`. Sigma treats colour-by-category as a stack, so `anchor` is ignored. With one segment per bar, the stack total IS the value: it renders dark, past the bar end, in the column's format. Rejected alternatives (live-probed 2026-11-10): `stacking: 'none'` gives dark outside labels but shrinks each bar to a thin clustered slot; `dataLabel.color` stays inside; colouring by the x-axis column itself is a POST 400 ("a column can only be on one channel at a time"). The builder applies this when the colour column's formula equals the x axis's (single measure); real stacks keep segment labels (catalog `bar-label-outside-end`).
+- **Segmented control reads "Select..." where the Tableau radio list reads "(All)"** → `showClearLabel: true, clearLabel: 'All'` (segmented has no `placeholder`; that is list-only). A wide control renders a selected "All" first segment; a narrow one collapses to a dropdown that reads "All". The builder emits this on every radiolist quick filter (Tableau shows "(All)" by default; no parser reads the hide-All toggle yet). Live-probed 2026-11-10.

@@ -25,8 +25,11 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "lib"))
 import workdir_guard  # noqa: E402
 import sigma_rest  # noqa: E402
+import code_rep  # noqa: E402
 import published_datasource  # noqa: E402
 import tableau_source  # noqa: E402
+import sql_provenance as source_provenance  # noqa: E402
+import relationship_route  # noqa: E402
 from migration_diagnostics import Span  # noqa: E402
 
 DIAGNOSTIC_SPAN = None
@@ -166,7 +169,7 @@ def validate_workbook_readback_fresh(
             "workbook readback lacks latestDocumentVersion/latestVersion"
         )
     try:
-        live = api.request("get", f"/v2/workbooks/{workbook_id}/spec")
+        live = api.request("get", code_rep.read_path(workbook_id))
     except Exception as exc:
         raise ParityPreparationError(
             f"live workbook document-version check failed: {exc}"
@@ -298,7 +301,7 @@ def visual_render_dimensions(spec_path: Path, page_id: str, width: int = 1600, h
     draws their axis title) was rendered cropped and graded as clipped.
     """
     spec = load(spec_path, {}) or {}
-    layout = str((spec.get("document") or spec).get("layout") or "")
+    layout = str((spec.get("contents") or spec.get("document") or spec).get("layout") or "")
     block = re.search(r'<Page\b[^>]*\bid="' + re.escape(page_id) + r'".*?</Page>', layout, re.S)
     rows = [int(end) for end in re.findall(r'gridRow="\d+\s*/\s*(\d+)"', block.group(0))] if block else []
     if rows:
@@ -501,6 +504,27 @@ def extract_landing_gate(
         write(workdir / "extract-landing-status.json", result)
         return result
 
+    # An explicit reused data model (the reused-DM evidence route) reads the
+    # warehouse tables it already names, so landed copies would never be read:
+    # it satisfies the gate with no off-ramp and auto-landing stands aside.
+    # --db/--schema stay required; parity and the relationship map resolve the
+    # warehouse tables through them. A manifest above still wins.
+    reuse_id = getattr(args, "data_model_id", None)
+    if relationship_route.eligible(workdir, reuse_id) and args.db and args.schema:
+        result = {
+            "status": "reused-data-model",
+            "exact_parity_eligible": True,
+            "data_model_id": reuse_id.strip(),
+            "warehouse": {"db": args.db, "schema": args.schema},
+            "embedded_datasources": names,
+            "rationale": (
+                "explicit --data-model-id reads its own warehouse tables; "
+                "landed extract copies would never be read"
+            ),
+        }
+        write(workdir / "extract-landing-status.json", result)
+        return result
+
     if args.skip_extract_landing:
         result = {
             "status": "skipped",
@@ -605,7 +629,8 @@ def extract_landing_gate(
     raise ExtractLandingRequired(
         "; ".join(blockers)
         + ". Land the frozen extract with scripts/land-extracts.py and place an "
-        "attributed, non-empty landing-manifest.json in the workdir, or explicitly "
+        "attributed, non-empty landing-manifest.json in the workdir, reuse an existing "
+        "data model that already reads these tables with --data-model-id <id>, or explicitly "
         "use --skip-extract-landing REASON (source-data exact parity will be prohibited)."
     )
 
@@ -874,9 +899,13 @@ def main() -> int:
         if args.dm_spec
         else workdir / "dm-raw.json"
     )
+    if args.dm_spec and source_model_path.parent != workdir:
+        copy_artifact(str(source_model_path), workdir / "dm-supplied.json")
+        source_model_path = workdir / "dm-supplied.json"
     raw_model = load(source_model_path, {}) or {}
     effective_dm_spec = source_model_path
     fact_element_name = args.fact_element
+    extract_table_mappings = []
     manifest = (
         read_manifest(Path(landing["manifest_path"]))
         if landing.get("manifest_path")
@@ -890,6 +919,7 @@ def main() -> int:
         )
         remap["coverage"] = remapped_coverage
         write(workdir / "extract-manifest-remap.json", remap)
+        extract_table_mappings = remap["mappings"]
         if not remap["elements"] or not remapped_coverage["valid"]:
             return stop(
                 17,
@@ -963,6 +993,21 @@ def main() -> int:
     metadata = load(metadata_path, {}) or {}
     if not metadata_path.is_file():
         write(metadata_path, {"model": raw_model})
+    # A data model reused by explicit --data-model-id that this workdir did not
+    # post is judged on the relationship EVIDENCE route (relationship-map.json:
+    # key probes + parity + field use), not by a count against the converter
+    # draft. Persisted in the state file; the gates read it from there.
+    explicit_dm = relationship_route.explicit_reuse_id(args.data_model_id, state)
+    relationship_evidence = relationship_route.eligible(workdir, explicit_dm)
+    if relationship_evidence:
+        state["relationship_route"] = relationship_route.EVIDENCE
+        # the converter resolves tables against --db/--schema and the landed
+        # extract tables are renamed by the manifest remap; the map must too
+        state["relationship_resolution"] = relationship_route.resolution(args.db, args.schema, extract_table_mappings)
+    else:
+        state.pop("relationship_route", None)
+        state.pop("relationship_resolution", None)
+    write(state_path, state)
     relationship_artifact = workdir / "relationship-coverage.json"
     relationship_gate = subprocess.run(
         [
@@ -980,7 +1025,14 @@ def main() -> int:
         ],
         check=False,
     )
-    if relationship_gate.returncode:
+    relationship_deferred = bool(relationship_gate.returncode and relationship_evidence)
+    if relationship_deferred:
+        print(
+            "relationship coverage: the converter draft is incomplete — deferred: reused DM "
+            f"{explicit_dm} is judged on the evidence route (relationship-map.json) "
+            "unless reuse is not taken"
+        )
+    elif relationship_gate.returncode:
         return stop(
             4,
             "RELATIONSHIP COVERAGE REPAIR REQUIRED",
@@ -1163,6 +1215,46 @@ def main() -> int:
 
     data_model_id = discovered_dm
     workbook_id = discovered_workbook
+    # The reuse decision is final: anything but the explicit model clears the
+    # evidence route and fires the strict relationship STOP it had deferred.
+    reused = bool(data_model_id) and data_model_id == explicit_dm
+    settled = relationship_route.settle(
+        relationship_route.EVIDENCE if relationship_evidence else None,
+        reused=reused,
+        coverage_deferred=relationship_deferred,
+    )
+    relationship_evidence = settled["route"] is not None
+    if not relationship_evidence:
+        state.pop("relationship_route", None)
+        state.pop("relationship_resolution", None)
+    write(state_path, state)
+    if settled["stop"]:
+        write(state_path, state)
+        return stop(
+            4,
+            "RELATIONSHIP COVERAGE REPAIR REQUIRED",
+            [
+                f"Reuse of {explicit_dm} was not taken, so the converter model ships and the",
+                "Tableau logical model contains an unwired or partial relationship.",
+                f"See {relationship_artifact}.",
+                "Repair every edge and regenerate conv-meta.json before any Sigma POST.",
+            ],
+        )
+    # Same for the extract-landing gate: the explicit reuse satisfied it, and a
+    # fresh converter model would read the unlanded extract tables.
+    if state.get("extract_landing_status") == "reused-data-model" and not reused:
+        return stop(
+            17,
+            "EXTRACT LANDING REQUIRED",
+            [
+                f"Reuse of {args.data_model_id} was not taken, so a fresh converter model "
+                "would ship over the unlanded embedded extract.",
+                "Land the frozen extract with scripts/land-extracts.py and place an "
+                "attributed, non-empty landing-manifest.json in the workdir, or explicitly "
+                "use --skip-extract-landing REASON (source-data exact parity will be prohibited).",
+                f"Reuse evidence: {reuse_result_path}",
+            ],
+        )
     if data_model_id:
         state["data_model_id"] = data_model_id
     if workbook_id:
@@ -1189,6 +1281,7 @@ def main() -> int:
             ],
         )
         data_model_id = load(workdir / "dm-ids.json")["dataModelId"]
+        source_provenance.record_active_spec(workdir, dm_spec, data_model_id)
         state["data_model_id"] = data_model_id
         write(state_path, state)
     else:
@@ -1206,6 +1299,14 @@ def main() -> int:
                 f"selected data model {data_model_id} returned no JSON spec"
             )
         write(workdir / "datamodel-readback.json", dm_readback)
+        write(workdir / "dm-spec-reused.json", dm_readback)
+        if relationship_evidence:
+            subprocess.run(
+                [sys.executable, str(HERE / "emit-relationship-map.py"), "--workdir", str(workdir)],
+                check=False,
+            )
+        source_provenance.record_active_spec(workdir, workdir / "dm-spec-reused.json", data_model_id)
+        run("Phase 4 reused SQL provenance", "sql-provenance.py", ["--workdir", str(workdir), "--dm-spec", str(workdir / "dm-spec-reused.json")])
 
     element_id = args.data_model_element_id or state.get("data_model_element_id")
     if not element_id:
@@ -1457,6 +1558,16 @@ def main() -> int:
             ],
         )
     print("── Relationship coverage gate")
+    if relationship_route.current(workdir):
+        # Judge the LIVE reused model, not the copy read earlier in this run.
+        ok, message = relationship_route.refresh_reused_model(
+            workdir, lambda: sigma_rest.request("get", f"/v2/dataModels/{state.get('data_model_id')}/spec"))
+        print(message if ok else f"FAIL: could not re-read the reused data model ({message}) — "
+              "the relationship gate blocks until the live model can be checked")
+        subprocess.run(
+            [sys.executable, str(HERE / "emit-relationship-map.py"), "--workdir", str(workdir)],
+            check=False,
+        )
     relationship_gate = subprocess.run(
         [
             sys.executable,
@@ -1484,8 +1595,6 @@ def main() -> int:
             str(HERE / "sql-provenance.py"),
             "--workdir",
             str(workdir),
-            "--dm-spec",
-            str(dm_spec),
             "--check",
         ],
         check=False,

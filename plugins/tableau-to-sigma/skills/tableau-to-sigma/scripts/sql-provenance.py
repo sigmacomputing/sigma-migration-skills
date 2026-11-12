@@ -21,22 +21,11 @@ def main() -> int:
     args = parser.parse_args()
     workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
-    dm_spec = (
-        Path(args.dm_spec).resolve()
-        if args.dm_spec
-        else next(
-            (
-                path
-                for path in (
-                    workdir / "dm-remapped.json",
-                    workdir / "dm-raw.json",
-                    workdir / "dm-spec.json",
-                )
-                if path.is_file()
-            ),
-            None,
-        )
-    )
+    try:
+        dm_spec = Path(args.dm_spec).resolve() if args.dm_spec else sql_provenance.active_spec_path(workdir)
+    except (OSError, ValueError) as error:
+        print(f"SQL PROVENANCE FAIL: {error}", file=sys.stderr)
+        return 3
     artifact = workdir / "sql-provenance.json"
     if dm_spec is None or not dm_spec.is_file():
         print("SQL PROVENANCE FAIL: no data-model spec is available", file=sys.stderr)

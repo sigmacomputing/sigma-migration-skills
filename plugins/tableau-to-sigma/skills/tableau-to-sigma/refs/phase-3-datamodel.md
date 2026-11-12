@@ -7,7 +7,7 @@ Write the spec to `<WORK>/dm-spec.json`. Full schema is in
 
 ### Critical rules
 
-1. **Endpoint**: `POST /v2/dataModels/spec` — NOT `/v2/workbooks/spec`.
+1. **Endpoint**: `POST /v2/dataModels/spec` — NOT `/v2/workbooks`.
 2. **`folderId` is required.** Find it via `GET /v2/files?typeFilters=workbook` — `parentId` on any of your workbooks.
 3. **Top-level shape uses `pages: [{elements: [...]}]`, NOT a bare `elements: [...]` at root.** The API rejects root-level `elements` with `pages: Invalid array: undefined`. Even if your DM only has one logical page (typical), still wrap the elements under a single page:
    ```json
@@ -51,6 +51,28 @@ before posting a new or reused data model:
   the join and can recreate the field-reported flattened/pre-aggregated model.
   The relationship/key count is checked again against the posted DM readback,
   so a local converter ledger cannot hide an API-dropped or manual-spec edge.
+- **Reused-DM evidence route** — a data model reused by explicit
+  `--reuse-dm <id>` (Python `--data-model-id`) that this workdir did not post
+  is judged by `relationship-map.json` instead of the exact count above: the
+  customer may restructure joins, but must prove each difference. The
+  orchestrator persists `relationship_route: "reused-dm-evidence"` in
+  migrate state and runs `emit-relationship-map.rb` on the live readback
+  (`dm-spec-reused.json`). Each Tableau relationship is `matched` (same
+  tables, same keys), `replaced` (connected another way: key probes + parity
+  on the worksheets that use both sides), `disconnected` (no path: allowed
+  only if no migrated worksheet uses both tables) or `dropped` (table absent:
+  allowed only if no migrated worksheet uses it and it bridges no two kept
+  tables a worksheet uses together); model edges with no Tableau counterpart
+  are `extra` (key probes + parity). Prove edges with
+  `probe-join-keys.rb --relationship-map <WORK>/relationship-map.json`
+  (target unique on its key and 0 unmatched source keys; Python:
+  `probe-relationship-map.py`). `emit-relationship-map.rb --annotate <i>
+  --reason "…"` records why — shown in migration notes, never evidence.
+  `--finalize` re-reads the live model (a failed re-read blocks); a changed
+  edge loses its probe, and a failed probe is re-run on the next probe call.
+  The same explicit reuse also satisfies the embedded-extract landing gate
+  (exit 17) with no `--skip-extract-landing` escape, given `--db/--schema` (or
+  `--table-mapping`) — see `refs/extract-landing.md`.
 - `sql-provenance.json` — every `source.kind:"sql"` element is labeled as
   source Custom SQL or a generated LOD/Top-N/window/blend helper. An
   unattributed SQL element stops before POST. A manual entry in

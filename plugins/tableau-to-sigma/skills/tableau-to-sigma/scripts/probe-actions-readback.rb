@@ -18,6 +18,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'code_rep'
 require 'action_ledger'
 require 'probe_registry'
 
@@ -52,7 +53,7 @@ def api(method, url, token, body = nil)
   [res.code.to_i, (JSON.parse(res.body) rescue res.body)]
 end
 
-code, created = api(:post, "#{base}/v2/workbooks/spec", token, spec)
+code, created = api(:post, "#{base}#{Sigma::CodeRep.create_path}", token, Sigma::CodeRep.create_body(spec))
 abort "create FAILED (#{code}): #{created.inspect[0, 800]}" unless (200..299).cover?(code)
 wb_id = created['workbookId'] || created.dig('workbook', 'workbookId')
 abort "create returned no workbookId: #{created.inspect[0, 400]}" if wb_id.to_s.empty?
@@ -62,12 +63,12 @@ abort "create returned no workbookId: #{created.inspect[0, 400]}" if wb_id.to_s.
 ProbeRegistry.created(wb_id, name: "ZZ probe-actions-readback (#{Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')})", script: 'probe-actions-readback.rb')
 
 begin
-  code, got = api(:get, "#{base}/v2/workbooks/#{wb_id}/spec", token)
+  code, got = api(:get, "#{base}#{Sigma::CodeRep.read_path(wb_id)}", token)
   abort "readback FAILED (#{code})" unless (200..299).cover?(code)
 
-  # The spec may or may not be wrapped in a `document` envelope depending on the
-  # release — unwrap before walking so the diff is not comparing two shapes.
-  root = got['document'] || got
+  # The document sits under `contents` (`document` on the retired /spec
+  # readbacks) — unwrap before walking so the diff is not comparing two shapes.
+  root = got['contents'] || got['document'] || got
   found = {}
   walk = lambda do |node|
     case node

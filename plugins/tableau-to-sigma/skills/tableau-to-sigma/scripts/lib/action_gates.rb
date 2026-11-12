@@ -138,6 +138,18 @@ module ActionGates
     # so a marker-less guide's open-work prose — however it's written —
     # cannot be mis-describing already-done work as still open; that guide
     # is fine and must not be failed here.
+    # render_guide stamps `<!-- ledger-residue: none -->` on a guide with no
+    # residue entries (every detected action auto-wired): that guide is
+    # current and verifiable with zero per-entry markers — but only when the
+    # ledger agrees there is no residue.
+    residue_none = guide_text.match?(/<!--\s*ledger-residue:\s*none\s*-->/)
+    if residue_none
+      return [] if ledger['residue'].empty? && rendered_keys.empty?
+      unless ledger['residue'].empty?
+        return ["the guide declares no residue but the ledger lists #{ledger['residue'].size} action(s) still to " \
+                'wire by hand — regenerate it with build-postpublish-guide.rb']
+      end
+    end
     if !ledger['emitted'].empty? && rendered_keys.empty?
       return ["the guide carries zero <!-- ledger-key --> markers but the ledger claims " \
               "#{ledger['emitted'].size} action(s) emitted — this guide cannot be verified against the " \

@@ -1,0 +1,315 @@
+{
+  "pages": [
+    {
+      "name": "Quick Pct Across Region",
+      "elements": [
+        {
+          "id": "title-text-quick-pct-across-region",
+          "kind": "text",
+          "body": "## Quick Pct Across Region"
+        },
+        {
+          "id": "el-quick-pct-across-region",
+          "kind": "pivot-table",
+          "name": "Quick Pct Across Region",
+          "source": {
+            "kind": "table",
+            "elementId": "master"
+          },
+          "columns": [
+            {
+              "id": "p-el-quick-pct-across-region-row-segment",
+              "name": "Segment",
+              "formula": "[Master/Segment]"
+            },
+            {
+              "id": "p-el-quick-pct-across-region-col-region",
+              "name": "Region",
+              "formula": "[Master/Region]"
+            },
+            {
+              "id": "p-el-quick-pct-across-region-value-sum-sales",
+              "name": "sum:Sales",
+              "formula": "PercentOfTotal(Sum([Master/Sales]), \"row\")",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f",
+                "displayNullAs": ""
+              }
+            },
+            {
+              "id": "p-el-quick-pct-across-region-col-region-nullfirst",
+              "name": "Region (null-first sort)",
+              "formula": "If(IsNull([Master/Region]), \"\", [Master/Region])"
+            }
+          ],
+          "values": [
+            "p-el-quick-pct-across-region-value-sum-sales"
+          ],
+          "rowsBy": [
+            {
+              "columnId": "p-el-quick-pct-across-region-row-segment"
+            }
+          ],
+          "columnsBy": [
+            {
+              "columnId": "p-el-quick-pct-across-region-col-region",
+              "sort": {
+                "direction": "ascending",
+                "by": "p-el-quick-pct-across-region-col-region-nullfirst",
+                "aggregation": "min"
+              }
+            }
+          ],
+          "totals": {
+            "showGrandTotals": "hidden",
+            "showSubtotals": "when-collapsed"
+          },
+          "display": {
+            "headerWidths": {
+              "uniformWidth": 65
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Share Calc Across Region",
+      "elements": [
+        {
+          "id": "title-text-share-calc-across-region",
+          "kind": "text",
+          "body": "## Share Calc Across Region"
+        },
+        {
+          "id": "el-share-calc-across-region",
+          "kind": "pivot-table",
+          "name": "Share Calc Across Region",
+          "source": {
+            "kind": "table",
+            "elementId": "master"
+          },
+          "columns": [
+            {
+              "id": "p-el-share-calc-across-region-row-segment",
+              "name": "Segment",
+              "formula": "[Master/Segment]"
+            },
+            {
+              "id": "p-el-share-calc-across-region-col-region",
+              "name": "Region",
+              "formula": "[Master/Region]"
+            },
+            {
+              "id": "p-el-share-calc-across-region-value-share-of-sales",
+              "name": "Share of Sales",
+              "formula": "PercentOfTotal(Sum([Master/Sales]), \"row\")",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2%",
+                "displayNullAs": ""
+              }
+            },
+            {
+              "id": "p-el-share-calc-across-region-col-region-nullfirst",
+              "name": "Region (null-first sort)",
+              "formula": "If(IsNull([Master/Region]), \"\", [Master/Region])"
+            }
+          ],
+          "values": [
+            "p-el-share-calc-across-region-value-share-of-sales"
+          ],
+          "rowsBy": [
+            {
+              "columnId": "p-el-share-calc-across-region-row-segment"
+            }
+          ],
+          "columnsBy": [
+            {
+              "columnId": "p-el-share-calc-across-region-col-region",
+              "sort": {
+                "direction": "ascending",
+                "by": "p-el-share-calc-across-region-col-region-nullfirst",
+                "aggregation": "min"
+              }
+            }
+          ],
+          "totals": {
+            "showGrandTotals": "hidden",
+            "showSubtotals": "when-collapsed"
+          },
+          "display": {
+            "headerWidths": {
+              "uniformWidth": 65
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Running Sum Across Region",
+      "elements": [
+        {
+          "id": "title-text-running-sum-across-region",
+          "kind": "text",
+          "body": "## Running Sum Across Region"
+        },
+        {
+          "id": "el-running-sum-across-region",
+          "kind": "pivot-table",
+          "name": "Running Sum Across Region",
+          "source": {
+            "kind": "table",
+            "elementId": "master"
+          },
+          "columns": [
+            {
+              "id": "p-el-running-sum-across-region-row-segment",
+              "name": "Segment",
+              "formula": "[Master/Segment]"
+            },
+            {
+              "id": "p-el-running-sum-across-region-col-region",
+              "name": "Region",
+              "formula": "[Master/Region]"
+            },
+            {
+              "id": "p-el-running-sum-across-region-value-running-sales",
+              "name": "Running Sales",
+              "formula": "CumulativeSum(Sum([Master/Sales]))",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f",
+                "displayNullAs": ""
+              }
+            },
+            {
+              "id": "p-el-running-sum-across-region-col-region-nullfirst",
+              "name": "Region (null-first sort)",
+              "formula": "If(IsNull([Master/Region]), \"\", [Master/Region])"
+            }
+          ],
+          "values": [
+            "p-el-running-sum-across-region-value-running-sales"
+          ],
+          "rowsBy": [
+            {
+              "columnId": "p-el-running-sum-across-region-row-segment"
+            }
+          ],
+          "columnsBy": [
+            {
+              "columnId": "p-el-running-sum-across-region-col-region",
+              "sort": {
+                "direction": "ascending",
+                "by": "p-el-running-sum-across-region-col-region-nullfirst",
+                "aggregation": "min"
+              }
+            }
+          ],
+          "totals": {
+            "showGrandTotals": "hidden",
+            "showSubtotals": "when-collapsed"
+          },
+          "display": {
+            "headerWidths": {
+              "uniformWidth": 65
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Share Calc Default Addressing",
+      "elements": [
+        {
+          "id": "title-text-share-calc-default-addressing",
+          "kind": "text",
+          "body": "## Share Calc Default Addressing"
+        },
+        {
+          "id": "el-share-calc-default-addressing",
+          "kind": "pivot-table",
+          "name": "Share Calc Default Addressing",
+          "source": {
+            "kind": "table",
+            "elementId": "master"
+          },
+          "columns": [
+            {
+              "id": "p-el-share-calc-default-addressing-row-segment",
+              "name": "Segment",
+              "formula": "[Master/Segment]"
+            },
+            {
+              "id": "p-el-share-calc-default-addressing-col-region",
+              "name": "Region",
+              "formula": "[Master/Region]"
+            },
+            {
+              "id": "p-el-share-calc-default-addressing-value-share-of-sales",
+              "name": "Share of Sales",
+              "formula": "PercentOfTotal(Sum([Master/Sales]), \"row\")",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2%",
+                "displayNullAs": ""
+              }
+            },
+            {
+              "id": "p-el-share-calc-default-addressing-row-segment-nullfirst",
+              "name": "Segment (null-first sort)",
+              "formula": "If(IsNull([Master/Segment]), \"\", [Master/Segment])"
+            },
+            {
+              "id": "p-el-share-calc-default-addressing-col-region-nullfirst",
+              "name": "Region (null-first sort)",
+              "formula": "If(IsNull([Master/Region]), \"\", [Master/Region])"
+            }
+          ],
+          "values": [
+            "p-el-share-calc-default-addressing-value-share-of-sales"
+          ],
+          "rowsBy": [
+            {
+              "columnId": "p-el-share-calc-default-addressing-row-segment",
+              "sort": {
+                "direction": "ascending",
+                "by": "p-el-share-calc-default-addressing-row-segment-nullfirst",
+                "aggregation": "min"
+              }
+            }
+          ],
+          "columnsBy": [
+            {
+              "columnId": "p-el-share-calc-default-addressing-col-region",
+              "sort": {
+                "direction": "ascending",
+                "by": "p-el-share-calc-default-addressing-col-region-nullfirst",
+                "aggregation": "min"
+              }
+            }
+          ],
+          "totals": {
+            "showGrandTotals": "hidden",
+            "showSubtotals": "when-collapsed"
+          },
+          "display": {
+            "headerWidths": {
+              "uniformWidth": 65
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "data_elements": [
+
+  ],
+  "theme": {
+    "fonts": {
+      "textFont": "Lato",
+      "dataFont": "Lato"
+    }
+  }
+}

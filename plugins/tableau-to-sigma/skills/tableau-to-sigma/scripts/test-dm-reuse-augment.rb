@@ -89,11 +89,16 @@ with_shelves = Marshal.load(Marshal.dump(conv_fact))
 with_shelves['columns'] += [
   { 'name' => ':Measure Names', 'formula' => '[:Measure Names]' },
   { 'name' => ':Measure Values', 'formula' => '[:Measure Values]' },
-  { 'name' => 'Measure Names', 'formula' => '[Physical Names]' }
+  { 'name' => ':Multiple Values', 'formula' => '[:Multiple Values]' },
+  { 'name' => 'Measure Names', 'formula' => '[Physical Names]' },
+  { 'name' => ':Region', 'formula' => '[:Warehouse Region]' },
+  { 'name' => ':Measure Names Code', 'formula' => '[:Warehouse Code]' }
 ]
 shelf_plan = MechanicalSpecs.plan_reuse_derived_columns(with_shelves, candidate, 'Order Fact')
-check(shelf_plan['unclosable'].map { |c| c['name'] }.sort == ['Loyalty Score', 'Measure Names'],
-      'synthetic Tableau shelves do not block reuse; a real similarly named field still does', fails)
+check(shelf_plan['unclosable'].map { |c| c['name'] }.sort == [':Measure Names Code', ':Region', 'Loyalty Score', 'Measure Names'],
+      'only exact synthetic shelves are skipped; real colon-prefixed and similarly named fields still block reuse', fails)
+check(shelf_plan['closable'].none? { |column| column['name'].start_with?(':') },
+      'missing colon-prefixed physical inputs are never fabricated as derived columns', fails)
 plan = MechanicalSpecs.plan_reuse_derived_columns(conv_fact, candidate, 'Order Fact')
 closable_names = plan['closable'].map { |c| c['name'] }
 unclosable_names = plan['unclosable'].map { |c| c['name'] }

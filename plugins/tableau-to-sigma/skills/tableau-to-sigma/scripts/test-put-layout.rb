@@ -32,14 +32,14 @@ end
 
 SCRIPT = File.expand_path('put-layout.rb', __dir__)
 
-def run_case(live_spec, layout_xml, manifest_entries)
+def run_case(live_spec, layout_xml, manifest_entries, band_patches = nil)
   Dir.mktmpdir do |work|
     put_bodies = []
     srv = WEBrick::HTTPServer.new(Port: 0, BindAddress: '127.0.0.1',
                                   Logger: WEBrick::Log.new(File::NULL), AccessLog: [])
     port = srv.config[:Port]
     srv.mount_proc('/') do |req, res|
-      if req.request_method == 'GET' && req.path.end_with?('/spec')
+      if req.request_method == 'GET' && req.query_string.to_s.include?('includeContents=true')
         res.body = JSON.generate(live_spec)
       elsif req.request_method == 'GET'
         # workbook metadata GET (used by the nav.invalid URL rewrite, unrelated
@@ -61,6 +61,7 @@ def run_case(live_spec, layout_xml, manifest_entries)
     File.write(layout, layout_xml, encoding: 'UTF-8')
     manifest_path = layout.sub(/\.xml$/, '') + '-actions-emitted.json'
     File.write(manifest_path, JSON.generate(manifest_entries))
+    File.write("#{layout}.kpi-band-style.json", JSON.generate(band_patches)) if band_patches
 
     scrub = { 'SIGMA_API_TOKEN' => nil, 'SIGMA_BASE_URL' => nil,
               'SIGMA_CLIENT_ID' => nil, 'SIGMA_CLIENT_SECRET' => nil, 'HOME' => work }
@@ -69,7 +70,7 @@ def run_case(live_spec, layout_xml, manifest_entries)
 
     put_bodies_parsed = put_bodies.map do |b|
       raw = JSON.parse(b) rescue {}
-      raw['document'].is_a?(Hash) ? raw['document'] : raw
+      raw['contents'].is_a?(Hash) ? raw['contents'] : raw
     end
     [st, out, put_bodies_parsed]
   end
@@ -100,7 +101,7 @@ MANIFEST_1 = [
 ].freeze
 LIVE_SPEC_1_WITH_BUTTON = {
   'workbookId' => 'wb-test',
-  'document' => {
+  'contents' => {
     'schemaVersion' => 1,
     'kind' => 'workbook',
     'pages' => [
@@ -162,9 +163,9 @@ Dir.mktmpdir do |work|
                                 Logger: WEBrick::Log.new(File::NULL), AccessLog: [])
   port = srv.config[:Port]
   srv.mount_proc('/') do |req, res|
-    if req.request_method == 'GET' && req.path.end_with?('/spec')
+    if req.request_method == 'GET' && req.query_string.to_s.include?('includeContents=true')
       res.body = JSON.generate(
-        'document' => {
+        'contents' => {
           'schemaVersion' => 1, 'kind' => 'workbook',
           'pages' => [], 'elements' => [], 'layout' => '<Workbook/>'
         }
@@ -206,7 +207,7 @@ Dir.mktmpdir do |work|
   port = srv.config[:Port]
   live = {
     'workbookId' => 'wb-test',
-    'document' => {
+    'contents' => {
       'schemaVersion' => 1, 'kind' => 'workbook',
       'pages' => [{ 'id' => 'page-dash-1', 'name' => 'Overview' }, { 'id' => 'page-dash-2', 'name' => 'Detail View' }],
       'elements' => [{ 'id' => 'btn-10', 'kind' => 'text',
@@ -215,7 +216,7 @@ Dir.mktmpdir do |work|
     }
   }
   srv.mount_proc('/') do |req, res|
-    if req.request_method == 'GET' && req.path.end_with?('/spec')
+    if req.request_method == 'GET' && req.query_string.to_s.include?('includeContents=true')
       res.body = JSON.generate(live)
     elsif req.request_method == 'GET'
       res.body = JSON.generate('url' => 'https://app.example.test/org/workbook/AbC123')
@@ -238,7 +239,7 @@ Dir.mktmpdir do |work|
   out4, st4 = Open3.capture2e(scrub.merge('SIGMA_WORKDIR' => work),
                               'ruby', SCRIPT, '--workbook', 'wb-test', '--layout', layout)
   srv.shutdown
-  body = put_bodies.map { |b| JSON.parse(b) rescue {} }.map { |r| r['document'] || r }
+  body = put_bodies.map { |b| JSON.parse(b) rescue {} }.map { |r| r['contents'] || r }
                    .flat_map { |d| elements_from_spec(d) }.find { |e| e['id'] == 'btn-10' }.to_h['body'].to_s
   check(st4.exitstatus == 0, "exits 0 — got #{st4.exitstatus}")
   check(body.include?('(https://app.example.test/org/workbook/AbC123?:nodeId=page-dash-2)'),
@@ -246,6 +247,95 @@ Dir.mktmpdir do |work|
   check(!body.include?('/page/'), 'nav link is not the standalone /page/ view')
   puts out4 unless st4.exitstatus == 0
 end
+
+# ---------------------------------------------------------------------------
+puts 'Case C6 - band KPI restyle applied only to the KPIs named in the layout sidecar'
+LIVE_C6 = {
+  'workbookId' => 'wb-test',
+  'contents' => { 'schemaVersion' => 1, 'kind' => 'workbook', 'pages' => [{ 'id' => 'page-dash-1', 'name' => 'O' }],
+                  'elements' => [
+                    { 'id' => 'k1', 'kind' => 'kpi-chart', 'layout' => { 'anchor' => 'middle' } },
+                    { 'id' => 'k2', 'kind' => 'kpi-chart', 'layout' => { 'anchor' => 'middle' } }
+                  ], 'layout' => '' }
+}.freeze
+XML_C6 = %(<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-dash-1">\n<Element elementId="k1" gridColumn="1 / 13" gridRow="1 / 5"/>\n<Element elementId="k2" gridColumn="13 / 25" gridRow="1 / 5"/>\n</Page>\n)
+patch = { 'k1' => { 'style' => { 'backgroundColor' => 'transparent', 'borderRadius' => 'square', 'borderWidth' => 0 },
+                    'layout' => { 'anchor' => 'center', 'titleOrient' => 'top' } } }
+stc, _outc, putc = run_case(LIVE_C6, XML_C6, [], patch)
+elc = elements_from_spec(putc.first || {})
+check(stc.exitstatus == 0, 'exits 0')
+check(elc.find { |e| e['id'] == 'k1' }.to_h.dig('style', 'backgroundColor') == 'transparent', 'listed KPI restyled flat')
+check(elc.find { |e| e['id'] == 'k2' }.to_h['style'].nil?, 'unlisted KPI keeps its card style')
+
+# ---------------------------------------------------------------------------
+puts 'Case C16 - map title patch: hidden own title + text, only for the listed map'
+LIVE_C16 = {
+  'workbookId' => 'wb-test',
+  'contents' => { 'schemaVersion' => 1, 'kind' => 'workbook', 'pages' => [{ 'id' => 'page-dash-1', 'name' => 'O' }],
+                  'elements' => [
+                    { 'id' => 'm1', 'kind' => 'region-map', 'name' => 'Sales Map' },
+                    { 'id' => 'm2', 'kind' => 'point-map', 'name' => 'Other Map' }
+                  ], 'layout' => '' }
+}.freeze
+XML_C16 = %(<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-dash-1">\n<Element elementId="m1" gridColumn="1 / 13" gridRow="1 / 15"/>\n<Element elementId="m2" gridColumn="13 / 25" gridRow="1 / 15"/>\n</Page>\n)
+patch16 = { 'm1' => { 'name' => { 'visibility' => 'hidden', 'text' => 'Sales Map' } } }
+st16, _out16, put16 = run_case(LIVE_C16, XML_C16, [], patch16)
+el16 = elements_from_spec(put16.first || {})
+check(st16.exitstatus == 0, 'exits 0')
+check(el16.find { |e| e['id'] == 'm1' }['name'] == { 'visibility' => 'hidden', 'text' => 'Sales Map' }, 'listed map has its own title hidden, text kept')
+check(el16.find { |e| e['id'] == 'm2' }['name'] == 'Other Map', 'unlisted map keeps its title')
+
+puts 'Case C14 - chart legend patch: pruned legend control gives the chart its own legend back'
+# The restored legend REPLACES the hidden one ({position} only): Sigma rejects {visibility:hidden} mixed with content
+# (live probe, plan C live regression R1), so put-layout must never merge the two.
+LIVE_C14 = {
+  'workbookId' => 'wb-test',
+  'contents' => { 'schemaVersion' => 1, 'kind' => 'workbook', 'pages' => [{ 'id' => 'page-dash-1', 'name' => 'O' }],
+                  'elements' => [
+                    { 'id' => 'c1', 'kind' => 'bar-chart', 'name' => 'A', 'legend' => { 'visibility' => 'hidden' } },
+                    { 'id' => 'c2', 'kind' => 'bar-chart', 'name' => 'B', 'legend' => { 'visibility' => 'hidden' } }
+                  ], 'layout' => '' }
+}.freeze
+XML_C14 = %(<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-dash-1">\n<Element elementId="c1" gridColumn="1 / 13" gridRow="1 / 15"/>\n<Element elementId="c2" gridColumn="13 / 25" gridRow="1 / 15"/>\n</Page>\n)
+st14, out14, put14 = run_case(LIVE_C14, XML_C14, [], { 'c1' => { 'legend' => { 'position' => 'right' } } })
+el14 = elements_from_spec(put14.first || {})
+check(st14.exitstatus == 0, "exits 0 (#{out14[-200..]})")
+check(el14.find { |e| e['id'] == 'c1' }['legend'] == { 'position' => 'right' }, 'listed chart legend restored to the pre-C14 value')
+check(el14.find { |e| e['id'] == 'c2' }['legend'] == { 'visibility' => 'hidden' }, 'unlisted chart keeps its hidden legend')
+
+# ---------------------------------------------------------------------------
+puts 'Case C16b - stale map title wrapper pruned and the map title restored'
+LIVE_C16B = {
+  'workbookId' => 'wb-test',
+  'contents' => { 'schemaVersion' => 1, 'kind' => 'workbook', 'pages' => [{ 'id' => 'page-dash-1', 'name' => 'O' }],
+                  'elements' => [
+                    { 'id' => 'm1', 'kind' => 'region-map', 'name' => { 'visibility' => 'hidden', 'text' => 'Sales Map' } },
+                    { 'id' => 'mapbox-m1', 'kind' => 'container' },
+                    { 'id' => 'maptitle-m1', 'kind' => 'text', 'body' => '# Sales Map' }
+                  ], 'layout' => '' }
+}.freeze
+XML_C16B = %(<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-dash-1">\n<Element elementId="m1" gridColumn="1 / 25" gridRow="1 / 15"/>\n</Page>\n)
+st16b, out16b, put16b = run_case(LIVE_C16B, XML_C16B, [])
+el16b = elements_from_spec(put16b.first || {})
+check(st16b.exitstatus == 0, "exits 0 (#{out16b[-200..]})")
+check(el16b.none? { |e| %w[mapbox-m1 maptitle-m1].include?(e['id']) }, 'orphan wrapper container and heading text removed')
+check(el16b.find { |e| e['id'] == 'm1' }['name'] == 'Sales Map', 'map title visible again (plain name restored)')
+
+puts 'Case C15 - stale flush-tiles container pruned when the new layout no longer wraps'
+LIVE_C15 = {
+  'workbookId' => 'wb-test',
+  'contents' => { 'schemaVersion' => 1, 'kind' => 'workbook', 'pages' => [{ 'id' => 'page-dash-1', 'name' => 'O' }],
+                  'elements' => [
+                    { 'id' => 'c1', 'kind' => 'bar-chart', 'name' => 'Sales' },
+                    { 'id' => 'flush-page-dash-1', 'kind' => 'container', 'spacing' => 'small', 'elementGap' => 'hidden',
+                      'style' => { 'padding' => 'none' } }
+                  ], 'layout' => '' }
+}.freeze
+XML_C15 = %(<Page type="grid" gridTemplateColumns="repeat(24, 1fr)" gridTemplateRows="auto" id="page-dash-1">\n<Element elementId="c1" gridColumn="1 / 25" gridRow="1 / 15"/>\n</Page>\n)
+st15, out15, put15 = run_case(LIVE_C15, XML_C15, [])
+el15 = elements_from_spec(put15.first || {})
+check(st15.exitstatus == 0, "exits 0 (#{out15[-200..]})")
+check(el15.none? { |e| e['id'] == 'flush-page-dash-1' }, 'orphan flush-* container removed')
 
 puts($fails.empty? ? "\nALL PASS" : "\n#{$fails.size} FAILED")
 exit($fails.empty? ? 0 : 1)

@@ -389,8 +389,17 @@ module RecipeMultimetric
 
     # Point-in-time Top-N / magnitude tables + bars: rewrite measures + group.
     if entity_scope?(pit) || pit['latest_year']
+      hl_all = Array(png_read['filter_shelf']).flat_map { |c| c.is_a?(Hash) ? Array(c['highlight_tiles']) : [] }.map { |t| norm(t) }
       all_elements(spec).each do |el|
         next unless top_table?(el) || bar?(el)
+        # A Top-N / RANK sheet whose source carries NO year filter ranks over
+        # ALL years: pinning its measure to latest_year changes what is ranked
+        # (live re-proof: "Top 10 Customers" collapsed to one bar). Only a
+        # year-scoped or highlight tile gets the point-in-time rewrite.
+        if ranked?(el) && !year_scoped?(el, pit) && !hl_all.include?(norm(el['name']))
+          summary[:notes] << "'#{el['name']}' is a Top-N/RANK tile with no year filter — point-in-time (latest_year) rewrite NOT applied"
+          next
+        end
         n = rewrite_point_in_time!(el, pit)
         summary[:top_tables] += n
       end
@@ -496,6 +505,28 @@ module RecipeMultimetric
 
   def bar?(el)
     el['kind'] == 'bar-chart'
+  end
+
+  RANK_FORMULA_RE = /\bRank(?:Dense|Percentile)?\s*\(/i.freeze
+
+  # Ranks its rows: a top-n filter, a Rank*() column, or a rank helper column.
+  def ranked?(el)
+    Array(el['filters']).any? { |f| f.is_a?(Hash) && f['kind'] == 'top-n' } ||
+      Array(el['columns']).any? { |c| c.is_a?(Hash) && (c['formula'].to_s =~ RANK_FORMULA_RE || c['name'].to_s =~ /\brank\b/i) }
+  end
+
+  # Carries a source year/date filter (the converter emits it as a filter on a
+  # Year / Date passthrough column, or with 4-digit year values).
+  def year_scoped?(el, pit)
+    yc = norm(pit['year_column'] || 'Year')
+    cols = Array(el['columns']).each_with_object({}) { |c, h| h[c['id']] = c if c.is_a?(Hash) }
+    Array(el['filters']).any? do |f|
+      next false unless f.is_a?(Hash) && f['kind'] != 'top-n'
+      c = cols[f['columnId']] || {}
+      text = "#{c['name']} #{c['formula']}"
+      norm(c['name']) == yc || text =~ /\b(?:year|date)\b/i || text =~ /\bYear\(/ ||
+        Array(f['values']).any? { |v| v.to_s =~ /\A(?:19|20)\d\d\z/ }
+    end
   end
 
   # Rewrite the tile's MEASURE column(s) to a latest-year + real-entity

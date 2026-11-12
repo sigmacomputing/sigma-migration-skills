@@ -97,9 +97,9 @@ def run_case(extra_elements: [], gated: true)
       res['Content-Type'] = 'application/json'
       res.status = 200
       path = req.path
-      if req.request_method == 'POST' && path == '/v2/workbooks/spec/verify'
-        res.body = '{}'
-      elsif req.request_method == 'POST' && path == '/v2/workbooks/spec'
+      if req.request_method == 'POST' && path == '/v2/workbooks' && JSON.parse(req.body)['dryRun']
+        res.body = '{"dryRun":true,"warnings":[],"workbookId":null}'
+      elsif req.request_method == 'POST' && path == '/v2/workbooks'
         posts << req.body
         if gated && req.body.include?('"kind":"button"')
           res.status = 400
@@ -108,7 +108,7 @@ def run_case(extra_elements: [], gated: true)
           accepted = req.body
           res.body = { 'workbookId' => 'wb-gated' }.to_json
         end
-      elsif path == '/v2/workbooks/wb-gated/spec'
+      elsif path == '/v2/workbooks/wb-gated' && req.query_string.to_s.include?('includeContents=true')
         res.body = accepted.to_s
       elsif path == '/v2/workbooks/wb-gated/columns'
         res.body = { 'entries' => [] }.to_json
@@ -156,7 +156,7 @@ def run_case(extra_elements: [], gated: true)
 end
 
 def elements_of(body)
-  (body['document'] || body)['elements']
+  (body['contents'] || body)['elements']
 end
 
 puts 'case 1 — gated workspace, nav + info-icon buttons only'
@@ -185,7 +185,7 @@ ok('info-icon button became inline text (existing behaviour unchanged)') do
   (retry_els.find { |e| e['id'] == 'btn-20' } || {})['body'] == "\u{1F4A1} Shows weekly revenue."
 end
 ok('layout and pages ride through the re-send untouched') do
-  r[:posts][1] && r[:posts][1]['document']['layout'] == layout_for([]) && r[:posts][1]['document']['pages'].size == 2
+  r[:posts][1] && r[:posts][1]['contents']['layout'] == layout_for([]) && r[:posts][1]['contents']['pages'].size == 2
 end
 ok('exactly one WARN names the rewrite, with the ids and what each became') do
   warns = r[:out].lines.grep(/WARN: this workspace rejects button elements/)

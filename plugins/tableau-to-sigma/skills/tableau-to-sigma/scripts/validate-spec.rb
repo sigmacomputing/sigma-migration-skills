@@ -238,6 +238,14 @@ id_occurrences.each do |id, occ|
   errors << "duplicate id \"#{id}\" used #{occ.size}x — element ids (and controlIds, same namespace) " \
             "must be globally unique across ALL pages: #{occ.join('; ')}"
 end
+# Names for messages, sorted safely: a DM / spec element can carry a nil or
+# non-String name (an unnamed helper, a numeric path part), and Array#sort
+# raised "comparison of String with nil" (ArgumentError) on a VALID spec,
+# crashing the validator instead of reporting (live re-proof).
+def sorted_names(enum)
+  enum.to_a.compact.map(&:to_s).reject(&:empty?).uniq.sort
+end
+
 all_known_prefixes = (all_element_names + external_names).to_set rescue (all_element_names + external_names)
 require 'set' rescue nil
 all_known_set = all_known_prefixes.is_a?(Set) ? all_known_prefixes : Set.new(all_known_prefixes)
@@ -339,8 +347,14 @@ spec.fetch('pages', []).each do |page|
       own_prefixes << src['path'].last
     end
     own_prefixes << 'Custom SQL' if src['kind'] == 'sql'
+    # A join's columns read the join's top-level name (primary source) and
+    # each leg's name (refs/specification/sources.md "join").
+    if src['kind'] == 'join'
+      own_prefixes << src['name'].to_s unless src['name'].to_s.empty?
+      Array(src['joins']).each { |j| own_prefixes << j['name'].to_s if j.is_a?(Hash) && !j['name'].to_s.empty? }
+    end
     # A union source's output columns resolve under "Union of N Sources" (N =
-    # sources.size) — live /v2/workbooks/spec/verify rejects the union's own
+    # sources.size) — live POST /v2/workbooks (dry run) rejects the union's own
     # `name` as a prefix.
     if src['kind'] == 'union' && src['sources'].is_a?(Array)
       own_prefixes << "Union of #{src['sources'].size} Sources"
@@ -448,7 +462,7 @@ spec.fetch('pages', []).each do |page|
               next
             end
             next if metrics_census.include?(mname)
-            listed = metrics_census.to_a.sort
+            listed = sorted_names(metrics_census)
             errors << "#{name}.#{col['name']}: ref [#{ref}] — metric #{mname.empty? ? '(empty name)' : "\"#{mname}\""} is not in the DM metrics census " \
                       "(#{listed.empty? ? 'the census is EMPTY' : "known metrics: #{listed.join(', ')}"}). " \
                       'The governed-metric binder emits census names only — if the census is stale, re-run with the run\'s ' \
@@ -457,7 +471,7 @@ spec.fetch('pages', []).each do |page|
           end
           unless own_prefixes.include?(prefix) || all_known_set.include?(prefix)
             errors << "#{name}.#{col['name']}: ref [#{ref}] — prefix \"#{prefix}\" unknown " \
-                      "(known: #{(own_prefixes + all_known_set).to_a.sort.join(', ')})"
+                      "(known: #{sorted_names(own_prefixes + all_known_set).join(', ')})"
           end
           # v5.3 RENDER-500 guard: a formula referencing a workbook element
           # that is NOT this element's source opaquely 500s EVERY png

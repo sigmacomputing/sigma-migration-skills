@@ -161,11 +161,15 @@ def run_converter_capture(twb)
       const xml = readFileSync(#{twb.to_json}, 'utf8');
       const out = convertTableauToSigma(xml, {
         connectionId: 'test-conn', database: 'TESTDB', schema: 'TESTSCHEMA', tableMapping: {},
+        // Mirrors mechanical-specs.rb: the skill opts into GUID-date placeholder keys.
+        guidDateRecovery: true,
       });
       const bare = out.model || out.sigmaDataModel || out;
       writeFileSync(#{out_path.to_json}, JSON.stringify({
         model: bare,
         relationshipCoverage: out.relationshipCoverage || null,
+        sqlProvenance: out.sqlProvenance || null,
+        stats: out.stats || {},
         warnings: out.warnings || []
       }, null, 2));
     JS
@@ -584,6 +588,80 @@ Dir.mktmpdir('computed-vc') do |dir|
   check((kdoc['warnings'] || []).any? { |w| w.include?("DATETRUNC('week') depends on the data source's start-of-week") },
         'the week refusal is named in the warnings', fails)
 end
+
+# ---- multi-datasource merge (2026-11-03 field failure) ----------------------
+# A workbook with several datasources goes through buildMultiDatasourceModel,
+# which converts each datasource as a child and merges the results. The merge
+# used to drop every child's relationshipCoverage and sqlProvenance, so a
+# multi-datasource object-graph workbook always hit the coverage-missing
+# blocker. Two copies of the served fixture datasource (the second forces the
+# duplicate-name rename), one classic-join datasource, and one Custom SQL
+# datasource.
+puts ''
+puts 'test-relationship-derivation.rb — multi-datasource ledger merge'
+def multi_ds_twb(raw)
+  ds = raw[%r{^    <datasource caption='Logical Model Object Graph Live Fixture'.*?^    </datasource>\n}m]
+  abort 'multi-ds fixture: fixture datasource block not found' unless ds
+  copy = ds.sub("caption='Logical Model Object Graph Live Fixture'", "caption='LMOG Copy'")
+           .sub("name='federated.lmog01'", "name='federated.lmog02'")
+  classic = <<~XML
+    <datasource caption='Classic Join' inline='true' name='federated.classic' version='18.1'>
+      <connection class='federated'>
+        <relation join='left' type='join'>
+          <clause type='join'><expression op='='><expression op='[ORDERS].[STORE_ID]' /><expression op='[STORES].[STORE_ID]' /></expression></clause>
+          <relation name='ORDERS' table='[PUBLIC].[ORDERS]' type='table'><columns><column datatype='integer' name='STORE_ID' /></columns></relation>
+          <relation name='STORES' table='[PUBLIC].[STORES]' type='table'><columns><column datatype='integer' name='STORE_ID' /></columns></relation>
+        </relation>
+      </connection>
+    </datasource>
+  XML
+  sql = <<~XML
+    <datasource caption='LMOG Custom SQL' inline='true' name='federated.lmogsql' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='snowflake.lmogsql'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' warehouse='WH_XS' />
+          </named-connection>
+        </named-connections>
+        <relation connection='snowflake.lmogsql' name='Custom SQL Query' type='text'>SELECT REGION_KEY, REGION_NAME FROM PUBLIC.LMOG_DIM_REGION</relation>
+      </connection>
+      <column caption='Region Key' datatype='integer' name='[REGION_KEY]' role='dimension' type='ordinal' />
+      <column caption='Region Name' datatype='string' name='[REGION_NAME]' role='dimension' type='nominal' />
+    </datasource>
+  XML
+  raw.sub(ds, ds + copy + classic.gsub(/^/, '    ') + sql.gsub(/^/, '    '))
+end
+md_path = File.join(NI_TWB_DIR, 'multi-ds.twb')
+File.write(md_path, multi_ds_twb(File.read(twb_path, encoding: 'utf-8')))
+md = run_converter_capture(md_path)
+md_cov = md['relationshipCoverage'] || {}
+md_entries = md_cov['entries'] || []
+check(md_cov['serialized'].to_i == 11 && md_cov['wired'].to_i == 9 && md_entries.size == 11,
+      "multi-DS ledger includes object-graph and classic-join relationships: 11 serialized, 9 wired (got #{md_cov.reject { |k, _| k == 'entries' }.inspect}, #{md_entries.size} entries)", fails)
+check(md_entries.map { |e| e['datasourceIndex'] }.sort == [0] * 5 + [1] * 5 + [2],
+      "every merged entry carries its datasourceIndex (got #{md_entries.map { |e| e['datasourceIndex'] }.inspect})", fails)
+check(!md_entries.empty? && md_entries.all? { |e| !e['datasource'].to_s.empty? },
+      "every merged entry names its datasource (got #{md_entries.map { |e| e['datasource'] }.uniq.inspect})", fails)
+md_els = locate_elements(md['model'] || {}, fails)
+# Ledger entries name physical TABLES (cleanName), not merged element names, so
+# the duplicate-element rename does not touch them: the second datasource's
+# entries repeat the first's table pairs and are told apart by datasourceIndex.
+pairs = ->(idx) { md_entries.select { |e| e['datasourceIndex'] == idx }.map { |e| [e['left'], e['right']] } }
+check(!pairs.(1).empty? && pairs.(1) == pairs.(0),
+      "second-datasource entries keep their physical table names (ds0 #{pairs.(0).inspect}, ds1 #{pairs.(1).inspect})", fails)
+check(pairs.(2) == [['ORDERS', 'STORES']],
+      "classic-join entry names its physical tables (got #{pairs.(2).inspect})", fails)
+md_rels = md_els.sum { |e| (e['relationships'] || []).size }
+check(md['stats']['relationships'] == md_rels && md_rels.positive?,
+      "multi-DS stats.relationships counts merged relationships (stats #{md['stats']['relationships'].inspect}, model #{md_rels})", fails)
+md_sql = md['sqlProvenance'] || []
+check(md_sql.size >= 1 && md_sql.all? { |p| md_els.any? { |e| e['id'] == p['elementId'] } },
+      "multi-DS sqlProvenance survives the merge and points at merged element ids (got #{md_sql.map { |p| p['elementId'] }.inspect})", fails)
+plain = File.read(File.expand_path('test-fixtures/multids-independent.twb', HERE), encoding: 'utf-8')
+plain_path = File.join(NI_TWB_DIR, 'multi-ds-plain.twb')
+File.write(plain_path, plain)
+check(run_converter_capture(plain_path)['relationshipCoverage'].nil?,
+      'a multi-DS workbook with no object-graph still carries no relationshipCoverage', fails)
 
 puts ''
 if fails.empty?

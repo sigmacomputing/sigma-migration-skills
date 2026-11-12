@@ -230,6 +230,25 @@ Dir.mktmpdir do |d|
         'dashboard-structural gap carries NO worksheets key (consumers fail OPEN)', fails)
 end
 
+puts 'T10 - REST-id CSVs are matched through metadata; unknown exports stay visible'
+Dir.mktmpdir do |d|
+  Wave1Fixture.build(d)
+  metadata_path = File.join(d, 'get-workbook.json')
+  metadata = JSON.parse(File.read(metadata_path))
+  metadata['workbook']['views']['view'].first(2).each_with_index do |view, index|
+    view['id'] = "rest-view-#{index}"
+    File.rename(File.join(d, 'views', "#{view['name']}.csv"), File.join(d, 'views', "#{view['id']}.csv"))
+  end
+  File.write(metadata_path, JSON.generate(metadata))
+  File.write(File.join(d, 'views', 'unattributed.csv'), "Region,Sales\n")
+  write_mission(d, 'value' => ['Wave1 Fixture'], 'provenance' => 'stated', 'dashboards' => ['Beta Detail'])
+  out, st = Wave1Fixture.run(d, ['--folder', 'fold-x'])
+  check(st.exitstatus == 10, "REST-id checkpoint stop (got #{st.exitstatus})", fails)
+  check(question_views(d).sort == ['rest-view-1', 'unattributed'],
+        "scoped REST export and unattributed export retained (got #{question_views(d).inspect})", fails)
+  check(out.include?('1 empty view CSV(s) outside'), 'only proven out-of-scope exports dropped', fails)
+end
+
 puts
 if fails.empty?
   puts 'test-wave1-scope: ALL PASS'

@@ -412,6 +412,9 @@ Dir.mktmpdir('acct-name-match-builder') do |d|
         "a parameter control no page carries is NOT emitted (got #{rows['Year Parameter'].inspect})")
   check(rows['Year Parameter'] && rows['Year Parameter']['reason'].to_s.include?('dead control'),
         'and carries a reason string')
+  # No .twb in this meta-only fixture, so nothing PROVES the picker is
+  # declared-only (test-unreferenced-param-signal.rb covers that path): the
+  # conservative needs-wiring emission stands.
   check(rows['Unused Picker'] && rows['Unused Picker']['status'] == 'needs-wiring',
         'an already-gated needs-wiring row keeps its own status')
   check(cov['emitted'] == 1 && cov['dropped_unused'] == 1 && cov['needs_wiring'] == 1,

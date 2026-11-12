@@ -28,10 +28,13 @@ check.call(final_census && render_health && report && result &&
 check.call(source.include?('accounting_ok = census_st.success? && report_st.success? && report_verdict != \'RED\'') &&
            source.include?('agst.success? && accounting_ok'),
            'RED/failed source accounting contributes to all_green=false')
-check.call(source.include?("doc['render_health']") &&
+check.call(!source.include?("doc['render_health']") &&
            source.include?("File.join(work, 'sigma-render.png')") &&
            source.include?("File.join(HERE, 'png_health.py')"),
-           'render health extracts visual similarity evidence or analyzes sigma-render.png')
+           'render health analyzes the current sigma-render.png instead of trusting stale similarity')
+check.call(source.include?('agst.success? && accounting_ok && verifier_ok') &&
+           source.include?("verification_verdict: verification && verification['verdict']"),
+           'current verifier verdict participates in completion and failure-loop signatures')
 
 puts
 if failures.empty?

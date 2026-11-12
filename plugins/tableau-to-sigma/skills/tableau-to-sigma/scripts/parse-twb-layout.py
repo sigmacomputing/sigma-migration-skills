@@ -450,6 +450,8 @@ class TableauLayoutParser:
                 result["is_active_flag"] = True
             if exclude and null_member:
                 result["excludes_null"] = True
+            if not exclude and null_member:
+                result["includes_null"] = True
             if topn is not None:
                 topn["direction"] = (order_direction or "DESC").upper()
                 if order_expression:
@@ -874,6 +876,14 @@ class TableauLayoutParser:
                         axis_format["min"] = float_value(attr(encoding, "min"))
                     if attr(encoding, "max") is not None:
                         axis_format["max"] = float_value(attr(encoding, "max"))
+                    # Plan C8: date-axis fixed start + explicit major-tick settings.
+                    if (attr(encoding, "min") or "").startswith("#"):
+                        axis_format["min_raw"] = attr(encoding, "min")
+                    for xml_key, out_key in (("major-origin", "major_origin"),
+                                             ("major-spacing", "major_spacing"),
+                                             ("major-units", "major_units")):
+                        if attr(encoding, xml_key) is not None:
+                            axis_format[out_key] = attr(encoding, xml_key)
                     axis_formats.append(axis_format)
 
             ref_marks = []
@@ -1049,6 +1059,21 @@ class TableauLayoutParser:
                     series_colors = [dict(pair) for pair in hit]
                     series_color_field = (self.columns_by_guid.get(color_guid) or {}).get("caption") or color_guid
 
+            # C5: the source's MANUAL member order on the colour dimension
+            # (mirrors parse-twb-layout.rb color_manual_order).
+            color_manual_order = None
+            color_col = (channels.get("color") or {}).get("column")
+            color_guid_mo = self.guid_from_param(color_col) if color_col else None
+            if color_guid_mo:
+                for node in descendants(worksheet, "manual-sort"):
+                    if self.guid_from_param(attr(node, "column")) != color_guid_mo:
+                        continue
+                    members = [unquote_value(text_of(b), null_is_none=True) for b in descendants(node, "bucket")]
+                    members = [m for m in members if m]
+                    if members:
+                        color_manual_order = members
+                        break
+
             mark_labels_show = any(
                 attr(fmt, "attr") == "mark-labels-show" and attr(fmt, "value") == "true"
                 for rule in descendants(worksheet, "style-rule")
@@ -1113,7 +1138,8 @@ class TableauLayoutParser:
                 "has_long": has_long, "has_geometry": first_desc(worksheet, "geometry") is not None,
                 "sort": sort_info, "shelf_sorts": shelf_sorts, "quick_calc_pcto": quick_calc_pcto,
                 "heat_scheme": heat_scheme, "series_colors": series_colors,
-                "series_color_field": series_color_field, "filters": filters,
+                "series_color_field": series_color_field,
+                "color_manual_order": color_manual_order, "filters": filters,
                 "hidden_filters": hidden_filters, "aggregations": aggregations,
                 "channels": channels, "formats": formats, "calculations": calculations,
                 "dual_axis": axis_synced, "dual_axis_series": dual_axis_series,
@@ -1480,6 +1506,7 @@ class TableauLayoutParser:
             "heat_scheme": chart.get("heat_scheme") if kind == "chart" else None,
             "series_colors": chart.get("series_colors") if kind == "chart" else None,
             "series_color_field": chart.get("series_color_field") if kind == "chart" else None,
+            "color_manual_order": chart.get("color_manual_order") if kind == "chart" else None,
             "show_title": attr(zone, "show-title") != "false",
             "filters": chart.get("filters") if kind == "chart" else None,
             "hidden_filters": (chart.get("hidden_filters") or []) if kind == "chart" else None,
@@ -1600,7 +1627,8 @@ class TableauLayoutParser:
                     "geo_role": meta.get("geo_role"), "sort": meta.get("sort"),
                     "shelf_sorts": meta.get("shelf_sorts"), "quick_calc_pcto": meta.get("quick_calc_pcto"),
                     "series_colors": meta.get("series_colors"),
-                    "series_color_field": meta.get("series_color_field"), "filters": meta.get("filters"),
+                    "series_color_field": meta.get("series_color_field"),
+                    "color_manual_order": meta.get("color_manual_order"), "filters": meta.get("filters"),
                     "hidden_filters": meta.get("hidden_filters") or [],
                     "aggregations": meta.get("aggregations"), "channels": meta.get("channels"),
                     "formats": meta.get("formats"), "calculations": meta.get("calculations"),
@@ -1697,6 +1725,27 @@ class TableauLayoutParser:
                 result[caption] = pairs
         return result
 
+    def parse_measure_name_aliases(self) -> dict:
+        result = {}
+        for column in descendants(self.root, "column"):
+            if attr(column, "name") != "[:Measure Names]":
+                continue
+            owner = self.parent.get(column)
+            while owner is not None and local_name(owner.tag) not in ("datasource", "datasource-dependencies"):
+                owner = self.parent.get(owner)
+            datasource = attr(owner, "datasource") or attr(owner, "name")
+            if not datasource:
+                continue
+            for alias in descendants(column, "alias"):
+                parts = re.findall(r"\[([^\]]+)\]", unquote_value(attr(alias, "key")) or "")
+                token = re.sub(r":[a-z0-9]+$", "", parts[-1] if parts else "", flags=re.I).lower()
+                value = attr(alias, "value")
+                if ":" not in token or not value:
+                    continue
+                aliases = result.setdefault(datasource, {})
+                aliases[token] = None if token in aliases and aliases[token] != value else value
+        return result
+
     def parse_drill_paths(self) -> list[dict[str, Any]]:
         # <datasource><drill-paths><drill-path name='H'><field>[level]</field>…:
         # the datasource's hierarchies in level order. `fields` keeps the raw
@@ -1721,15 +1770,20 @@ class TableauLayoutParser:
                     paths.append(entry)
         return paths
 
-    def parse_shared_filters(self) -> list[dict[str, Any]]:
-        datasource_names = {attr(item, "name") for item in self.top_level_datasources() if attr(item, "name")}
+    def parse_shared_filters(self, dashboards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        datasource_names = {value for item in self.top_level_datasources()
+                            for value in (attr(item, "name"), attr(item, "caption")) if value}
+        selected = {item["dashboard"] for item in dashboards}
+        card_params = {attr(zone, "param") for dashboard in descendants(self.root, "dashboard")
+                       if attr(dashboard, "name") in selected for zone in descendants(dashboard, "zone")
+                       if attr(zone, "type-v2") == "filter" and attr(zone, "param")}
         result = []
         for shared_view in descendants(self.root, "shared-view"):
             name = attr(shared_view, "name")
             for filter_node in children(shared_view, "filter"):
                 spec = self.normalize_filter(filter_node)
                 spec["shared_view"] = name
-                if spec.get("ui_domain") == "database" or name in datasource_names:
+                if spec.get("raw_param") not in card_params and (spec.get("ui_domain") == "database" or name in datasource_names):
                     spec["is_datasource_filter"] = True
                 result.append(spec)
         return result
@@ -1789,7 +1843,7 @@ class TableauLayoutParser:
             dashboards = self.synthetic_dashboards()
         parameters = self.parse_parameters()
         self.attach_parameter_refs(parameters)
-        shared_filters = self.parse_shared_filters()
+        shared_filters = self.parse_shared_filters(dashboards)
         datasource_filters = self.parse_datasource_filters()
         stories = self.parse_stories(dashboards)
         scoped_worksheets = self.worksheets
@@ -1807,10 +1861,22 @@ class TableauLayoutParser:
                 for item in worksheet.get("filters") or []
                 if item.get("column_caption")
             }
-            scoped_shared_filters = [
-                item for item in shared_filters
-                if item.get("column_caption") is None or item.get("column_caption") in used_filter_captions
-            ]
+            used_datasources = set()
+            for worksheet in descendants(self.root, "worksheet"):
+                if attr(worksheet, "name") not in scoped_worksheets:
+                    continue
+                for datasource in descendants(worksheet, "datasource"):
+                    used_datasources.update(value for value in (attr(datasource, "name"), attr(datasource, "caption")) if value)
+                used_datasources.update(attr(item, "datasource") for item in descendants(worksheet, "datasource-dependencies"))
+            datasource_names = set()
+            for datasource in self.top_level_datasources():
+                pair = {value for value in (attr(datasource, "name"), attr(datasource, "caption")) if value}
+                datasource_names.update(pair)
+                if pair & used_datasources:
+                    used_datasources.update(pair)
+            scoped_shared_filters = [item for item in shared_filters
+                                     if (item.get("shared_view") in used_datasources if item.get("shared_view") in datasource_names
+                                         else item.get("column_caption") is None or item.get("column_caption") in used_filter_captions)]
         meta = {
             "worksheets": scoped_worksheets, "stories": stories,
             "shared_filters": scoped_shared_filters, "datasource_filters": datasource_filters,
@@ -1818,6 +1884,9 @@ class TableauLayoutParser:
             "column_formats": self.column_formats, "columns_by_guid": self.columns_by_guid,
         }
         drill_paths = self.parse_drill_paths()
+        measure_aliases = self.parse_measure_name_aliases()
+        if measure_aliases:
+            meta["measure_name_aliases"] = measure_aliases
         if drill_paths:
             meta["drill_paths"] = drill_paths
         return dashboards, meta, stories

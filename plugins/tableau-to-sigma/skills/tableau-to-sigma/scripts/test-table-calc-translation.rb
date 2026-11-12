@@ -36,6 +36,7 @@ end
   strip_tableau_comments translate_sla_ratio split_top_level_args
   parse_tableau_function_call translated_calc_reference translate_dim_calc
   translate_row_level_calc param_control_ref map_column header_base
+  tableau_iif_to_sigma
 ].each do |fn|
   m = src.match(/^def #{fn}\b.*?\n^end$/m)
   w.instance_eval(m[0]) if m

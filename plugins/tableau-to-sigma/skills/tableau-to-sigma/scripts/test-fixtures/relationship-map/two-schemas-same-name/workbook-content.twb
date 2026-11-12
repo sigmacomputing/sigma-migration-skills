@@ -1,0 +1,161 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Sales' inline='true' name='federated.s' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' dbname='SALES' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+          <relation connection='conn.0' name='DATE_DIM' table='[PUBLIC].[DATE_DIM]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>ORDER_ID</remote-name>
+            <local-name>[ORDER_ID]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY (DATE_DIM)]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CAL_DATE</remote-name>
+            <local-name>[CAL_DATE]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='ORDERS' id='ORDERS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+            </properties>
+          </object>
+          <object caption='DATE_DIM' id='DATE_DIM_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='DATE_DIM' table='[PUBLIC].[DATE_DIM]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[DATE_KEY]' /><expression op='[DATE_KEY (DATE_DIM)]' /></expression>
+            <first-end-point object-id='ORDERS_OBJ' />
+            <second-end-point object-id='DATE_DIM_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+    <datasource caption='HR' inline='true' name='federated.h' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.1'>
+            <connection class='snowflake' dbname='HR' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.1' name='HIRES' table='[PUBLIC].[HIRES]' type='table' />
+          <relation connection='conn.1' name='DATE_DIM' table='[PUBLIC].[DATE_DIM]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>HIRE_ID</remote-name>
+            <local-name>[HIRE_ID]</local-name>
+            <parent-name>[HIRES]</parent-name>
+            <object-id>[HIRES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY]</local-name>
+            <parent-name>[HIRES]</parent-name>
+            <object-id>[HIRES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY (DATE_DIM)]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CAL_DATE</remote-name>
+            <local-name>[CAL_DATE]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='HIRES' id='HIRES_OBJ'>
+            <properties context=''>
+              <relation connection='conn.1' name='HIRES' table='[PUBLIC].[HIRES]' type='table' />
+            </properties>
+          </object>
+          <object caption='DATE_DIM' id='DATE_DIM_OBJ'>
+            <properties context=''>
+              <relation connection='conn.1' name='DATE_DIM' table='[PUBLIC].[DATE_DIM]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[DATE_KEY]' /><expression op='[DATE_KEY (DATE_DIM)]' /></expression>
+            <first-end-point object-id='HIRES_OBJ' />
+            <second-end-point object-id='DATE_DIM_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Orders by Day'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.s' />
+          </datasources>
+            <datasource-dependencies datasource='federated.s'>
+              <column name='[CAL_DATE]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+    <worksheet name='Hires by Day'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.h' />
+          </datasources>
+            <datasource-dependencies datasource='federated.h'>
+              <column name='[CAL_DATE]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Daily'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Orders by Day' />
+          <zone id='3' name='Hires by Day' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

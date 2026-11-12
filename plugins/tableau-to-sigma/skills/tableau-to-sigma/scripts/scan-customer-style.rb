@@ -131,7 +131,7 @@ end
 
 wb_ids.each_with_index do |wb_id, i|
   warn "  [#{i + 1}/#{wb_ids.size}] #{wb_id}"
-  resp = http_get("/v2/workbooks/#{wb_id}/spec", accept: 'application/json')
+  resp = http_get(Sigma::CodeRep.read_path(wb_id), accept: 'application/json')
   next unless resp.code.to_i == 200
 
   spec = begin

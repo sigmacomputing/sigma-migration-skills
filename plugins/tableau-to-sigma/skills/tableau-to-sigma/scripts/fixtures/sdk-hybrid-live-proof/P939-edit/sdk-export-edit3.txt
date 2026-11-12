@@ -1,0 +1,66 @@
+[OK] complete live candidate persisted into /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/wb-spec.json
+[OK] exported document version 14 → /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/wb-spec.json (0 SDK write(s); +0/-0 elements)
+[OK] export guards clean (shape, no type=error columns, layout + control lint, version stable)
+[OK] resolved via SDK: (none claimed)
+sdk parity: phase6-parity.rb pass 1 (plan rebuilt from the exported spec)
+[INCOMPLETE] phase-6 parity on the SDK-exported spec is unverified: 1 exportable chart(s) not machine-collected (Net Revenue by Customer Value Tier (% of total))
+       Collect the missing actuals, then: fidelity-loop.rb sdk-regate --workdir /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit [--actuals FILE]
+Phase 6 PASS 1: reading workbook spec 4d2d7596-fe9a-45a8-8372-0ca8a85da3fd
+Phase 6 PASS 1: building parity plan
+  NOTE: collect-parity-actuals.rb uses Sigma REST export first; MCP is optional
+        and is only a fallback for charts the pooled exporter cannot serve.
+wrote /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-plan.json
+  charts matched: 10
+  extract flag:   false
+  next: collect chart actuals with collect-parity-actuals.rb (Sigma REST export).
+        Use Sigma MCP only for any explicitly reported remainder.
+matching charts that source from master/helper element(s): master-overview, master-customers, master-operations
+hidden_filters gate: no hidden calc-filters found in dashboard layout
+plan status: green
+[cache] raw export cache active (wb 4d2d7596-fe9a-45a8-8372-0ca8a85da3fd @ doc v14; strict version keys, verdicts always recomputed)
+collect-parity-actuals: 10 chart(s), pool=5, row limit 100000, total budget 600s
+  [pool +   0.0s] START   "Net Revenue" (el-kpi-rc-kpi-net-revenue)
+  [pool +   0.0s] START   "Gross Margin %" (el-kpi-rc-kpi-gross-margin)
+  [pool +   0.0s] START   "Total Orders" (el-kpi-rc-kpi-orders)
+  [pool +   0.0s] START   "Selected Metric by Month" (el-rc-revenue-trend)
+  [pool +   0.0s] START   "Net Revenue % of Row Total: Category x Region" (el-rc-category-x-region-share)
+  [pool +   2.8s] DONE    "Selected Metric by Month" — 35 row(s) in 2.8s
+  [pool +   2.8s] START   "Net Revenue by Customer Value Tier (% of total)" (el-rc-revenue-by-tier)
+  [pool +   3.8s] DONE    "Net Revenue" — 1 row(s) in 3.8s
+  [pool +   3.9s] START   "Top 10 Customers by Net Revenue" (el-rc-top-10-customers)
+  [pool +   3.9s] DONE    "Net Revenue % of Row Total: Category x Region" — 25 row(s) in 3.9s
+  [pool +   3.9s] START   "Customers by Cohort Year and Loyalty Tier" (el-rc-customer-cohorts)
+  [pool +   4.0s] DONE    "Gross Margin %" — 1 row(s) in 4.0s
+  [pool +   4.0s] START   "Gross Revenue by Ship Method and Ship Speed" (el-rc-ship-mix)
+  [pool +   5.0s] DONE    "Total Orders" — 1 row(s) in 5.0s
+  [pool +   5.0s] START   "Net Revenue by Store State" (el-rc-state-map)
+  [pool +   6.7s] DONE    "Customers by Cohort Year and Loyalty Tier" — 5 row(s) in 2.8s
+  [pool +   6.7s] DONE    "Net Revenue by Customer Value Tier (% of total)" — FAIL in 3.9s
+  [pool +   7.9s] DONE    "Gross Revenue by Ship Method and Ship Speed" — 11 row(s) in 3.9s
+  [pool +   8.8s] DONE    "Top 10 Customers by Net Revenue" — 10 row(s) in 5.0s
+  [pool +   9.9s] DONE    "Net Revenue by Store State" — 12 row(s) in 4.9s
+parity collection: 9/10 chart(s) pooled in 10.3s; 1 agent-mediated
+collect-parity-actuals: 9/10 chart(s) collected via pooled element export (CSV; JSON for pivots) in 9.9s (pool=5) → /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-actuals.json
+  NOT COLLECTED   Net Revenue by Customer Value Tier (% of total): export headers ["Customer Value Tier", "Net Revenue"] missing column(s) Pct of Net Revenue — agent must supply via mcp-v2
+
+======================================================================
+PHASE 6 PASS 1 OUTPUT — Sigma chart data fetch instructions
+======================================================================
+
+The pooled exporter filled /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-actuals.json for 9 chart(s).
+Supply each REMAINING chart below and MERGE the rows into that same file (shape:
+  { "<Sigma chart name>": [[dim, val], [dim, val], ...], ... } ):
+  * Sigma MCP connected: run the mcp__sigma-mcp-v2__query shown per chart.
+  * No Sigma MCP: re-run scripts/collect-parity-actuals.rb (REST element exports;
+    raise --timeout / --row-limit for timeouts and truncation), or compute the same
+    aggregate in warehouse SQL; a pivot whose exports 500 gets a render-verify marker.
+
+Then re-run:
+  ruby scripts/phase6-parity.rb --tableau /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit \
+    --finalize --actuals /private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939-edit/parity-actuals.json
+
+  [1/1] Net Revenue by Customer Value Tier (% of total)
+    mcp__sigma-mcp-v2__query  type=workbook  workbookId=4d2d7596-fe9a-45a8-8372-0ca8a85da3fd
+    sql="SELECT \"x-el-rc-revenue-by-tier\" AS f0, \"lbl-el-rc-revenue-by-tier\" AS f1, \"y-el-rc-revenue-by-tier\" AS f2 FROM \"workbook\".\"el-rc-revenue-by-tier\" ORDER BY f0 NULLS FIRST"
+
+======================================================================

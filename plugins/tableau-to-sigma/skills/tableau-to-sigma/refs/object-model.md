@@ -51,6 +51,7 @@ All names below are neutral stand-ins (`FACT_VISITS` / `DIM_DATES` /
 | Isolated logical table (no edge touches it) | ⚠ flagged + gap entry | `untouched_objects` in the plan | Decide: relate it or drop it deliberately |
 | Single object, zero relationships (legacy-migrated join model) | ✅ flat table, no noodle semantics | No object-model row | Nothing |
 | Two facts sharing dims (multi-fact forest, 2024.2+) | ⚠ second forest rooted at its local hub with a multi-fact verify warning | `⚠ … disconnected forest … verify` | Verify both roots; consider splitting DMs |
+| Multi-fact graph with warehouse grain evidence | ✅ plan-first — `plan-target-model.rb` identifies facts, unique hubs, relationship direction, and precomputed-table candidates; an accepted plan controls converter election/orientation | `target-model-plan.json` + `plannedBy:"target-model-plan"` on directed relationships | Supply `--table-profiles`, inspect/accept the generated plan, then resume with the same workdir |
 | `unique-key` hints contradicting the oriented direction | ⚠ aggregated verify warning | `⚠ Tableau performance-option hints …` | Check for a genuinely one-to-many edge — that is not expressible as a Sigma relationship (flip it, use a join element, or refuse) |
 | **Entitlement table noodled into the fact** (identity column + datasource filter) | 🔐 detected structurally → `kind:"rls-entitlement-table"` in `security[]` → the loud RLS Port/Customize/Skip checkpoint; **never auto-applied** | `🔐 Entitlement-table RLS pattern DETECTED …` + the RLS gate | Decide Port strategy A/B/C (`refs/security-rls.md`) — an undecided/skipped rule leaves an UNCONSTRAINED live join (restriction gone + fan-out risk) |
 | Slash-named column on any table | ⚠ derived-element drop now warned; preflight N2 warns | `⚠ Column "Site /Region" contains "/" …` | Rename the column before wiring anything to it |
@@ -92,6 +93,42 @@ mass `Dependency not found`, helper SQL selecting fact measures FROM a dim.
 6. Entitlement tables: handle the RLS decision explicitly (Port A/B/C in
    `refs/security-rls.md`); record the decision so it appears in the report.
    Skipping is loud by design.
+
+## 3a. Cardinality-aware redesign (preferred for multi-fact graphs)
+
+Relationship degree is only a fallback. For a multi-fact graph, provide
+warehouse evidence and let the planner produce the executable topology:
+
+```bash
+ruby scripts/plan-target-model.rb \
+  --object-plan <workdir>/object-graph-plan.json \
+  --profiles table-profiles.json \
+  --out <workdir>/target-model-plan.json
+```
+
+Profiles declare row counts, grain/unique keys, fact/dimension roles, optional
+existing summary/split tables, precomputed fields, and refresh lineage.
+`migrate-tableau.rb --target-model-plan …` consumes the result. Alternatively,
+`--table-profiles … --accept-model-plan "<actor>" --model-plan-reason "<why>"`
+generates and accepts it in the orchestrated run.
+
+```json
+{"tables":[
+  {"name":"LABEL_FACT","role":"fact","row_count":2314697,"measures":["STREAMS"]},
+  {"name":"LABEL_SUMMARY","role":"dimension",
+   "grain_keys":["COUNTRY_CODE","LABEL"],
+   "unique_on":[["COUNTRY_CODE","LABEL"]],
+   "covers":["LABEL_FACT","ARTIST_FACT"],
+   "precomputed_fields":["LTM_STREAMS","NUM_ARTISTS"],
+   "refresh":"monthly after source fact loads"}
+]}
+```
+
+The planner never creates warehouse objects or guesses a split. A many-to-many
+edge without an explicit unique hub/replacement remains a `TARGET MODEL STOP`.
+Table substitutions require a matching equivalence proof; precomputed targets
+also require refresh lineage. Every emitted relationship still enters the live
+join-cardinality probe and all normal parity gates.
 
 ## 4. Verification checklist (every object-model run)
 

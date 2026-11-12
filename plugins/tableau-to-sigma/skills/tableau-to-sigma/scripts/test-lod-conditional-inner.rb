@@ -28,7 +28,7 @@ end
 src = File.read(BUILD) +
   File.read(File.join(__dir__, 'lib', 'chart_calc_translate.rb'), encoding: 'UTF-8') # translators moved to the shared lib
 defs = %w[render_agg lod_ref_caption parse_fixed_lod parse_relative_lod lod_inner_ref strip_tableau_comments
-          translate_dim_calc translate_row_level_calc].map do |fn|
+          translate_dim_calc translate_row_level_calc split_top_level_args tableau_iif_to_sigma].map do |fn|
   m = src.match(/^def #{Regexp.escape(fn)}\b.*?\nend\n/m)
   abort "test bug: could not extract def #{fn} from build-charts-from-signals.rb" unless m
   m[0]

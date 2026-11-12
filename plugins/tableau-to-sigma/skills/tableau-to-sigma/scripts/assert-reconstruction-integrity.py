@@ -65,7 +65,9 @@ def norm(value: Any) -> str:
 def workbook_elements(readback: Any) -> list[dict[str, Any]]:
     if not isinstance(readback, dict):
         return []
-    document = readback.get("document")
+    document = readback.get("contents")
+    if not isinstance(document, dict):
+        document = readback.get("document")
     document = document if isinstance(document, dict) else readback
     elements = document.get("elements")
     if isinstance(elements, list):

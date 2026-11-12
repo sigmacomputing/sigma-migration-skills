@@ -130,6 +130,67 @@ rows_by = (census_m && census_m['pages'] || []).each_with_object({}) { |c, h| h[
 check(rows_by['Fixed'] == 74 && rows_by['Auto'] == 48,
       "per-dashboard derivation: Fixed=74, Auto=48 (got #{rows_by.inspect})", fails)
 
+# ---- 5. C9: page rows follow the source aspect; pivot not clipped; trend share --
+# Source 1600x1000 fixed: rows = round(1000/1600 * 24 * col_px / 28), col_px = 1600/24.
+col_px = 1600 / 24.0
+expected_rows = (1000.0 / 1600 * 24 * col_px / SigmaLayout::SIGMA_ROW_PX).round
+check(SigmaLayout.aspect_page_rows('w' => 1600, 'h' => 1000) == expected_rows,
+      "page rows follow 1600x1000 aspect helper (#{expected_rows})", fails)
+check(SigmaLayout.aspect_page_rows('w' => 0, 'h' => 1000).nil? && SigmaLayout.aspect_page_rows(nil).nil?,
+      'aspect helper is nil without a source size (automatic dashboards keep today\'s rows)', fails)
+
+def c9_zone(id, caption, kind, y, h)
+  { 'id' => id, 'kind' => 'chart', 'caption' => caption, 'chart_kind' => kind,
+    'measures' => [{ 'column' => '[m]' }], 'x_pct' => 0.0, 'y_pct' => y, 'w_pct' => 100.0, 'h_pct' => h }
+end
+
+def run_c9(pivot_rows, canvas, pivot_h = 40.0)
+  zones = [c9_zone('1', 'Trend', 'line', 0.0, 35.0), c9_zone('2', 'Grid', 'pivot-table', 35.0, pivot_h),
+           c9_zone('3', 'Other', 'bar', 75.0, 25.0)]
+  dl = [{ 'dashboard' => 'D', 'is_story' => false, 'canvas_px' => canvas, 'zones' => zones }]
+  wb = { 'pages' => [{ 'name' => 'Data', 'id' => 'pd', 'elements' => [{ 'id' => 'master', 'kind' => 'table', 'name' => 'M' }] },
+                     { 'name' => 'D', 'id' => 'p1', 'elements' => [
+                       { 'id' => 'el-trend', 'kind' => 'line-chart', 'name' => 'Trend' },
+                       { 'id' => 'el-grid', 'kind' => 'pivot-table', 'name' => 'Grid' },
+                       { 'id' => 'el-other', 'kind' => 'bar-chart', 'name' => 'Other' }] }] }
+  Dir.mktmpdir do |d|
+    File.write(File.join(d, 'dl.json'), JSON.generate(dl))
+    File.write(File.join(d, 'wb.json'), JSON.generate(wb))
+    Dir.mkdir(File.join(d, 'views'))
+    File.write(File.join(d, 'views', 'v0.csv'), "Cat,Sales\n" + (1..pivot_rows).map { |i| "c#{i},#{i}" }.join("\n") + "\n")
+    File.write(File.join(d, 'get-workbook.json'),
+               JSON.dump('workbook' => { 'name' => 'x' }, 'views' => { 'view' => [{ 'id' => 'v0', 'name' => 'Grid' }] }))
+    out = File.join(d, 'l.xml')
+    IO.popen([RUBY, BUILD, '--layout', File.join(d, 'dl.json'), '--wb-ids', File.join(d, 'wb.json'), '--out', out],
+             err: %i[child out], &:read)
+    xml = File.read(out)
+    ends = xml.scan(/gridRow="(\d+)\s*\/\s*(\d+)"/).map { |a, b| [a.to_i, b.to_i] }
+    census = JSON.parse(File.read(File.join(d, 'layout-census.json')))
+    return [xml, census['pages'][0]['rows'], ends]
+  end
+end
+
+xml9, rows9, = run_c9(15, FIXED.merge('w' => 1600, 'h' => 1000))
+check(rows9 == expected_rows, "page rows follow 1600x1000 aspect (census #{rows9} == #{expected_rows})", fails)
+pivot_rows = span_of(xml9, 'el-grid')
+table_fit_rows_15 = ((72 + 30 + 15 * 20 + 76) / SigmaLayout::SIGMA_ROW_PX.to_f).ceil
+check(pivot_rows && pivot_rows >= table_fit_rows_15,
+      "pivot with 15 rows not clipped (#{pivot_rows.inspect} >= #{table_fit_rows_15})", fails)
+# Share of page height: line chart rows / the built page's total body rows.
+body_end = xml9.split('<Page').last.scan(/<Container[^>]*gridRow="(\d+)\s*\/\s*(\d+)"/).map { |_, b| b.to_i }.max - 1
+share = span_of(xml9, 'el-trend').to_f / body_end
+check((share - 0.35).abs <= 0.10, "line chart height share within 10% of source (#{share.round(3)} vs 0.35)", fails)
+
+# A long pivot gets the higher pivot cap (a table of the same length stays capped at 60).
+xml_long, = run_c9(80, FIXED.merge('w' => 1600, 'h' => 2400), 80.0)
+long_pivot = span_of(xml_long, 'el-grid')
+check(long_pivot && long_pivot >= ((72 + 30 + 80 * 20 + 76) / 28.0).ceil,
+      "80-row pivot uses the raised pivot cap (#{long_pivot.inspect})", fails)
+
+# Automatic / range dashboards (no fixed size) keep the legacy row model.
+_x, rows_auto, = run_c9(15, { 'w' => 1600, 'h' => 1000, 'sizing_mode' => 'automatic' })
+check(rows_auto == 48, "automatic sizing keeps today's 48 rows (got #{rows_auto})", fails)
+
 puts
 if fails.empty?
   puts 'ALL PASS — px-derived page height (SIGMA_ROW_PX=28, per-dashboard, explicit override, legacy fallback)'

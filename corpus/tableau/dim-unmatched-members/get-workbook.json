@@ -1,0 +1,25 @@
+{
+  "workbook": {
+    "name": "Dim Unmatched Members",
+    "views": {
+      "view": [
+        {
+          "id": "v-state-map",
+          "name": "Store State Map"
+        },
+        {
+          "id": "v-scorecard",
+          "name": "Store Scorecard"
+        },
+        {
+          "id": "v-ship",
+          "name": "Ship Method Revenue"
+        },
+        {
+          "id": "v-type",
+          "name": "Store Type Revenue"
+        }
+      ]
+    }
+  }
+}

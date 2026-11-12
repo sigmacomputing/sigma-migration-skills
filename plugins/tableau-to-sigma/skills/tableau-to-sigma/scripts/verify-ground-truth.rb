@@ -64,8 +64,10 @@
 require 'json'
 require 'set'
 require 'optparse'
+require_relative 'lib/evidence_inputs'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/dim_canon'
+require_relative 'lib/ds_publication'
 
 STRICT_TOL = 1e-4
 
@@ -192,6 +194,12 @@ end
 
 # --- warehouse-sql comparison -------------------------------------------------
 gt_results = Array(actuals['results']).each_with_object({}) { |r, h| h[r['chart']] = r }
+sigma_plan = begin
+  JSON.parse(File.read(File.join(dir, 'parity-plan.json'), encoding: 'UTF-8'))
+rescue Errno::ENOENT, JSON::ParserError
+  {}
+end
+sigma_plan_columns = Array(sigma_plan.is_a?(Hash) ? sigma_plan['charts'] : nil).select { |row| row.is_a?(Hash) }
 
 # Sigma rows for a chart: parity-actuals.json { "<chart>": rows | marker }.
 def sigma_rows_for(sigma, chart)
@@ -216,9 +224,23 @@ def compare_tile(entry, gt_res, sigma_rows, tol)
   sg = Array(sigma_rows).map { |r| DimCanon.round_row(Array(r)) }
   return { 'verdict' => 'unverified', 'reason' => 'ground truth returned no rows', 'rows_compared' => 0 } if gt.empty?
   return { 'verdict' => 'unverified', 'reason' => 'Sigma export returned no rows', 'rows_compared' => 0 } if sg.empty?
-  if sg.any? { |r| r.length < n_dims + 1 }
+  if entry['sigma_column_names']
+    # The permutation is derived only from explicit, unique column labels.
+    # Never try permutations against result values to maximize agreement.
+    normalize = ->(name) { name.to_s.sub(/\s+\((?:sum|avg|min|max|count|countd|median)\)\z/i, '').strip.downcase.gsub(/[\s_]+/, ' ') }
+    names = Array(entry['sigma_column_names']).map(&normalize)
+    indices = cols.map do |column|
+      matches = names.each_index.select { |i| names[i] == normalize.call(column['alias']) }
+      matches.first if matches.size == 1
+    end
+    if indices.any?(&:nil?) || indices.uniq.size != indices.size || sg.any? { |row| row.size != names.size }
+      return { 'verdict' => 'unverified', 'rows_compared' => 0, 'reason' => 'column identity is missing or ambiguous; refusing value-based alignment' }
+    end
+    sg = sg.map { |row| indices.map { |i| row[i] } }
+  end
+  if n_meas.zero? || sg.any? { |r| r.length != n_dims + n_meas } || gt.any? { |r| r.length != n_dims + n_meas }
     return { 'verdict' => 'unverified', 'rows_compared' => 0,
-             'reason' => "Sigma rows narrower (#{sg.map(&:length).min} cell(s)) than the tile's #{n_dims} dim(s) + a measure" }
+             'reason' => "row width does not match the tile's #{n_dims} dimensions and #{n_meas} measures" }
   end
 
   gt_key = ->(r) { r.first(n_dims) }
@@ -230,12 +252,14 @@ def compare_tile(entry, gt_res, sigma_rows, tol)
     width = [n_dims + n_meas, sg.map(&:length).min].min
     gt_set = Set.new(gt.map { |r| r.first(width) })
     sg_set = Set.new(sg.map { |r| r.first(width) })
-    if gt_set == sg_set
+    gt_counts = gt.group_by { |row| row.first(width) }.transform_values(&:size)
+    sg_counts = sg.group_by { |row| row.first(width) }.transform_values(&:size)
+    if gt_counts == sg_counts
       return { 'verdict' => 'match', 'max_rel_diff' => 0.0, 'rows_compared' => gt_set.size,
                'reason' => 'duplicate dim keys — verified by exact tuple-set identity' }
     end
     return { 'verdict' => 'diverge', 'max_rel_diff' => nil, 'rows_compared' => (gt_set & sg_set).size,
-             'reason' => 'duplicate dim keys and the tuple sets differ',
+              'reason' => 'duplicate dim keys and tuple values or multiplicities differ',
              'only_in_ground_truth' => (gt_set - sg_set).to_a.first(3),
              'only_in_sigma' => (sg_set - gt_set).to_a.first(3) }
   end
@@ -255,7 +279,12 @@ def compare_tile(entry, gt_res, sigma_rows, tol)
     [gvec.length, svec.length].min.times do |j|
       g = gvec[j]
       s = svec[j]
-      next unless g.is_a?(Numeric) && s.is_a?(Numeric)
+      unless g.is_a?(Numeric) && s.is_a?(Numeric)
+        next if g == s
+        return { 'verdict' => 'diverge', 'rows_compared' => shared.size, 'max_rel_diff' => nil,
+                 'reason' => 'measure nullness or nonnumeric value differs',
+                 'worst' => { 'key' => k, 'measure' => meas_aliases[j], 'ground_truth' => g, 'sigma_value' => s } }
+      end
       places = exported_decimal_precision(s)
       ground_value = places ? g.to_f.round(places) : g
       sigma_value = places ? s.to_f.round(places) : s
@@ -283,12 +312,34 @@ def compare_tile(entry, gt_res, sigma_rows, tol)
     'display_precision' => display_precision_used }
 end
 
+# A vds tile may fall back to view-csv anchors only on POSITIVE evidence that
+# its source is not a published datasource (lib/ds_publication.rb). Every
+# check must be skipped for that reason: skipped-embedded-ds (vds-oracle saw a
+# landed embedded/federated extract), or skipped-no-luid AND the .twb shows the
+# tile's datasource has no sqlproxy (published) connection. skipped-no-luid
+# alone also covers a published datasource whose LUID lookup never ran.
+# Returns the evidence string, or nil (strict).
+unpublished_source = lambda do |checks, entry|
+  return nil if checks.empty?
+  statuses = checks.map { |c| c['status'].to_s }.uniq
+  return nil unless (statuses - %w[skipped-embedded-ds skipped-no-luid]).empty?
+  return 'vds-oracle: embedded/federated extract' if statuses == ['skipped-embedded-ds']
+  cap = entry.dig('provenance', 'datasource').to_s
+  pub = DsPublication.status(dir, cap)
+  return nil unless pub == :unpublished
+  "workbook datasource #{cap.empty? ? '(sole datasource)' : cap.inspect} is embedded — no sqlproxy connection"
+end
+
 tiles = {}
 counts = Hash.new(0)
 conflicts = []
 diverges = []
 
 Array(plan['entries']).each do |entry|
+  candidates = sigma_plan_columns.select { |row| row['sigma_element_id'] && row['sigma_element_id'] == entry['sigma_element_id'] }
+  if candidates.size == 1 && candidates[0]['sigma_column_names'].is_a?(Array)
+    entry = entry.merge('sigma_column_names' => candidates[0]['sigma_column_names'])
+  end
   chart = entry['chart'].to_s
   cls = entry['classification'].to_s
   key = norm_name(chart)
@@ -321,6 +372,18 @@ Array(plan['entries']).each do |entry|
       elsif hits.any?
         { 'oracle' => 'vds', 'verdict' => 'match', 'rows_compared' => hits.map { |c| c['n_joined'].to_i }.max,
           'max_rel_diff' => hits.map { |c| c['max_rel_diff'].to_f }.max }
+      elsif (unpub = unpublished_source.call(checks, entry)) &&
+            (csv_anchors = anchors_valued[key].select { |d| d['provenance'].to_s == 'view-csv' }).any?
+        # The tile's source has NO published datasource (an embedded virtual
+        # connection / datasource / landed extract): vds-oracle has nothing it
+        # can query, ever. The source's own view-CSV values, matched in the
+        # Sigma tile as valued anchors, are then the oracle — a recorded
+        # SUBSTITUTION, not a waiver. A published datasource stays strict even
+        # when its LUID did not resolve (offline, no creds, failed lookup).
+        { 'oracle' => 'anchors', 'verdict' => 'match', 'rows_compared' => csv_anchors.length,
+          'max_rel_diff' => nil, 'substituted_for' => 'vds', 'substitution_evidence' => unpub,
+          'reason' => "no published datasource (#{unpub}) — vds-oracle cannot query it; " \
+                      "#{csv_anchors.length} valued view-csv anchor(s) matched in this tile stand in" }
       else
         { 'oracle' => 'vds', 'verdict' => 'unverified', 'rows_compared' => 0,
           'reason' => vds.nil? ? 'vds-oracle.json absent — run scripts/vds-oracle.rb' :
@@ -367,9 +430,17 @@ doc = {
   'version' => 1,
   'verified_at' => Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
   'plan_generated_at' => plan['generated_at'],
+  # What this comparison was computed FROM (lib/evidence_inputs.rb): the
+  # finalize preflight re-runs it when any input changed since.
+  'inputs' => EvidenceInputs.gt_fingerprint(dir, sigma_actuals: sigma_path),
   'tolerance' => tol,
   'tolerance_note' => tol_note,
   'tiles' => tiles,
+  # Oracle substitutions (not waivers): vds tiles with no published LUID that
+  # matching view-csv anchors verified — named so the report can say so.
+  'oracle_substitutions' => tiles.select { |_, t| t['substituted_for'] }
+                                 .map { |chart, t| { 'tile' => chart, 'oracle' => t['oracle'], 'substituted_for' => t['substituted_for'],
+                                                     'reason' => t['reason'] } },
   'summary' => { 'tiles' => tiles.size, 'match' => counts['match'],
                  'diverge' => counts['diverge'], 'unverified' => counts['unverified'],
                  'conflicts' => conflicts.size }
@@ -396,6 +467,7 @@ end
 tiles.each do |chart, s|
   tag = format('%-10s', s['verdict'].upcase)
   extra = s['verdict'] == 'match' ? "rows=#{s['rows_compared']}#{s['max_rel_diff'] ? " max_rel_diff=#{s['max_rel_diff']}" : ''}" : s['reason'].to_s[0, 140]
+  extra += " (SUBSTITUTED for #{s['substituted_for']}: #{s['reason']})" if s['substituted_for']
   puts "  #{tag} [#{s['oracle']}] #{chart.inspect} — #{extra}"
 end
 puts "verify-ground-truth: #{counts['match']}/#{tiles.size} tile(s) match, #{counts['diverge']} diverge, " \

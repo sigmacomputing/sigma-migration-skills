@@ -182,7 +182,7 @@ def build_export_cache(spec, plan_path, wb, spec_path)
   rb_ver = ExportPool.resolve_doc_version(spec)
   return nil if rb_ver.nil? # hand-built / legacy readback without a version — nothing to key on
   live_ver = begin
-    live = Sigma.request(:get, "/v2/workbooks/#{wb}/spec")
+    live = Sigma.request(:get, Sigma::CodeRep.read_path(wb))
     live = JSON.parse(live) if live.is_a?(String)
     ExportPool.resolve_doc_version(live)
   rescue StandardError
@@ -238,6 +238,7 @@ RENDER_VERIFY_REASON = 'pivot CSV export 500/empty (known Sigma limitation)'
 # the CSV and JSON paths so both produce identical actuals tuples.
 # Returns [:ok, rows] or [:fail, reason].
 def map_columns(headers, body_rows, want_names, formats = nil)
+  return [:fail, 'export returned ragged rows'] if body_rows.any? { |row| row.size != headers.size }
   used = []
   idxs = want_names.map do |n|
     i = headers.each_index.find { |j| !used.include?(j) && headers[j].casecmp?(n) }
@@ -272,9 +273,21 @@ def collect_chart_json(element_id, want_names, formats, wb, deadline)
   if ROW_LIMIT && objs.length >= ROW_LIMIT
     return [:toolarge, "element JSON export truncated at rowLimit #{ROW_LIMIT} — parity over partial data is meaningless"]
   end
-  headers = objs.first.keys.map { |h| h.to_s.strip }
-  # Objects are uniform (one shape per export); align each row's values to the
-  # first object's key order so map_columns' by-name index matching applies.
+  headers = objs.flat_map(&:keys).uniq.map { |h| h.to_s.strip }
+  return [:fail, 'JSON export has ambiguous column labels'] unless headers.map(&:downcase).uniq.size == headers.size
+  missing = want_names.reject { |name| headers.any? { |header| header.casecmp?(name) } }
+  if missing.any?
+    return [:fail, 'JSON export has no identifiable requested column'] if missing.size == want_names.size
+    # Null-valued keys may be omitted. A local plan alone cannot prove a missing
+    # name is real: require the live element's independent column inventory.
+    remaining = deadline.remaining
+    return [:timeout, 'total deadline reached before column inventory'] unless remaining.positive?
+    live = Timeout.timeout(remaining) { Sigma.list_entries("/v2/workbooks/#{wb}/columns") }
+                  .select { |column| column['elementId'] == element_id }
+    labels = live.map { |column| column['label'].to_s.strip }
+    verified = missing.select { |name| labels.count { |label| label.casecmp?(name) } == 1 }
+    headers.concat(verified)
+  end
   body_rows = objs.map { |o| headers.map { |h| o[o.keys.find { |k| k.to_s.strip == h }] } }
   map_columns(headers, body_rows, want_names, formats)
 rescue Sigma::Error, Timeout::Error, Errno::ETIMEDOUT => e
@@ -326,7 +339,9 @@ def collect_chart(c, el_by_id, wb, deadline)
       return [:manual, RENDER_VERIFY_REASON] if status == :html
       CACHE.store(c['sigma_element_id'], 'csv', ROW_LIMIT, body) if CACHE
     end
-    rows = CSV.parse(body)
+    csv_text = body.dup.force_encoding(Encoding::UTF_8)
+    return [:fail, 'CSV export is not valid UTF-8'] unless csv_text.valid_encoding?
+    rows = CSV.parse(csv_text.sub(/\A\uFEFF/, ''))
     # Truncated at the row cap: this "chart" is a huge flat detail grid, not a
     # comparable plotted aggregate. Parity over a partial export would be
     # meaningless — fail LOUD and route to the agent-mediated/warehouse path.

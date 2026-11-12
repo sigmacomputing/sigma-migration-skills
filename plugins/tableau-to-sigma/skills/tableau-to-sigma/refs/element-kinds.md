@@ -360,7 +360,7 @@ and stay dropped.
 
 `kind: "button"` ({text, appearance filled|outline|text, fillColor/fontColor, actions:
 [{trigger: "on-click", effects: [{effect: "navigate", target: {type: "page", page}}]}]}) is in
-the OpenAPI and passes spec/verify, but the live write is FEATURE-FLAGGED per workspace
+the OpenAPI and passes the dry run, but the live write is FEATURE-FLAGGED per workspace
 (probed 2026-07-11: 400 "`button` elements are not enabled for this workspace").
 
 Tableau navigation buttons emit as **native buttons** with an on-click `navigate` action by

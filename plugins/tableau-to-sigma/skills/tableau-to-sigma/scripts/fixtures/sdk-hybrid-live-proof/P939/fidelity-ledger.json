@@ -1,0 +1,476 @@
+{
+  "workbook_id": "4d2d7596-fe9a-45a8-8372-0ca8a85da3fd",
+  "page_id": "page-dash-1",
+  "source_image": null,
+  "max_passes": 5,
+  "max_seconds": 1800,
+  "started_at": "2026-11-05T20:25:22Z",
+  "pass": 4,
+  "renders": [
+    {
+      "pass": 1,
+      "path": "/private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939/rcf-pass-1.png",
+      "document_version": "9",
+      "sha256": "630b9fdaea495b1e80b6fedec2f7e248f8937b53f4591bf1d5061797bd5ebb63"
+    },
+    {
+      "pass": 2,
+      "path": "/private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939/rcf-pass-2.png",
+      "document_version": "9",
+      "sha256": "630b9fdaea495b1e80b6fedec2f7e248f8937b53f4591bf1d5061797bd5ebb63"
+    },
+    {
+      "pass": 3,
+      "path": "/private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939/rcf-pass-3.png",
+      "document_version": "10",
+      "sha256": "273ffc90de366af72267b85717ee3e90d69226e763d9a147a5a9380bcb8a6079"
+    },
+    {
+      "pass": 4,
+      "path": "/private/tmp/claude-502/-Users-tjwells-Documents-Default-Project/11dec326-68a1-4112-8adc-4eace80f0138/scratchpad/ab2/P939/rcf-pass-4.png",
+      "document_version": "11",
+      "sha256": "5cb104307f097d07ca4d12cfc734937da7cdf356cc2c35698a138f126b436849"
+    }
+  ],
+  "entries": [
+    {
+      "id": "e0",
+      "pass": 0,
+      "dimension": "data",
+      "delta": "Customers: Top 10 Customers shows 1 bar (CUST-009 $74) vs source 10 bars CUST-004 $10,098 ...; top-n rank measure restricted to Year=2026 (point-in-time rewrite from my png-read latest_year)",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s1",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e1",
+      "pass": 0,
+      "dimension": "layout",
+      "delta": "Customers+Operations pages: title text + nav buttons (header 'extra' container) placed at page bottom instead of top; source has title/nav at top",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s1",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e2",
+      "pass": 0,
+      "dimension": "data",
+      "delta": "Customers: cohort pivot has extra blank Cohort Year row with 0 (source only 2024, 2025)",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s1",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e3",
+      "pass": 0,
+      "dimension": "data",
+      "delta": "Overview: Category x Region pivot shows % of grand total (e.g. Apparel Midwest 4.62%) vs source % of row (17.3%); Null region column header missing",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s1",
+        "writes": [
+          "w2"
+        ]
+      }
+    },
+    {
+      "id": "e4",
+      "pass": 0,
+      "dimension": "color",
+      "delta": "Operations: Ship Mix series colors mapped to wrong categories (BOPIS blue vs source orange; Economy orange vs blue)",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s2",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e5",
+      "pass": 0,
+      "dimension": "layout",
+      "delta": "Operations: map legend box overlaps map title",
+      "cls": "sigma-capability",
+      "fix": null,
+      "resolved": false
+    },
+    {
+      "id": "e6",
+      "pass": 0,
+      "dimension": "accuracy",
+      "delta": "phase-6 parity DIVERGED on the SDK-exported spec (document version 6): DIVERGE  [strict]   Top 10 Customers by Net Revenue  (score 0%)",
+      "cls": "data",
+      "fix": "fix via another SDK session (or rollback), then sdk-export re-runs parity",
+      "resolved": true,
+      "route": "sdk",
+      "source": "sdk-export-parity",
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s2",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e7",
+      "pass": 2,
+      "dimension": "layout",
+      "delta": "Overview: Category x Region pivot clipped (Home/Sports rows cut off) - container only 10 rows tall",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s4",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e8",
+      "pass": 2,
+      "dimension": "labels",
+      "delta": "Overview: trend y axis prints 20k/10k instead of $20,000; pivot percent prints 17.29% vs source 17.3%",
+      "cls": "spec-fixable",
+      "fix": null,
+      "resolved": true,
+      "resolved_via": {
+        "route": "sdk",
+        "session": "s4",
+        "writes": [
+          "w1"
+        ]
+      }
+    },
+    {
+      "id": "e9",
+      "pass": 2,
+      "dimension": "labels",
+      "delta": "Overview: axis titles/Avg ref label exposed that source hides",
+      "cls": "ui-only",
+      "fix": null,
+      "resolved": false
+    }
+  ],
+  "route": "sdk",
+  "sdk": {
+    "sessions": [
+      {
+        "id": "s1",
+        "checkpoint": "697820009bbcf8a39b71947bdf2910fe",
+        "base_version": "4",
+        "mcp_server": "plugin_sigma-build-aws-us-west-2-production",
+        "opened_at": "2026-11-05T20:34:53Z",
+        "needs_reread": false,
+        "writes": [
+          {
+            "id": "w1",
+            "at": "2026-11-05T20:37:20Z",
+            "status": "ok",
+            "summary": "top10 rank measure -> Sum(Net Revenue); cohort pivot null filter; header band to top on Customers/Operations",
+            "program_sha256": "23351707385b4de47c489dc7bdbeecedf30d3ce91d559dfa28511e47ee55ff89",
+            "program_path": "sdk-writes/s1-w1/program.py",
+            "result_sha256": "fb9a7a0598f50705d1d3fc4220b9dfc806c28e832852e4344f15f1f0a65f03ee",
+            "document_version": "5",
+            "claims": [
+              "e0",
+              "e1",
+              "e2"
+            ],
+            "error": null
+          },
+          {
+            "id": "w2",
+            "at": "2026-11-05T20:38:45Z",
+            "status": "ok",
+            "summary": "pivot percent-of-row; top10 bar value uses master Net Revenue sum",
+            "program_sha256": "49f8ef9dea653f09e7639a3442ddf42652e93f5937cc9f098a15dc800e34d659",
+            "program_path": "sdk-writes/s1-w2/program.py",
+            "result_sha256": "19a0350e82e505b0db3f2f564137f4075a417e0178773d43b9aa4bce3ade2445",
+            "document_version": "6",
+            "claims": [
+              "e3"
+            ],
+            "error": null
+          }
+        ],
+        "rereads": [
+
+        ],
+        "exports": [
+          {
+            "at": "2026-11-05T20:39:08Z",
+            "document_version": "6",
+            "guards": "pass",
+            "failures": [
+
+            ],
+            "wb_spec_sha256": "3106595792c2441898cbf321fbb1af61f1afd37b7d65d98fb8a4aa54498387dc",
+            "elements_added": [
+              "syn-page-dash-1-hdr",
+              "syn-page-dash-1-kpi-1",
+              "syn-page-dash-1-rail",
+              "syn-page-dash-1-sec-1",
+              "syn-page-dash-1-sec-2",
+              "syn-page-dash-2-extra",
+              "syn-page-dash-2-rail",
+              "syn-page-dash-2-sec-1",
+              "syn-page-dash-2-sec-2",
+              "syn-page-dash-3-extra",
+              "syn-page-dash-3-rail",
+              "syn-page-dash-3-sec-1"
+            ],
+            "elements_removed": [
+
+            ],
+            "resolved": [
+              "e0",
+              "e1",
+              "e2",
+              "e3"
+            ],
+            "parity": "fail",
+            "parity_exit": 2,
+            "parity_detail": "DIVERGE  [strict]   Top 10 Customers by Net Revenue  (score 0%)"
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "checkpoint": "4d921242c6efe1bb2cb6b27ed44ea641",
+        "base_version": "6",
+        "mcp_server": "plugin_sigma-build-aws-us-west-2-production",
+        "opened_at": "2026-11-05T20:39:41Z",
+        "needs_reread": false,
+        "writes": [
+          {
+            "id": "w1",
+            "at": "2026-11-05T20:40:06Z",
+            "status": "ok",
+            "summary": "top-n filter on grouped measure; ship mix palette",
+            "program_sha256": "beb64af80c4fdd64e5c9859e0eacd45641dc4d3794cbc7926b6c464aa49abb01",
+            "program_path": "sdk-writes/s2-w1/program.py",
+            "result_sha256": "5a6f0a61f5695a5923bb6613a9a76c89c0a96ce42c27e2ce197218f541f88310",
+            "document_version": "7",
+            "claims": [
+              "e4",
+              "e6"
+            ],
+            "error": null
+          },
+          {
+            "id": "w2",
+            "at": "2026-11-05T20:40:17Z",
+            "status": "failed",
+            "summary": "deliberate runtime failure probe",
+            "program_sha256": "f1ab483f2444da6c4e850d82f5af880bb856c2aef0d6a060c2858567746eafd5",
+            "program_path": "sdk-writes/s2-w2/program.py",
+            "result_sha256": "af2a470ebbf40ba8196f83167e0d74fb26012a1865852206422d29cfd4171dcf",
+            "document_version": "7",
+            "claims": [
+
+            ],
+            "error": "ValueError: no element with id (deliberate failed-write probe)"
+          }
+        ],
+        "rereads": [
+          {
+            "after": "w2",
+            "evidence_sha256": "c4d390f61a29a05d1cbc14d617ca62753720bd5c322fedec98551f4b16d2373e",
+            "at": "2026-11-05T20:40:24Z"
+          }
+        ],
+        "exports": [
+          {
+            "at": "2026-11-05T20:40:25Z",
+            "document_version": "7",
+            "guards": "pass",
+            "failures": [
+
+            ],
+            "wb_spec_sha256": "76e437ff27bdf98a4c3b34c0b87f74e5ce52f637381278930f52390cb1a5e8e2",
+            "elements_added": [
+
+            ],
+            "elements_removed": [
+
+            ],
+            "resolved": [
+              "e4",
+              "e6"
+            ],
+            "parity": "pass",
+            "parity_exit": 0
+          }
+        ]
+      },
+      {
+        "id": "s3",
+        "checkpoint": "a0648ae6774530845fff26237a416a87",
+        "base_version": "9",
+        "mcp_server": "plugin_sigma-build-aws-us-west-2-production",
+        "opened_at": "2026-11-05T20:41:21Z",
+        "needs_reread": false,
+        "writes": [
+
+        ],
+        "rereads": [
+
+        ],
+        "exports": [
+          {
+            "at": "2026-11-05T20:41:22Z",
+            "document_version": "9",
+            "guards": "pass",
+            "failures": [
+
+            ],
+            "wb_spec_sha256": "f523daf1405bdd529c1e07f26bb71fdd06f5d9571b5c44b7bfd61cf2775eb6d3",
+            "elements_added": [
+
+            ],
+            "elements_removed": [
+
+            ],
+            "resolved": [
+
+            ],
+            "parity": "pass",
+            "parity_exit": 0
+          }
+        ]
+      },
+      {
+        "id": "s4",
+        "checkpoint": "0dc65296bfe68b6e3167a6785fbbe9e4",
+        "base_version": "9",
+        "mcp_server": "plugin_sigma-build-aws-us-west-2-production",
+        "opened_at": "2026-11-05T20:43:29Z",
+        "needs_reread": false,
+        "writes": [
+          {
+            "id": "w1",
+            "at": "2026-11-05T20:43:40Z",
+            "status": "ok",
+            "summary": "pivot container taller; pct 0.0%; trend y $ format",
+            "program_sha256": "709cdef4264cd68f41feebf792a3025f2b8cab0c30c7c7fd002a84aff9cb8d6e",
+            "program_path": "sdk-writes/s4-w1/program.py",
+            "result_sha256": "b99b6eb6830c14bf381468daf3f4be2bbeba13dc16ce74f268cb64ca021623f5",
+            "document_version": "10",
+            "claims": [
+              "e7",
+              "e8"
+            ],
+            "error": null
+          }
+        ],
+        "rereads": [
+
+        ],
+        "exports": [
+          {
+            "at": "2026-11-05T20:43:41Z",
+            "document_version": "10",
+            "guards": "pass",
+            "failures": [
+
+            ],
+            "wb_spec_sha256": "e5aa6b2f268160f625a56c810106c897373ee14517b2a1b105fc11bd1ff580fc",
+            "elements_added": [
+
+            ],
+            "elements_removed": [
+
+            ],
+            "resolved": [
+              "e7",
+              "e8"
+            ],
+            "parity": "pass",
+            "parity_exit": 0
+          }
+        ]
+      },
+      {
+        "id": "s5",
+        "checkpoint": "01adefbd1818fcccb505c20e00cb9264",
+        "base_version": "10",
+        "mcp_server": "plugin_sigma-build-aws-us-west-2-production",
+        "opened_at": "2026-11-05T20:45:22Z",
+        "needs_reread": false,
+        "writes": [
+          {
+            "id": "w1",
+            "at": "2026-11-05T20:45:28Z",
+            "status": "ok",
+            "summary": "pivot pct format .1%",
+            "program_sha256": "f6a0f057ff933199ebe042eae960a82401bb5346785139f1e62732a99f9cc56e",
+            "program_path": "sdk-writes/s5-w1/program.py",
+            "result_sha256": "8fd90bc5a626c49876b132100235f17b41bb49d13dff7d118c2094dd76c0cb37",
+            "document_version": "11",
+            "claims": [
+
+            ],
+            "error": null
+          }
+        ],
+        "rereads": [
+
+        ],
+        "exports": [
+          {
+            "at": "2026-11-05T20:45:29Z",
+            "document_version": "11",
+            "guards": "pass",
+            "failures": [
+
+            ],
+            "wb_spec_sha256": "27c6199c73886945ee9f668816e2480afd47e73bce4dfe6e987f8501f45d418b",
+            "elements_added": [
+
+            ],
+            "elements_removed": [
+
+            ],
+            "resolved": [
+
+            ],
+            "parity": "pass",
+            "parity_exit": 0
+          }
+        ]
+      }
+    ],
+    "state": "exported"
+  }
+}

@@ -56,6 +56,8 @@ require_relative 'lib/layout'
 require_relative 'lib/zone_census'
 require_relative 'lib/arrangement_lint'
 require_relative 'lib/workbook_code'
+require_relative 'lib/theme_derive'
+require 'rexml/document'
 require_relative 'lib/dashboard_element_assignment'
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
@@ -237,6 +239,35 @@ def el_display_name(el)
   n.is_a?(Hash) ? n['text'] : n
 end
 
+# Zone-derived element ids ("text-<zoneid>", "btn-<zoneid>", "img-<zoneid>").
+# Tableau zone ids restart on every dashboard, so build-charts' namespace pass
+# renames repeats on dashboards 2+ to "<stem>-<dashboard-slug>" (e.g.
+# "text-2-customers"). Resolve them per page: exact id first, else the page
+# element whose id starts "<prefix>-<zoneid>-" (the "-" boundary keeps "btn-3-"
+# from matching "btn-31"). page['elements'] holds only this dashboard's
+# elements, so the match is unambiguous within a page.
+def zone_el(els_by_id, prefix, zone_id)
+  exact = els_by_id["#{prefix}-#{zone_id}"]
+  return exact if exact
+  stem = "#{prefix}-#{zone_id}-"
+  hits = els_by_id.select { |k, _| k.to_s.start_with?(stem) }.values
+  warn "WARN: #{hits.length} elements match zone-derived id #{stem}* (using #{hits.first['id']})" if hits.length > 1
+  hits.first
+end
+
+# Inverse of zone_el: the zone id behind a zone-derived element id, tolerating
+# the namespace suffix ("text-2-customers" -> "2"). nil when no zone matches.
+def zone_id_for_el(el_id, prefix, zone_by_id)
+  rest = el_id.to_s.sub(/\A#{Regexp.escape(prefix)}-/, '')
+  return rest if zone_by_id.key?(rest)
+  parts = rest.split('-')
+  (parts.length - 1).downto(1) do |n|
+    cand = parts[0, n].join('-')
+    return cand if zone_by_id.key?(cand)
+  end
+  nil
+end
+
 # Add provenance worksheet-name aliases for this page's elements (see above).
 def augment_els_by_name!(els_by_name, elements)
   elements.each do |e|
@@ -249,7 +280,7 @@ def augment_els_by_name!(els_by_name, elements)
   # no provenance row). Index them under a key no display name can collide with
   # so find_zone_el can resolve their Shape-mark chart zone by zone id.
   elements.each do |e|
-    next unless e['kind'] == 'button' && e['id'].to_s =~ /\Abtn-(\d+)\z/
+    next unless e['kind'] == 'button' && e['id'].to_s =~ /\Abtn-(\d+)(?:-.+)?\z/
     els_by_name["\0btn-#{Regexp.last_match(1)}"] ||= e
   end
   els_by_name
@@ -357,6 +388,29 @@ def tree_has_controls?(tree)
   end
 end
 
+# C14: true when the tree has a legend zone AND the page carries a native legend
+# control — only the container path places that control in its zone's cell (the
+# banded path would sweep it into the filter band).
+# The wb-ids readback of a live workbook does not always carry `controlType` (older
+# post-and-readback summaries dropped it), so a control the builder recorded in
+# chart-provenance.json as a chart's legend_control_id is a legend control too.
+def legend_control?(el)
+  return false unless el['kind'] == 'control'
+  return true if el['controlType'] == 'legend'
+  el['controlType'].nil? && PROV_BY_ID.any? { |_, v| v.is_a?(Hash) && v['legend_control_id'] == el['id'] }
+end
+
+# Number of legend entries the control shows (its colorAssignment.customColors); 0 when unknown.
+def legend_entry_count(el)
+  Array(el.dig('colorAssignment', 'customColors')).length
+end
+
+def tree_has_legend_control?(tree, page)
+  return false unless Array(page['elements']).any? { |e| legend_control?(e) }
+  walk = lambda { |ns| (ns || []).any? { |n| n['kind'] == 'legend' || walk.call(n['children']) } }
+  walk.call(tree)
+end
+
 # True when any container in the tree carries a fill (region-card tints etc.).
 # B2 (gap ubr5.6): a designed dashboard with tinted containers but NO controls
 # would otherwise take the banded fallback and lose its tints — the container
@@ -401,7 +455,7 @@ end
 
 # Resolve a leaf zone to an existing workbook element id (chart by caption,
 # filter/param control by target-column / caption, title text to the page
-# title). Returns nil for zones Sigma renders inline (legend) or drops (spacer).
+# title). Returns nil for zones Sigma renders inline or drops (spacer).
 def resolve_leaf(node, ctx)
   case node['kind']
   when 'chart'
@@ -409,7 +463,7 @@ def resolve_leaf(node, ctx)
     el = ctx[:els_by_name][name]
     # Info-popup icon sheet (Shape mark + tooltip text) → its `btn-<zoneid>` button.
     if el.nil? && !ctx[:zone_by_id].dig(node['id'], 'tooltip_text').to_s.empty?
-      btn = ctx[:els_by_id]["btn-#{node['id']}"]
+      btn = zone_el(ctx[:els_by_id], 'btn', node['id'])
       el = btn if btn && btn['kind'] == 'button'
     end
     el && el['id']
@@ -424,21 +478,26 @@ def resolve_leaf(node, ctx)
     else
       # B4 (gap ubr5.8): styled static-text zone → its emitted element
       # (build-charts id "text-<zoneid>"), placed at the zone's own geometry.
-      el = ctx[:els_by_id]["text-#{node['id']}"]
+      el = zone_el(ctx[:els_by_id], 'text', node['id'])
       el && el['id']
     end
+  when 'legend'
+    # C14: separate legend zone -> its native legend control (build-charts id
+    # "legend-<zoneid>", possibly namespaced on dashboards 2+).
+    el = zone_el(ctx[:els_by_id], 'legend', node['id'])
+    el && el['id']
   when 'image'
     # v5.0: bitmap zone → its emitted image element (build-charts id
     # "img-<zoneid>", data-URI body from the .twbx Image/ asset). Full-canvas
     # backgrounds (is_background) are page-level, not grid tiles — skip here.
     return nil if node['is_background']
-    el = ctx[:els_by_id]["img-#{node['id']}"]
+    el = zone_el(ctx[:els_by_id], 'img', node['id'])
     el && el['id']
   when 'dashboard-object'
     # v5.0-P2: navigation buttons → their emitted element (build-charts id
     # "btn-<zoneid>"). Export/toggle buttons emit nothing (named residue) —
     # nil drops the zone from the grid, correctly.
-    el = ctx[:els_by_id]["btn-#{node['id']}"]
+    el = zone_el(ctx[:els_by_id], 'btn', node['id'])
     el && el['id']
   end
 end
@@ -510,6 +569,7 @@ TABLEAU_TABLE_TITLE_PX  = 40 # Tableau text-table furniture at 100% zoom (title,
 TABLEAU_TABLE_HEADER_PX = 25
 TABLEAU_TABLE_ROW_PX    = 21
 TABLE_FIT_MAX_ROWS = 60 # a table beyond this scrolls inside its tile whatever the zone height
+PIVOT_FIT_MAX_ROWS = 120 # pivots (plan C9) are read whole: a taller cap so a long pivot is not clipped
 
 # worksheet name -> [table rows, measures] of its exported view CSV, from <workdir>/get-workbook.json +
 # views/<viewId>.csv beside --layout. A wide export is one table row per CSV row (measures = 1). A long-format
@@ -521,10 +581,10 @@ def load_table_rows_by_worksheet(layout_path)
   gw_path = File.join(dir, 'get-workbook.json')
   return {} unless File.exist?(gw_path)
   gw = JSON.parse(File.read(gw_path))
-  views = gw.dig('views', 'view') || []
-  views = [views] unless views.is_a?(Array)
+  require_relative 'lib/mcp_source'
+  views = McpSource.views_for(dir, gw)
   views.each_with_object({}) do |v, h|
-    csv_path = File.join(dir, 'views', "#{v['id']}.csv")
+    csv_path = McpSource.csv_path(dir, v)
     next unless v['name'] && File.exist?(csv_path)
     rows = CSV.read(csv_path, encoding: 'bom|utf-8')
     next if rows.empty?
@@ -550,11 +610,11 @@ end
 # geometry floor (not a table, no row count, or the source zone scrolls). `zone` is the Tableau zone,
 # `canvas_px` the dashboard canvas ({'h'=>px}).
 def table_fit_rows(el, zone, canvas_px, rows_by_ws)
-  return nil unless el && el['kind'] == 'table' && zone.is_a?(Hash) && rows_by_ws
+  return nil unless el && %w[table pivot-table].include?(el['kind']) && zone.is_a?(Hash) && rows_by_ws
   n, measures = rows_by_ws[zone['caption'].to_s.strip]
   return nil unless n
   n *= measures if zone.dig('rows_shelf', 'has_measure_names') # measures stacked down the rows
-  n = [n, TABLE_FIT_MAX_ROWS].min
+  n = [n, el['kind'] == 'pivot-table' ? PIVOT_FIT_MAX_ROWS : TABLE_FIT_MAX_ROWS].min
   titled = zone['show_title'] != false
   canvas_h = canvas_px.is_a?(Hash) ? canvas_px['h'].to_f : 0.0
   if canvas_h.positive? && zone['h_pct']
@@ -582,7 +642,7 @@ def load_axis_titled_ids(layout_path)
     path = File.join(dir, name)
     next unless File.exist?(path)
     j = JSON.parse(File.read(path, encoding: 'UTF-8'))
-    doc = j.is_a?(Hash) ? (j['document'] || j) : j
+    doc = j.is_a?(Hash) ? (j['contents'] || j['document'] || j) : j
     found = if doc.is_a?(Array)
               doc
             elsif doc['elements'].is_a?(Array)
@@ -779,7 +839,8 @@ end
 def assign_controls(control_zones, elements)
   ctl_by_name = elements.select { |e| e['kind'] == 'control' && e['name'] }
                         .each_with_object({}) { |e, h| h[e['name'].to_s.downcase] = e }
-  all_ctls = elements.select { |e| e['kind'] == 'control' }
+  # A legend control belongs to its legend zone (resolve_leaf), never a filter zone.
+  all_ctls = elements.select { |e| e['kind'] == 'control' && !legend_control?(e) }
   zone_to_ctl = {}
   used = {}
   control_zones.each do |z|
@@ -816,6 +877,7 @@ def safety_net_band(page, placed, extra_els, children, prefix, below_row, page_r
     k = e['kind'].to_s
     # dividers deliberately EXCLUDED: an unplaced divider must never generate
     # a stray bottom band (it only exists when the tree placed it anyway).
+    next false if legend_control?(e) # placed beside its chart by place_legend_controls, never in a band
     k.end_with?('-chart') || %w[table pivot-table control text image button].include?(k)
   end
   unplaced = page['elements'].select { |e| placeable.call(e) && !placed.include?(e['id']) }
@@ -887,7 +949,7 @@ def build_page_from_tree(dashboard, page, opts)
     # 1. Extracted source banner (dedicated title-* element or the guarded
     # fallback) → band + clip + renormalize. Under the px-derived row model the
     # band height comes from the title zone's own px (min HEADER_ROWS).
-    tz = zone_by_id[title_el['id'].to_s.sub(/\Atext-/, '')]
+    tz = zone_by_id[zone_id_for_el(title_el['id'], 'text', zone_by_id)]
     hdr_rows = HEADER_ROWS
     if canvas_fixed && tz && tz['h_pct']
       hdr_rows = [(tz['h_pct'].to_f / 100.0 * canvas['h'].to_i / SigmaLayout::SIGMA_ROW_PX).ceil,
@@ -1212,18 +1274,20 @@ end
 # [{id:, c0:, c1:, zone_id:}] sorted left to right, container-relative columns
 # of the 24-col header band; [] when the page has none. A button that would
 # crowd the title (starts left of column 7) or overlaps a neighbouring header
-# button stays where the normal placement puts it.
+# button still joins the band: the title shrinks to HEADER_TITLE_MIN_COLS and
+# the buttons tile the remaining columns. Buttons below the header strip keep
+# their source position.
 HEADER_BUTTON_MIN_COLS = 4
 HEADER_TITLE_MIN_COLS = 6
 
 def header_nav_buttons(dashboard, page, zone_by_id, title_el)
   els_by_id = page['elements'].each_with_object({}) { |e, h| h[e['id']] = e if e['id'] }
-  tz = title_el && zone_by_id[title_el['id'].to_s.sub(/\Atext-/, '')]
+  tz = title_el && zone_by_id[zone_id_for_el(title_el['id'], 'text', zone_by_id)]
   title_bottom = tz && tz['y_pct'] && tz['h_pct'] ? tz['y_pct'].to_f + tz['h_pct'].to_f : nil
   found = []
   (dashboard['zones'] || []).each do |z|
     next unless z['kind'].to_s == 'dashboard-object' && z['id']
-    el = els_by_id["btn-#{z['id']}"]
+    el = zone_el(els_by_id, 'btn', z['id'])
     # Native `button` or the text-link fallback (`text`, same btn-<zone> id).
     next unless el && %w[button text].include?(el['kind'].to_s)
     y0 = (z['y_pct'] || 0).to_f
@@ -1236,13 +1300,27 @@ def header_nav_buttons(dashboard, page, zone_by_id, title_el)
     c0 = c1 - HEADER_BUTTON_MIN_COLS if c1 - c0 < HEADER_BUTTON_MIN_COLS
     found << { id: el['id'], c0: c0, c1: c1, zone_id: z['id'] }
   end
-  out = []
-  found.sort_by { |b| [b[:c0], b[:id].to_s] }.each do |b|
-    next if b[:c0] < 1 + HEADER_TITLE_MIN_COLS
-    next if out.any? && b[:c0] < out.last[:c1]
-    out << b
+  sorted = found.sort_by { |b| [b[:c0], b[:id].to_s] }
+  conflict = sorted.each_with_index.any? do |b, i|
+    b[:c0] < 1 + HEADER_TITLE_MIN_COLS || (i.positive? && b[:c0] < sorted[i - 1][:c1])
   end
-  out
+  return sorted unless conflict
+  # A header-row button that starts left of column 7 or overlaps a neighbour is
+  # still a header button in the source. Keep it in the band: the title shrinks
+  # to HEADER_TITLE_MIN_COLS and the buttons tile the remaining columns in
+  # source order (equal adjacent spans, >= HEADER_BUTTON_MIN_COLS each).
+  first_col = 1 + HEADER_TITLE_MIN_COLS
+  fit = [sorted.length, (25 - first_col) / HEADER_BUTTON_MIN_COLS].min
+  sorted = sorted.first(fit)
+  # Start where the first button does (never inside the title's minimum), but
+  # pull left far enough that every one of the `fit` buttons gets >= MIN cols.
+  start = [[first_col, sorted.first[:c0]].max, 25 - HEADER_BUTTON_MIN_COLS * sorted.length].min
+  per = (25 - start) / sorted.length
+  sorted.each_with_index.map do |b, i|
+    c0 = start + per * i
+    c1 = i == sorted.length - 1 ? 25 : c0 + per
+    b.merge(c0: c0, c1: c1)
+  end
 end
 
 # Remove a zone from the tree and prune ancestors the removal left
@@ -1270,7 +1348,7 @@ end
 def detect_header_title_el(page, zone_by_id)
   title_el = page['elements'].find { |e| e['kind'] == 'text' && e['id'].to_s.start_with?('title') }
   return title_el if title_el
-  zid = ->(e) { e['id'].to_s.sub(/\Atext-/, '') }
+  zid = ->(e) { zone_id_for_el(e['id'], 'text', zone_by_id) }
   zones = zone_by_id.values
   cands = page['elements'].select { |e| e['kind'] == 'text' }
                           .map { |e| [e, zone_by_id[zid.call(e)]] }
@@ -1415,7 +1493,7 @@ def build_page_synthesized(dashboard, page, opts, structure)
   # Detected source header-text zones join the band (right of the title) so
   # they are neither re-placed mid-page nor auto-appended by Sigma on save.
   header_zones.each do |z|
-    el = els_by_id["text-#{z['id']}"]
+    el = zone_el(els_by_id, 'text', z['id'])
     next unless el && !placed.include?(el['id'])
     placed << el['id']
     hdr_ids << el['id']
@@ -1443,7 +1521,8 @@ def build_page_synthesized(dashboard, page, opts, structure)
                        .sort_by { |z| [(z['y_pct'] || 0).to_f, (z['x_pct'] || 0).to_f, z['id'].to_s] }
   zone_to_ctl  = assign_controls(control_zones, page['elements'])
   rail_ctl_ids = rail ? rail[:zones].map { |z| zone_to_ctl[z['id']] }.compact.uniq : []
-  band_ctls    = page['elements'].select { |e| e['kind'] == 'control' && !rail_ctl_ids.include?(e['id']) }
+  # A legend control never rides a control band (place_legend_controls puts it beside its chart).
+  band_ctls    = page['elements'].select { |e| e['kind'] == 'control' && !legend_control?(e) && !rail_ctl_ids.include?(e['id']) }
 
   ctl_rows   = band_ctls.empty? ? 0 : 3
   content_r0 = 1 + hdr_rows + ctl_rows
@@ -1485,7 +1564,7 @@ def build_page_synthesized(dashboard, page, opts, structure)
       el = find_zone_el(els_by_name, z, opts[:renames])
       el && el['id']
     when 'text', 'title'
-      el = els_by_id["text-#{z['id']}"]
+      el = zone_el(els_by_id, 'text', z['id'])
       el && el['id']
     end
   end
@@ -1546,7 +1625,7 @@ def build_page_synthesized(dashboard, page, opts, structure)
       minexp += mins.count { |m| (r1 - r0) < m }
       r1 = r0 + mins.max
     end
-    units << { kind: :kpi, r0: r0, r1: r1, ids: ids, idx: ki }
+    units << { kind: :kpi, r0: r0, r1: r1, ids: ids, idx: ki, band: SigmaLayout.ban_band(row, dashboard['zone_tree']) }
   end
 
   separators.each_with_index do |z, si|
@@ -1606,11 +1685,27 @@ def build_page_synthesized(dashboard, page, opts, structure)
     when :kpi
       span = r1 - r0
       cid = "#{prefix}-kpi-#{u[:idx] + 1}"
-      extra_els << container_el(cid)
       nk = u[:ids].length
+      band_style = nil
+      if u[:band]
+        # C6: borderless sibling BANs in one source container -> ONE flat band
+        # carrying the source container's fill (none -> no tint), equal spans.
+        band_style = { 'padding' => 'none', 'borderRadius' => 'square' }
+        band_style['backgroundColor'] = u[:band][:fill] if u[:band][:fill]
+      end
+      extra_els << container_el(cid, band_style)
+      band_spans = SigmaLayout.equal_spans(nk, 24) if u[:band]
+      u[:ids].each { |eid| (opts[:page_ban_patches] ||= {})[eid] = SigmaLayout.ban_kpi_patch } if u[:band]
+      ic_start = 1
       inner = u[:ids].each_with_index.map do |eid, j|
-        ic0 = 1 + (24 * j / nk.to_f).round
-        ic1 = j == nk - 1 ? 25 : [1 + (24 * (j + 1) / nk.to_f).round, ic0 + 1].max
+        if band_spans
+          ic0 = ic_start
+          ic1 = ic0 + band_spans[j]
+          ic_start = ic1
+        else
+          ic0 = 1 + (24 * j / nk.to_f).round
+          ic1 = j == nk - 1 ? 25 : [1 + (24 * (j + 1) / nk.to_f).round, ic0 + 1].max
+        end
         le(eid, ic0, ic1, 1, 1 + span) # KPI-sliver rule: inner span == container span
       end.join("\n")
       children << gc(cid, c0, c1, r0, r1, inner)
@@ -1634,8 +1729,25 @@ def build_page_synthesized(dashboard, page, opts, structure)
       entries << [(z['y_pct'] || 0).to_f, z['id'].to_s, eid, 3] if eid
     end
     rail[:texts].each do |z|
-      el = els_by_id["text-#{z['id']}"]
+      el = zone_el(els_by_id, 'text', z['id'])
       entries << [(z['y_pct'] || 0).to_f, z['id'].to_s, el['id'], 2] if el
+    end
+    # A legend control whose source legend zone lies inside the rail's x-range stacks into the
+    # rail at its source y, entries + LEGEND_RAIL_ROW_PAD rows tall (title row plus the trailing
+    # "Others" entry Sigma appends; live-measured: 4 colours need 8 rows, 7 clips the last entry).
+    # One that cannot fit the rail's rows stays out, and place_legend_controls (beside its chart,
+    # else prune + chart legend restore) handles it. Never a control band.
+    rail_avail = [content_bottom, page_rows + 1].max - (1 + hdr_rows)
+    stacked = entries.sum { |_, _, _, h| h }
+    zones.select { |z| z['kind'].to_s == 'legend' }.each do |z|
+      cx = (z['x_pct'] || 0).to_f + (z['w_pct'] || 0).to_f / 2.0
+      next unless cx >= rail[:x0] - 2 && cx <= rail[:x1] + 2
+      el = zone_el(els_by_id, 'legend', z['id'])
+      next unless el && legend_control?(el) && !placed.include?(el['id'])
+      h = [legend_entry_count(el) + LEGEND_RAIL_ROW_PAD, LEGEND_RAIL_MIN_ROWS].max
+      next if stacked + h > rail_avail
+      stacked += h
+      entries << [(z['y_pct'] || 0).to_f, z['id'].to_s, el['id'], h]
     end
     entries = entries.sort_by { |y, zid, _, _| [y, zid] }
                      .reject { |_, _, eid, _| placed.include?(eid) }
@@ -1676,6 +1788,173 @@ def build_page_synthesized(dashboard, page, opts, structure)
 
   n_ctls = band_ctls.length + rail_ctl_ids.length
   [page_xml(page['id'], *children), extra_els, placed_count, units.length, n_ctls, census, minexp]
+end
+
+# ---- Plan C16 (verdict map-title-overlay): map title above the map ----------
+# A Sigma map draws its own title as an overlay box ON the canvas; Tableau shows
+# the worksheet title as a band above the map. For each map zone whose source
+# shows its title, the map's cell becomes a grid Container holding a heading
+# text (rows 1-2, a 20px element-title-size span) over the map (rows 3-end); the map's own title is hidden via a
+# name patch (name {visibility:hidden, text}) that put-layout applies from the
+# layout sidecar. Runs on the FINAL page XML so the synthesized, container-tree
+# and banded paths all get it. Skips (title stays the overlay) when the source
+# hides the title, the title is dynamic, or the cell cannot host the band plus a
+# readable map (MAP_TITLE_BAND_ROWS + KIND_MIN_ROWS['chart']).
+MAP_TITLE_KINDS = %w[region-map point-map geography-map].freeze
+MAP_TITLE_BAND_ROWS = 2
+
+def wrap_map_titles(pxml, dashboard, page, opts, extra_els, patches)
+  els_by_name = page['elements'].each_with_object({}) { |e, h| n = el_display_name(e); h[n] = e if n }
+  augment_els_by_name!(els_by_name, page['elements'])
+  min_map_rows = SigmaLayout::KIND_MIN_ROWS['chart']
+  seen = {}
+  (dashboard['zones'] || []).each do |z|
+    next unless z['kind'] == 'chart' && z['caption'] && z['show_title'] != false
+    el = find_zone_el(els_by_name, z, opts[:renames])
+    next unless el && MAP_TITLE_KINDS.include?(el['kind']) && !seen[el['id']]
+    title = el_display_name(el).to_s.strip
+    next if title.empty? || title.include?('{{')
+    cell = /<Element elementId="#{Regexp.escape(el['id'])}" gridColumn="(\d+) \/ (\d+)" gridRow="(\d+) \/ (\d+)"\s*\/>/
+    m = cell.match(pxml)
+    next unless m
+    c0, c1, r0, r1 = m.captures.map(&:to_i)
+    inner_rows = r1 - r0
+    if inner_rows < MAP_TITLE_BAND_ROWS + min_map_rows
+      warn "WARN: map #{title.inspect} cell is #{inner_rows} rows — too short for a title band above the map; title stays on the map"
+      next
+    end
+    seen[el['id']] = true
+    box_id  = "mapbox-#{el['id']}"
+    text_id = "maptitle-#{el['id']}"
+    inner = [le(text_id, 1, 25, 1, 1 + MAP_TITLE_BAND_ROWS),
+             le(el['id'], 1, 25, 1 + MAP_TITLE_BAND_ROWS, 1 + inner_rows)].join("\n")
+    pxml = pxml.sub(cell) { gc(box_id, c0, c1, r0, r1, inner) }
+    extra_els << container_el(box_id, { 'backgroundColor' => 'transparent', 'padding' => 'none' })
+    extra_els << map_title_text_el(text_id, title)
+    patches[el['id']] = { 'name' => { 'visibility' => 'hidden', 'text' => title } }
+  end
+  pxml
+end
+
+# ---- Plan C14 (verdict legend-outside-chart): legend control beside its chart ----
+# A native legend control is placed in its own cell next to the chart it colours, never
+# in a control band. resolve_leaf already puts it in its source zone's cell on the tree
+# path; this post-pass covers every other case by splitting the chart's cell:
+#   * side: where the source legend zone sits relative to the chart zone (nearest edge,
+#     the same rule as the pre-C14 legend.position mapping);
+#   * share: the source legend zone's width (height for top/bottom) relative to
+#     chart + legend, clamped so the legend keeps >= LEGEND_MIN_COLS columns and the
+#     chart >= LEGEND_CHART_MIN_COLS (rows: 3 / KIND_MIN_ROWS['chart']).
+# When the cell cannot be split inside those clamps, the control is pruned (explicit
+# prune record, reason legend-no-room) and the chart's own legend is restored through
+# the per-element sidecar (put-layout applies the `legend` patch).
+LEGEND_MIN_COLS = 3
+LEGEND_CHART_MIN_COLS = 12
+LEGEND_MIN_ROWS = 3
+LEGEND_RAIL_MIN_ROWS = 4
+LEGEND_RAIL_ROW_PAD = 4
+
+def legend_side(chart_z, legend_z)
+  return 'right' unless chart_z && legend_z
+  cl = chart_z['x_pct'].to_f
+  cr = cl + chart_z['w_pct'].to_f
+  ct = chart_z['y_pct'].to_f
+  cb = ct + chart_z['h_pct'].to_f
+  lx = legend_z['x_pct'].to_f + legend_z['w_pct'].to_f / 2.0
+  ly = legend_z['y_pct'].to_f + legend_z['h_pct'].to_f / 2.0
+  { 'left' => (lx - cl).abs, 'right' => (lx - cr).abs, 'top' => (ly - ct).abs, 'bottom' => (ly - cb).abs }
+    .min_by { |_, v| v }.first
+end
+
+def place_legend_controls(pxml, dashboard, page, opts)
+  refd = pxml.scan(/elementId="([^"]+)"/).flatten
+  legends = page['elements'].select { |e| legend_control?(e) && e['id'] && !refd.include?(e['id']) }
+  return pxml if legends.empty?
+  els_by_id = page['elements'].each_with_object({}) { |e, h| h[e['id']] = e if e['id'] }
+  els_by_name = page['elements'].each_with_object({}) { |e, h| n = el_display_name(e); h[n] = e if n }
+  augment_els_by_name!(els_by_name, page['elements'])
+  zone_by_id = (dashboard['zones'] || []).each_with_object({}) { |z, h| h[z['id']] = z if z['id'] }
+  patches = (opts[:ban_patches] ||= {})
+  legends.each do |ctl|
+    # the control targets the chart's source (master) column, so the chart is found through the
+    # provenance sidecar; a control that targets a chart element directly still resolves
+    chart_id = PROV_BY_ID.find { |_, v| v.is_a?(Hash) && v['legend_control_id'] == ctl['id'] }&.first
+    chart_id ||= ctl.dig('targets', 0, 'source', 'elementId')
+    chart = els_by_id[chart_id]
+    next unless chart
+    lz = zone_by_id[zone_id_for_el(ctl['id'], 'legend', zone_by_id)]
+    cz = (dashboard['zones'] || []).find { |z| z['kind'] == 'chart' && z['caption'] && find_zone_el(els_by_name, z, opts[:renames]).equal?(chart) }
+    side = legend_side(cz, lz)
+    cell = /<Element elementId="#{Regexp.escape(chart['id'])}" gridColumn="(\d+) \/ (\d+)" gridRow="(\d+) \/ (\d+)"\s*\/>/
+    m = cell.match(pxml)
+    horizontal = %w[left right].include?(side)
+    split = nil
+    if m
+      c0, c1, r0, r1 = m.captures.map(&:to_i)
+      total = horizontal ? c1 - c0 : r1 - r0
+      # A legend control is never given a cell shorter than its entries + LEGEND_RAIL_ROW_PAD rows
+      # (title row + the trailing "Others" entry, live-measured); else the chart keeps its legend.
+      need_rows = legend_entry_count(ctl) + LEGEND_RAIL_ROW_PAD
+      lmin = horizontal ? LEGEND_MIN_COLS : [LEGEND_MIN_ROWS, need_rows].max
+      cmin = horizontal ? LEGEND_CHART_MIN_COLS : SigmaLayout::KIND_MIN_ROWS['chart']
+      lw = lz && (horizontal ? lz['w_pct'] : lz['h_pct']).to_f
+      cw = cz && (horizontal ? cz['w_pct'] : cz['h_pct']).to_f
+      share = lw && cw && (lw + cw).positive? ? lw / (lw + cw) : 0.2
+      n = (total * share).round
+      n = [n, lmin].max
+      n = [n, total - cmin].min
+      split = n if n >= lmin && total - n >= cmin && (!horizontal || r1 - r0 >= need_rows)
+    end
+    if split
+      lg = ->(a0, a1, b0, b1) { le(ctl['id'], a0, a1, b0, b1) }
+      case side
+      when 'right'  then repl = [le(chart['id'], c0, c1 - split, r0, r1), lg.call(c1 - split, c1, r0, r1)]
+      when 'left'   then repl = [lg.call(c0, c0 + split, r0, r1), le(chart['id'], c0 + split, c1, r0, r1)]
+      when 'bottom' then repl = [le(chart['id'], c0, c1, r0, r1 - split), lg.call(c0, c1, r1 - split, r1)]
+      else               repl = [lg.call(c0, c1, r0, r0 + split), le(chart['id'], c0, c1, r0 + split, r1)]
+      end
+      pxml = pxml.sub(cell) { repl.join("\n") }
+    else
+      warn "WARN: legend control #{ctl['id']} has no room beside its chart #{chart['id']} (cell too narrow/short to split) — " \
+           'control dropped, chart keeps its own legend'
+      fb = PROV_BY_ID.dig(chart['id'], 'legend_fallback') || { 'position' => side }
+      patches[chart['id']] = (patches[chart['id']] || {}).merge('legend' => fb)
+      opts[:pruned_elements] << { 'element_id' => ctl['id'], 'page_id' => page['id'], 'reason' => 'legend-no-room',
+                                  'dashboard' => dashboard['dashboard'], 'zone_id' => lz ? lz['id'].to_s : '' }
+    end
+  end
+  pxml
+end
+
+# ---- Plan C15 (verdict grid-gutters): flush tiles ---------------------------
+# When the source dashboard is tiled flush (ThemeDerive.flush_tiles?: every
+# chart tile declares outer padding 0, no inner padding) the page's tiles sit
+# inside ONE full-width grid container {spacing small, elementGap hidden,
+# style {padding none}} so they butt together (tiles placed directly on the page
+# grid always keep Sigma's default gap). Runs on the FINAL page XML, after the
+# C16 map wrapper, so every layout path is covered and the C6 band / C7 header /
+# C14 / C16 containers nest inside unchanged (children keep their rows: the
+# container starts at page row 1). Never carries borderWidth/borderColor (the
+# schema forbids them with padding none). The matching theme.overrides.space is
+# emitted by ThemeDerive.derive.
+FLUSH_SPAN_RE = /\A(\d+) \/ (\d+)\z/
+
+def wrap_flush_tiles(pxml, dashboard, page, extra_els)
+  return pxml unless ThemeDerive.flush_tiles?(dashboard)
+  doc = REXML::Document.new(pxml)
+  root = doc.root
+  max_row = root.elements.to_a('*').map do |e|
+    m = FLUSH_SPAN_RE.match(e.attributes['gridRow'].to_s)
+    m ? m[2].to_i : 0
+  end.max.to_i
+  return pxml if max_row < 2
+  lines = pxml.split("\n")
+  return pxml unless lines.first.start_with?('<Page') && lines.last.strip == '</Page>'
+  box_id = "flush-#{page['id']}"
+  inner = lines[1...-1].join("\n")
+  box = gc(box_id, 1, SigmaLayout::GRID_COLS + 1, 1, max_row, inner)
+  extra_els << container_el(box_id, { 'padding' => 'none' }).merge('spacing' => 'small', 'elementGap' => 'hidden')
+  [lines.first, box, lines.last].join("\n")
 end
 
 # Build one container-banded page for a single dashboard. Returns
@@ -1727,7 +2006,7 @@ def build_page_for_dashboard(dashboard, page, opts)
   # source title.
   zone_by_id = (dashboard['zones'] || []).each_with_object({}) { |z, h| h[z['id']] = z if z['id'] }
   title_el = detect_header_title_el(page, zone_by_id)
-  ctl_els  = page['elements'].select { |e| e['kind'] == 'control' }
+  ctl_els  = page['elements'].select { |e| e['kind'] == 'control' && !legend_control?(e) }
 
   # Per-dashboard copy of the band tuning — auto-fit must not leak between
   # dashboards (bead ptrt: the old script used dash_layout.first only).
@@ -1979,7 +2258,7 @@ dash_layout.each do |d|
   o[:no_synthetic_title] = true if d['show_dashboard_title'] == false
   canvas_rows = nil
   if cpx.is_a?(Hash) && cpx['sizing_mode'] == 'fixed' && cpx['h'].to_i >= 400
-    canvas_rows = [[(cpx['h'].to_f / SigmaLayout::SIGMA_ROW_PX).round, 24].max, 400].min
+    canvas_rows = [[SigmaLayout.aspect_page_rows(cpx), 24].max, 400].min
   end
   # An explicit --page-rows OR --row-scale is an operator override of the row
   # model — the px derivation would silently neutralize it (review-caught:
@@ -2006,11 +2285,13 @@ dash_layout.each do |d|
                       Array(d['zone_tree']).any? && Array(d['zone_tree']).none? { |n| n['kind'] == 'container' }
   use_tree  = !o[:no_containers] &&
               (tree_has_controls?(d['zone_tree']) || tree_has_styled_containers?(d['zone_tree']) ||
-               flat_fixed_source)
+               tree_has_legend_control?(d['zone_tree'], page) || flat_fixed_source)
   result = nil
   if use_synth
     begin
+      o[:page_ban_patches] = {}
       result = build_page_synthesized(d, page, o, structure)
+      (opts[:ban_patches] ||= {}).merge!(o[:page_ban_patches])
       warn "synthesized layout: #{d['dashboard'].inspect} → " \
            "#{structure[:kpi_rows].length} KPI row(s), " \
            "#{structure[:sidebar] ? "#{structure[:sidebar][:side]} sidebar rail" : 'no sidebar'}, " \
@@ -2029,6 +2310,9 @@ dash_layout.each do |d|
   end
   result ||= build_page_for_dashboard(d, page, o)
   pxml, extra_els, n_charts, n_bands, n_ctls, census, n_minexp = result
+  pxml = place_legend_controls(pxml, d, page, opts)
+  pxml = wrap_map_titles(pxml, d, page, o, extra_els, (opts[:ban_patches] ||= {}))
+  pxml = wrap_flush_tiles(pxml, d, page, extra_els)
   if d['source_locale']
     extra_els.each do |element|
       next unless element['kind'] == 'container'
@@ -2104,7 +2388,7 @@ prune_records = opts[:pruned_elements].sort_by do |record|
 end
 prune_ids = prune_records.map { |record| record['element_id'] }
 invalid_pruned = prune_records.reject do |record|
-  record['reason'] == 'manual-composite' && !record['element_id'].to_s.empty? &&
+  %w[manual-composite legend-no-room].include?(record['reason']) && !record['element_id'].to_s.empty? &&
     declared_ids.count(record['element_id']) == 1 && !layout_ids.include?(record['element_id'])
 end
 duplicate_pruned = prune_ids.tally.select { |_, count| count > 1 }.keys
@@ -2137,6 +2421,9 @@ end
 
 File.write(opts[:out], layout_out)
 File.write("#{opts[:out]}.elements.json", JSON.pretty_generate(sidecar))
+# Plan C6: element restyles for KPIs the layout really banded (put-layout applies them).
+# Per-element patches: KPI band style, map title name (C16). File name kept for compatibility.
+File.write("#{opts[:out]}.kpi-band-style.json", JSON.pretty_generate(opts[:ban_patches] || {}))
 prune_path = "#{opts[:out]}.prune-elements.json"
 File.write(prune_path, JSON.pretty_generate({
   'version' => 1,

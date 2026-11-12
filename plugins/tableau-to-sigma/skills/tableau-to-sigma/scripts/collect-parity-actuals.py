@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlencode
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
@@ -210,7 +211,10 @@ def poll_download(
 
 
 def parse_json_rows(body: bytes) -> list[dict]:
-    text = body.decode("utf-8-sig", errors="replace").strip()
+    try:
+        text = body.decode("utf-8-sig").strip()
+    except UnicodeError as exc:
+        raise CollectionError("JSON export is not valid UTF-8") from exc
     if not text:
         return []
     try:
@@ -224,17 +228,18 @@ def parse_json_rows(body: bytes) -> list[dict]:
                 item = json.loads(line)
             except ValueError as exc:
                 raise CollectionError("JSON export returned malformed JSON/NDJSON") from exc
-            if isinstance(item, dict):
-                rows.append(item)
-        return rows
-    if isinstance(parsed, list):
-        return [item for item in parsed if isinstance(item, dict)]
-    if isinstance(parsed, dict):
-        wrapped = parsed.get("rows", parsed.get("data"))
-        if isinstance(wrapped, list):
-            return [item for item in wrapped if isinstance(item, dict)]
-        return [parsed]
-    raise CollectionError("JSON export did not contain row objects")
+            rows.append(item)
+    else:
+        if isinstance(parsed, list):
+            rows = parsed
+        elif isinstance(parsed, dict):
+            wrapped = parsed.get("rows", parsed.get("data"))
+            rows = wrapped if isinstance(wrapped, list) else [parsed]
+        else:
+            raise CollectionError("JSON export did not contain row objects")
+    if not all(isinstance(row, dict) for row in rows):
+        raise CollectionError("JSON export contains non-row members; refusing partial actuals")
+    return rows
 
 
 def export_all_pages(
@@ -261,11 +266,10 @@ def export_all_pages(
             poll_interval=poll_interval,
         )
         if fmt == "json":
-            objects = parse_json_rows(body)
-            page_headers = list(objects[0].keys()) if objects else (headers or [])
-            page_rows = [
-                [item.get(header) for header in page_headers] for item in objects
-            ]
+            page_rows = parse_json_rows(body)
+            # Keep objects until every page is read: omitted null keys can first
+            # appear on any row, including a later pagination chunk.
+            headers = list(dict.fromkeys((headers or []) + [key for row in page_rows for key in row]))
         else:
             try:
                 parsed = list(csv.reader(io.StringIO(body.decode("utf-8-sig"))))
@@ -274,14 +278,14 @@ def export_all_pages(
             page_headers = parsed[0] if parsed else []
             page_rows = parsed[1:] if parsed else []
 
-        if headers is None:
-            if not page_headers:
-                raise CollectionError("export returned no header")
-            headers = [str(header).strip() for header in page_headers]
-        elif [str(header).strip() for header in page_headers] != headers:
-            raise CollectionError("export headers changed between pagination chunks")
-        if any(len(row) != len(headers) for row in page_rows):
-            raise CollectionError("export returned ragged rows")
+            if headers is None:
+                if not page_headers:
+                    raise CollectionError("export returned no header")
+                headers = [str(header).strip() for header in page_headers]
+            elif [str(header).strip() for header in page_headers] != headers:
+                raise CollectionError("export headers changed between pagination chunks")
+            if any(len(row) != len(headers) for row in page_rows):
+                raise CollectionError("export returned ragged rows")
 
         all_rows.extend(page_rows)
         if max_rows is not None and len(all_rows) > max_rows:
@@ -289,6 +293,13 @@ def export_all_pages(
                 f"element exceeds --max-rows {max_rows}; refusing partial actuals"
             )
         if len(page_rows) < page_size:
+            if fmt == "json":
+                if not headers:
+                    raise CollectionError("export returned no header")
+                normalized = [header.strip() for header in headers]
+                if len(set(header.casefold() for header in normalized)) != len(normalized):
+                    raise CollectionError("JSON export has ambiguous column labels")
+                return normalized, [[row.get(header) for header in headers] for row in all_rows]
             return headers, all_rows
         # Sigma documents the next 1-based row after a full chunk (for example,
         # rowLimit=2500 -> offset=2501). The first chunk is the special offset 0.
@@ -369,6 +380,7 @@ def collect_chart(
         )
     except RestError as exc:
         if fmt == "csv" and 500 <= exc.status < 600:
+            fmt = "json"
             headers, rows = export_all_pages(
                 workbook_id,
                 element_id,
@@ -380,6 +392,34 @@ def collect_chart(
             )
         else:
             raise
+    missing = [name for name in wanted if name.casefold() not in {header.casefold() for header in headers}]
+    if fmt == "json" and missing:
+        if len(missing) == len(wanted):
+            raise CollectionError("JSON export has no identifiable requested column")
+        # Local plan labels do not prove an omitted key is a real null column.
+        # Require a unique label in the independent live element inventory.
+        labels = []
+        path = f"/v2/workbooks/{workbook_id}/columns"
+        page_path = path
+        seen_tokens = set()
+        while True:
+            deadline.check("live column inventory")
+            inventory = _json_response(_request_with_retry("get", page_path, deadline=deadline), "live column inventory")
+            entries = inventory.get("entries")
+            if not isinstance(entries, list) or not all(isinstance(column, dict) for column in entries):
+                raise CollectionError("live column inventory did not contain column entries")
+            labels.extend(str(column.get("label") or "").strip().casefold() for column in entries if column.get("elementId") == element_id)
+            token = inventory.get("nextPageToken")
+            if not token:
+                break
+            if not isinstance(token, str) or token in seen_tokens:
+                raise CollectionError("live column inventory returned invalid pagination")
+            seen_tokens.add(token)
+            page_path = path + "?" + urlencode({"pageToken": token})
+        if any(labels.count(name.casefold()) != 1 for name in missing):
+            raise CollectionError("JSON export is missing a planned column without unique live schema evidence")
+        headers = headers + missing
+        rows = [row + [None] * len(missing) for row in rows]
     actual = map_columns(headers, rows, wanted)
     if not actual:
         raise CollectionError(
@@ -432,7 +472,7 @@ def validate_live_document_version(
             "workbook readback has no latestDocumentVersion/latestVersion; "
             "freshness cannot be proven"
         )
-    path = f"/v2/workbooks/{workbook_id}/spec"
+    path = code_rep.read_path(workbook_id)
     response = _request_with_retry("get", path, deadline=deadline)
     live = _json_response(response, "live workbook spec")
     live_version = document_version(live)

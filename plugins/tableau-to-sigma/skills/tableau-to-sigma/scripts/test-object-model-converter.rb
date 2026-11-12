@@ -389,6 +389,26 @@ FIXTURES = {
     tables: %w[DIM_SITES FACT_VISITS ENTITLEMENTS],
     rels: [['DIM_SITES', 'FACT_VISITS', [%w[SITE_KEY SITE_KEY]], :first],
            ['DIM_SITES', 'ENTITLEMENTS', [%w[SITE_KEY SITE_KEY]], :first]])) },
+  'planned-multi-fact-hub' => {
+    xml: wb(noodle_ds(
+      tables: %w[DIM_SITES FACT_VISITS ENTITLEMENTS],
+      rels: [['DIM_SITES', 'FACT_VISITS', [%w[SITE_KEY SITE_KEY]]],
+             ['DIM_SITES', 'ENTITLEMENTS', [%w[SITE_KEY SITE_KEY]]]]
+    )),
+    opts: {
+      'modelPlan' => {
+        'datasources' => [{
+          'datasource' => 'federated.1noodle',
+          'caption' => 'Visits Model',
+          'primary_fact' => 'FACT_VISITS',
+          'relationships' => [
+            { 'first' => 'DIM_SITES', 'second' => 'FACT_VISITS', 'carrier' => 'FACT_VISITS', 'target' => 'DIM_SITES' },
+            { 'first' => 'DIM_SITES', 'second' => 'ENTITLEMENTS', 'carrier' => 'ENTITLEMENTS', 'target' => 'DIM_SITES' }
+          ]
+        }]
+      }
+    }
+  },
   'c-nokeys' => { xml: wb(noodle_ds(
     tables: %w[FACT_VISITS DIM_DATES DIM_SITES],
     rels: [['FACT_VISITS', 'DIM_DATES', []], ['FACT_VISITS', 'DIM_SITES', []]])) },
@@ -488,6 +508,7 @@ DRIVER = <<~JS
           target: byId[r.targetElementId] ? nameOf(byId[r.targetElementId]) : ('<missing ' + r.targetElementId + '>'),
           keys: r.keys || [],
           derivedVia: r.derivedVia || null,
+          plannedBy: r.plannedBy || null,
           partial: r.partial === true,
           droppedConditions: r.droppedConditions || 0
         }))
@@ -554,6 +575,16 @@ check(hub_children.map { |e| [e['name'], rels_of.call(e)] }.sort ==
         [['ENTITLEMENTS', ['DIM_SITES']], ['FACT_VISITS', ['DIM_SITES']]],
       "database-backed unique hint orients both children many→one into DIM_SITES " \
       "(got #{hub_children.map { |e| [e['name'], rels_of.call(e)] }.inspect})", fails)
+planned = results['planned-multi-fact-hub']
+planned_hub = planned['elements'].find { |e| e['name'] == 'DIM_SITES' && e['kind'] != 'sql' }
+planned_children = planned['elements'].select { |e| %w[FACT_VISITS ENTITLEMENTS].include?(e['name']) && e['kind'] != 'sql' }
+check(planned['warnings'].any? { |w| w =~ /FACT_VISITS.*accepted target-model plan/i },
+      'accepted target-model plan selects the transactional primary fact', fails)
+check(planned_hub && rels_of.call(planned_hub).empty? &&
+      planned_children.all? { |e| rels_of.call(e) == ['DIM_SITES'] },
+      'accepted plan orients every child fact many→one into the shared hub', fails)
+check(planned_children.flat_map { |e| e['relationships'] }.all? { |r| r['plannedBy'] == 'target-model-plan' },
+      'plan-directed relationships retain target-model provenance', fails)
 
 puts 'Part 2 — helper ownership guards: no wrong-FROM SQL, off-fact groupings refuse loud'
 e = results['e-worst']

@@ -251,7 +251,10 @@ def discover(args: argparse.Namespace) -> dict:
     def fetch_csv(view):
         view_id = view["id"]
         body = timings.run(
-            f"view-csv:{view_id}", lambda: tableau.view_data(view_id)
+            # maxAge=1 (view_data_filtered): bypass Tableau's view-data cache so
+            # the capture reflects the source now (lib/source_drift.rb).
+            f"view-csv:{view_id}",
+            lambda: (getattr(tableau, "view_data_filtered", None) or tableau.view_data)(view_id)
         )
         atomic_write(out / "views" / f"{view_id}.csv", body)
 

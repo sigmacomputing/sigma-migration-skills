@@ -10,7 +10,7 @@
 #   p0.0%        → ,.1%          (Tableau percent shorthand)
 #   #,##0.0%     → ,.1%          (Excel-style percent mask)
 #   $#,##0.00    → $,.2f + currencySymbol '$'   (€/£ carried as the symbol)
-#   C1033        → $,.0f + currencySymbol '$'   (Tableau locale-currency code)
+#   C1033        → $,.2f + currencySymbol '$'   (Currency Standard)
 #   #,##0        → ,.0f
 #   pos;(neg)    → leading '(' d3 sign modifier (parens-on-negative)
 #   pos;;;"—"    → displayNullAs '—' (4th segment, QUOTED literal only —
@@ -68,11 +68,13 @@ module FormatMap
     if (m = p.match(/\A[n]?p\d*(?:\.(\d+))?%\z/i))
       return { 'kind' => 'number', 'formatString' => "#{prefix},.#{m[1].to_s.length}%" }
     end
-    # Tableau locale-currency code — C<locale>[.<decimals>] (C1033 = $#,##0)
+    # Currency Standard preserves two decimals unless the source supplies a mask.
     if (m = p.match(/\AC\d+(?:\.(\d+))?%?\z/))
-      return { 'kind' => 'number', 'formatString' => "#{prefix}$,.#{m[1].to_s.length}f",
+      precision = m[1] ? m[1].length : 2
+      return { 'kind' => 'number', 'formatString' => "#{prefix}$,.#{precision}f",
                'currencySymbol' => '$' }
     end
+    return { 'kind' => 'number', 'formatString' => "#{prefix},.2~f" } if p.match?(/\AN\d*\z/)
     # Currency — leading $/€/£, optionally c"$"-quoted ('c' = Tableau currency class)
     if (m = p.match(/\A[nc]?["\\']*([$€£])/))
       sym = m[1]
@@ -204,9 +206,11 @@ module FormatMap
         # match the column by the format-key's internal id OR the caption it
         # resolves to through columns_by_guid.
         names = [fname, id2cap[fname.to_s]].compact
-        col = cols.find { |c| names.any? { |nm| keys_match?(c['name'], nm) } }
+        matches = cols.select { |c| names.any? { |nm| keys_match?(c['name'], nm) } }
+        col = matches.size == 1 ? matches.first : nil
         emitted = col && col['format']
-        status = translate(raw) && emitted ? 'mapped' : 'unmapped'
+        translated = translate(raw)
+        status = translated && emitted.is_a?(Hash) && translated.all? { |key, value| emitted[key] == value } ? 'mapped' : 'unmapped'
         recs << { 'element_id' => el['id'], 'worksheet' => el['_worksheet'],
                   'dashboard' => el['_dashboard'], 'field' => fname,
                   'source_format' => raw, 'emitted_format' => emitted,
@@ -223,11 +227,11 @@ module FormatMap
     parts.length >= 3 ? parts[1].to_s : inner
   end
 
-  # Same fuzzy match pick_tableau_format uses (normalized equality/containment).
+  # Substring matches can attribute one measure's format to a different field.
   def keys_match?(a, b)
     ka = norm_key(a)
     kb = norm_key(b)
-    !ka.empty? && !kb.empty? && (ka == kb || ka.include?(kb) || kb.include?(ka))
+    !ka.empty? && !kb.empty? && ka == kb
   end
 
   def norm_key(s)

@@ -282,11 +282,75 @@ check(mapel && mapel.dig('color', 'by') == 'scale' && col.call(mapel, mapel.dig(
       col.call(mapel, mapel.dig('color', 'column'))['formula'] == 'Sum([Master/Net Revenue])',
       'fill = the Color-shelf measure (Net Revenue) on a sequential scale, not the first CSV measure', fails)
 check(mapel && !mapel.key?('xAxis') && !mapel.key?('yAxis'), 'no x/y axes on a region-map', fails)
+check(mapel && mapel['legend'] == { 'visibility' => 'hidden' },
+      "R3: no source legend zone -> the region-map hides Sigma's default scale legend panel (got #{mapel && mapel['legend'].inspect})", fails)
+with_legend = run_pipeline(NO_SCATTER, csvs: CSVS.reject { |k, _| k == 'Customer Scatter' }, layout_edit: lambda do |doc|
+  doc.each do |dash|
+    next unless dash['zones'].any? { |z| z['caption'] == 'Revenue Map' && z['kind'] == 'chart' }
+    dash['zones'] << { 'id' => '99', 'kind' => 'legend', 'caption' => 'Revenue Map', 'x_pct' => 90.0, 'y_pct' => 70.0,
+                       'w_pct' => 10.0, 'h_pct' => 10.0 }
+  end
+end)
+wl_map = with_legend[:elements].find { |e| e['id'] == 'el-revenue-map' }
+check(wl_map && wl_map['kind'] == 'region-map' && !wl_map.key?('legend'),
+      "R3: a source legend zone for the map keeps today's behaviour (no legend key; got #{wl_map && wl_map['legend'].inspect})", fails)
 check(!all_json.downcase.include?('(generated)') && !all_json.include?('Latitude') && !all_json.include?('Longitude'),
       'the generated Latitude/Longitude are referenced nowhere', fails)
 check(flat[:log].lines.any? { |l| l.include?('generated geocode') && l.include?("'Revenue Map'") }, 'dropping the generated columns is disclosed', fails)
 check(((flat[:coverage] || {})['unresolved'] || []).none? { |u| u['visual'] == 'Revenue Map' && u['severity'] == 'degraded' },
       'coverage no longer calls the native region-map "degraded"', fails)
+check(mapel && !mapel.key?('mapStyle'), 'a map with no source basemap style leaves mapStyle unset (Sigma default)', fails)
+check(((flat[:coverage] || {})['unresolved'] || []).none? { |u| u['visual'] == 'Revenue Map' },
+      'a default-styled map (Tableau source, no style rule, no stepped ramp) carries everything: no approximated record', fails)
+# Styled map (the RCC / Stress 4 shape): light basemap, 25% washout, an 8-step
+# custom ramp. baseStyle is carried; washout and the step count are named
+# residuals keyed to their candidate catalog ids, so the tile stays approximated
+# until the platform-difference catalog ships those ids.
+styled_twb = FIXTURE_TEXT.sub(%r{(<worksheet name='Revenue Map'>.*?)<style />}m) do
+  "#{Regexp.last_match(1)}<style><style-rule element='mark'><encoding attr='color' " \
+    "field='[federated.sgap0001].[sum:NET_REVENUE:qk]' num-steps='8' type='custom-interpolated'>" \
+    "<color-palette custom='true' name='' type='ordered-sequential'><color>#eaf3ea</color><color>#2e7d32</color>" \
+    "</color-palette></encoding></style-rule><style-rule element='map'><format attr='washout' value='0.25' />" \
+    "<format attr='map-style' value='light' /></style-rule></style>"
+end
+check(styled_twb != FIXTURE_TEXT, 'fixture surgery: the styled Revenue Map variant was produced', fails)
+styled = run_pipeline(styled_twb, csvs: CSVS.reject { |k, _| k == 'Customer Scatter' })
+smap = styled[:elements].find { |e| e['id'] == 'el-revenue-map' }
+szone = (styled[:layout] || []).flat_map { |dsh| dsh['zones'] }.find { |z| z['caption'] == 'Revenue Map' && z['kind'] == 'chart' }
+check(szone && szone['map_style'] == { 'formats' => { 'washout' => '0.25', 'map-style' => 'light' },
+                                        'sources' => ['Tableau'], 'color_steps' => 8 },
+      "parse-twb-layout stamps the map styling signal (got #{szone && szone['map_style'].inspect})", fails)
+check(smap && !smap.key?('mapStyle'),
+      "Tableau map-style light is Sigma's default basemap: carried with no mapStyle key (got #{smap && smap['mapStyle'].inspect})", fails)
+dark_twb = styled_twb.sub("<format attr='map-style' value='light' />", "<format attr='map-style' value='dark' />")
+dmap = run_pipeline(dark_twb, csvs: CSVS.reject { |k, _| k == 'Customer Scatter' })[:elements].find { |e| e['id'] == 'el-revenue-map' }
+check(dmap && dmap['mapStyle'] == { 'baseStyle' => 'dark' },
+      "Tableau map-style dark -> Sigma mapStyle.baseStyle dark (got #{dmap && dmap['mapStyle'].inspect})", fails)
+# Whether the two residuals hold the tile at approximated depends on the
+# SHIPPED catalog (refs/sigma-platform-differences.json): catalogued → recorded
+# as platform differences (build log), never an approximation.
+shipped_ids = JSON.parse(File.read(File.join(DIR, '..', 'refs', 'sigma-platform-differences.json')))['entries'].map { |e| e['id'] }
+catalogued = %w[map-basemap-washout map-stepped-color-scale].all? { |id| shipped_ids.include?(id) }
+srec = ((styled[:coverage] || {})['unresolved'] || []).find { |u| u['visual'] == 'Revenue Map' }
+if catalogued
+  check(srec.nil?, "both residuals are catalogued platform differences: no approximated record (got #{srec.inspect})", fails)
+  check(styled[:log].include?("'Revenue Map' map styling — platform difference map-basemap-washout: basemap washout 25%") &&
+          styled[:log].include?("'Revenue Map' map styling — platform difference map-stepped-color-scale: stepped color (8 steps)"),
+        'the build log still names each catalogued residual with its catalog id', fails)
+else
+  check(srec && srec['severity'] == 'approximated' && srec['detail'].include?('basemap washout 25%') &&
+          srec['detail'].include?('stepped color (8 steps)') && !srec['detail'].include?('styling / background layers'),
+        "the approximated record names exactly what is not carried (got #{srec && srec['detail'].inspect})", fails)
+end
+# An uncatalogued residual (a basemap style with no Sigma twin) keeps the tile
+# approximated whatever the catalog ships.
+normal_twb = styled_twb.sub("<format attr='map-style' value='light' />", "<format attr='map-style' value='normal' />")
+nrec = ((run_pipeline(normal_twb, csvs: CSVS.reject { |k, _| k == 'Customer Scatter' })[:coverage] || {})['unresolved'] || [])
+       .find { |u| u['visual'] == 'Revenue Map' }
+check(nrec && nrec['severity'] == 'approximated' && nrec['detail'].include?("basemap style 'normal'"),
+      "an uncatalogued residual keeps the map approximated, named (got #{nrec && nrec['detail'].inspect})", fails)
+slint_out, slint_st = lint_elements([dmap].compact)
+check(slint_st.success?, "validate-spec accepts a region-map with mapStyle (#{slint_out.lines.grep(/ERROR/).first(2).inspect})", fails)
 nonus = run_pipeline(FIXTURE_TEXT, csvs: CSVS.merge('Revenue Map' => CSVS['Revenue Map'].sub('CA,', 'Ontario,').sub('CO,', 'Quebec,')))
 nm = nonus[:elements].find { |e| e['id'] == 'el-revenue-map' }
 check(nm && nm['kind'] == 'bar-chart' && !nm.key?('region') &&

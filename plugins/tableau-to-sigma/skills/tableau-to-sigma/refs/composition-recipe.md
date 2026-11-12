@@ -18,11 +18,12 @@ almost always for a report-style dashboard. Skip only for a bare single-table ex
 Signature of a page that needs it (catch on the Phase 5b render): every tile the same width
 stacked in one column; >40% of the page empty; the title invisible; source viz missing.
 
-## The composition recipe (verified to render on `/v2/workbooks/{id}/spec` PUT)
-> The workbook spec is `document`-wrapped, not flat: `schemaVersion`/`pages`/`kind`/
-> `layout`/`settings`/`agents` all nest under a top-level `document` key (confirmed live
-> 2026-08-03, including on `/verify` 2026-08-04). The theme is workbook content, so it
-> travels inside `document` too — at `document.settings.theme`, not the request root.
+## The composition recipe (verified to render on `PUT /v2/workbooks/{id}/contents`)
+> The workbook spec is wrapped, not flat: `schemaVersion`/`pages`/`kind`/
+> `layout`/`settings`/`agents` all nest under a top-level `contents` key on the wire
+> (`document` on the retired `/spec` endpoints and in on-disk artifacts; confirmed live
+> 2026-08-03, including on the dry run 2026-08-04). The theme is workbook content, so it
+> travels inside `contents` too — at `contents.settings.theme`, not the request root.
 > Data-model specs are unaffected and stay flat.
 
 1. **Workbook theme** — `document.settings.theme: {name: Light, overrides: {...}}`, with `overrides.borderRadius: round`,
@@ -93,7 +94,7 @@ Migrations commonly drop the interactive layer. Rebuild from the source's parame
   OpenAPI enum (says multiple-only) — keep it; scalar Switch compares break against multi-select.
 
 ## Spec/API gotchas (each avoids a wasted round-trip)
-- **`/spec` GET returns YAML; PUT takes JSON.**
+- **`GET /v2/workbooks/{id}?includeContents=true` returns JSON by default (send `Accept: application/yaml` for YAML); PUT takes JSON.**
 - **A rejected PUT is atomic** — nothing is written. Guard every write (assert `pages` exists; assert
   the prior layout string is unchanged when you only meant to touch formulas) so a bad token or field
   can never half-corrupt a workbook. A missing element is often a *silent earlier 400*, not a render bug.

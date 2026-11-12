@@ -11,6 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import workdir_guard  # noqa: E402
 import relationship_coverage  # noqa: E402
+import relationship_map  # noqa: E402
+import relationship_route  # noqa: E402
 
 
 def main() -> int:
@@ -21,6 +23,21 @@ def main() -> int:
     args = parser.parse_args()
     workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
+    # Reused-DM evidence route (persisted in migrate-state-python.json): the
+    # customer-built model is judged by relationship-map.json, not a count
+    # against the converter draft.
+    if relationship_route.current(workdir):
+        result = relationship_map.evaluate_workdir(workdir, final=True)
+        if result["status"] == "pass":
+            print(f"relationship coverage: PASS (reused-dm evidence) — {relationship_map.summary_line(result)} (all verified)")
+            return 0
+        print(f"RELATIONSHIP COVERAGE FAIL (reused-dm evidence): {len(result['blockers'])} blocker(s) in "
+              f"{workdir / 'relationship-map.json'}", file=sys.stderr)
+        for blocker in result["blockers"]:
+            print(f"  - {blocker['kind']}: {blocker['reason']}", file=sys.stderr)
+        print(f"  re-derive: python3 scripts/emit-relationship-map.py --workdir {workdir}; prove edges: "
+              f"python3 scripts/probe-relationship-map.py --workdir {workdir} --connection-id <id>", file=sys.stderr)
+        return 3
     metadata = (
         Path(args.metadata).expanduser().resolve()
         if args.metadata

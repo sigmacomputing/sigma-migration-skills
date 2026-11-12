@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "f3fc5d826dbed51282a79f82b7e3350c58a7beada6978f0732f78a14fdee1f65",
+    "dm_sha256": "4419ee89e5da3b3c46ca0cd006e93c73c6d925a22e387610c976ea847c76748d"
+  },
+  "tables": [
+    {
+      "table": "SALES.PUBLIC.ORDERS",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "orders"
+      ]
+    },
+    {
+      "table": "SALES.PUBLIC.DATE_DIM",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "sdate"
+      ]
+    },
+    {
+      "table": "HR.PUBLIC.HIRES",
+      "datasource": "HR",
+      "dm_element_ids": [
+        "hires"
+      ]
+    },
+    {
+      "table": "HR.PUBLIC.DATE_DIM",
+      "datasource": "HR",
+      "dm_element_ids": [
+        "hdate"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "orders->sdate",
+      "edge_sha": "0f2c3d3f98b4a3036985a4860a254570e81f5a48be8e7118a488aa100140bd7c",
+      "source_element": "orders",
+      "target_element": "sdate",
+      "source_table": "SALES.PUBLIC.ORDERS",
+      "target_table": "SALES.PUBLIC.DATE_DIM",
+      "keys": [
+        {
+          "source": "DATE_KEY",
+          "target": "DATE_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "hires->hdate",
+      "edge_sha": "a5dfb55fadc8f295b9a4246144265949eda82601de40fd05cc7abb19ae25aa3a",
+      "source_element": "hires",
+      "target_element": "hdate",
+      "source_table": "HR.PUBLIC.HIRES",
+      "target_table": "HR.PUBLIC.DATE_DIM",
+      "keys": [
+        {
+          "source": "DATE_KEY",
+          "target": "DATE_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "SALES.PUBLIC.ORDERS",
+      "right": "SALES.PUBLIC.DATE_DIM",
+      "tableau_keys": [
+        {
+          "left": "DATE_KEY",
+          "right": "DATE_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "orders->sdate"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "HR",
+      "left": "HR.PUBLIC.HIRES",
+      "right": "HR.PUBLIC.DATE_DIM",
+      "tableau_keys": [
+        {
+          "left": "DATE_KEY",
+          "right": "DATE_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "hires->hdate"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

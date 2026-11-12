@@ -1,0 +1,127 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "orders",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "ORDERS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "orders-order_id",
+              "formula": "[ORDERS/ORDER_ID]"
+            },
+            {
+              "id": "orders-customer_key",
+              "formula": "[ORDERS/CUSTOMER_KEY]"
+            },
+            {
+              "id": "orders-product_key",
+              "formula": "[ORDERS/PRODUCT_KEY]"
+            },
+            {
+              "id": "orders-amount",
+              "formula": "[ORDERS/AMOUNT]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-orders-0",
+              "targetElementId": "cust",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-customer_key",
+                  "targetColumnId": "cust-customer_key"
+                }
+              ]
+            },
+            {
+              "id": "rel-orders-1",
+              "targetElementId": "prod",
+              "keys": [
+                {
+                  "sourceColumnId": "orders-product_key",
+                  "targetColumnId": "prod-product_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "cust",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "DIM_CUSTOMER"
+            ]
+          },
+          "columns": [
+            {
+              "id": "cust-customer_key",
+              "formula": "[DIM_CUSTOMER/CUSTOMER_KEY]"
+            },
+            {
+              "id": "cust-customer_name",
+              "formula": "[DIM_CUSTOMER/CUSTOMER_NAME]"
+            }
+          ]
+        },
+        {
+          "id": "prod",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "DIM_PRODUCT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "prod-product_key",
+              "formula": "[DIM_PRODUCT/PRODUCT_KEY]"
+            },
+            {
+              "id": "prod-product_name",
+              "formula": "[DIM_PRODUCT/PRODUCT_NAME]"
+            },
+            {
+              "id": "prod-customer_key",
+              "formula": "[DIM_PRODUCT/CUSTOMER_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-prod-0",
+              "targetElementId": "cust",
+              "keys": [
+                {
+                  "sourceColumnId": "prod-customer_key",
+                  "targetColumnId": "cust-customer_key"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,19 @@ until the frozen extract itself is landed. Do NOT abort, and do NOT fabricate
 warehouse paths: land the extract. (This is the community/consultant-workbook
 norm — a 2026-07 live migration event was 10/10 extract-backed.)
 
+**Reusing an existing data model instead.** An explicit `--reuse-dm <id>`
+(Python `--data-model-id`) that this workdir did not post — the reused-DM
+evidence route in `refs/phase-3-datamodel.md` — satisfies the landing gate with
+no escape: the reused model already reads its own warehouse tables, so landed
+copies would never be read. Auto-landing and the extract re-download stand
+aside. `--db/--schema` (Ruby: or `--table-mapping`) stay required so parity and
+the relationship map resolve those tables; without them the exit-17 stop names
+what is missing. A landing manifest in the workdir still wins (EXACT parity). If
+the reuse is not taken after all (e.g. refused for missing required fields), the
+exit-17 stop fires before any fresh model is posted. A bare `--reuse-dm`
+(picker recommendation) or a fresh build keeps the stop. `--skip-extract-landing`
+remains the recorded escape (caps the verdict) for everything else.
+
 Preflight: `doctor.json` reports `hyperapi_present`. It is informational, not
 required — but extract-backed workbooks cannot land without it:
 

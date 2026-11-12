@@ -91,12 +91,19 @@ end
 puts 'T3 — read verified MID-WAIT → the same invocation continues'
 Dir.mktmpdir do |d|
   Wave1Fixture.build(d)
-  writer = Thread.new do
-    sleep 4 # let the run reach the gate and start waiting
-    Wave1Fixture.verified_png_read(d)
+  out = +''
+  st = nil
+  command = [RbConfig.ruby, Wave1Fixture::ORCH, *Wave1Fixture::BASE_ARGS, '--out', d, '--folder', 'fold-x', '--yes']
+  Open3.popen2e(Wave1Fixture.hermetic_env(d, png_wait: '90'), *command) do |input, output, waiter|
+    input.close
+    output.each_line do |line|
+      out << line
+      # Startup duration varies under parallel suites; wait for the gate,
+      # not an assumed wall-clock delay before it.
+      Wave1Fixture.verified_png_read(d) if line.include?('[WAIT] Phase 1d')
+    end
+    st = waiter.value
   end
-  out, st = Wave1Fixture.run(d, ['--folder', 'fold-x', '--yes'], {}, png_wait: '90')
-  writer.join
   check(st.exitstatus != 18, "no trip when the read lands mid-wait (got #{st.exitstatus})", fails)
   check(out.include?('dashboard-read verified MID-WAIT — continuing in-process'),
         'mid-wait pickup line printed (no re-invocation paid)', fails)

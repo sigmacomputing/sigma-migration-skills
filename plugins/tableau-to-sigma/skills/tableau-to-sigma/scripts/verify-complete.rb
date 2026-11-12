@@ -68,6 +68,8 @@ require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plu
 require_relative 'lib/offramp'
 require_relative 'lib/degradation_ledger'
 require_relative 'lib/relationship_coverage'
+require_relative 'lib/relationship_route'
+require_relative 'lib/relationship_map'
 require_relative 'lib/dashboard_coverage'
 require_relative 'lib/sql_provenance'
 
@@ -100,6 +102,10 @@ end.parse!(ARGV)
 abort 'FATAL: --workdir required' unless opts[:wd]
 
 wd       = opts[:wd]
+if File.exist?(File.join(wd, 'repair-pending.json')) || File.symlink?(File.join(wd, 'repair-pending.json'))
+  warn 'NOT DONE: a repair has an unverified write outcome; recover its evidence and reverify the live workbook.'
+  exit 12
+end
 require_relative 'lib/migration_diagnostics'
 MigrationDiagnostics.process(wd, kind: 'completion', operation: 'verify-complete.rb')
 pending  = File.join(wd, 'parity-pending.json')
@@ -195,7 +201,17 @@ coverage_path = File.join(wd, 'relationship-coverage.json')
 source_has_graph = File.file?(source_path) &&
                    File.read(source_path, encoding: 'bom|utf-8')
                        .match?(/<(?:[^<>\s]*\.true\.\.\.)?object-graph[\s>\/]/)
-if source_has_graph || File.file?(coverage_path)
+if RelationshipRoute.current(wd)
+  # Reused-DM evidence route: relationship-map.json, not relationship-coverage.json.
+  relationship_result = RelationshipMap.evaluate_workdir(wd, final: true)
+  unless relationship_result['status'] == 'pass'
+    warn '⛔ RELATIONSHIP COVERAGE INVALID (reused-dm evidence) — a deviation from the Tableau relationships is unproven.'
+    relationship_result['blockers'].each { |b| warn "   • #{b['kind']}: #{b['reason']}" }
+    warn "   Re-run emit-relationship-map.rb, probe the edges, and resolve every blocker in #{File.join(wd, 'relationship-map.json')}."
+    exit 8
+  end
+  puts "relationship coverage: PASS (reused-dm evidence) — #{RelationshipMap.summary_line(relationship_result)}"
+elsif source_has_graph || File.file?(coverage_path)
   begin
     relationship_model_path = [
       File.join(wd, 'dm-readback.json'),
@@ -246,12 +262,8 @@ end
 
 sql_provenance_path = File.join(wd, 'sql-provenance.json')
 if File.file?(sql_provenance_path)
-  sql_specs = %w[dm-spec.json dm-spec-reused.json].map { |name| File.join(wd, name) }
-  sql_spec_path = sql_specs.select { |path| File.file?(path) }.max_by do |path|
-    [File.mtime(path), File.basename(path) == 'dm-spec.json' ? 1 : 0]
-  end
-  sql_spec_path ||= File.join(wd, 'dm-raw.json')
   begin
+    sql_spec_path = SqlProvenance.active_spec_path(wd)
     expected_sql = SqlProvenance.evaluate(
       dm_spec_path: sql_spec_path,
       metadata_path: metadata_path,
@@ -265,7 +277,7 @@ if File.file?(sql_provenance_path)
            'or sql-provenance.json is stale.'
       exit 10
     end
-  rescue JSON::ParserError, SystemCallError, TypeError => e
+  rescue JSON::ParserError, SystemCallError, TypeError, ArgumentError => e
     warn "⛔ SQL PROVENANCE INVALID — #{e.message}"
     exit 10
   end
@@ -423,18 +435,34 @@ end
 # verdict_by) would otherwise slip past the label check, which only catches
 # the one-field strip.
 countersign_evidence = pf['visual_verdict'].to_s == 'pass' &&
-                       pf['visual_notes'].to_s.start_with?('VERIFIER:')
-unless countersign_evidence
-  _vr = begin
-    JSON.parse(File.read(File.join(wd, 'verification-result.json')))
-  rescue StandardError
-    nil
+                      pf['visual_notes'].to_s.start_with?('VERIFIER:')
+require_relative 'lib/factory_punchlist'
+_vr = FactoryPunchlist.read_verification(wd)
+countersign_evidence ||= _vr && !_vr['unreadable'] && _vr['verdict'] == 'GREEN'
+if _vr && _vr['verdict'] != 'GREEN'
+  contradictions << "verification-result.json records #{_vr['verdict']}; an earlier pass or empty degradation ledger cannot override it"
+end
+punchlist_path = File.join(wd, 'punchlist.json')
+if File.exist?(punchlist_path)
+  _pl = load(punchlist_path)
+  entries = _pl['items'].is_a?(Array) && _pl['items'].all? { |item| item.is_a?(Hash) } &&
+            _pl['items'].map { |item| item.reject { |key, _| key == 'reentry' } }
+  expected_punchlist = FactoryPunchlist.build(wd)
+  unless entries == deg_entries && _pl['ledger_verdict'] == derived_verdict && _pl['verification'] == _vr &&
+         _pl['completion_report'] == expected_punchlist['completion_report'] && _pl['verdict'] == expected_punchlist['verdict']
+    contradictions << 'punchlist.json is stale or unreadable relative to verification-result.json, migration-result.json or current degradations; rebuild the punch list'
   end
-  countersign_evidence = _vr.is_a?(Hash) && %w[GREEN YELLOW RED].include?(_vr['verdict'].to_s)
 end
 factory_green = derived_verdict == 'GREEN' && run_tier == 'S' &&
                 pf['verdict_by'].to_s == Offramp::VERDICT_BY_BUILDER
 expected_verdict = factory_green ? "GREEN#{Offramp::FACTORY_VERDICT_SUFFIX}" : derived_verdict
+# The RUN's verdict is the worse of that gate/ledger verdict and the migration
+# report's (lib/final_verdict.rb): census objects marked approximated /
+# needs-review / skipped are not ledger entries, so an empty ledger alone must
+# never print DONE … GREEN over a YELLOW report (2026-11-09 RCC regression).
+require_relative 'lib/final_verdict'
+report_verdict = FinalVerdict.report_level(result)
+final_verdict = FinalVerdict.combine(expected_verdict, report_verdict)
 
 # Internal census arithmetic: waiver_count must equal the census it counts.
 if pf.key?('waiver_count') && pf['waivers'].is_a?(Array) &&
@@ -452,7 +480,8 @@ end
 # basis is equally a lie.
 { 'phase6-success.json' => sj['verdict'], 'parity-final.json' => pf['verdict'] }.each do |src, claim|
   next if claim.to_s.empty?
-  next if claim.to_s == expected_verdict
+  # the gate mints the ledger verdict; finalize re-stamps the run verdict
+  next if claim.to_s == expected_verdict || claim.to_s == final_verdict
   contradictions << if factory_green && claim.to_s == derived_verdict
                       "#{src} claims the BARE string #{claim} but this is a Tier-S factory self-attested run — " \
                       "the labeled verdict #{expected_verdict.inspect} is mandatory (never launder the label off)"
@@ -500,8 +529,12 @@ if contradictions.any?
   exit 6
 end
 
-puts "✅ DONE — assert-phase6-ran.rb passed all gates for this run. VERDICT: #{expected_verdict}"
-if factory_green
+puts "✅ DONE — assert-phase6-ran.rb passed all gates for this run. VERDICT: #{final_verdict}"
+if final_verdict != expected_verdict
+  puts "   report   : #{FinalVerdict.report_reason(result)} — the gate ledger alone is #{expected_verdict};"
+  puts "              the run is #{final_verdict} (#{FinalVerdict::BASIS}). Name these objects in the report."
+end
+if factory_green && final_verdict == expected_verdict
   puts '   attested : builder-self-attested (Tier-S factory — the label above is part of the verdict'
   puts '              string; quote it verbatim. A verifier countersignature + gate re-run yields bare GREEN.)'
 elsif !pf['verdict_by'].to_s.empty?
@@ -513,7 +546,7 @@ puts "   run id   : #{sj['run_id']}" if sj['run_id']
 puts "   waivers  : #{sj['waivers'].join(', ')}" if sj['waivers'].is_a?(Array) && sj['waivers'].any?
 puts "   stamped  : #{sj['generatedAt']}"
 if deg_entries.empty?
-  puts '   ledger   : empty — no scope cuts, no waivers, no residuals (GREEN)'
+  puts "   ledger   : empty — no scope cuts, no waivers, no residuals#{final_verdict == 'GREEN' ? ' (GREEN)' : ''}"
 else
   puts "   ledger   : #{deg_entries.length} degradation(s) — GREEN requires an empty ledger:"
   DegradationLedger.report_lines(deg_entries).each { |l| puts "   #{l}" }

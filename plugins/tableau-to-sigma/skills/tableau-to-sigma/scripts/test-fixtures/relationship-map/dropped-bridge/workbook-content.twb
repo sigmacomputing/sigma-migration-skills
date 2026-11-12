@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='Chain' inline='true' name='federated.chain' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' dbname='ANALYTICS' schema='PUBLIC' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='SHIPMENTS' table='[PUBLIC].[SHIPMENTS]' type='table' />
+          <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+          <relation connection='conn.0' name='REGIONS' table='[PUBLIC].[REGIONS]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>SHIPMENT_ID</remote-name>
+            <local-name>[SHIPMENT_ID]</local-name>
+            <parent-name>[SHIPMENTS]</parent-name>
+            <object-id>[SHIPMENTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>ORDER_ID</remote-name>
+            <local-name>[ORDER_ID]</local-name>
+            <parent-name>[SHIPMENTS]</parent-name>
+            <object-id>[SHIPMENTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>WEIGHT</remote-name>
+            <local-name>[WEIGHT]</local-name>
+            <parent-name>[SHIPMENTS]</parent-name>
+            <object-id>[SHIPMENTS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>ORDER_ID</remote-name>
+            <local-name>[ORDER_ID (ORDERS)]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>REGION_KEY</remote-name>
+            <local-name>[REGION_KEY]</local-name>
+            <parent-name>[ORDERS]</parent-name>
+            <object-id>[ORDERS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>REGION_KEY</remote-name>
+            <local-name>[REGION_KEY (REGIONS)]</local-name>
+            <parent-name>[REGIONS]</parent-name>
+            <object-id>[REGIONS_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>REGION_NAME</remote-name>
+            <local-name>[REGION_NAME]</local-name>
+            <parent-name>[REGIONS]</parent-name>
+            <object-id>[REGIONS_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='SHIPMENTS' id='SHIPMENTS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='SHIPMENTS' table='[PUBLIC].[SHIPMENTS]' type='table' />
+            </properties>
+          </object>
+          <object caption='ORDERS' id='ORDERS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='ORDERS' table='[PUBLIC].[ORDERS]' type='table' />
+            </properties>
+          </object>
+          <object caption='REGIONS' id='REGIONS_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='REGIONS' table='[PUBLIC].[REGIONS]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[ORDER_ID]' /><expression op='[ORDER_ID (ORDERS)]' /></expression>
+            <first-end-point object-id='SHIPMENTS_OBJ' />
+            <second-end-point object-id='ORDERS_OBJ' />
+          </relationship>
+          <relationship>
+            <expression op='='><expression op='[REGION_KEY]' /><expression op='[REGION_KEY (REGIONS)]' /></expression>
+            <first-end-point object-id='ORDERS_OBJ' />
+            <second-end-point object-id='REGIONS_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Weight by Region'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.chain' />
+          </datasources>
+            <datasource-dependencies datasource='federated.chain'>
+              <column name='[REGION_NAME]' />
+              <column name='[WEIGHT]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Logistics'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Weight by Region' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

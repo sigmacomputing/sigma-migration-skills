@@ -1,0 +1,88 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2023.1.0' version='18.1'>
+  <datasources>
+    <datasource caption='HR' inline='true' name='federated.h' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='snowflake' name='conn.0'>
+            <connection class='snowflake' schema='HR' server='example.snowflakecomputing.com' />
+          </named-connection>
+        </named-connections>
+        <relation type='collection'>
+          <relation connection='conn.0' name='HIRES' table='[HR].[HIRES]' type='table' />
+          <relation connection='conn.0' name='DATE_DIM' table='[HR].[DATE_DIM]' type='table' />
+        </relation>
+        <metadata-records>
+          <metadata-record class='column'>
+            <remote-name>HIRE_ID</remote-name>
+            <local-name>[HIRE_ID]</local-name>
+            <parent-name>[HIRES]</parent-name>
+            <object-id>[HIRES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY]</local-name>
+            <parent-name>[HIRES]</parent-name>
+            <object-id>[HIRES_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>DATE_KEY</remote-name>
+            <local-name>[DATE_KEY (DATE_DIM)]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+          <metadata-record class='column'>
+            <remote-name>CAL_DATE</remote-name>
+            <local-name>[CAL_DATE]</local-name>
+            <parent-name>[DATE_DIM]</parent-name>
+            <object-id>[DATE_DIM_OBJ]</object-id>
+          </metadata-record>
+        </metadata-records>
+      </connection>
+      <object-graph>
+        <objects>
+          <object caption='HIRES' id='HIRES_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='HIRES' table='[HR].[HIRES]' type='table' />
+            </properties>
+          </object>
+          <object caption='DATE_DIM' id='DATE_DIM_OBJ'>
+            <properties context=''>
+              <relation connection='conn.0' name='DATE_DIM' table='[HR].[DATE_DIM]' type='table' />
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[DATE_KEY]' /><expression op='[DATE_KEY (DATE_DIM)]' /></expression>
+            <first-end-point object-id='HIRES_OBJ' />
+            <second-end-point object-id='DATE_DIM_OBJ' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Hires'>
+      <table>
+        <view>
+          <datasources>
+              <datasource name='federated.h' />
+          </datasources>
+            <datasource-dependencies datasource='federated.h'>
+              <column name='[HIRE_ID]' />
+            </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='HR'>
+      <zones>
+        <zone id='1'>
+          <zone id='2' name='Hires' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

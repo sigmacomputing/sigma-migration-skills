@@ -1,0 +1,109 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "flights",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "FLIGHTS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "flights-flight_id",
+              "formula": "[FLIGHTS/FLIGHT_ID]"
+            },
+            {
+              "id": "flights-origin_key",
+              "formula": "[FLIGHTS/ORIGIN_KEY]"
+            },
+            {
+              "id": "flights-dest_key",
+              "formula": "[FLIGHTS/DEST_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-flights-0",
+              "targetElementId": "origin",
+              "keys": [
+                {
+                  "sourceColumnId": "flights-origin_key",
+                  "targetColumnId": "origin-airport_key"
+                }
+              ]
+            },
+            {
+              "id": "rel-flights-1",
+              "targetElementId": "dest",
+              "keys": [
+                {
+                  "sourceColumnId": "flights-dest_key",
+                  "targetColumnId": "dest-airport_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "AIRPORTS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "origin-airport_key",
+              "formula": "[AIRPORTS/AIRPORT_KEY]"
+            },
+            {
+              "id": "origin-airport_name",
+              "formula": "[AIRPORTS/AIRPORT_NAME]"
+            }
+          ],
+          "name": "Origin Airport"
+        },
+        {
+          "id": "dest",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "PUBLIC",
+              "AIRPORTS"
+            ]
+          },
+          "columns": [
+            {
+              "id": "dest-airport_key",
+              "formula": "[AIRPORTS/AIRPORT_KEY]"
+            },
+            {
+              "id": "dest-airport_name",
+              "formula": "[AIRPORTS/AIRPORT_NAME]"
+            }
+          ],
+          "name": "Destination Airport"
+        }
+      ]
+    }
+  ]
+}

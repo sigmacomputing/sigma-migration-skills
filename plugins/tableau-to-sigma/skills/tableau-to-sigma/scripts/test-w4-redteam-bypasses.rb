@@ -142,7 +142,8 @@ Dir.mktmpdir do |d|
             'axis has no data ticks shown', 'blank chart background color wrong']
   all_ok = benign.all? do |delta|
     _o, _e, s = Open3.capture3('ruby', File.join(HERE, 'fidelity-loop.rb'), 'record',
-      '--workdir', d, '--dimension', 'palette', '--delta', delta, '--class', 'ui-only')
+      '--workdir', d, '--dimension', 'labels_legible', '--delta', delta, '--class', 'ui-only',
+      '--catalog-id', 'bar-label-outside-end')
     s.success?
   end
   ok(all_ok, '(E) benign cosmetic deltas that merely mention "data"/"blank" are ALLOWED (no false reject)')

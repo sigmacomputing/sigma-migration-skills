@@ -51,13 +51,13 @@ STUB = <<~'RUBY'
         return { 'pages' => [{ 'elements' => [{ 'id' => 'dm-el', 'name' => 'Orders',
                                                 'columns' => [{ 'name' => 'Net Revenue', 'formula' => '[T/Net Revenue]' }] }] }] }
       end
-      if method == :post && path == '/v2/workbooks/spec'
+      if method == :post && path == '/v2/workbooks'
         posted = JSON.parse(body)
-        # Workbook code-rep POSTs nest the spec under a top-level `document`
-        # key and flatten elements into document.elements (live since
-        # 2026-08). Keep the nested-page fallback for older payload fixtures.
-        raise Error, 'stub: probe POST body is not `document`-wrapped' unless posted.is_a?(Hash) && posted['document'].is_a?(Hash)
-        doc = posted['document']
+        # Workbook code-rep POSTs nest the spec under a top-level `contents`
+        # key and flatten elements into contents.elements. Keep the nested-page
+        # fallback for older payload fixtures.
+        raise Error, 'stub: probe POST body is not `contents`-wrapped' unless posted.is_a?(Hash) && posted['contents'].is_a?(Hash)
+        doc = posted['contents']
         elements = doc['elements'] || (doc['pages'] || []).flat_map { |p| p['elements'] || [] }
         test = elements.find { |e| e['id'] == 'el-scout-test' }
         File.write(ENV['STUB_STATE'], JSON.generate((test && test['columns']) || []))
@@ -95,7 +95,7 @@ end
 
 def counts(log)
   rs = read_log(log)
-  { post: rs.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks/spec' },
+  { post: rs.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks' },
     cols: rs.count { |r| r['m'] == 'get' && r['p'].end_with?('/columns') },
     del:  rs.count { |r| r['m'] == 'delete' } }
 end

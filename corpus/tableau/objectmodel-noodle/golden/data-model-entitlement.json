@@ -268,27 +268,33 @@
               },
               {
                 "id": "id0037",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Day]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Day]",
+                "hidden": true
               },
               {
                 "id": "id0038",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Month]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Month]",
+                "hidden": true
               },
               {
                 "id": "id0039",
-                "formula": "[FACT_VISITS/DIM_DATES/Date Year]"
+                "formula": "[FACT_VISITS/DIM_DATES/Date Year]",
+                "hidden": true
               },
               {
                 "id": "id0040",
-                "formula": "[FACT_VISITS/DIM_SITES/Site Name]"
+                "formula": "[FACT_VISITS/DIM_SITES/Site Name]",
+                "hidden": true
               },
               {
                 "id": "id0041",
-                "formula": "[FACT_VISITS/DIM_SITES/Site Region]"
+                "formula": "[FACT_VISITS/DIM_SITES/Site Region]",
+                "hidden": true
               },
               {
                 "id": "id0042",
-                "formula": "[FACT_VISITS/ENTITLEMENTS/User Email]"
+                "formula": "[FACT_VISITS/ENTITLEMENTS/User Email]",
+                "hidden": true
               }
             ],
             "order": [
@@ -307,6 +313,32 @@
               "id0040",
               "id0041",
               "id0042"
+            ],
+            "folders": [
+              {
+                "id": "id0043",
+                "name": "Dim Dates",
+                "items": [
+                  "id0037",
+                  "id0038",
+                  "id0039"
+                ]
+              },
+              {
+                "id": "id0044",
+                "name": "Dim Sites",
+                "items": [
+                  "id0040",
+                  "id0041"
+                ]
+              },
+              {
+                "id": "id0045",
+                "name": "Entitlements",
+                "items": [
+                  "id0042"
+                ]
+              }
             ]
           }
         ]

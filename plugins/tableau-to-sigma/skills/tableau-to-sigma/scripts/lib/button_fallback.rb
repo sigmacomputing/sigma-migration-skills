@@ -43,6 +43,47 @@ module ButtonFallback
     !%w[off 0 false].include?(env_value.to_s.strip.downcase)
   end
 
+  # A source fill at or above this relative luminance (0..1, Rec.601 weights)
+  # counts as "light": a Tableau tab drawn light-or-unfilled with a border is
+  # an unselected tab, which maps to Sigma's outline appearance.
+  LIGHT_FILL_LUMINANCE = 0.75
+
+  def luminance(hex)
+    h = hex.to_s.sub('#', '')
+    return nil unless h =~ /\A[0-9a-fA-F]{6}/
+    r, g, b = [0, 2, 4].map { |i| h[i, 2].to_i(16) }
+    (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+  end
+
+  # Native-button style fields for a Tableau nav-button zone (nav-button-style
+  # verdict: spec has no borderColor/borderWidth on buttons, so a border maps
+  # to appearance outline, where fillColor IS the border colour).
+  #   * current page's tab, no border, or a non-light fill -> filled (source
+  #     fill + font). A strong fill WITH a border keeps the fill; the border is
+  #     a catalog residual (returned in :residual).
+  #   * unselected tab with a border and a light/absent fill -> outline,
+  #     fillColor = source border colour, fontColor = source font colour.
+  # Returns { fields: {...}, residual: nil | String }. All colours are source facts.
+  def nav_style(zone, active:)
+    fill   = zone['button_fill_color'] || zone['fill_color']
+    border = zone['border_color'].to_s[0, 7]
+    border = nil unless border =~ /\A#[0-9a-fA-F]{6}\z/ && zone['border_width'].to_s != '0' &&
+                        zone['border_style'].to_s != 'none'
+    font   = zone['button_font_color']
+    luma   = fill && luminance(fill)
+    light  = fill.nil? || (luma && luma >= LIGHT_FILL_LUMINANCE)
+    if !active && border && light
+      f = { 'appearance' => 'outline', 'fillColor' => border }
+      f['fontColor'] = font if font
+      return { fields: f, residual: nil }
+    end
+    f = { 'appearance' => 'filled' }
+    f['fillColor'] = fill[0, 7] if fill
+    f['fontColor'] = font if font
+    residual = border && fill && !light ? "button zone #{zone['id']}: source border #{border} dropped (filled button cannot carry a separate border)" : nil
+    { fields: f, residual: residual }
+  end
+
   # The machine-recognizable placeholder put-layout.rb rewrites to the live
   # workbook page URL once the workbook (and so its URL) exists.
   def nav_placeholder_url(page_name)
@@ -92,7 +133,8 @@ module ButtonFallback
   # workbook body.
   def page_names(doc)
     return {} unless doc.is_a?(Hash)
-    pages = doc['document'].is_a?(Hash) && doc['document']['pages'] ? doc['document']['pages'] : doc['pages']
+    inner = doc['contents'].is_a?(Hash) ? doc['contents'] : doc['document']
+    pages = inner.is_a?(Hash) && inner['pages'] ? inner['pages'] : doc['pages']
     Array(pages).each_with_object({}) do |pg, names|
       names[pg['id']] = pg['name'] if pg.is_a?(Hash) && pg['id'] && pg['name']
     end

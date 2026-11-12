@@ -19,7 +19,7 @@ SRC = File.read(File.join(DIR, 'build-charts-from-signals.rb')) +
 
 # Pull the pure helper methods out of the script (which otherwise runs main) and
 # define them here. Order doesn't matter — they're resolved at call time.
-%w[map_column coerce_case_literal remap_param_branch
+%w[map_column coerce_case_literal split_top_level_args tableau_iif_to_sigma remap_param_branch
    load_param_switches param_switch_for param_switch_inline
    norm_param_caption picker_param_caps_index].each do |fn|
   m = SRC.match(/^def #{fn}\b.*?\n^end$/m) or abort("could not extract #{fn} from build-charts-from-signals.rb")

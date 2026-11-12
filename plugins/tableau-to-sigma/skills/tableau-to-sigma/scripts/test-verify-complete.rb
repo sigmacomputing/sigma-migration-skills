@@ -16,6 +16,7 @@
 
 require 'json'
 require 'tmpdir'
+require_relative 'lib/factory_punchlist'
 
 DIR = __dir__
 VC  = File.join(DIR, 'verify-complete.rb')
@@ -141,6 +142,37 @@ Dir.mktmpdir do |wd|
   check(out.include?('VERDICT: GREEN'), 'legacy marker still gets the derived verdict printed', fails)
 end
 
+Dir.mktmpdir do |wd|
+  success_marker(wd, 'verdict' => 'GREEN', 'verdict_by' => 'verifier')
+  File.write(File.join(wd, 'parity-final.json'), JSON.generate(
+    'verdict' => 'GREEN', 'visual_verdict' => 'pass', 'visual_notes' => 'VERIFIER: prior pass', 'verdict_by' => 'verifier'))
+  %w[RED YELLOW].each do |verdict|
+    File.write(File.join(wd, 'verification-result.json'), JSON.generate('verdict' => verdict))
+    code, out = run_vc(VC, wd)
+    check(code == 6 && out.include?("verification-result.json records #{verdict}"),
+          "new verifier #{verdict} overrides old passing markers (exit #{code})", fails)
+  end
+  File.write(File.join(wd, 'verification-result.json'), '{')
+  code, out = run_vc(VC, wd)
+  check(code == 6, 'malformed verifier evidence cannot preserve completion', fails)
+  File.write(File.join(wd, 'verification-result.json'), JSON.generate('verdict' => 'GREEN'))
+  code, out = run_vc(VC, wd)
+  check(code == 0, "a valid matching GREEN verifier result still completes (exit #{code})", fails)
+  FactoryPunchlist.write(wd)
+  File.write(File.join(wd, 'verification-result.json'), JSON.generate('verdict' => 'GREEN', 'notes' => 'VERIFIER: new evidence'))
+  code, out = run_vc(VC, wd)
+  check(code == 6 && out.include?('punchlist.json is stale'), 'changed verification invalidates an older GREEN punch list', fails)
+  FactoryPunchlist.write(wd)
+  code, = run_vc(VC, wd)
+  check(code == 0, 'regenerating the punch list binds it to the current verifier evidence', fails)
+  punchlist_path = File.join(wd, 'punchlist.json')
+  punchlist = JSON.parse(File.read(punchlist_path))
+  punchlist['ledger_verdict'] = 'YELLOW'
+  File.write(punchlist_path, JSON.generate(punchlist))
+  code, out = run_vc(VC, wd)
+  check(code == 6 && out.include?('punchlist.json is stale'), 'punch-list degradation claims must match the actual ledger', fails)
+end
+
 # Scope cut (coverage.json dropped tile) + consistent PARTIAL claims → DONE,
 # verdict PARTIAL, ledger entry printed inline.
 Dir.mktmpdir do |wd|
@@ -154,6 +186,10 @@ Dir.mktmpdir do |wd|
   check(out.include?('VERDICT: PARTIAL'), 'verdict PARTIAL surfaces on the DONE line', fails)
   check(out.include?('[scope-cut]') && out.include?('Region Map'), 'the ledger entry prints inline, one line', fails)
   check(out.include?('SUBSET of the source'), 'PARTIAL names the scope-cut meaning', fails)
+  File.write(File.join(wd, 'verification-result.json'), JSON.generate('verdict' => 'YELLOW'))
+  code, out = run_vc(VC, wd)
+  check(code == 6 && out.include?('verification-result.json records YELLOW'),
+        'scope cuts do not override current verifier YELLOW', fails)
 end
 
 # THE LIE (field case): a report claiming GREEN + 0 waivers over a workdir
@@ -249,6 +285,152 @@ Dir.mktmpdir do |wd|
   code, out = run_vc(VC, wd)
   check(code == 7, "migration-result/census status drift => exit 7 (got #{code})", fails)
   check(out.include?('1 status drift'), 'status disagreement is counted', fails)
+end
+
+# ---------------------------------------------------------------------------
+# Reused-DM relationship evidence route: verify-complete judges
+# relationship-map.json instead of relationship-coverage.json (exit 8 on fail).
+# A pass falls through to the next gate (dashboard coverage, exit 9 here).
+# ---------------------------------------------------------------------------
+require_relative 'test-fixtures/relationship-map/workdir_helper'
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  RelationshipMapWorkdir.build(wd, 'replaced-key', parity: ['Revenue by Customer'])
+  code, out = run_vc(VC, wd)
+  check(code == 9 && !out.include?('RELATIONSHIP COVERAGE INVALID'),
+        "evidence route: proven map passes the relationship gate (got #{code})", fails)
+end
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  RelationshipMapWorkdir.build(wd, 'replaced-key', parity: [])
+  code, out = run_vc(VC, wd)
+  check(code == 8 && out.include?('parity-missing'),
+        "evidence route: an affected worksheet missing from parity => exit 8 (got #{code})", fails)
+end
+
+# A divergent-only blind visual verdict is a fidelity residual: the real
+# builder yields a YELLOW migration-result.json, and verify-complete's source
+# accounting does not refuse it as RED.
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  File.write(File.join(wd, 'parity-final.json'), JSON.generate(
+    'status' => 'PASS', 'waivers' => [], 'visual_checked' => false,
+    'visual_verdict' => 'divergent', 'visual_notes' => 'legend differs',
+    'screenshot_path' => 'shot.png'))
+  File.write(File.join(wd, 'dashboard-render-health.json'),
+             JSON.generate('status' => 'healthy', 'failed_count' => 0))
+  File.write(File.join(wd, 'dashboard-blank-risk.json'),
+             JSON.generate('risk' => false, 'blank_count' => 0))
+  _out, builder_status = IO.popen(
+    ['ruby', File.join(DIR, 'build-migration-report.rb'), '--workdir', wd,
+     '--inventory', File.join(wd, 'source-object-census.json')],
+    err: %i[child out], &:read), $?
+  result = JSON.parse(File.read(File.join(wd, 'migration-result.json')))
+  check(builder_status.exitstatus == 0 && result['verdict'] == 'YELLOW',
+        "divergent-only workdir builds a YELLOW migration-result (got #{result['verdict']})", fails)
+  code, out = run_vc(VC, wd)
+  check(code == 0 && out.include?('VERDICT: YELLOW'),
+        "divergent-only YELLOW report reaches DONE (exit #{code})", fails)
+end
+
+# Real-run shape: no render-health.json / blank-risk artifacts at all. The
+# machine evidence is visual-similarity.json + the anchors tile census, the
+# screenshot lives under another name, and the blind verdict is divergent.
+Dir.mktmpdir do |wd|
+  success_marker(wd)
+  shot = File.join(wd, 'rcf-pass-3.png')
+  File.binwrite(shot, 'png')
+  File.write(File.join(wd, 'parity-final.json'), JSON.generate(
+    'status' => 'PASS', 'waivers' => [], 'visual_checked' => false,
+    'visual_verdict' => 'divergent', 'visual_notes' => 'legend differs',
+    'screenshot_path' => shot))
+  File.write(File.join(wd, 'visual-similarity.json'), JSON.generate(
+    'pass' => true, 'tiles_measured' => 0, 'tiles_blank' => [],
+    'render_health' => { 'path' => shot, 'status' => 'PASS', 'reasons' => [] },
+    'source_health' => { 'status' => 'PASS' }))
+  File.write(File.join(wd, 'anchors-verdict.json'), JSON.generate('tiles_all_nonempty' => true))
+  _out, builder_status = IO.popen(
+    ['ruby', File.join(DIR, 'build-migration-report.rb'), '--workdir', wd,
+     '--inventory', File.join(wd, 'source-object-census.json')],
+    err: %i[child out], &:read), $?
+  result = JSON.parse(File.read(File.join(wd, 'migration-result.json')))
+  check(builder_status.exitstatus == 0 && result['verdict'] == 'YELLOW',
+        "real-run-shaped divergent workdir builds YELLOW (got #{result['verdict']})", fails)
+  code, out = run_vc(VC, wd)
+  check(code == 0 && out.include?('VERDICT: YELLOW'),
+        "real-run-shaped divergent YELLOW reaches DONE (exit #{code})", fails)
+end
+
+
+# ---------------------------------------------------------------------------
+# Run verdict = worse of the gate ledger and migration-result.json (2026-11-09
+# RCC regression). With minor gaps now polish notes, the ledger can be EMPTY
+# while the census still marks objects needs-review / approximated: every
+# surface (finalize re-stamp of phase6-success.json + parity-final.json, the
+# STATUS line, verify-complete) must then say YELLOW. The reverse (OEO shape,
+# clean census) must stay GREEN everywhere.
+# ---------------------------------------------------------------------------
+require_relative 'lib/final_verdict'
+def polish_workdir(wd, census_status:)
+  File.write(File.join(wd, 'phase6-success.json'), JSON.generate(
+    'workbookId' => 'wb-1', 'gates' => 'all-pass', 'verdict' => 'GREEN', 'waivers' => [],
+    'generatedAt' => '2026-11-09T00:00:00Z'))
+  write_source_accounting(wd, status: census_status)
+  File.write(File.join(wd, 'parity-final.json'), JSON.generate(
+    'status' => 'PASS', 'charts_pass' => 2, 'charts_total' => 2, 'waivers' => [], 'verdict' => 'GREEN',
+    'visual_checked' => true, 'visual_verdict' => 'pass'))
+  File.write(File.join(wd, 'visual-residuals.json'), JSON.generate(
+    'schema' => 'visual-residuals/v1', 'faithful' => true, 'platform_differences' => [], 'fixable_major' => [],
+    'residuals' => [{ 'tile' => 'r1c2', 'dimension' => 'labels_legible', 'description' => 'KPI numbers smaller',
+                      'severity' => 'minor', 'class' => 'fixable' }]))
+  File.write(File.join(wd, 'dashboard-render-health.json'), JSON.generate('status' => 'healthy', 'failed_count' => 0))
+  File.write(File.join(wd, 'dashboard-blank-risk.json'), JSON.generate('risk' => false, 'blank_count' => 0))
+  File.write(File.join(wd, 'degradation-ledger.json'), JSON.generate('version' => 1, 'counts' => {}, 'entries' => []))
+  # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  IO.popen(['ruby', File.join(DIR, 'build-migration-report.rb'), '--workdir', wd,
+            '--inventory', File.join(wd, 'source-object-census.json')], err: %i[child out], &:read)
+  JSON.parse(File.read(File.join(wd, 'migration-result.json')))
+end
+
+Dir.mktmpdir do |wd|
+  result = polish_workdir(wd, census_status: 'needs-review')
+  check(result['verdict'] == 'YELLOW' && result['degradations'] == [] && result['polish_notes'].length == 1,
+        "RCC shape: report YELLOW, empty ledger, 1 polish note (got #{result['verdict']})", fails)
+  # standalone flow (gate-minted GREEN markers, no finalize re-stamp)
+  code, out = run_vc(VC, wd)
+  check(code == 0 && out.include?('VERDICT: YELLOW') && !out.include?('VERDICT: GREEN') && out.include?('1 needs-review'),
+        "RCC shape: verify-complete prints DONE … VERDICT: YELLOW naming the needs-review object (exit #{code})", fails)
+  # finalize re-stamp
+  gate, run = FinalVerdict.restamp(wd, result)
+  sj = JSON.parse(File.read(File.join(wd, 'phase6-success.json')))
+  pf = JSON.parse(File.read(File.join(wd, 'parity-final.json')))
+  check(gate == 'GREEN' && run == 'YELLOW' && sj['verdict'] == 'YELLOW' && pf['verdict'] == 'YELLOW' &&
+        sj['gate_verdict'] == 'GREEN' && pf['gate_verdict'] == 'GREEN',
+        'RCC shape: finalize re-stamps phase6-success.json + parity-final.json to YELLOW (gate_verdict GREEN kept)', fails)
+  check(FinalVerdict.status_line(true, run, result).start_with?('YELLOW (all gates pass; migration report YELLOW: 1 needs-review'),
+        'RCC shape: finalize STATUS line says YELLOW, not GREEN', fails)
+  code, out = run_vc(VC, wd)
+  check(code == 0 && out.include?('VERDICT: YELLOW'), "RCC shape: re-stamped markers still reach DONE as YELLOW (exit #{code})", fails)
+  # a hand-edited report verdict cannot hide the census
+  File.write(File.join(wd, 'migration-result.json'), JSON.generate(result.merge('verdict' => 'GREEN')))
+  _code, out = run_vc(VC, wd)
+  check(!out.include?('VERDICT: GREEN'), 'RCC shape: a report edited to GREEN over a needs-review object is never DONE GREEN', fails)
+end
+
+Dir.mktmpdir do |wd|
+  result = polish_workdir(wd, census_status: 'migrated')
+  check(result['verdict'] == 'GREEN' && result['polish_notes'].length == 1,
+        "OEO shape: report GREEN with 1 polish note (got #{result['verdict']})", fails)
+  gate, run = FinalVerdict.restamp(wd, result)
+  sj = JSON.parse(File.read(File.join(wd, 'phase6-success.json')))
+  pf = JSON.parse(File.read(File.join(wd, 'parity-final.json')))
+  check(gate == 'GREEN' && run == 'GREEN' && sj['verdict'] == 'GREEN' && pf['verdict'] == 'GREEN' &&
+        !sj.key?('gate_verdict') && !pf.key?('gate_verdict'),
+        'OEO shape: finalize leaves both markers GREEN (no re-stamp)', fails)
+  check(FinalVerdict.status_line(true, run, result) == 'GREEN', 'OEO shape: finalize STATUS GREEN', fails)
+  code, out = run_vc(VC, wd)
+  check(code == 0 && out.include?('VERDICT: GREEN'), "OEO shape: verify-complete DONE … VERDICT: GREEN (exit #{code})", fails)
 end
 
 puts

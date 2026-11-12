@@ -1,0 +1,70 @@
+{
+  "name": "Customer Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "hires",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "HR",
+              "HIRES"
+            ]
+          },
+          "columns": [
+            {
+              "id": "hires-hire_id",
+              "formula": "[HIRES/HIRE_ID]"
+            },
+            {
+              "id": "hires-date_key",
+              "formula": "[HIRES/DATE_KEY]"
+            }
+          ],
+          "relationships": [
+            {
+              "id": "rel-hires-0",
+              "targetElementId": "date",
+              "keys": [
+                {
+                  "sourceColumnId": "hires-date_key",
+                  "targetColumnId": "date-date_key"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "date",
+          "kind": "table",
+          "source": {
+            "kind": "warehouse-table",
+            "connectionId": "conn-1",
+            "path": [
+              "ANALYTICS",
+              "SALES",
+              "DATE_DIM"
+            ]
+          },
+          "columns": [
+            {
+              "id": "date-date_key",
+              "formula": "[DATE_DIM/DATE_KEY]"
+            },
+            {
+              "id": "date-cal_date",
+              "formula": "[DATE_DIM/CAL_DATE]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

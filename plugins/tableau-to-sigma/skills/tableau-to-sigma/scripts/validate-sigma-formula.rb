@@ -15,7 +15,7 @@
 #   1. Builds a tiny Sigma workbook spec with:
 #      - Data page: a master table pulling from the supplied DM element
 #      - Test page: a single chart that uses the candidate formula as a column
-#   2. POSTs to /v2/workbooks/spec
+#   2. POSTs to /v2/workbooks
 #   3. Reads /v2/workbooks/{id}/elements/{el}/columns and checks for
 #      type.type == "error"
 #   4. Emits a JSON result to stdout (machine-parseable):
@@ -221,7 +221,7 @@ if batch_entries
     # Workbook code-rep POSTs require the nested `document` envelope (verified
     # live 2026-08-03/04: a flat body 400s) — wrap the throwaway batch probe spec.
     post_body = WorkbookCode.canonicalize(spec)
-    Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+    Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)))
   rescue StandardError => e
     { 'raw' => e.message }
   end
@@ -369,7 +369,7 @@ parsed = begin
   # Workbook code-rep POSTs require the nested `document` envelope (verified
   # live 2026-08-03/04: a flat body 400s) — wrap the throwaway singleton probe spec.
   post_body = WorkbookCode.canonicalize(spec)
-  Sigma.request(:post, '/v2/workbooks/spec', body: JSON.generate(post_body))
+  Sigma.request(:post, Sigma::CodeRep.create_path, body: JSON.generate(Sigma::CodeRep.create_body(post_body)))
 rescue StandardError => e
   { 'raw' => e.message }
 end

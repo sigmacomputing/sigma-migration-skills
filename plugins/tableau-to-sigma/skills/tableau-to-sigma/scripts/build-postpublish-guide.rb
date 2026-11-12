@@ -971,6 +971,8 @@ module PostpublishGuide
   # ActionLedger.key_of already computes for ActionLedger.join (actionName-
   # preferred, [kind, caption] fallback), JSON-encoded so the gate can parse
   # it back exactly with no separator-collision risk.
+  RESIDUE_NONE_MARKER = "<!-- ledger-residue: none -->\n"
+
   def ledger_marker(entry)
     key = ActionLedger.key_of(entry)
     return '' if key.nil?
@@ -1107,9 +1109,17 @@ module PostpublishGuide
 
     built = opts[:built] || []
     if entries.empty?
+      # Residue-free guides carry no per-entry ledger-key markers; this marker
+      # is how the guide-residue gate tells a CURRENT all-auto-wired guide
+      # from a stale / hand-edited marker-less one (live proof: 9 actions
+      # auto-wired, zero residue, gate false-FAILed and forced a waiver).
+      md << RESIDUE_NONE_MARKER
       if built.any?
         md << render_built_section(built)
         md << "Nothing else to wire up post-publish: every detected interaction was built automatically.\n"
+      elsif opts[:emitted_count].to_i.positive?
+        md << "Nothing to wire up post-publish: all #{opts[:emitted_count]} interaction(s) detected in the Tableau\n"
+        md << "source were built automatically by the converter (see action-ledger.json).\n"
       else
         md << "No interactive actions detected in the Tableau source — no dashboard\n"
         md << "actions, parameter actions, dynamic zone visibility, drill hierarchies,\n"
@@ -1343,6 +1353,7 @@ module PostpublishGuide
     # The guide instructs the human. It must describe ONLY work still to do —
     # an action build-charts-from-signals.rb already auto-wired is done, not
     # a checklist item that tells the customer to redo it by hand.
+    opts[:emitted_count] = ledger['emitted'].size
     File.write(opts[:out], render_guide(ledger['residue'], opts))
     warn "wrote #{opts[:out]} (#{entries.length} interaction(s) detected, " \
          "#{ledger['emitted'].size} already auto-wired, #{ledger['residue'].size} still manual: " +

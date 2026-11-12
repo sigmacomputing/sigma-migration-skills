@@ -22,6 +22,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
 import workdir_guard  # noqa: E402
 import sigma_rest  # noqa: E402
+import code_rep  # noqa: E402
 
 DEFAULT_MAX_CANDIDATES = 500
 STOP_TOKENS = {
@@ -96,8 +97,11 @@ def iter_dm_elements(spec: dict):
 
 
 def workbook_document(spec: dict) -> dict:
-    document = spec.get("document")
-    return document if isinstance(document, dict) else spec
+    for key in ("contents", "document"):
+        document = spec.get(key)
+        if isinstance(document, dict):
+            return document
+    return spec
 
 
 def iter_workbook_elements(spec: dict):
@@ -602,7 +606,14 @@ def discover_kind(
             failures.append({"id": None, "error": "list entry has no object ID"})
             continue
         try:
-            spec = api.request("get", f"{endpoint}/{object_id}/spec")
+            # Workbooks use the code-rep read (contents under `contents`); the
+            # data-model /spec endpoint is not deprecated.
+            spec_path = (
+                f"{endpoint}/{object_id}/spec"
+                if kind == "data_model"
+                else code_rep.read_path(object_id)
+            )
+            spec = api.request("get", spec_path)
             if not isinstance(spec, dict):
                 raise DiscoveryError("spec endpoint returned no JSON object")
             if kind == "data_model":

@@ -36,6 +36,7 @@ require 'yaml'
 require 'date'
 require 'time'
 require 'optparse'
+require_relative 'lib/wb_ids_summary'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 
 opts = {}
@@ -45,6 +46,8 @@ OptionParser.new do |p|
   p.on('--out P')                          { |v| opts[:out]  = v }
   p.on('--workdir P', 'Per-conversion working dir (default: dir of --spec). Used to track posted workbook IDs across retries.') { |v| opts[:workdir] = WorkdirGuard.check!(v, '--workdir') }
   p.on('--skip-layout-lint') { opts[:skip_lint] = true }
+  p.on('--preserve-live-layout', 'UPDATE mode: carry the LIVE workbook layout into the PUT even under the orchestrator (--reuse-workbook layout preservation; the orchestrator re-applies it via put-layout.rb as the last write)') { opts[:preserve_live_layout] = true }
+  p.on('--live-layout-xml PATH', 'with --preserve-live-layout: carry THIS layout XML (the orchestrator\'s live-layout MERGE: live placements kept, removed ids pruned, new ids placed) instead of the raw live layout') { |v| opts[:live_layout_xml] = v }
   p.on('--skip-control-lint') { opts[:skip_control_lint] = true }
   p.on('--control-scope P', 'control-scope.json sidecar (default: <workdir>/control-scope.json if present)') { |v| opts[:control_scope] = v }
   p.on('--update-id ID', 'PUT the spec to this existing workbook/DM id instead of POSTing a new one (retry-safe; avoids orphan workbooks). For workbooks, if omitted, the last id in posted-workbooks.jsonl (or migrate-state.json) is reused automatically.') { |v| opts[:update_id] = v }
@@ -55,7 +58,7 @@ OptionParser.new do |p|
        'with no orchestrator STOP on record (manual-path-authorized.json absent). Counted as a quality waiver; ' \
        'name the reason in your report.') { |v| opts[:allow_manual_spec] = v }
   p.on('--quarantine-on-failure', 'DATAMODEL only: when the POST fails naming specific element(s), or the post-POST column census resolves specific elements to type=error, move those elements to <workdir>/deferred-elements.json, re-POST ONCE without them, and exit 6 (PARTIAL DM — never GREEN until the file is resolved). Default (no flag): fail loudly, quarantine nothing.') { opts[:quarantine] = true }
-  p.on('--skip-spec-verify REASON', 'workbooks only: skip the POST /v2/workbooks/spec/verify server-side preflight (quality waiver — name it in your report).') { |v| opts[:skip_spec_verify] = v }
+  p.on('--skip-spec-verify REASON', 'workbooks only: skip the server-side dry-run preflight (POST /v2/workbooks with dryRun: true) (quality waiver — name it in your report).') { |v| opts[:skip_spec_verify] = v }
   p.on('--skip-style-normalize REASON', 'workbooks only: skip the v5.1 source-derived style contract (pivot totals, format grammar, scheme defaults). Quality waiver — name it in your report.') { |v| opts[:skip_style_normalize] = v }
 end.parse!
 %i[type spec out].each { |k| abort("missing --#{k}") unless opts[k] }
@@ -133,9 +136,40 @@ warn 'NOTE: --quarantine-on-failure only applies to --type datamodel; ignored.' 
 
 BASE = ENV.fetch('SIGMA_BASE_URL')
 
-POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'              : '/v2/workbooks/spec'
-GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec'           : '/v2/workbooks/%s/spec'
+# Workbooks use the code-rep endpoints (POST /v2/workbooks, GET
+# /v2/workbooks/{id}?includeContents=true, PUT /v2/workbooks/{id}/contents);
+# the data-model /spec endpoints are not deprecated.
+POST_PATH = opts[:type] == 'datamodel' ? '/v2/dataModels/spec'              : Sigma::CodeRep.create_path
+GET_PATH  = opts[:type] == 'datamodel' ? '/v2/dataModels/%s/spec'           : nil # use read_path_for / write_path_for
 ID_FIELD  = opts[:type] == 'datamodel' ? 'dataModelId'                      : 'workbookId'
+DRY_RUN_FOLDER_ID = '00000000-0000-0000-0000-000000000000' # dry run needs a UUID-shaped folderId, never checks it exists
+
+def read_path_for(id)
+  $opts_type == 'datamodel' ? format(GET_PATH, id) : Sigma::CodeRep.read_path(id)
+end
+
+def write_path_for(id)
+  $opts_type == 'datamodel' ? format(GET_PATH, id) : Sigma::CodeRep.update_path(id)
+end
+
+# Internally this script keeps workbook bodies in the on-disk `document`-wrapped
+# shape (Sigma::CodeRep.wrap); convert to the wire shape (`contents`) only at
+# the HTTP boundary. Data-model bodies pass through untouched.
+def wire_body(body_str, update: false, dry_run: false)
+  return body_str unless $opts_type == 'workbook'
+  doc = JSON.parse(body_str)
+  wire = if update
+           Sigma::CodeRep.update_body(doc)
+         else
+           # The dry run also requires `name` (400 "Expecting string at 0.name"),
+           # which an update body may lack; neither placeholder is persisted.
+           extra = {}
+           extra['folderId'] = DRY_RUN_FOLDER_ID if dry_run && doc['folderId'].to_s.empty?
+           extra['name'] = 'dry-run preflight' if dry_run && doc['name'].to_s.empty?
+           Sigma::CodeRep.create_body(doc, extra: extra, dry_run: dry_run)
+         end
+  JSON.generate(wire)
+end
 
 # Wraps a single Sigma REST call with automatic 401-retry-after-refresh
 # (tokens last ~1 hour; long conversions outlive a single token). Returns
@@ -232,41 +266,38 @@ rescue StandardError => e
   body_str
 end
 
-# v5.0 preflight: POST /v2/workbooks/spec/verify — Sigma's own server-side
-# spec validation with NO persistence. Runs the real validator before the
+# v5.0 preflight: POST /v2/workbooks with dryRun: true — Sigma's own server-side
+# validation with NO persistence. Runs the real validator before the
 # create/update, so a spec defect surfaces as a clean local error instead of
 # a failed create (workbook POSTs are create-only; a half-validated failure
 # costs an orphan-management cycle). Fail-closed on a validation verdict
 # (4xx WITH a parseable error body), fail-open on endpoint availability
 # (404/405/5xx/network — older tenants may not serve it). Workbooks only;
-# no verify endpoint is documented for dataModels. --skip-spec-verify "<reason>"
-# bypasses (quality waiver — name it in your report).
-def verify_spec!(body, skip_reason, update: false)
+# no dry run is documented for dataModels. --skip-spec-verify "<reason>"
+# bypasses (quality waiver — name it in your report). `body` is the internal
+# `document`-wrapped body; wire_body converts it. An update body is dry-run as a
+# create (the dry run requires a folderId; a placeholder is filled in when the
+# spec carries none), so the full document is still validated.
+def verify_spec!(body, skip_reason)
   return unless opts_type_workbook?
   if skip_reason
-    warn "WARN: spec/verify preflight SKIPPED (--skip-spec-verify: #{skip_reason}) — quality waiver."
+    warn "WARN: dry-run preflight SKIPPED (--skip-spec-verify: #{skip_reason}) — quality waiver."
     return
   end
-  res = http(:post, '/v2/workbooks/spec/verify', body, accept_json: true)
+  res = http(:post, Sigma::CodeRep.create_path, wire_body(body, dry_run: true), accept_json: true)
   code = res.code.to_i
-  if res.is_a?(Net::HTTPSuccess)
-    warn 'spec/verify preflight ok (server-side validation passed)'
+  parsed = (JSON.parse(res.body) rescue nil)
+  verdict = Sigma::CodeRep.dry_run_result(code, parsed)
+  if verdict['valid']
+    warn 'dry-run preflight ok (server-side validation passed)'
   elsif [400, 409, 422].include?(code)
-    parsed = (JSON.parse(res.body) rescue nil)
-    msg = parsed.is_a?(Hash) ? parsed['message'].to_s : res.body.to_s[0, 800]
-    # verify validates the CREATE envelope (folderId required — live-probed
-    # 2026-07-11). An update body legitimately carries no folderId, so an
-    # envelope-only complaint on a PUT is a shape mismatch, not a spec defect.
-    if update && msg.include?('folderId')
-      warn 'NOTE: spec/verify wants the create envelope (folderId) this PUT body lacks — preflight skipped for update.'
-      return
-    end
-    warn "\nFAIL — Sigma spec/verify rejected the spec (HTTP #{code}) BEFORE any create/update:"
+    msg = parsed.is_a?(Hash) ? (parsed['message'] || verdict['errors'].map { |e| e['summary'] }.join('; ')).to_s : res.body.to_s[0, 800]
+    warn "\nFAIL — Sigma dry-run rejected the spec (HTTP #{code}) BEFORE any create/update:"
     warn(parsed ? (JSON.pretty_generate(parsed) rescue msg) : msg)
     abort 'Fix the spec (validate-spec.rb hints + the server errors above), then re-run. ' \
           'Nothing was posted — no orphan to clean up.'
   else
-    warn "NOTE: spec/verify preflight unavailable (HTTP #{code}) — proceeding without it."
+    warn "NOTE: dry-run preflight unavailable (HTTP #{code}) — proceeding without it."
   end
 end
 def opts_type_workbook?; $opts_type == 'workbook'; end
@@ -296,8 +327,9 @@ def retry_without_gated_buttons(resp, body, workdir: nil, spec_path: nil)
   warn "WARN: this workspace rejects button elements — re-sending once with #{ids.size} button(s) " \
        "rewritten to text: #{became.join('; ')}"
   # The pill's verticalAlign is the legacy spelling; wrap() re-canonicalizes it.
-  doc = Sigma::CodeRep.wrap(Sigma::CodeRep.document(doc), extra: Sigma::CodeRep.metadata(doc)) \
-    if nav.any? && opts_type_workbook?
+  if nav.any? && $opts_type == 'workbook'
+    doc = Sigma::CodeRep.wrap(Sigma::CodeRep.document(doc), extra: Sigma::CodeRep.metadata(doc))
+  end
   new_body = JSON.generate(doc)
   new_resp = yield(new_body)
   sync_downgraded_nav_buttons!(nav, workdir, spec_path) if nav.any? && new_resp.is_a?(Net::HTTPSuccess)
@@ -458,16 +490,20 @@ if update_id
   # longer match the freshly planned bands (live-caught: the phase-4 lint then
   # fails on the prior run's geometry). Standalone spot fixes (no orchestrator,
   # no follow-up put-layout) still get the carry.
-  if opts[:type] == 'workbook' && ENV['SIGMA_ORCHESTRATED_RUN'] != '1'
+  if opts[:type] == 'workbook' && (ENV['SIGMA_ORCHESTRATED_RUN'] != '1' || opts[:preserve_live_layout])
     out_spec = (YAML.safe_load(put_body, permitted_classes: [Date, Time]) rescue nil)
     out_doc = out_spec.is_a?(Hash) ? WorkbookCode.document(out_spec) : {}
-    if out_spec.is_a?(Hash) && out_doc['layout'].to_s.strip.empty?
-      live = http(:get, format(GET_PATH, update_id))
+    if out_spec.is_a?(Hash) && (out_doc['layout'].to_s.strip.empty? || opts[:preserve_live_layout])
+      live = http(:get, read_path_for(update_id))
       live_spec = (YAML.safe_load(live.body, permitted_classes: [Date, Time]) rescue nil)
-      # Workbook code-rep nests pages/layout under `document` (live since
-      # 2026-08); unwrap before reading — this GET is workbook-only here.
+      # Workbook code-rep nests pages/layout under `contents` (`document` on the
+      # retired /spec readbacks); unwrap before reading — this GET is workbook-only here.
       live_spec = Sigma::CodeRep.document(live_spec) if live_spec.is_a?(Hash)
       live_layout = live_spec.is_a?(Hash) ? live_spec['layout'].to_s : ''
+      if opts[:preserve_live_layout] && opts[:live_layout_xml] && File.file?(opts[:live_layout_xml])
+        merged_layout = File.read(opts[:live_layout_xml])
+        live_layout = merged_layout unless merged_layout.strip.empty?
+      end
       unless live_layout.strip.empty?
         # The layout XML references element ids. Banded layouts reference container
         # + header elements that put-layout.rb injects from its `.elements.json`
@@ -513,19 +549,20 @@ if update_id
   put_body = style_normalize!(put_body, opts[:workdir], opts[:skip_style_normalize])
   put_body = ensure_theme!(put_body, opts[:workdir])
   put_body = strip_relationship_derivation_fields_from_json(put_body)
-  # Workbook code-rep (verify AND the PUT itself) requires the nested
-  # `document` envelope (verified live 2026-08-03/04: the flat body 400s,
-  # INCLUDING on /verify) — wrap immediately before both calls, once every
-  # flat-JSON mutation above (style/theme/relationship-strip) is done. The
-  # datamodel surface is confirmed NOT changing, so only the workbook branch
-  # wraps.
+  # Workbook code-rep (dry run AND the PUT itself) requires the nested
+  # document envelope (verified live 2026-08-03/04: the flat body 400s,
+  # INCLUDING on the dry run) — wrap immediately before both calls, once every
+  # flat-JSON mutation above (style/theme/relationship-strip) is done. The wrap
+  # stays in the on-disk `document` shape; wire_body re-keys it to `contents`
+  # at the HTTP boundary. The datamodel surface is confirmed NOT changing, so
+  # only the workbook branch wraps.
   if opts[:type] == 'workbook'
     wb_doc = JSON.parse(put_body)
     shape_errors = WorkbookCode.validate(wb_doc)
     abort("workbook code-representation invalid:\n  - #{shape_errors.join("\n  - ")}") if shape_errors.any?
     put_body = JSON.generate(Sigma::CodeRep.wrap(Sigma::CodeRep.document(wb_doc), extra: Sigma::CodeRep.metadata(wb_doc)))
   end
-  verify_spec!(put_body, opts[:skip_spec_verify], update: true)
+  verify_spec!(put_body, opts[:skip_spec_verify])
   # W2.5: DM PUT id-stability guard. A Sigma dataModel PUT can RE-MINT element ids
   # (field-caught 2026-07: AAAAAAAAAB -> b4pAUi0swJ), which silently bricks any
   # dependent workbook — every tile then errors "graph resolver exceeded the
@@ -533,11 +570,11 @@ if update_id
   # the live DM element ids before the PUT so the reassignment is caught after.
   $dm_pre_ids = nil
   if opts[:type] == 'datamodel'
-    _pre = (JSON.parse(http(:get, format(GET_PATH, update_id), accept_json: true).body) rescue nil)
+    _pre = (JSON.parse(http(:get, read_path_for(update_id), accept_json: true).body) rescue nil)
     $dm_pre_ids = _pre.is_a?(Hash) ? (_pre['pages'] || []).flat_map { |p| (p['elements'] || []).map { |e| e['id'] } }.compact : nil
   end
-  resp = http(:put, format(GET_PATH, update_id), put_body)
-  resp, put_body = retry_without_gated_buttons(resp, put_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:put, format(GET_PATH, update_id), b) }
+  resp = http(:put, write_path_for(update_id), wire_body(put_body, update: true))
+  resp, put_body = retry_without_gated_buttons(resp, put_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:put, write_path_for(update_id), wire_body(b, update: true)) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed[ID_FIELD] || update_id
   abort("PUT failed (HTTP #{resp.code}): #{parsed.inspect}") unless resp.is_a?(Net::HTTPSuccess)
@@ -575,12 +612,13 @@ else
   rescue JSON::ParserError
     nil # non-JSON body (YAML spec) — the API remains the validator
   end
-  # Workbook code-rep (verify AND the POST itself) requires the nested
-  # `document` envelope (verified live 2026-08-03/04: the flat body 400s,
-  # INCLUDING on /verify) — wrap immediately before both calls, AFTER the
-  # duplicate-id preflight above (which needs flat `pages`/`elements`). The
-  # datamodel surface is confirmed NOT changing, so only the workbook branch
-  # wraps.
+  # Workbook code-rep (dry run AND the POST itself) requires the nested
+  # document envelope (verified live 2026-08-03/04: the flat body 400s,
+  # INCLUDING on the dry run) — wrap immediately before both calls, AFTER the
+  # duplicate-id preflight above (which needs flat `pages`/`elements`). The wrap
+  # stays in the on-disk `document` shape; wire_body re-keys it to `contents`
+  # at the HTTP boundary. The datamodel surface is confirmed NOT changing, so
+  # only the workbook branch wraps.
   if opts[:type] == 'workbook'
     wb_doc = JSON.parse(post_body)
     shape_errors = WorkbookCode.validate(wb_doc)
@@ -588,8 +626,8 @@ else
     post_body = JSON.generate(Sigma::CodeRep.wrap(Sigma::CodeRep.document(wb_doc), extra: Sigma::CodeRep.metadata(wb_doc)))
   end
   verify_spec!(post_body, opts[:skip_spec_verify])
-  resp = http(:post, POST_PATH, post_body)
-  resp, post_body = retry_without_gated_buttons(resp, post_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:post, POST_PATH, b) }
+  resp = http(:post, POST_PATH, wire_body(post_body))
+  resp, post_body = retry_without_gated_buttons(resp, post_body, workdir: opts[:workdir], spec_path: opts[:spec]) { |b| http(:post, POST_PATH, wire_body(b)) }
   parsed = YAML.safe_load(resp.body, permitted_classes: [Date, Time])
   oid = parsed.is_a?(Hash) ? parsed[ID_FIELD] : nil
   # Rec5 quarantine (opt-in): a POST killed by ONE broken element must not lose
@@ -646,9 +684,9 @@ columns_path = opts[:type] == 'datamodel' ?
   "/v2/workbooks/#{oid}/columns"
 readback = lambda do
   # Workbook code-rep responses nest non-metadata fields (pages/layout/
-  # schemaVersion/kind) under `document` (live since 2026-08); the DM
-  # readback is unchanged and stays flat.
-  raw_spec = JSON.parse(http(:get, format(GET_PATH, oid), accept_json: true).body)
+  # schemaVersion/kind) under `contents` (`document` on the retired /spec
+  # readbacks); the DM readback is unchanged and stays flat.
+  raw_spec = JSON.parse(http(:get, read_path_for(oid), accept_json: true).body)
   spec = opts[:type] == 'workbook' ? Sigma::CodeRep.document(raw_spec) : raw_spec
   cols_res = http(:get, columns_path, accept_json: true)
   # cols_res is the FIRST page and is kept only for its HTTP status, which the
@@ -765,7 +803,7 @@ if opts[:type] == 'datamodel' && $recased.nil? && cols_res.is_a?(Net::HTTPSucces
         warn "RECASE: re-cased #{rep[:fixed]} bare calc ref(s) to live column labels " \
              "(converter emitted TitleCase; warehouse columns are UPPERCASE) — re-PUTting to " \
              "#{ID_FIELD}=#{oid} (#{recased_path})"
-        put_res = http(:put, format(GET_PATH, oid), File.read(recased_path))
+        put_res = http(:put, write_path_for(oid), File.read(recased_path))
         if put_res.is_a?(Net::HTTPSuccess)
           spec, cols_res, cols_json, labels_by_el = readback.call
         else
@@ -806,7 +844,7 @@ if QUARANTINE && $quarantined.nil? && cols_res.is_a?(Net::HTTPSuccess)
       warn "QUARANTINE: column census flagged #{found[:ids].size} element(s) — deferred to #{DEFERRED_PATH}; " \
            "re-PUTting the remaining spec to #{ID_FIELD}=#{oid} (#{cleaned_path})"
       found[:ids].each { |id| warn "  - #{id}: #{found[:reasons][id]}" }
-      put_res = http(:put, format(GET_PATH, oid), File.read(cleaned_path))
+      put_res = http(:put, write_path_for(oid), File.read(cleaned_path))
       abort("re-PUT after quarantine failed (HTTP #{put_res.code}): #{put_res.body.to_s[0, 500]} — " \
             "deferred file kept: #{DEFERRED_PATH}") unless put_res.is_a?(Net::HTTPSuccess)
       spec, cols_res, cols_json, labels_by_el = readback.call
@@ -822,9 +860,7 @@ if opts[:type] == 'workbook'
     page.reject { |key, _| key == 'elements' }
   end
   out_doc['elements'] = Sigma::CodeRep.workbook_elements(spec).map do |element|
-    summary = { 'id' => element['id'], 'kind' => element['kind'], 'name' => element['name'] }
-    summary['columnLabels'] = labels_by_el[element['id']] if labels_by_el.key?(element['id'])
-    summary
+    WbIdsSummary.element(element, labels_by_el.key?(element['id']) ? labels_by_el[element['id']] : nil)
   end
   out = Sigma::CodeRep.wrap(out_doc, extra: { ID_FIELD => oid })
 else
@@ -1030,6 +1066,15 @@ rescue StandardError => e
   warn "WARN: control-field census skipped (#{e.class}: #{e.message[0, 80]})"
 end
 
+if opts[:type] == 'workbook'
+  combo_errors = WorkbookCode.combo_readback_errors(JSON.parse(File.read(opts[:spec])), spec)
+  if combo_errors.any?
+    warn "FAIL - combo chart readback changed source bindings: #{combo_errors.join('; ')}"
+    warn 'The workbook exists; repair the same workbook rather than creating another.'
+    exit 5
+  end
+end
+
 # Rec5 quarantine final report: the (re-)POST succeeded and the census is clean,
 # but only because broken element(s) were REMOVED. The DM is PARTIAL — exit with
 # the distinct code so no caller mistakes this for a full green POST.
@@ -1070,7 +1115,7 @@ if opts[:type] == 'workbook' && !opts[:skip_lint]
     violations.each { |v| warn "  - #{v}" }
     warn 'Fix the spec/layout and re-PUT before continuing: raw-id names -> derive human'
     warn 'titles; loose controls -> control band or the chart container; dead zones ->'
-    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/spec'
+    warn 're-band the page. The workbook DID post — fix with PUT /v2/workbooks/<id>/contents'
     warn '(re-POSTing creates an orphan).'
     warn '========================================'
     exit(3)
@@ -1106,7 +1151,7 @@ if opts[:type] == 'workbook' && !opts[:skip_control_lint]
     warn 'filters targets ({source:{elementId}, columnId}) or remove the control;'
     warn 'partial reach -> wire the uncovered elements or annotate controlScope in'
     warn 'control-scope.json (see scripts/lib/control_lint.rb CONTRACT). The workbook'
-    warn 'DID post — fix with PUT /v2/workbooks/<id>/spec (re-POSTing creates an orphan).'
+    warn 'DID post — fix with PUT /v2/workbooks/<id>/contents (re-POSTing creates an orphan).'
     warn '========================================'
     exit(4)
   end

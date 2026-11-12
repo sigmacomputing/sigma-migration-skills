@@ -51,3 +51,12 @@ phase-metrics.jsonl
 /*.jsonl
 diagnostic-events/
 /diagnostics*.zip
+repair-checkpoints/
+report-history/
+repair-pending.json
+active-dm-spec.json
+mcp-worksheet-files.json
+
+# Hybrid SDK route (refs/phase-5g-sdk-hybrid.md): recorded Code Mode programs
+# and results can carry customer metadata — workdir-local, never committed.
+sdk-writes/

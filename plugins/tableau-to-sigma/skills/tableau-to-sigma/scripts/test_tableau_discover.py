@@ -70,6 +70,7 @@ class TableauDiscoverTest(unittest.TestCase):
                 "download_workbook_content",
                 "graphql_workbook_dashboards",
                 "view_data",
+                "view_data_filtered",
                 "view_image",
             )
         }
@@ -96,6 +97,8 @@ class TableauDiscoverTest(unittest.TestCase):
             }
         ]
         api.view_data = lambda view_id: f"id,value\n{view_id},1\n"
+        # captures go through the cache-bypassing export (maxAge=1)
+        api.view_data_filtered = lambda view_id, filters=None: f"id,value\n{view_id},1\n"
         api.view_image = lambda _id: b"\x89PNG\r\nfixture"
 
         with tempfile.TemporaryDirectory() as tmp:

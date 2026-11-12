@@ -13,7 +13,7 @@ for the agent to run through the Sigma MCP `build_workbook` tool (target:
 existing workbook).
 
 Run it only after the LAST REST spec write (layout, repairs, finalize): any
-later PUT /v2/workbooks/{id}/spec expands the pivot again, so re-run it after
+later PUT /v2/workbooks/{id}/contents expands the pivot again, so re-run it after
 one. Without the Sigma MCP, skip it - the post-publish guide keeps the manual
 step.
 

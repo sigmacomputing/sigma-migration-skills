@@ -59,13 +59,15 @@ class FakeApi:
 
     def request(self, method, path, body=None):
         self.calls.append((method, path, json.loads(body) if body else None))
-        if method == "post" and path.endswith("/spec"):
-            return {"dataModelId": "dm-1", "workbookId": "wb-1"}
-        if path == "/v2/workbooks/spec/verify":
-            return {"valid": True}
+        if method == "post" and path == "/v2/dataModels/spec":
+            return {"dataModelId": "dm-1"}
+        if method == "post" and path == "/v2/workbooks":
+            if json.loads(body).get("dryRun"):
+                return {"dryRun": True, "warnings": [], "workbookId": None}
+            return {"workbookId": "wb-1"}
         if method == "get":
             return self.readback
-        return {"success": True}
+        return {"workbookId": "wb-1"}
 
 
 class PostAndReadbackTest(unittest.TestCase):
@@ -134,7 +136,7 @@ class PostAndReadbackTest(unittest.TestCase):
         )
         self.assertTrue(result["pass"], result)
 
-    def test_workbook_create_calls_server_verify_first(self):
+    def test_workbook_create_calls_server_dry_run_first(self):
         workbook = {
             "name": "Workbook",
             "folderId": "folder",
@@ -150,8 +152,32 @@ class PostAndReadbackTest(unittest.TestCase):
             "workbook", workbook, api=api
         )
         self.assertEqual("wb-1", object_id)
-        self.assertEqual("/v2/workbooks/spec/verify", api.calls[0][1])
+        self.assertEqual("/v2/workbooks", api.calls[0][1])
+        self.assertIs(True, api.calls[0][2]["dryRun"])
+        self.assertNotIn("dryRun", api.calls[1][2])
+        self.assertEqual("/v2/workbooks", api.calls[1][1])
+        self.assertEqual("/v2/workbooks/wb-1?includeContents=true", api.calls[2][1])
         self.assertTrue(result["pass"])
+
+    def test_workbook_update_puts_contents(self):
+        workbook = {
+            "name": "Workbook",
+            "folderId": "folder",
+            "document": {
+                "schemaVersion": 1,
+                "kind": "workbook",
+                "pages": [{"id": "p", "name": "Page"}],
+                "elements": [],
+            },
+        }
+        api = FakeApi(copy.deepcopy(workbook))
+        post_and_readback.post_and_readback(
+            "workbook", workbook, update_id="wb-9", api=api
+        )
+        method, path, body = api.calls[0]
+        self.assertEqual(("put", "/v2/workbooks/wb-9/contents"), (method, path))
+        self.assertEqual({"contents"}, set(body))
+        self.assertEqual("workbook", body["contents"]["kind"])
 
     def test_workbook_create_strips_data_model_only_visibility_fields(self):
         workbook = {
@@ -173,8 +199,8 @@ class PostAndReadbackTest(unittest.TestCase):
         post_and_readback.post_and_readback("workbook", workbook, api=api)
         verify_body = api.calls[0][2]
         post_body = api.calls[1][2]
-        self.assertNotIn("visibleAsSource", verify_body["document"]["elements"][0])
-        self.assertNotIn("visibleAsSource", post_body["document"]["elements"][0])
+        self.assertNotIn("visibleAsSource", verify_body["contents"]["elements"][0])
+        self.assertNotIn("visibleAsSource", post_body["contents"]["elements"][0])
         self.assertFalse(workbook["document"]["elements"][0]["visibleAsSource"])
 
     def test_workbook_readback_keys_elements_by_preserved_id(self):
@@ -209,7 +235,7 @@ class PostAndReadbackTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            {"name", "folderId", "description", "document"},
+            {"name", "folderId", "description", "contents"},
             set(envelope),
         )
 

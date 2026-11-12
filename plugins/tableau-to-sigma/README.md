@@ -103,7 +103,7 @@ flowchart TB
 | **2.5 — View filters** | Detect view-level filters by diffing view-CSV distinct values vs. the warehouse | `fetch-view-data.rb` |
 | **3 — Build data model** | Assemble the DM spec (sources, calc columns, relationships) and validate it | `refs/data-model-spec.md`, `validate-spec.rb` |
 | **4 — POST data model** | Create the DM and read back element IDs; abort on any `type=error` column | `post-and-readback.rb`, `get-token.sh` · **Sigma REST** (`/v2/dataModels/spec`) |
-| **5 — Build workbook** | Generate chart specs from the parsed layout + signals, build the grid layout, post the workbook, apply the layout | `build-charts-from-signals.rb`, `build-dashboard-layout.rb`, `put-layout.rb`, `remap-wb-spec-to-dm-ids.rb`, `validate-spec.rb` · **Sigma REST** (`/v2/workbooks/spec`) |
+| **5 — Build workbook** | Generate chart specs from the parsed layout + signals, build the grid layout, post the workbook, apply the layout | `build-charts-from-signals.rb`, `build-dashboard-layout.rb`, `put-layout.rb`, `remap-wb-spec-to-dm-ids.rb`, `validate-spec.rb` · **Sigma REST** (`/v2/workbooks`) |
 | **6 — Verify parity** *(hard gate)* | Diff Sigma vs. Tableau per chart (values + PNG visuals), clean up orphan workbooks, and **block completion** unless parity passes, no orphans remain, and no live `type=error` columns exist | `auto-parity-plan.rb`, `verify-parity.rb`, `export-chart-png.rb`, `assert-phase6-ran.rb`, `cleanup-orphan-workbooks.rb` · **Sigma MCP (sigma-mcp-v2)** |
 
 ---
@@ -112,7 +112,7 @@ flowchart TB
 
 - **Tableau Cloud** — Tableau MCP (read) + REST/PAT (`get-tableau-token.sh`, `lib/tableau_rest.rb`) + Metadata GraphQL + the raw `.twb` XML.
 - **Sigma data-model converter** — `convert_tableau_to_sigma` (MCP): translates calc fields / LODs / table calcs / number formats into Sigma formulas and **flags, never fakes** what it can't safely convert.
-- **Sigma REST API** (`get-token.sh` → `SIGMA_API_TOKEN`, ~1h TTL) — `/v2/dataModels/spec`, `/v2/workbooks/spec`, `/v2/connections/tables/{inodeId}/columns`, `/v2/files/{id}`, `/v2/workbooks/{id}/export`.
+- **Sigma REST API** (`get-token.sh` → `SIGMA_API_TOKEN`, ~1h TTL) — `/v2/dataModels/spec`, `/v2/workbooks` (+ `/v2/workbooks/{id}/contents`), `/v2/connections/tables/{inodeId}/columns`, `/v2/files/{id}`, `/v2/workbooks/{id}/export`.
 - **Sigma MCP** (`sigma-mcp-v2`) — live parity queries in Phase 6.
 - **Warehouse** — Snowflake / BigQuery / Databricks / Postgres / SQL Server / Redshift / Synapse / Oracle, reached **through the Sigma connection** (the conversion is warehouse-agnostic).
 - **`tableau-vds-to-cdw`** *(sibling skill)* — for datasources that aren't a live warehouse connection (file-based extracts / published VDS): generates warehouse DDL, loads the data, and builds a Sigma DM on the landed table so the workbook has something to convert against. The `tableau-assessment` skill flags these as `recommended_path: vds-to-snowflake`.

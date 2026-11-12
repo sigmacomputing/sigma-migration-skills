@@ -7,13 +7,17 @@ import argparse
 import hashlib
 import json
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import workdir_guard  # noqa: E402
 import relationship_coverage as relationship_coverage_lib  # noqa: E402
+import relationship_map as relationship_map_lib  # noqa: E402
+import relationship_route as relationship_route_lib  # noqa: E402
 import dashboard_coverage as dashboard_coverage_lib  # noqa: E402
 import sql_provenance as sql_provenance_lib  # noqa: E402
+import blind_grade_v2 as blind_grade_v2_lib  # noqa: E402
 from migration_diagnostics import Span  # noqa: E402
 
 
@@ -53,6 +57,14 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         "workbook_ids": workdir / "wb-ids.json",
         "blind_grade": blind_grade,
     }
+    # Reused-DM evidence route: relationship-map.json replaces
+    # relationship-coverage.json (judged below).
+    relationship_evidence = relationship_route_lib.current(workdir) is not None
+    if relationship_evidence:
+        required.pop("relationship_coverage")
+    verification_path = workdir / "verification-result.json"
+    if verification_path.exists() or verification_path.is_symlink():
+        required["independent_verification"] = verification_path
     documents = {}
     for name, path in required.items():
         if not path.is_file():
@@ -60,8 +72,16 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
             continue
         try:
             documents[name] = load(path)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             failures.append(f"{name}: unreadable ({exc})")
+
+    verification = documents.get("independent_verification", {})
+    divergences = verification.get("divergences", [])
+    verification_pass = verification.get("verdict") == "GREEN" and isinstance(divergences, list) and all(
+        isinstance(entry, dict) and entry.get("severity") == "cosmetic" for entry in divergences
+    )
+    if "independent_verification" in required and not verification_pass:
+        failures.append("independent_verification: current verifier result is not GREEN; earlier passing evidence cannot override it")
 
     mission = documents.get("mission") or {}
     inferred = [
@@ -102,7 +122,16 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         ),
         None,
     )
-    if relationship_doc is not None:
+    if relationship_evidence:
+        relationship_result = relationship_map_lib.evaluate_workdir(workdir, final=True)
+        relationship_gate_pass = relationship_result["status"] == "pass"
+        if not relationship_gate_pass:
+            failures.append(
+                "relationship_coverage: reused-dm evidence unproven — "
+                + "; ".join(f"{b['kind']}: {b['reason']}" for b in relationship_result["blockers"])
+            )
+            relationship_gate_pass = None
+    elif relationship_doc is not None:
         try:
             expected_relationships = relationship_coverage_lib.from_files(
                 metadata_path, source_path, relationship_model
@@ -113,7 +142,7 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
             )
         except (OSError, ValueError, json.JSONDecodeError):
             relationship_gate_pass = False
-    if not relationship_gate_pass:
+    if relationship_gate_pass is False:
         failures.append(
             "relationship_coverage: artifact is stale, unwired, partial, or unreadable"
         )
@@ -153,19 +182,8 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         )
     sql_gate_pass = False
     sql_doc = documents.get("sql_provenance")
-    sql_spec = next(
-        (
-            path
-            for path in (
-                workdir / "dm-remapped.json",
-                workdir / "dm-raw.json",
-                workdir / "dm-spec.json",
-            )
-            if path.is_file()
-        ),
-        None,
-    )
     try:
+        sql_spec = sql_provenance_lib.active_spec_path(workdir)
         expected_sql = sql_provenance_lib.evaluate(
             sql_spec,
             workdir / "conv-meta.json",
@@ -200,33 +218,84 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
     if security.get("decision") not in {"not-required", "port", "customize", "skip"}:
         failures.append("security_decision: missing or invalid")
     blind = documents.get("blind_grade") or {}
-    for path_key, hash_key, health_key in (
-        ("source_png", "source_sha256", "source_health"),
-        ("target_png", "target_sha256", "render_health"),
-    ):
-        image_path = Path(str(blind.get(path_key) or ""))
-        expected_hash = blind.get(hash_key)
-        measured_path = Path(str((visual.get(health_key) or {}).get("path") or ""))
-        if not image_path.is_file() or not expected_hash:
-            failures.append(f"blind_grade: missing bound {path_key}")
-        elif sha256(image_path) != expected_hash:
-            failures.append(f"blind_grade: stale {path_key} hash")
-        elif not measured_path.is_file() or image_path.resolve() != measured_path.resolve():
-            failures.append(f"blind_grade: {path_key} does not match visual-similarity input")
-    failed_dimensions = [
-        name
-        for name, value in (blind.get("dimensions") or {}).items()
-        if value.get("verdict") != "pass"
-    ]
-    if blind.get("verdict") != "pass" or failed_dimensions:
-        failures.append(
-            "blind_grade: visual fidelity failed"
-            + (f" ({', '.join(failed_dimensions)})" if failed_dimensions else "")
-        )
+    graded = (
+        blind_grade_v2_lib.evaluate_grade_set(blind_grade)
+        if "blind_grade" in documents
+        else {"v2": False}
+    )
+    v2 = graded["v2"]
+    bind_docs = list(zip(graded["docs"], graded["paths"])) if v2 else [(blind, blind_grade)]
+    for doc, doc_path in bind_docs:
+        label = "" if doc_path == blind_grade else f"{doc_path.name} "
+        for path_key, hash_key, health_key in (
+            ("source_png", "source_sha256", "source_health"),
+            ("target_png", "target_sha256", "render_health"),
+        ):
+            image_path = Path(str(doc.get(path_key) or ""))
+            expected_hash = doc.get(hash_key)
+            measured_path = Path(str((visual.get(health_key) or {}).get("path") or ""))
+            if not image_path.is_file() or not expected_hash:
+                failures.append(f"blind_grade: {label}missing bound {path_key}")
+            elif sha256(image_path) != expected_hash:
+                failures.append(f"blind_grade: {label}stale {path_key} hash")
+            elif not measured_path.is_file() or image_path.resolve() != measured_path.resolve():
+                failures.append(
+                    f"blind_grade: {label}{path_key} does not match visual-similarity input"
+                )
+    failed_dimensions: list[str] = []
+    visual_fidelity = None
+    degradations: list[dict] = []
+    platform_differences: list[dict] = []
+    polish_notes: list[dict] = []
+    blind_gate_pass = False
+    if v2:
+        # blind-grade/v2: an INVALID grade (catalog/sha/borderline/second-grade rules)
+        # blocks; a VALID but unfaithful grade only forfeits GREEN (YELLOW).
+        for problem in graded["errors"]:
+            failures.append(f"blind_grade: {problem}")
+        decision = graded["decision"]
+        if decision is not None:
+            blind_gate_pass = True
+            artifact = blind_grade.name
+            visual_fidelity = {
+                "schema": blind_grade_v2_lib.SCHEMA_V2,
+                "faithful": decision["faithful"],
+                "score": decision["score"],
+                "grades": len(graded["docs"]),
+                "reasons": decision["reasons"],
+                "fixable_major": decision["fixable_major"],
+                "residuals": decision["residuals"],
+            }
+            degradations.extend(blind_grade_v2_lib.v2_degradations(decision, artifact))
+            polish_notes = blind_grade_v2_lib.v2_polish_notes(decision, artifact)
+            for gap in decision["platform_differences"]:
+                platform_differences.append(
+                    {
+                        "item": f"{gap.get('tile')}: {gap.get('description')}",
+                        "catalog_id": str(gap.get("class")),
+                        "source_artifact": artifact,
+                    }
+                )
+    else:
+        failed_dimensions = [
+            name
+            for name, value in (blind.get("dimensions") or {}).items()
+            if value.get("verdict") != "pass"
+        ]
+        if blind.get("verdict") != "pass" or failed_dimensions:
+            failures.append(
+                "blind_grade: visual fidelity failed"
+                + (f" ({', '.join(failed_dimensions)})" if failed_dimensions else "")
+            )
+        blind_gate_pass = blind.get("verdict") == "pass" and not failed_dimensions
 
     dm_ids = documents.get("data_model_ids") or {}
     wb_ids = documents.get("workbook_ids") or {}
-    yellow = security.get("decision") == "skip" or any(
+    yellow = (
+        security.get("decision") == "skip"
+        or bool(degradations)
+        or (visual_fidelity is not None and not visual_fidelity["faithful"])
+    ) or any(
         item.get("status") in {"approximated", "needs-review", "skipped"}
         for item in source_objects
         if isinstance(item, dict)
@@ -250,7 +319,7 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         "numeric_parity": documents.get("parity", {}).get("match") is True,
         "source_anchors": documents.get("anchors", {}).get("pass") is True,
         "visual_floor": visual_pass,
-        "blind_visual_grade": blind.get("verdict") == "pass" and not failed_dimensions,
+        "blind_visual_grade": blind_gate_pass,
         "semantic_edit_proof": documents.get("semantic_edits", {}).get("match") is True,
         "relationship_coverage": relationship_gate_pass,
         "dashboard_coverage": dashboard_gate_pass,
@@ -258,7 +327,9 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         "reconstruction_integrity": reconstruction_pass,
         "security_decision": security.get("decision") in {"not-required", "port", "customize", "skip"},
     }
-    return {
+    if "independent_verification" in required:
+        gates["independent_verification"] = verification_pass
+    result = {
         "schema_version": 1,
         "status": verdict,
         "verdict": verdict,
@@ -287,23 +358,44 @@ def evaluate(workdir: Path, blind_grade: Path) -> dict:
         "failures": failures,
         "gates": gates,
     }
+    if visual_fidelity is not None:
+        result["visual_fidelity"] = visual_fidelity
+        result["degradations"] = degradations
+        result["platform_differences"] = platform_differences
+        result["polish_notes"] = polish_notes
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workdir", required=True)
-    parser.add_argument("--blind-grade", required=True)
+    parser.add_argument(
+        "--blind-grade",
+        required=True,
+        help="blind grade JSON; an optional second grade is taken from blind-grade-2.json "
+        "in the same directory (sibling-file convention, borderline first grade only)",
+    )
     args = parser.parse_args()
     workdir_guard.check(args.workdir, "--workdir")
     workdir = Path(args.workdir).expanduser().resolve()
+    if (workdir / "repair-pending.json").exists() or (workdir / "repair-pending.json").is_symlink():
+        print("NOT DONE: repair-pending.json records an unverified write outcome; recover and reverify.", file=sys.stderr)
+        return 1
     span = Span(workdir, "completion", "verify-complete.py")
     try:
+        output = workdir / "migration-result.json"
+        if output.exists() or output.is_symlink():
+            history = workdir / "report-history"
+            if history.is_symlink():
+                raise ValueError("report history must not be a symlink")
+            history.mkdir(mode=0o700, exist_ok=True)
+            output.rename(history / ("migration-result-" + uuid.uuid4().hex + ".json"))
         result = evaluate(workdir, Path(args.blind_grade).expanduser().resolve())
         (workdir / "migration-result.json").write_text(
             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         span.finish(2)
         print(f"FATAL: completion gate could not run: {exc}", file=sys.stderr)
         return 2
@@ -314,7 +406,7 @@ def main() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
     print(
-        f"DONE: GREEN dataModelId={result['dataModelId']} "
+        f"DONE: {result['verdict']} dataModelId={result['dataModelId']} "
         f"workbookId={result['workbookId']}"
     )
     span.finish(0)

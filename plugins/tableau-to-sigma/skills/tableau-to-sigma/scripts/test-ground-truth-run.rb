@@ -152,7 +152,10 @@ GT_STUB = <<~'RUBY'
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['GT_STUB_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
-      return { 'workbookId' => 'wb-gt-probe' } if method == :post && path == '/v2/workbooks/spec'
+      if method == :post && path == '/v2/workbooks'
+        raise Error, 'missing explicit probe destination' unless JSON.parse(body)['folderId'] == 'folder-fixture'
+        return { 'workbookId' => 'wb-gt-probe' }
+      end
       return { 'queryId' => 'q-gt' } if method == :post && path.include?('/export')
       return "Region,Sales (sum)\nEast,100.5\n" if method == :get && path.start_with?('/v2/query/')
       return {} if method == :delete
@@ -174,7 +177,7 @@ Dir.mktmpdir do |dir|
     { 'GT_STUB_LOG' => log, 'REAL_SIGMA_REST' => File.join(__dir__, 'lib', 'sigma_rest.rb'),
       'SIGMA_BASE_URL' => 'https://stub.invalid', 'SIGMA_API_TOKEN' => 'stub' },
     RbConfig.ruby, '-I', stub_dir, '-r', 'sigma_rest',
-    SCRIPT, '--workdir', dir, '--connection-id', 'conn-1'
+    SCRIPT, '--workdir', dir, '--connection-id', 'conn-1', '--folder-id', 'folder-fixture'
   )
   ok(st.exitstatus.zero?, "live stub run exits 0 (got #{st.exitstatus}: #{err.lines.first(2).join(' ').strip[0, 140]})")
   calls = File.exist?(log) ? File.readlines(log).map { |l| JSON.parse(l) } : []
@@ -199,7 +202,7 @@ end
 # the throwaway probe exactly like the pooled and join-key probe seams.
 script_source = File.read(SCRIPT)
 canonicalize_at = script_source.index('WorkbookCode.canonicalize(spec)')
-post_at = script_source.index("Sigma.request(:post, '/v2/workbooks/spec'")
+post_at = script_source.index('Sigma.request(:post, Sigma::CodeRep.create_path')
 ok(script_source.include?("require_relative 'lib/workbook_code'"),
    'serial live seam loads the workbook code-representation adapter')
 ok(canonicalize_at && post_at && canonicalize_at < post_at,

@@ -38,16 +38,14 @@ end
 # `ruby -I <stub> -r sigma_rest`; the real lib path is then marked required so
 # the scripts' own `require 'sigma_rest'` no-ops. Logs EVERY request to
 # STUB_LOG as {"m":method,"p":path}. STUB_SPEC serves both the live workbook GET
-# (?includeContents=true for the migrated shared scripts; the retired /spec path
-# for the not-yet-migrated plugin-local collect-parity-actuals.rb) and the probe
-# workbook POST reply.
+# (GET /v2/workbooks/{id}?includeContents=true) and the probe workbook POST reply.
 STUB = <<~'RUBY'
   require 'json'
   module Sigma
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['STUB_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
-      return File.read(ENV['STUB_SPEC']) if method == :get && (path.end_with?('/spec') || path.include?('?includeContents=true'))
+      return File.read(ENV['STUB_SPEC']) if method == :get && path.include?('?includeContents=true')
       if method == :post && path.include?('/export')
         req = JSON.parse(body)
         return { 'queryId' => req['elementId'] }
@@ -512,10 +510,9 @@ GT_POOL_STUB = <<~'RUBY'
     class Error < StandardError; end
     def self.request(method, path, body: nil, accept: nil, binary: false, content_type: nil, http: nil)
       File.open(ENV['GTP_LOG'], 'a') { |f| f.puts(JSON.generate('m' => method.to_s, 'p' => path)) }
-      # pooled_sql_probe (shared export_pool.rb) POSTs /v2/workbooks; the
-      # not-yet-migrated run-ground-truth.rb SERIAL probe still POSTs the
-      # retired /v2/workbooks/spec — serve both.
-      if method == :post && ['/v2/workbooks', '/v2/workbooks/spec'].include?(path)
+      # pooled_sql_probe (shared export_pool.rb) and the run-ground-truth.rb SERIAL
+      # probe both POST /v2/workbooks.
+      if method == :post && path == '/v2/workbooks'
         posted = JSON.parse(body)
         # Task 3.2: pooled_sql_probe nests the workbook document under a
         # top-level `contents` key (the live surface 400s on the old flat
@@ -556,6 +553,7 @@ GT_SCRIPT = File.join(SCRIPTS, 'run-ground-truth.rb')
 SWEEP_SCRIPT = File.join(SCRIPTS, 'sweep-run-artifacts.rb')
 
 def gt_plan(dir, n_sql)
+  File.write(File.join(dir, 'wb-spec.json'), JSON.generate('folderId' => 'folder-fixture'))
   entries = (1..n_sql).map do |k|
     { 'chart' => "Tile #{k}", 'sigma_element_id' => "el-#{k}", 'classification' => 'warehouse-sql',
       'sql' => "SELECT R AS \"Region\", SUM(S) AS \"Sales (sum)\"\nFROM T#{k}\nGROUP BY 1",
@@ -588,7 +586,7 @@ Dir.mktmpdir do |dir|
   out, _err, st = run_stubbed(stub_dir, env, GT_SCRIPT, '--workdir', dir, '--connection-id', 'conn-1')
   check(st.exitstatus.zero?, "pooled run exits 0 (got #{st.exitstatus})", fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 1,
+  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks' } == 1,
         'exactly ONE probe-workbook POST for 3 warehouse-sql entries', fails)
   check(log.count { |r| r['m'] == 'post' && r['p'].include?('/export') } == 3,
         'one pooled export per entry', fails)
@@ -664,7 +662,7 @@ Dir.mktmpdir do |dir|
   check(st.exitstatus.zero?, "fallback run still completes → exit 0 (got #{st.exitstatus})", fails)
   check(err.include?('falling back to the serial'), 'fallback is LOUD on stderr', fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 3,
+  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks' } == 3,
         '1 refused pooled POST + 2 serial probe POSTs', fails)
   check(log.count { |r| r['m'] == 'delete' } == 2, 'serial fallback deletes per-entry probes', fails)
   doc = JSON.parse(File.read(File.join(dir, 'ground-truth-actuals.json')))
@@ -686,7 +684,7 @@ Dir.mktmpdir do |dir|
                                '--no-pool')
   check(st.exitstatus.zero?, "--no-pool run exits 0 (got #{st.exitstatus})", fails)
   log = read_log(env['GTP_LOG'])
-  check(log.count { |r| r['m'] == 'post' && ['/v2/workbooks', '/v2/workbooks/spec'].include?(r['p']) } == 2 &&
+  check(log.count { |r| r['m'] == 'post' && r['p'] == '/v2/workbooks' } == 2 &&
         log.count { |r| r['m'] == 'delete' } == 2,
         '--no-pool: one probe workbook per entry (the serial seam, unchanged)', fails)
   doc = JSON.parse(File.read(File.join(dir, 'ground-truth-actuals.json')))

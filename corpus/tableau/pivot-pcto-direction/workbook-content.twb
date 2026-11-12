@@ -1,0 +1,100 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook>
+  <datasources>
+    <datasource caption='Fact' name='federated.ds'>
+      <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+<column caption='Segment' datatype='string' name='[Segment]' role='dimension' type='nominal' />
+<column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+      <column caption='Running Sales' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'><calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))' /></column>
+      <column caption='Share of Sales' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'><calculation class='tableau' formula='SUM([Sales]) / TOTAL(SUM([Sales]))' /></column>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Quick Pct Across Region'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.ds'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+<column caption='Segment' datatype='string' name='[Segment]' role='dimension' type='nominal' />
+<column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+            <column caption='Running Sales' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'><calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))' /></column>
+            <column caption='Share of Sales' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'><calculation class='tableau' formula='SUM([Sales]) / TOTAL(SUM([Sales]))' /></column>
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+<column-instance column='[Segment]' derivation='None' name='[none:Segment:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Sales]' derivation='Sum' name='[pcto:sum:Sales:qk]' pivot='key' type='quantitative'><table-calc ordering-field='[federated.ds].[none:Region:nk]' ordering-type='Field' type='PctTotal' /></column-instance>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.ds].[none:Segment:nk]</rows>
+        <cols>[federated.ds].[none:Region:nk]</cols>
+        <panes><pane><mark class='Square' /><encodings><text column='[federated.ds].[pcto:sum:Sales:qk]' /></encodings></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Share Calc Across Region'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.ds'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+<column caption='Segment' datatype='string' name='[Segment]' role='dimension' type='nominal' />
+<column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+            <column caption='Running Sales' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'><calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))' /></column>
+            <column caption='Share of Sales' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'><calculation class='tableau' formula='SUM([Sales]) / TOTAL(SUM([Sales]))' /></column>
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+<column-instance column='[Segment]' derivation='None' name='[none:Segment:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_2]' derivation='User' name='[usr:Calculation_2:qk]' pivot='key' type='quantitative'><table-calc ordering-field='[federated.ds].[none:Region:nk]' ordering-type='Field' /></column-instance>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.ds].[none:Segment:nk]</rows>
+        <cols>[federated.ds].[none:Region:nk]</cols>
+        <panes><pane><mark class='Square' /><encodings><text column='[federated.ds].[usr:Calculation_2:qk]' /></encodings></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Share Calc Default Addressing'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.ds'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+<column caption='Segment' datatype='string' name='[Segment]' role='dimension' type='nominal' />
+<column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+            <column caption='Running Sales' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'><calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))' /></column>
+            <column caption='Share of Sales' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'><calculation class='tableau' formula='SUM([Sales]) / TOTAL(SUM([Sales]))' /></column>
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+<column-instance column='[Segment]' derivation='None' name='[none:Segment:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_2]' derivation='User' name='[usr:Calculation_2:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.ds].[none:Segment:nk]</rows>
+        <cols>[federated.ds].[none:Region:nk]</cols>
+        <panes><pane><mark class='Square' /><encodings><text column='[federated.ds].[usr:Calculation_2:qk]' /></encodings></pane></panes>
+      </table>
+    </worksheet>
+    <worksheet name='Running Sum Across Region'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.ds'>
+            <column caption='Region' datatype='string' name='[Region]' role='dimension' type='nominal' />
+<column caption='Segment' datatype='string' name='[Segment]' role='dimension' type='nominal' />
+<column caption='Sales' datatype='real' name='[Sales]' role='measure' type='quantitative' />
+            <column caption='Running Sales' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'><calculation class='tableau' formula='RUNNING_SUM(SUM([Sales]))' /></column>
+            <column caption='Share of Sales' datatype='real' name='[Calculation_2]' role='measure' type='quantitative'><calculation class='tableau' formula='SUM([Sales]) / TOTAL(SUM([Sales]))' /></column>
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+<column-instance column='[Segment]' derivation='None' name='[none:Segment:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Calculation_1]' derivation='User' name='[usr:Calculation_1:qk]' pivot='key' type='quantitative'><table-calc ordering-field='[federated.ds].[none:Region:nk]' ordering-type='Field' /></column-instance>
+          </datasource-dependencies>
+        </view>
+        <rows>[federated.ds].[none:Segment:nk]</rows>
+        <cols>[federated.ds].[none:Region:nk]</cols>
+        <panes><pane><mark class='Square' /><encodings><text column='[federated.ds].[usr:Calculation_1:qk]' /></encodings></pane></panes>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Region Matrix'>
+      <zones>
+        <zone h='33000' id='1' name='Quick Pct Across Region' w='100000' x='0' y='0' />
+        <zone h='33000' id='2' name='Share Calc Across Region' w='100000' x='0' y='33000' />
+        <zone h='34000' id='3' name='Running Sum Across Region' w='100000' x='0' y='66000' />
+        <zone h='10000' id='4' name='Share Calc Default Addressing' w='100000' x='0' y='90000' />
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

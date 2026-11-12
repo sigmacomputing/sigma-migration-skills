@@ -1,0 +1,22 @@
+{
+  "dataModelId": "dm-fixture",
+  "pages": [
+    {
+      "id": "dm-page",
+      "elements": [
+        {
+          "id": "fact-view",
+          "kind": "table",
+          "name": "Fact View",
+          "columnLabels": [
+            "Customer Id",
+            "Loyalty Tier",
+            "Region",
+            "Order Date",
+            "Net Revenue"
+          ]
+        }
+      ]
+    }
+  ]
+}

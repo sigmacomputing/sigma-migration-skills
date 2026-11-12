@@ -57,9 +57,9 @@ SIGMA_STUB = <<~'RUBY'
       if ENV['SIGMA_STUB_LOG']
         File.open(ENV['SIGMA_STUB_LOG'], 'a') { |f| f.puts JSON.generate('method' => method.to_s, 'path' => path, 'body' => body) }
       end
-      if method == :post && path == '/v2/workbooks/spec'
+      if method == :post && path == '/v2/workbooks'
         if ENV['SIGMA_STUB_400']
-          raise Error, "POST /v2/workbooks/spec -> 400 Bad Request\n" \
+          raise Error, "POST /v2/workbooks -> 400 Bad Request\n" \
                        '{"code":"bad_request","message":"invalid folderId: must be a valid folder UUID"}'
         end
         @spec_posts += 1
@@ -90,7 +90,7 @@ end
 
 def spec_posts(log)
   File.readlines(log).map { |l| JSON.parse(l) }
-      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks/spec' }
+      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks' }
 end
 
 fails = []
@@ -336,7 +336,7 @@ Dir.mktmpdir do |dir|
   check(bodies.all? { |b| b['folderId'] == 'fld-inferred' },
         'no --folder-id → POST body carries the workdir-inferred destination UUID', fails)
   check(bodies.all? { |b|
-          doc = b['document']
+          doc = b['contents']
           doc.is_a?(Hash) && doc['schemaVersion'] == 1 && doc['kind'] == 'workbook' &&
             doc['pages'].is_a?(Array) && doc['pages'].none? { |page| page.key?('elements') } &&
             doc['elements'].is_a?(Array) && doc['elements'].one? &&

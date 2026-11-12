@@ -1,0 +1,4 @@
+{ "elements": {
+  "el-store-rank-table": { "worksheet": "Store Rank Table" },
+  "el-store-scorecard": { "worksheet": "Store Scorecard" },
+  "el-store-state-map": { "worksheet": "Store State Map" } } }

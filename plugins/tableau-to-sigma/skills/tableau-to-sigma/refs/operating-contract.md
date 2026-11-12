@@ -105,7 +105,8 @@
 - **Never conclude a product limitation without a probe.** Before recording any
   `sigma-capability` residual, prove it: run the same operation two ways (e.g. table
   export vs chart render) and attach the evidence. `fidelity-loop.rb` refuses a
-  "no data / empty" delta classed as `sigma-capability`/`ui-only` without a `--probe`.
+  "no data / empty" delta classed as `sigma-capability`/`ui-only` without a `--probe`. Those two
+  classes also require `--catalog-id` (shipped catalog); an uncatalogued ceiling is `spec-fixable`.
 - **The measurement is the anchors, not the actuals.** Never edit `source-anchors.json`
   to match what the live workbook returns — that reconciles the ruler to the thing it
   measures. A genuine re-transcription (you re-read the SOURCE image) uses

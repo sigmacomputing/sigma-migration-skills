@@ -1,0 +1,6 @@
+[
+  {
+    "name": "Total Net Revenue",
+    "formula": "Sum([Net Revenue])"
+  }
+]

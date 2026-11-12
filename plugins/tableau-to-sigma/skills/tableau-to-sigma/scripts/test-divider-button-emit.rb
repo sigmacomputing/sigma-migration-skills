@@ -230,6 +230,12 @@ check(!act.nil? && act['effects'].is_a?(Array) && act['effects'][0].dig('target'
       'target.type is page', fails)
 check(!JSON.generate(els).include?('nav.invalid'),
       'the emitted button carries no nav.invalid placeholder', fails)
+# nav-button-style recipe: a Tableau text-button tab is a filled, square,
+# bold, full-cell-width, large native button (width comes from the layout span).
+check(btn && btn.values_at('appearance', 'align', 'size', 'borderRadius', 'fontWeight') ==
+        %w[filled stretch large square bold],
+      "nav button styled per nav-button-style (got #{btn && btn.values_at('appearance', 'align', 'size', 'borderRadius', 'fontWeight').inspect})", fails)
+check(btn && btn['fontColor'] == '#333333', "source font colour kept (got #{btn && btn['fontColor'].inspect})", fails)
 
 # workbook-global id uniqueness across BOTH button zones (10 and 11)
 ids = els.select { |e| e['kind'] == 'button' }
@@ -336,7 +342,7 @@ Dir.mktmpdir do |d|
   File.write(mm, JSON.dump('(?i)^Region$' => { 'id' => 'm-reg', 'name' => 'Region' },
                            '(?i)^Revenue$' => { 'id' => 'm-rev', 'name' => 'Revenue' }))
   File.write(File.join(d, 'get-workbook.json'),
-             JSON.dump('views' => { 'view' => [{ 'id' => 'v1', 'name' => 'Trend' }] }))
+             JSON.dump('showTabs' => false, 'views' => { 'view' => [{ 'id' => 'v1', 'name' => 'Trend' }] }))
   Dir.mkdir(File.join(d, 'views'))
   File.write(File.join(d, 'views', 'v1.csv'), "Region,Revenue\nEast,100\nWest,200\n")
   abort 'parse-twb-layout failed' unless system('ruby', File.join(DIR, 'parse-twb-layout.rb'), twb, lay,
@@ -358,6 +364,7 @@ if spec2.nil? || manifest2.nil?
   check(false, "Part 6 fixture produced no --out/manifest — log tail:\n#{charts_log2.to_s.lines.last(15).join}", fails)
 else
   pages2 = spec2['pages'] || []
+  check(spec2['source_hides_tabs'] == true, "builder surfaces showTabs=false from get-workbook.json (got #{spec2['source_hides_tabs'].inspect})", fails)
   dash_one_els = (pages2.find { |p| p['name'] == 'Dash One' } || {})['elements'] || []
   dash_two_els = (pages2.find { |p| p['name'] == 'Dash Two' } || {})['elements'] || []
   btn_one = dash_one_els.find { |e| e['kind'] == 'button' }

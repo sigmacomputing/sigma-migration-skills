@@ -19,7 +19,8 @@ numbers, not the design.
 
 - **If you can read images** (the Read tool returns the picture, not a description of a
   file), run the loop normally and record verdicts with `record-visual-check.rb
-  --verdict pass|divergent`.
+  --blind-grade <grade.json>` (a v2 grade computes the verdict; a legacy v1 grade still uses
+  `--verdict pass|divergent --checklist ...`).
 - **If you cannot read images** (text-only agent, or image input disabled in this
   session), you MUST NOT record `pass` — that is a blind attestation, the exact failure
   mode gate 8b exists to stop. Record the verdict as **not-executable** instead: run the

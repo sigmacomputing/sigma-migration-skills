@@ -30,7 +30,7 @@ REAL_SIGMA_REST = File.expand_path('lib/sigma_rest.rb', __dir__)
 
 DISCOVERY_SPEC = {
   'workbookId' => 'wb-src',
-  'document' => { 'schemaVersion' => 7, 'pages' => [{ 'id' => 'p1', 'elements' => [] }] }
+  'contents' => { 'schemaVersion' => 7, 'pages' => [{ 'id' => 'p1', 'elements' => [] }] }
 }.freeze
 
 SIGMA_STUB = <<~RUBY
@@ -49,9 +49,9 @@ SIGMA_STUB = <<~RUBY
         { 'homeFolderId' => 'home-1' }
       when method == :get && path.start_with?('/v2/workbooks?')
         { 'entries' => [{ 'workbookId' => 'wb-src' }] }
-      when method == :get && path == '/v2/workbooks/wb-src/spec'
+      when method == :get && path == '/v2/workbooks/wb-src?includeContents=true'
         JSON.parse(JSON.generate(DISCOVERY_SPEC))
-      when method == :post && path == '/v2/workbooks/spec'
+      when method == :post && path == '/v2/workbooks'
         @wb_posts ||= 0
         @wb_posts += 1
         { 'workbookId' => "wb-new-\#{@wb_posts}" }
@@ -85,7 +85,7 @@ end
 def wb_posts(log)
   return [] unless File.exist?(log)
   File.readlines(log).map { |l| JSON.parse(l) }
-      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks/spec' }
+      .select { |r| r['method'] == 'post' && r['path'] == '/v2/workbooks' }
 end
 
 fails = []
@@ -105,11 +105,11 @@ Dir.mktmpdir do |dir|
   check(posts.size == 1, "exactly one workbook POST captured (the DM-element context 3 stub 404s before its own workbook POST; got #{posts.size})", fails)
   if posts.size >= 1
     body = JSON.parse(posts.first['body'])
-    check(body.key?('document') && body['document'].is_a?(Hash),
-          'probe-workbook POST body carries a top-level `document` key', fails)
+    check(body.key?('contents') && body['contents'].is_a?(Hash),
+          'probe-workbook POST body carries a top-level `contents` key', fails)
     check(!body.key?('pages') && !body.key?('schemaVersion'),
           'probe-workbook POST body has NO top-level pages/schemaVersion (must be nested)', fails)
-    doc = body['document'].is_a?(Hash) ? body['document'] : {}
+    doc = body['contents'].is_a?(Hash) ? body['contents'] : {}
     check(doc['schemaVersion'] == 7,
           "wrapped document carries the borrowed schemaVersion=7 (got #{doc['schemaVersion'].inspect})", fails)
     check(doc['pages'].is_a?(Array) && !doc['pages'].empty?,

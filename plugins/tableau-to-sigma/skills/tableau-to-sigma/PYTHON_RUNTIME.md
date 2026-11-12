@@ -65,6 +65,12 @@ Important options:
 - `--reuse-mode auto|new|require`: uniquely reuse, always create, or require a
   compatible existing Sigma object.
 - `--data-model-id` / `--sigma-workbook-id`: verify and reuse explicit objects.
+  An explicit `--data-model-id` this workdir did not post is judged on the
+  reused-DM relationship evidence route (`relationship-map.json`; prove edges
+  with `probe-relationship-map.py`) — see `refs/phase-3-datamodel.md`. It
+  also satisfies the embedded-extract landing gate without an off-ramp
+  (`extract-landing-status.json` status `reused-data-model`); exit 17 returns
+  if that reuse is not taken.
 - `--no-auto-land`: keep embedded extract landing as a manual gate.
 - `--skip-extract-landing "<reason>"`: explicit, artifact-recorded off-ramp;
   it never claims frozen-extract parity.

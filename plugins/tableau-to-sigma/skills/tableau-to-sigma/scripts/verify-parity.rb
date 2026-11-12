@@ -76,8 +76,10 @@ def month_grain(v)
   DimCanon.month_grain(v)
 end
 
-def round_row(row)
-  DimCanon.round_row(row)
+# measure_idx (Array) turns on null-member canonicalization for the NON-measure
+# columns: "" / nil / "Null" / "NULL" / "%null%" are one null dimension member.
+def round_row(row, measure_idx = nil)
+  DimCanon.round_row(row, null_members: measure_idx)
 end
 
 # Per-tile value-parity score in [0,1] (bead y9rd.2): tuple-set Jaccard —
@@ -352,7 +354,7 @@ mode_forced = opts[:mode] == :extract
 def printed_precision_rows(raw_rows, decs, measure_idx)
   measure_idx = (measure_idx + decs.each_index.select { |i| decs[i] }).uniq
   raw_rows.reject { |r| measure_idx.all? { |i| r[i].nil? } }.map do |r|
-    rounded = round_row(r)
+    rounded = round_row(r, measure_idx)
     r.each_with_index.map do |v, i|
       num = if v.is_a?(Numeric) then v.to_f
             elsif v.is_a?(String) && v.strip.match?(/\A-?\d+(\.\d+)?\z/) then v.strip.to_f
@@ -365,8 +367,11 @@ end
 results = plan.map do |p|
   decs = p['expected_decimals'].is_a?(Array) && p['expected_decimals'].any? ? p['expected_decimals'] : nil
   measure_idx = p['measure_indices'].is_a?(Array) ? p['measure_indices'] : []
+  # Without declared measure columns, only STRING cells are null-canonicalized
+  # (a nil measure is already nil; "Null"/"" never occur in a numeric column).
+  null_measure_idx = measure_idx
   exp = decs ? printed_precision_rows(p['expected'] || [], decs, measure_idx) :
-               (p['expected'] || []).map { |r| round_row(r) }
+               (p['expected'] || []).map { |r| round_row(r, null_measure_idx) }
 
   this_extract = if p.key?('extract')
                    p['extract']
@@ -409,7 +414,7 @@ results = plan.map do |p|
   end
 
   act = decs ? printed_precision_rows(p.dig('actual', 'rows') || [], decs, measure_idx) :
-               (p.dig('actual', 'rows') || []).map { |r| round_row(r) }
+               (p.dig('actual', 'rows') || []).map { |r| round_row(r, null_measure_idx) }
 
   score_exp = exp
   score_act = act

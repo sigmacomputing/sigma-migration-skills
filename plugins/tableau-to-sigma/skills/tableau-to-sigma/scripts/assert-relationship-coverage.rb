@@ -5,6 +5,8 @@ require 'json'
 require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/relationship_coverage'
+require_relative 'lib/relationship_route'
+require_relative 'lib/relationship_map'
 
 opts = {}
 OptionParser.new do |parser|
@@ -14,6 +16,22 @@ OptionParser.new do |parser|
 end.parse!
 
 workdir = opts[:workdir] || abort('usage: assert-relationship-coverage.rb --workdir DIR')
+
+# Reused-DM evidence route (persisted in migrate-state.json by the
+# orchestrator): the customer-built model is judged by relationship-map.json —
+# key probes, parity and field use — not by a count against the converter draft.
+if RelationshipRoute.current(workdir)
+  result = RelationshipMap.evaluate_workdir(workdir, final: true)
+  if result['status'] == 'pass'
+    puts "relationship coverage: PASS (reused-dm evidence) — #{RelationshipMap.summary_line(result)} (all verified)"
+    exit 0
+  end
+  warn "RELATIONSHIP COVERAGE FAIL (reused-dm evidence): #{result['blockers'].size} blocker(s) in #{File.join(workdir, 'relationship-map.json')}"
+  result['blockers'].each { |b| warn "  - #{b['kind']}: #{b['reason']}" }
+  warn "  re-derive: ruby scripts/emit-relationship-map.rb --workdir #{workdir}; prove edges: " \
+       "ruby scripts/probe-join-keys.rb --workdir #{workdir} --relationship-map #{File.join(workdir, 'relationship-map.json')} --connection-id <id>"
+  exit 3
+end
 metadata_path = opts[:metadata] || File.join(workdir, 'conv-meta.json')
 source_path = opts[:source] || File.join(workdir, 'workbook-content.twb')
 artifact_path = File.join(workdir, 'relationship-coverage.json')

@@ -1054,17 +1054,19 @@ module MechanicalSpecs
   #   - mcp_build nil     → the HOSTED converter MCP over HTTP
   #     (the endpoint at SIGMA_MCP_CONVERTER_URL, via lib/mcp_convert.py),
   #     used ONLY on explicit --converter hosted opt-in (uploads the .twb).
-  def run_converter(twb_path:, conn:, db:, schema:, mcp_build:, workdir:, datasource_index: 0, table_mapping: nil, fact_table: nil)
+  def run_converter(twb_path:, conn:, db:, schema:, mcp_build:, workdir:, datasource_index: 0,
+                    table_mapping: nil, fact_table: nil, table_row_counts: nil, model_plan: nil)
     # fact_table: operator override for the object-model fact election
     # (--fact-table). Local-build path only — the hosted MCP tool's arg schema
     # doesn't carry it (the local vendored bundle is the normal path anyway).
     if mcp_build.nil?
-      if fact_table && !fact_table.to_s.strip.empty?
+      raise 'accepted target-model plans require the local converter; the hosted schema cannot consume modelPlan' if model_plan
+      if (fact_table && !fact_table.to_s.strip.empty?) || model_plan
         # Loud, not silent: the hosted tool cannot take the override, so the
         # converter-side election (helper-SQL FROM tables, relationship
         # orientation) runs unoverridden — only the Ruby-side pick_fact
         # preference still applies. The wrong-FROM remedy needs a LOCAL build.
-        warn "WARN: --fact-table #{fact_table} does NOT reach the HOSTED converter (its arg schema has no factTable) — " \
+        warn "WARN: target-model/fact override #{fact_table} does NOT reach the HOSTED converter (its arg schema has no modelPlan/factTable) — " \
              'the converter-side fact election (helper SQL FROM tables, relationship orientation) runs unoverridden; ' \
              'only the Ruby-side pick_fact preference applies. For the full override set TABLEAU_MCP_BUILD to a local build.'
       end
@@ -1096,6 +1098,12 @@ module MechanicalSpecs
         schema: #{schema.to_json},
         tableMapping: #{(table_mapping || {}).to_json},
         factTable: #{(fact_table || '').to_json},
+        tableRowCounts: #{(table_row_counts || {}).to_json},
+        modelPlan: #{model_plan.to_json},
+        // This pipeline rewrites GUID-only virtual-connection date placeholders
+        // ([TABLE/Caption]) with the warehouse formula before POST, so the
+        // converter may wire computed keys over them (the upstream converter repo PR #132).
+        guidDateRecovery: true,
       });
       const bare = out.model || out.sigmaDataModel || out;
       writeFileSync(#{raw_out.to_json}, JSON.stringify(bare, null, 2));
@@ -2060,6 +2068,41 @@ module MechanicalSpecs
     result
   end
 
+  class MetricDependencyError < StandardError; end
+
+  def expand_sibling_metrics!(model)
+    all_elements(model).each do |element|
+      metrics = Array(element['metrics'])
+      by_name = {}
+      metrics.each do |metric|
+        key = metric['name'].to_s.downcase
+        next if key.empty?
+        raise MetricDependencyError, "duplicate metric name #{metric['name'].inspect}" if by_name.key?(key)
+        by_name[key] = metric
+      end
+      column_names = Array(element['columns']).map { |column| col_display(column).to_s.downcase }
+      resolved = {}
+      expand = lambda do |name, path|
+        return resolved[name] if resolved.key?(name)
+        raise MetricDependencyError, "metric dependency cycle: #{(path + [name]).join(' -> ')}" if path.include?(name)
+        raise MetricDependencyError, 'metric dependency chain exceeds 64 levels' if path.size >= 64
+        formula = by_name.fetch(name)['formula'].to_s
+        # Match quoted strings as whole tokens so bracket text inside a literal
+        # is never interpreted as a metric reference.
+        result = formula.gsub(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\[\]]*\]|[^"'\[]+|./m) do |token|
+          next token unless token.start_with?('[') && token.end_with?(']')
+          reference = token[1..-2].downcase
+          next token if reference.include?('/') || column_names.include?(reference) || !by_name.key?(reference)
+          "(#{expand.call(reference, path + [name])})"
+        end
+        raise MetricDependencyError, 'expanded metric exceeds 100000 characters' if result.size > 100_000
+        resolved[name] = result
+      end
+      by_name.each_key { |name| expand.call(name, []) }
+      by_name.each { |name, metric| metric['formula'] = resolved[name] }
+    end
+  end
+
   # DM-spec fixup (mechanical). See module doc. Returns
   #   { fixed: <n formulas rewritten>, dropped: [<dropped calc display names>] }.
   # real_columns: optional { "TABLE" => Set/Array of UPPER physical column names }
@@ -2098,6 +2141,18 @@ module MechanicalSpecs
     # Caption hygiene FIRST (bead 320u): Sigma trims display names server-side,
     # so trailing-space captions must be trimmed everywhere refs are built.
     trim_spec_whitespace!(model)
+    all_elements(model).each do |element|
+      next unless element.dig('source', 'kind') == 'warehouse-table'
+      Array(element['columns']).each do |column|
+        next unless column['name'].to_s.empty? && column['formula'].to_s.empty?
+        physical = column['id'].to_s.split('/').last
+        next unless physical && physical.match?(/\A[A-Z][A-Z0-9_]*\z/)
+        if Array(element['columns']).any? { |other| !other.equal?(column) && other['name'].to_s.casecmp?(physical) }
+          raise ArgumentError, "physical column #{physical.inspect} collides with an existing label on #{element['name'].inspect}; resolve the alias before posting"
+        end
+        column['name'] = physical
+      end
+    end
     # Referenceable names: a column/metric NAME containing "/" "[" "]" cannot be
     # referenced by any formula, so it is renamed model-wide here — BEFORE
     # expose_base_calcs_on_derived! below copies base names into `[Src/<name>]`
@@ -2281,6 +2336,7 @@ module MechanicalSpecs
       # untranslated list; here we just keep the DM POST-able.
       if el['metrics']
         kept_metrics = []
+        refused_names = Set.new
         (el['metrics'] || []).each do |m|
           f = (m['formula'] || '').dup
           f = f.gsub(/\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/i) do
@@ -2294,13 +2350,27 @@ module MechanicalSpecs
           paren_ref = f =~ /\[[^\]]*\([^\]]*\][^\]]*\]/ || f =~ /\([A-Z0-9_]+ \(/
           if formula_has_guid_ref?(f) || paren_ref
             dropped << (m['name'] || 'metric')
+            refused_names << m['name'].to_s.downcase
             next
           end
           kept_metrics << m
         end
+        column_names = Array(el['columns']).map { |column| col_display(column).to_s.downcase }
+        loop do
+          removed = kept_metrics.reject! do |metric|
+            tokens = metric['formula'].to_s.scan(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\[\]]*\]/m)
+            refs = tokens.select { |token| token.start_with?('[') }.map { |token| token[1..-2].downcase }
+            next false unless refs.any? { |ref| refused_names.include?(ref) && !column_names.include?(ref) }
+            refused_names << metric['name'].to_s.downcase
+            dropped << (metric['name'] || 'metric')
+            true
+          end
+          break unless removed
+        end
         el['metrics'] = kept_metrics
       end
     end
+    expand_sibling_metrics!(model)
     { fixed: fixed, dropped: dropped.uniq, phantom: phantom, remapped: remapped,
       renamed: slash[:renamed], rename_map: slash[:map] }
   end
@@ -2812,8 +2882,29 @@ module MechanicalSpecs
     pages
   end
 
+  # Hide Sigma's page tabs in view mode ONLY when the Tableau workbook itself
+  # hides its sheet tabs (discovery metadata showTabs == false) AND the pages
+  # carry a native nav-button strip (a button with a navigate action). Merged
+  # into settings.navigation without dropping sibling keys. Returns true when set.
+  def hide_page_tabs_for_nav_strip!(spec)
+    has_nav = false
+    walk = lambda do |n|
+      case n
+      when Array then n.each { |v| walk.call(v) }
+      when Hash
+        has_nav = true if n['kind'] == 'button' && Array(n['actions']).any? { |a| Array(a['effects']).any? { |e| e['effect'] == 'navigate' } }
+        n.each_value { |v| walk.call(v) }
+      end
+    end
+    walk.call(spec['pages'])
+    return false unless has_nav
+    settings = (spec['settings'] ||= {})
+    (settings['navigation'] ||= {})['pageTabsInViewMode'] = 'hidden'
+    true
+  end
+
   def build_wb_spec(name:, dm_id:, fact_eid:, master_columns:, chart_elements:, folder_id: nil,
-                    data_elements: [], theme: nil, canonical: true)
+                    data_elements: [], theme: nil, canonical: true, source_hides_tabs: false)
     master = {
       'id' => 'master', 'kind' => 'table', 'name' => 'Master', 'visibleAsSource' => false,
       'source' => { 'kind' => 'data-model', 'dataModelId' => dm_id, 'elementId' => fact_eid },
@@ -2864,6 +2955,7 @@ module MechanicalSpecs
     }
     spec['folderId'] = folder_id if folder_id
     ThemeDerive.apply!(spec, theme) if defined?(ThemeDerive)
+    hide_page_tabs_for_nav_strip!(spec) if source_hides_tabs
     if canonical
       require_relative 'lib/workbook_code'
       WorkbookCode.canonicalize(spec)

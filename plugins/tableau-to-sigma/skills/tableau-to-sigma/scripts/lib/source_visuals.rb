@@ -102,16 +102,29 @@ module SourceVisuals
         !rows_shelf['has_measure_names'] && !cols_shelf['has_measure_names']
       element['display'] ||= {}
       element['display']['showLabels'] = 'hidden'
-      element['tableStyle'] ||= {
+      presentation = {
         'preset' => 'presentation', 'gridLines' => 'none', 'outerBorder' => 'hidden',
         'banding' => 'shown', 'bandingColor' => '#f5f5f5',
         'cellSpacing' => 'large',
         'textStyles' => {
           'cell' => { 'fontSize' => 12, 'align' => 'center' },
           'columnHeader' => { 'fontSize' => 12, 'fontWeight' => 'normal', 'backgroundColor' => '#ffffff' },
+          # `rowHeader` is the presentation key; the live-proven row-header font lever for a squeezed pivot
+          # is `header` (PivotWidths, R6), which this block never sets.
           'rowHeader' => { 'fontSize' => 12, 'fontWeight' => 'normal', 'backgroundColor' => '#ffffff' }
         }
       }
+      # Merge UNDER any existing tableStyle (e.g. the squeezed-pivot recipe from PivotWidths, whose
+      # extra-small spacing / font sizes must beat the large spacing here): existing keys win.
+      element['tableStyle'] = deep_merge_under(presentation, element['tableStyle'])
+    end
+  end
+
+  # `defaults` with `existing` laid over it, recursively; existing values always win.
+  def deep_merge_under(defaults, existing)
+    return defaults unless existing.is_a?(Hash)
+    defaults.merge(existing) do |_k, d, e|
+      d.is_a?(Hash) && e.is_a?(Hash) ? deep_merge_under(d, e) : e
     end
   end
 end

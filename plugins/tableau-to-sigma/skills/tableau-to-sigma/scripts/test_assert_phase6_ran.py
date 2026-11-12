@@ -9,6 +9,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 GATE = HERE / "assert-phase6-ran.py"
 sys.path.insert(0, str(HERE / "lib"))
+import blind_grade_v2
 import relationship_coverage
 import dashboard_coverage
 import sql_provenance
@@ -469,6 +470,149 @@ class AssertPhase6RanTest(unittest.TestCase):
         self.assert_gate_failure(48, "visual-similarity")
 
     def test_blind_grade_is_bound_to_current_visual_inputs_exit_49(self):
+        self.target_png.write_bytes(b"changed after grading")
+        self.assert_gate_failure(49, "blind-grade")
+
+    def v2_grade(self, overall=90, gaps=None, fail_dims=(), **extra):
+        doc = {
+            "schema": "blind-grade/v2",
+            "source_png": str(self.source_png),
+            "target_png": str(self.target_png),
+            "source_sha256": hashlib.sha256(self.source_png.read_bytes()).hexdigest(),
+            "target_sha256": hashlib.sha256(self.target_png.read_bytes()).hexdigest(),
+            "catalog_sha256": blind_grade_v2.shipped_catalog()["sha256"],
+            "dimensions": {
+                k: {"verdict": "fail" if k in fail_dims else "pass", "evidence": "f"}
+                for k in blind_grade_v2.DIMENSION_KEYS
+            },
+            "per_tile": [{"position": 1, "source_family": "bar", "target_family": "bar"}],
+            "scores": {k: 9 for k in blind_grade_v2.DIMENSION_KEYS},
+            "overall_score": overall,
+            "gaps": gaps or [],
+        }
+        doc.update(extra)
+        return doc
+
+    def v2_gap(self, **kw):
+        base = {"tile": "T", "dimension": "composition_match", "description": "d",
+                "severity": "major", "class": "fixable"}
+        base.update(kw)
+        return base
+
+    def set_result(self, verdict, degradations=None):
+        result = self.load_json("migration-result.json")
+        result["verdict"] = verdict
+        if degradations is None:
+            result.pop("degradations", None)
+        else:
+            result["degradations"] = degradations
+        self.write_json("migration-result.json", result)
+        report = self.workdir / "MIGRATION_REPORT.md"
+        text = report.read_text()
+        for other in ("GREEN", "YELLOW"):
+            text = text.replace(f"Verdict: **{other}**", f"Verdict: **{verdict}**")
+            text = text.replace(f"**Verdict:** {other}", f"**Verdict:** {verdict}")
+        report.write_text(text)
+
+    def unfaithful_grade(self):
+        self.write_json("blind-grade.json", self.v2_grade(90, gaps=[self.v2_gap()],
+                                                          fail_dims=("palette_match",)))
+        decision = blind_grade_v2.evaluate_grade_set(self.workdir / "blind-grade.json")["decision"]
+        return blind_grade_v2.v2_degradations(decision, "blind-grade.json")
+
+    def test_v2_unfaithful_grade_with_yellow_and_degradations_passes_and_records_faithful(self):
+        degradations = self.unfaithful_grade()
+        self.set_result("YELLOW", degradations)
+        completed = self.run_gate()
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        marker = self.load_json("phase6-success-python.json")
+        self.assertIs(False, marker["blind_grade"]["faithful"])
+        self.assertEqual("YELLOW", marker["verdict"])
+        self.assertEqual(90.0, marker["blind_grade"]["score"])
+        self.assertEqual("blind-grade/v2", marker["blind_grade"]["schema"])
+
+    def test_v2_unfaithful_grade_with_green_verdict_fails_report(self):
+        self.unfaithful_grade()
+        self.set_result("GREEN", None)
+        completed = self.run_gate()
+        self.assertEqual(52, completed.returncode, completed.stderr)
+        self.assertIn("report", completed.stderr)
+
+    def test_v2_unfaithful_yellow_missing_divergent_entry_fails_report(self):
+        degradations = [d for d in self.unfaithful_grade() if "divergent" not in d["item"]]
+        self.set_result("YELLOW", degradations)
+        completed = self.run_gate()
+        self.assertEqual(52, completed.returncode, completed.stderr)
+        self.assertIn("visual verdict: divergent", completed.stderr)
+
+    def test_v2_faithful_with_minor_only_accepts_green(self):
+        self.write_json("blind-grade.json", self.v2_grade(90, gaps=[self.v2_gap(severity="minor")]))
+        self.set_result("GREEN", None)
+        completed = self.run_gate()
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIs(True, self.load_json("phase6-success-python.json")["blind_grade"]["faithful"])
+
+    def test_v2_faithful_with_major_gap_still_requires_the_residual_entries(self):
+        self.write_json("blind-grade.json", self.v2_grade(90, gaps=[self.v2_gap(severity="major")]))
+        self.set_result("YELLOW", [{"class": "fidelity-residual", "item": "something else"}])
+        completed = self.run_gate()
+        self.assertEqual(52, completed.returncode, completed.stderr)
+
+    def test_v2_faithful_grade_records_faithful_true(self):
+        self.write_json("blind-grade.json", self.v2_grade(90))
+        completed = self.run_gate()
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIs(True, self.load_json("phase6-success-python.json")["blind_grade"]["faithful"])
+
+    def test_v1_grade_marker_has_no_v2_block(self):
+        self.assertEqual(0, self.run_gate().returncode)
+        self.assertNotIn("blind_grade", self.load_json("phase6-success-python.json"))
+
+    def test_v2_single_borderline_grade_fails_exit_49(self):
+        self.write_json("blind-grade.json", self.v2_grade(72))
+        completed = self.run_gate()
+        self.assertEqual(49, completed.returncode, completed.stderr)
+        self.assertIn("second blind grader required (score within ±5 of 75)", completed.stderr)
+
+    def test_v2_borderline_with_sibling_second_grade_passes_on_mean(self):
+        self.write_json("blind-grade.json", self.v2_grade(72))
+        self.write_json("blind-grade-2.json", self.v2_grade(84))
+        completed = self.run_gate()
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        marker = self.load_json("phase6-success-python.json")
+        self.assertEqual(78.0, marker["blind_grade"]["score"])
+        self.assertEqual(2, marker["blind_grade"]["grades"])
+
+    def test_v2_second_grade_refused_when_first_not_borderline(self):
+        self.write_json("blind-grade.json", self.v2_grade(90))
+        self.write_json("blind-grade-2.json", self.v2_grade(60))
+        self.assert_gate_failure(49, "blind-grade")
+        self.assertIn("not borderline", self.run_gate().stderr)
+
+    def test_v2_second_grade_refused_when_identical_bytes(self):
+        self.write_json("blind-grade.json", self.v2_grade(72))
+        self.write_json("blind-grade-2.json", self.v2_grade(72))
+        self.assert_gate_failure(49, "blind-grade")
+        self.assertIn("identical bytes", self.run_gate().stderr)
+
+    def test_v2_second_grade_refused_when_image_shas_differ(self):
+        self.write_json("blind-grade.json", self.v2_grade(72))
+        self.write_json("blind-grade-2.json", self.v2_grade(84, source_sha256="c" * 64))
+        self.assert_gate_failure(49, "blind-grade")
+
+    def test_v2_catalog_sha_mismatch_refused(self):
+        self.write_json("blind-grade.json", self.v2_grade(90, catalog_sha256="0" * 64))
+        self.assert_gate_failure(49, "blind-grade")
+        self.assertIn("catalog_sha256 mismatch", self.run_gate().stderr)
+
+    def test_v2_unknown_catalog_id_refused(self):
+        self.write_json("blind-grade.json",
+                        self.v2_grade(90, gaps=[self.v2_gap(**{"class": "made-up"})]))
+        self.assert_gate_failure(49, "blind-grade")
+        self.assertIn("made-up", self.run_gate().stderr)
+
+    def test_v2_stale_image_hash_refused(self):
+        self.write_json("blind-grade.json", self.v2_grade(90))
         self.target_png.write_bytes(b"changed after grading")
         self.assert_gate_failure(49, "blind-grade")
 

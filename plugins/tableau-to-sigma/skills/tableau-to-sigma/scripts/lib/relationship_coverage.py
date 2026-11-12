@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+# Parses the workbook being migrated; xml.etree resolves no external entities and fetches no DTDs.
+import xml.etree.ElementTree as ET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,16 @@ def evaluate(
     coverage = metadata.get("relationshipCoverage") if isinstance(metadata, dict) else None
     object_graph = bool(OBJECT_GRAPH_RE.search(source_text or ""))
     if not isinstance(coverage, dict):
+        if object_graph:
+            try:
+                root = ET.fromstring(source_text)
+                name = lambda node: node.tag.rsplit('}', 1)[-1].rsplit('...', 1)[-1]
+                graphs = [node for node in root.iter() if name(node) == 'object-graph']
+                if graphs and all(sum(name(node) == 'object' for node in graph.iter()) == 1
+                                  and not any(name(node) == 'relationship' for node in graph.iter()) for graph in graphs):
+                    object_graph = False
+            except (ET.ParseError, TypeError):
+                pass
         blockers = (
             [
                 {

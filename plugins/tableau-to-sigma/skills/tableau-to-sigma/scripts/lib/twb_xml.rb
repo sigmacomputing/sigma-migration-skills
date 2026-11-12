@@ -82,6 +82,10 @@ module TwbXml
       @node.name
     end
 
+    def to_s
+      @node.to_s
+    end
+
     # REXML returns nil once you walk above the root element; Nokogiri's root
     # element parent is the Document, so collapse Document/nil to nil to stop
     # the ancestor walk in parse-twb-layout's story-container resolver.

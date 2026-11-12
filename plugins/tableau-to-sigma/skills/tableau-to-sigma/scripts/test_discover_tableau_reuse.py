@@ -206,8 +206,8 @@ class DiscoverTableauReuseTest(unittest.TestCase):
                         {"workbookId": "wb-wrong", "name": "Executive copy"},
                     ]
                 },
-                "/v2/workbooks/wb-good/spec": workbook_spec(),
-                "/v2/workbooks/wb-wrong/spec": workbook_spec(
+                "/v2/workbooks/wb-good?includeContents=true": workbook_spec(),
+                "/v2/workbooks/wb-wrong?includeContents=true": workbook_spec(
                     visual_name="Different chart"
                 ),
             }
@@ -254,7 +254,7 @@ class DiscoverTableauReuseTest(unittest.TestCase):
         compatible_api = FakeApi(
             {
                 "/v2/dataModels/dm-explicit/spec": dm_spec(),
-                "/v2/workbooks/wb-explicit/spec": workbook_spec("dm-explicit"),
+                "/v2/workbooks/wb-explicit?includeContents=true": workbook_spec("dm-explicit"),
             }
         )
         result = reuse.discover(
@@ -267,7 +267,7 @@ class DiscoverTableauReuseTest(unittest.TestCase):
         self.assertEqual(
             [
                 ("get", "/v2/dataModels/dm-explicit/spec"),
-                ("get", "/v2/workbooks/wb-explicit/spec"),
+                ("get", "/v2/workbooks/wb-explicit?includeContents=true"),
             ],
             compatible_api.calls,
         )

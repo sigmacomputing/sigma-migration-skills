@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "source": "tableau",
+  "sourceFilterSignals": 1,
+  "controls": [
+    {
+      "controlId": "ctl-store-type",
+      "name": "Store Type",
+      "scope": "page"
+    }
+  ],
+  "dropped": []
+}

@@ -6,7 +6,7 @@
 POST /v2/dataModels/spec
 ```
 
-**Not** `/v2/workbooks/spec`. These create completely different object types.
+**Not** `/v2/workbooks`. These create completely different object types.
 
 ## Top-level shape
 

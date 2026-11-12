@@ -25,6 +25,9 @@ corpus/
 | tableau/orders-overview | .twb workbook + discovery signals | data model (9 elements, LOD child) |
 | tableau/lookup-grain-mismatch | synthetic field-twin .twb (VC self-join on a non-unique compound key + Top-N params) | join-plan pin + probe fixture + gate-16 checks.sh (no golden DM) |
 | tableau/join-elision-fanout | synthetic field-twin .twb (LEFT JOIN on a flag key, no joined column on shelves + 2nd datasource) | join-plan pin + multi-ds/gap-scan/line-kind checks.sh (no golden DM) |
+| tableau/fixed-lod-dimension | synthetic .twb ({FIXED [Customer Id] : MIN(YEAR([Order Date]))} as a pivot ROW dimension) + pre-helper wb-spec | helper/Lookup wb-spec pin + validate/ref-gate/control-lint/lod-audit checks.sh (no golden DM) |
+| tableau/census-derived-names | synthetic .twb (RANK table calc in a crosstab + Color-shelf boolean flag + styled filled map) + built-spec pin | gap-scan / census accounting / map-style signal + plan checks.sh (no golden DM) |
+| tableau/dim-unmatched-members | synthetic DM readback (fact → Store Dim relationship) + view CSVs with a 0-order store + pre-pass wb-spec | dimension LEFT-JOIN clone wb-spec pin + validate/ref-gate/control-lint/idempotence checks.sh (no golden DM) |
 | tableau/preagg-kpi | synthetic field-twin .twb ({FIXED day: COUNTD} LODs consumed additively + dual-axis combo) | lod-audit pin + gate-17/dual-axis checks.sh (no golden DM) |
 | tableau/structural-workarounds | synthetic .twb (story + blend + nested LOD/ISOYEAR/FINDNTH/bins) | skill-script pins: story-plan / blend-plan / lod-chains (no golden DM) |
 | tableau/objectmodel-noodle | synthetic field-twin .twbs (2020.2+ relationship graph: adverse endpoint orientation + entitlement table + keyless edges) | 2 DM goldens (fact election, orientation, controlId dedupe, rls-entitlement-table security) + gap-scan ✅/❌ checks.sh |

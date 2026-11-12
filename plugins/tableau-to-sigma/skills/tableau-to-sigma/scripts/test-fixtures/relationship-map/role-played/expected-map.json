@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "ac8f14bb1d2998008c431841bc1947337b12c7f1a1e2dd70f8b5cca1d184fed9",
+    "dm_sha256": "45331d36ef6d65844cd74086020fcb0a63d109f8169eaac5299921ebab43a19b"
+  },
+  "tables": [
+    {
+      "table": "ANALYTICS.PUBLIC.FLIGHTS",
+      "datasource": "Flights",
+      "dm_element_ids": [
+        "flights"
+      ]
+    },
+    {
+      "table": "ANALYTICS.PUBLIC.AIRPORTS",
+      "datasource": "Flights",
+      "dm_element_ids": [
+        "dest",
+        "origin"
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "flights->origin",
+      "edge_sha": "c58c64e7fc121376ad288af93d950de1b2f08bd936817e96b5dab15a14ec4d33",
+      "source_element": "flights",
+      "target_element": "origin",
+      "source_table": "ANALYTICS.PUBLIC.FLIGHTS",
+      "target_table": "ANALYTICS.PUBLIC.AIRPORTS",
+      "keys": [
+        {
+          "source": "ORIGIN_KEY",
+          "target": "AIRPORT_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "flights->dest",
+      "edge_sha": "a7acaa80a387c1fc079f1a692814d53c1635e4cb34459b37beca8bf552efce09",
+      "source_element": "flights",
+      "target_element": "dest",
+      "source_table": "ANALYTICS.PUBLIC.FLIGHTS",
+      "target_table": "ANALYTICS.PUBLIC.AIRPORTS",
+      "keys": [
+        {
+          "source": "DEST_KEY",
+          "target": "AIRPORT_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Flights",
+      "left": "ANALYTICS.PUBLIC.FLIGHTS",
+      "right": "ANALYTICS.PUBLIC.AIRPORTS",
+      "tableau_keys": [
+        {
+          "left": "ORIGIN_KEY",
+          "right": "AIRPORT_KEY"
+        }
+      ],
+      "disposition": "matched",
+      "dm_path": [
+        "flights->origin"
+      ],
+      "requires": [
+
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "extra",
+      "datasource": null,
+      "left": "ANALYTICS.PUBLIC.FLIGHTS",
+      "right": "ANALYTICS.PUBLIC.AIRPORTS",
+      "tableau_keys": [
+
+      ],
+      "disposition": "extra",
+      "dm_path": [
+        "flights->dest"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+        "Flights by Origin"
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+
+  ]
+}

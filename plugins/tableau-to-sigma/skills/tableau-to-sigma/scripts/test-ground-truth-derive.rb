@@ -104,6 +104,21 @@ Dir.mktmpdir do |dir|
   ok(prov['worksheet'] == 'Sales by Region' && prov['dashboard'].to_s == 'Ground Truth Dash',
      'provenance names the source zone/worksheet')
 
+  meta_path = File.join(dir, 'dashboard-layout-meta.json')
+  source_meta = JSON.parse(File.read(meta_path))
+  source_meta['shared_filters'] = [
+    { 'shared_view' => 'federated.gt01', 'kind' => 'list', 'column_caption' => 'Segment', 'members' => ['Consumer'], 'datatype' => 'string' },
+    { 'shared_view' => 'other-source', 'kind' => 'list', 'column_caption' => 'Segment', 'members' => ['Unrelated'], 'datatype' => 'string' }
+  ]
+  File.write(meta_path, JSON.generate(source_meta))
+  _, shared_error, shared_status = Open3.capture3(RbConfig.ruby, DERIVE, '--workdir', dir, '--twb', FIXTURE, '--out', out_path)
+  ok(shared_status.success?, "shared-filter derivation completes: #{shared_error}")
+  shared_entry = JSON.parse(File.read(out_path))['entries'].find { |row| row['chart'] == 'Sales by Region' }
+  ok(shared_entry['sql'].to_s.include?("SEGMENT IN ('Consumer')"), 'shared-view saved filter is applied to warehouse ground truth')
+  ok(!shared_entry['sql'].to_s.include?('Unrelated'), 'unrelated datasource shared filter is excluded')
+  source_meta.delete('shared_filters')
+  File.write(meta_path, JSON.generate(source_meta))
+
   puts '-- calc measure → SQL + dependency provenance --'
   e = by_chart['Profit Ratio by Segment']
   ok(e['classification'] == 'warehouse-sql', "Profit Ratio classified warehouse-sql (got #{e['classification']}: #{e['reason']})")

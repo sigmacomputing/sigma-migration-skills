@@ -92,7 +92,7 @@ end
 
 options = {}
 OptionParser.new do |opts|
-  opts.on('--spec PATH',   'Path to current spec YAML (from GET /v2/workbooks/<id>/spec)') { |v| options[:spec] = v }
+  opts.on('--spec PATH',   'Path to current spec YAML (from GET /v2/workbooks/<id>?includeContents=true)') { |v| options[:spec] = v }
   opts.on('--output PATH', 'Output path for JSON with layout added')                       { |v| options[:output] = v }
 end.parse!
 
@@ -110,7 +110,7 @@ page_xmls = spec['pages'].map do |page|
 end
 
 # Strip read-only fields that cause PUT to fail
-%w[workbookId url ownerId createdBy updatedBy createdAt updatedAt latestDocumentVersion].each { |k| spec.delete(k) }
+%w[workbookId url ownerId createdBy updatedBy createdAt updatedAt latestDocumentVersion latestVersion].each { |k| spec.delete(k) }
 
 # Single top-level layout field — never set on individual page objects
 spec['layout'] = ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", *page_xmls].join("\n")

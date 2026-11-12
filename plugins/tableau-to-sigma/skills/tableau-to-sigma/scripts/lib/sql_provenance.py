@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -110,15 +112,20 @@ def evaluate(
         for element in page.get("elements") or []
         if isinstance(element, dict)
     ]
+    # Name matching only identifies an element whose name no other SQL element shares.
+    name_counts = Counter(
+        str(element.get("name") or "")
+        for element in elements
+        if (element.get("source") or {}).get("kind") == "sql"
+    )
     entries = []
     for element in elements:
         if (element.get("source") or {}).get("kind") != "sql":
             continue
         statement = str((element.get("source") or {}).get("statement") or "")
         normalized = normalize_sql(statement)
-        override = overrides.get(str(element.get("id") or "")) or overrides.get(
-            str(element.get("name") or "")
-        )
+        name = str(element.get("name") or "")
+        unique_name = bool(name) and name_counts[name] == 1
         converter_entry = next(
             (
                 row
@@ -127,6 +134,28 @@ def evaluate(
                 and str(row.get("elementId") or "") == str(element.get("id") or "")
             ),
             None,
+        )
+        # A live readback carries server-assigned ids; fall back to a unique
+        # ledger name (the statement must still match below).
+        if converter_entry is None and unique_name:
+            named = [
+                row
+                for row in converter_entries
+                if isinstance(row, dict)
+                and str(row.get("elementName") or "")
+                and str(row.get("elementName") or "") == str(element.get("name") or "")
+            ]
+            if len(named) == 1:
+                converter_entry = named[0]
+        # A pass-1 override may be keyed by the converter id the readback lost.
+        override = (
+            overrides.get(str(element.get("id") or ""))
+            or (overrides.get(name) if unique_name else None)
+            or (
+                overrides.get(str(converter_entry.get("elementId") or ""))
+                if converter_entry is not None
+                else None
+            )
         )
         converter_origin = (
             str(converter_entry.get("originType") or "")
@@ -177,3 +206,39 @@ def evaluate(
         "blockers": blockers,
         "dm_spec_sha256": hashlib.sha256(spec_raw).hexdigest(),
     }
+def record_active_spec(workdir, path, model_id):
+    root, source = Path(workdir).resolve(), Path(path).resolve()
+    if source.parent != root or not isinstance(model_id, str) or not model_id:
+        raise ValueError("active data-model spec must be inside the workdir with a model id")
+    destination = root / "active-dm-spec.json"
+    if destination.is_symlink():
+        raise ValueError("active binding must not be a symlink")
+    fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"path": source.name, "data_model_id": model_id,
+                   "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}, handle)
+
+
+def active_spec_path(workdir):
+    root = Path(workdir)
+    binding = root / "active-dm-spec.json"
+    if binding.is_symlink():
+        raise ValueError("active binding must not be a symlink")
+    if binding.is_file():
+        record = json.loads(binding.read_text(encoding="utf-8"))
+        if not isinstance(record, dict) or not isinstance(record.get("data_model_id"), str) or not record["data_model_id"]:
+            raise ValueError("invalid active data-model binding")
+        name = record.get("path", "")
+        if not isinstance(name, str) or not name or Path(name).name != name or "\\" in name:
+            raise ValueError("invalid active data-model spec path")
+        path = root / name
+        if not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != record.get("sha256"):
+            raise ValueError("active data-model spec is missing or stale")
+        ids = json.loads((root / "dm-ids.json").read_text(encoding="utf-8"))
+        if not isinstance(ids, dict) or ids.get("dataModelId") != record.get("data_model_id"):
+            raise ValueError("active data-model binding belongs to another model")
+        return path
+    paths = [root / name for name in ("dm-spec.json", "dm-spec-reused.json", "dm-remapped.json", "dm-raw.json") if (root / name).is_file()]
+    if len(paths) > 1:
+        raise ValueError("ambiguous data-model source; rerun the gated pass to record the active spec")
+    return paths[0] if paths else None

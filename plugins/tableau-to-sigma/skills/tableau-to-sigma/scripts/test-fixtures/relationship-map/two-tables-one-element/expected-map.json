@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "route": "reused-dm-evidence",
+  "inputs": {
+    "twb_sha256": "a25bf325f2943ca1a30edd437918549c6a5ea499c71d97325e8738f3d5e6139a",
+    "dm_sha256": "28b3fd601ed6767903d6f927b74f79202056b0af606a675f4a89271b5db2ff25"
+  },
+  "tables": [
+    {
+      "table": "PUBLIC.ORDERS",
+      "datasource": "Sales",
+      "dm_element_ids": [
+        "orders"
+      ]
+    },
+    {
+      "table": "PUBLIC.DATE_DIM",
+      "datasource": "Sales",
+      "dm_element_ids": [
+
+      ]
+    },
+    {
+      "table": "TARGETS",
+      "datasource": "Plan",
+      "dm_element_ids": [
+        "targets"
+      ]
+    },
+    {
+      "table": "DATE_DIM",
+      "datasource": "Plan",
+      "dm_element_ids": [
+
+      ]
+    }
+  ],
+  "dm_edges": [
+    {
+      "edge_id": "orders->date",
+      "edge_sha": "7d28416c38a626965a5a75819c7ec92aaaa7ab6af38948f4d0d48652bbf4e6a8",
+      "source_element": "orders",
+      "target_element": "date",
+      "source_table": "PUBLIC.ORDERS",
+      "target_table": null,
+      "keys": [
+        {
+          "source": "DATE_KEY",
+          "target": "DATE_KEY"
+        }
+      ],
+      "probe": null
+    },
+    {
+      "edge_id": "targets->date",
+      "edge_sha": "c68e59e9496c5a003c5ac73a9e05de572891edbeb62e2842b28fed5bbd46d183",
+      "source_element": "targets",
+      "target_element": "date",
+      "source_table": "TARGETS",
+      "target_table": null,
+      "keys": [
+        {
+          "source": "DATE_KEY",
+          "target": "DATE_KEY"
+        }
+      ],
+      "probe": null
+    }
+  ],
+  "entries": [
+    {
+      "index": 0,
+      "kind": "tableau",
+      "datasource": "Sales",
+      "left": "PUBLIC.ORDERS",
+      "right": "PUBLIC.DATE_DIM",
+      "tableau_keys": [
+        {
+          "left": "DATE_KEY",
+          "right": "DATE_KEY"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "fail",
+        "worksheets": [
+          "Orders by Day"
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 1,
+      "kind": "tableau",
+      "datasource": "Plan",
+      "left": "TARGETS",
+      "right": "DATE_DIM",
+      "tableau_keys": [
+        {
+          "left": "DATE_KEY",
+          "right": "DATE_KEY"
+        }
+      ],
+      "disposition": "dropped",
+      "dm_path": [
+
+      ],
+      "requires": [
+        "field_use",
+        "not_a_bridge"
+      ],
+      "field_use": {
+        "status": "pass",
+        "worksheets": [
+
+        ]
+      },
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 2,
+      "kind": "extra",
+      "datasource": null,
+      "left": "PUBLIC.ORDERS",
+      "right": null,
+      "tableau_keys": [
+
+      ],
+      "disposition": "extra",
+      "dm_path": [
+        "orders->date"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    },
+    {
+      "index": 3,
+      "kind": "extra",
+      "datasource": null,
+      "left": "TARGETS",
+      "right": null,
+      "tableau_keys": [
+
+      ],
+      "disposition": "extra",
+      "dm_path": [
+        "targets->date"
+      ],
+      "requires": [
+        "key_probe",
+        "parity"
+      ],
+      "field_use": null,
+      "affected_worksheets": [
+
+      ],
+      "reason": null
+    }
+  ],
+  "blockers": [
+    {
+      "kind": "ambiguous-table",
+      "table": "DATE_DIM",
+      "reason": "DATE_DIM and PUBLIC.DATE_DIM both resolve to model element date"
+    },
+    {
+      "kind": "ambiguous-table",
+      "table": "PUBLIC.DATE_DIM",
+      "reason": "DATE_DIM and PUBLIC.DATE_DIM both resolve to model element date"
+    }
+  ]
+}

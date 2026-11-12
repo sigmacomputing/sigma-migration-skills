@@ -44,8 +44,11 @@ from typing import Any, Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import workdir_guard  # noqa: E402
 import relationship_coverage as relationship_coverage_lib  # noqa: E402
+import relationship_map as relationship_map_lib  # noqa: E402
+import relationship_route as relationship_route_lib  # noqa: E402
 import dashboard_coverage as dashboard_coverage_lib  # noqa: E402
 import sql_provenance as sql_provenance_lib  # noqa: E402
+import blind_grade_v2 as blind_grade_v2_lib  # noqa: E402
 
 MISSION_FIELDS = ("source", "sigma_connection", "destination", "landing", "scope")
 TERMINAL_STATUSES = {
@@ -448,20 +451,9 @@ def gate_visual(workdir: Path) -> tuple[dict[str, Any], Path, Path]:
     return visual, health_paths[0], health_paths[1]
 
 
-def gate_blind_grade(blind_path: Path, source_png: Path, target_png: Path) -> str:
-    blind = require_object(blind_path, "blind-grade")
-    if blind.get("verdict") != "pass":
-        fail("blind-grade", "blind grade verdict is not pass")
-    dimensions = blind.get("dimensions")
-    if not isinstance(dimensions, dict) or not dimensions:
-        fail("blind-grade", "blind grade has no dimension verdicts")
-    failed = [
-        str(name)
-        for name, record in dimensions.items()
-        if not isinstance(record, dict) or record.get("verdict") != "pass"
-    ]
-    if failed:
-        fail("blind-grade", "blind grade has non-passing dimension(s): " + ", ".join(failed))
+def _bind_blind_images(
+    blind: dict[str, Any], blind_path: Path, source_png: Path, target_png: Path
+) -> None:
     expected = (
         ("source_png", "source_sha256", source_png),
         ("target_png", "target_sha256", target_png),
@@ -477,7 +469,47 @@ def gate_blind_grade(blind_path: Path, source_png: Path, target_png: Path) -> st
             fail("blind-grade", f"{hash_key} is missing or malformed")
         if not hmac.compare_digest(sha256(bound), recorded_hash.lower()):
             fail("blind-grade", f"{path_key} hash is stale")
-    return sha256(blind_path)
+
+
+def gate_blind_grade(
+    blind_path: Path, source_png: Path, target_png: Path
+) -> tuple[str, dict[str, Any] | None]:
+    """-> (grade sha256, v2 summary or None).
+
+    v1 / schema-less grades keep the original rule (verdict and every dimension
+    must pass). A blind-grade/v2 grade passes when it validates against the
+    shipped catalog and is bound to the visual-similarity images, faithful or
+    not: an unfaithful grade finishes YELLOW in verify-complete.py, never here.
+    """
+    blind = require_object(blind_path, "blind-grade")
+    if blind.get("schema") == blind_grade_v2_lib.SCHEMA_V2:
+        graded = blind_grade_v2_lib.evaluate_grade_set(blind_path)
+        if graded["errors"]:
+            fail("blind-grade", "; ".join(graded["errors"]))
+        for doc, path in zip(graded["docs"], graded["paths"]):
+            _bind_blind_images(doc, path, source_png, target_png)
+        decision = graded["decision"]
+        return sha256(blind_path), {
+            "schema": blind_grade_v2_lib.SCHEMA_V2,
+            "faithful": decision["faithful"],
+            "score": decision["score"],
+            "grades": len(graded["docs"]),
+            "_degradations": blind_grade_v2_lib.v2_degradations(decision, blind_path.name),
+        }
+    if blind.get("verdict") != "pass":
+        fail("blind-grade", "blind grade verdict is not pass")
+    dimensions = blind.get("dimensions")
+    if not isinstance(dimensions, dict) or not dimensions:
+        fail("blind-grade", "blind grade has no dimension verdicts")
+    failed = [
+        str(name)
+        for name, record in dimensions.items()
+        if not isinstance(record, dict) or record.get("verdict") != "pass"
+    ]
+    if failed:
+        fail("blind-grade", "blind grade has non-passing dimension(s): " + ", ".join(failed))
+    _bind_blind_images(blind, blind_path, source_png, target_png)
+    return sha256(blind_path), None
 
 
 def security_rules(workdir: Path) -> list[Any]:
@@ -545,6 +577,17 @@ def gate_semantic_edits(workdir: Path) -> None:
 
 
 def gate_relationship_coverage(workdir: Path) -> None:
+    # Reused-DM evidence route: relationship-map.json replaces the strict
+    # count against the converter draft (see lib/relationship_map.py).
+    if relationship_route_lib.current(workdir):
+        result = relationship_map_lib.evaluate_workdir(workdir, final=True)
+        if result["status"] != "pass":
+            fail(
+                "relationship-coverage",
+                "reused-dm evidence unproven: "
+                + "; ".join(f"{b['kind']}: {b['reason']}" for b in result["blockers"]),
+            )
+        return
     artifact = require_object(
         workdir / "relationship-coverage.json", "relationship-coverage"
     )
@@ -630,21 +673,10 @@ def gate_dashboard_coverage(workdir: Path) -> None:
 
 def gate_sql_provenance(workdir: Path) -> None:
     artifact = require_object(workdir / "sql-provenance.json", "sql-provenance")
-    spec_path = next(
-        (
-            path
-            for path in (
-                workdir / "dm-remapped.json",
-                workdir / "dm-raw.json",
-                workdir / "dm-spec.json",
-            )
-            if path.is_file()
-        ),
-        None,
-    )
-    if spec_path is None:
-        fail("sql-provenance", "no data-model spec is available")
     try:
+        spec_path = sql_provenance_lib.active_spec_path(workdir)
+        if spec_path is None:
+            fail("sql-provenance", "no data-model spec is available")
         expected = sql_provenance_lib.evaluate(
             spec_path,
             workdir / "conv-meta.json",
@@ -667,7 +699,7 @@ def gate_sql_provenance(workdir: Path) -> None:
         )
 
 
-def gate_report(workdir: Path) -> tuple[str, str, str]:
+def gate_report(workdir: Path, blind_v2: dict[str, Any] | None = None) -> tuple[str, str, str]:
     census = require_object(workdir / "source-object-census.json", "report")
     census_objects = census_rows(census, "report")
     result = require_object(workdir / "migration-result.json", "report")
@@ -727,6 +759,27 @@ def gate_report(workdir: Path) -> tuple[str, str, str]:
         fail("report", "migration-result.json contains an incomplete gate census")
     if result.get("failures") not in (None, []):
         fail("report", "migration-result.json contains blocking failures")
+    if blind_v2 is not None:
+        # blind-grade/v2: the degradations verify-complete.py derives from the grade
+        # must all be recorded, and an unfaithful grade can never finish GREEN.
+        recorded = {
+            (str(row.get("class")), str(row.get("item")))
+            for row in (result.get("degradations") or [])
+            if isinstance(row, dict)
+        }
+        missing = [
+            row["item"]
+            for row in blind_v2["_degradations"]
+            if (str(row["class"]), str(row["item"])) not in recorded
+        ]
+        if missing:
+            fail(
+                "report",
+                "migration-result.json degradations omit the blind-grade finding(s): "
+                + "; ".join(missing),
+            )
+        if blind_v2["faithful"] is not True and verdict == "GREEN":
+            fail("report", "blind-grade/v2 is unfaithful (divergent) — the verdict cannot be GREEN")
     decision = require_object(workdir / "security-decision.json", "report")
     security_skip = decision.get("decision") == "skip"
     yellow_status = any(
@@ -823,7 +876,7 @@ def run_gates(workdir: Path, blind_grade: Path) -> dict[str, Any]:
         passed.append(name)
     _visual, source_png, target_png = gate_visual(workdir)
     passed.append("visual-similarity")
-    blind_sha = gate_blind_grade(blind_grade, source_png, target_png)
+    blind_sha, blind_v2 = gate_blind_grade(blind_grade, source_png, target_png)
     passed.append("blind-grade")
     gate_security(workdir)
     passed.append("security")
@@ -835,9 +888,9 @@ def run_gates(workdir: Path, blind_grade: Path) -> dict[str, Any]:
     passed.append("dashboard-coverage")
     gate_sql_provenance(workdir)
     passed.append("sql-provenance")
-    verdict, data_model_id, workbook_id = gate_report(workdir)
+    verdict, data_model_id, workbook_id = gate_report(workdir, blind_v2)
     passed.append("report")
-    return {
+    result = {
         "complete": True,
         "verdict": verdict,
         "runtime_profile": "python",
@@ -846,6 +899,9 @@ def run_gates(workdir: Path, blind_grade: Path) -> dict[str, Any]:
         "blind_grade_sha256": blind_sha,
         "gates": {name: True for name in passed},
     }
+    if blind_v2 is not None:
+        result["blind_grade"] = {k: v for k, v in blind_v2.items() if not k.startswith("_")}
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
