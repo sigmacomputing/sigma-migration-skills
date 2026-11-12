@@ -1266,11 +1266,13 @@ puts '   ── CONTROL FLIP (gate 7b: each control actually FILTERS at runtime)
 require 'flip_gate'
 flip_ok = true
 _flip_tok = (Sigma.auth_token rescue ENV['SIGMA_API_TOKEN'])
+# The host may come from a signed-in Sigma CLI profile rather than the env.
+_flip_base = (Sigma.base_url rescue ENV['SIGMA_BASE_URL'])
 if opts[:skip_control_flip]
   puts "     [WAIVED] #{opts[:skip_control_flip] == true ? '(no reason given)' : opts[:skip_control_flip]} (name it in your report)"
 elsif ctl_rows.empty?
   puts '     [OK] no controls — nothing to flip-test'
-elsif ENV['SIGMA_BASE_URL'].to_s.empty? || _flip_tok.to_s.empty?
+elsif _flip_base.to_s.empty? || _flip_tok.to_s.empty?
   puts '     [SKIP] offline (no SIGMA creds) — runtime flip UNVERIFIED'
 else
   _probe_out = File.join(WORK, 'probe-controls')

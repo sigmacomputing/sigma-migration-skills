@@ -300,6 +300,153 @@ def _recorded_escapes(workdir: Path) -> list[dict[str, str]]:
     return unique
 
 
+def _text(value: Any) -> str:
+    """Ruby string interpolation: nil -> ''."""
+
+    return "" if value is None else str(value)
+
+
+def _catalog_ids() -> list[str]:
+    """Ids in the shipped catalog (vendored layout scripts/lib -> ../../refs)."""
+
+    here = Path(__file__).resolve().parent
+    candidates = (
+        here.parent.parent / "refs" / "sigma-platform-differences.json",
+        here.parent / "refs" / "sigma-platform-differences.json",
+    )
+    path = next((c for c in candidates if c.is_file()), None)
+    if path is None:
+        return []
+    document = _read_json(path)
+    rows = document.get("entries") if isinstance(document, dict) else []
+    return [
+        _text(row.get("id")) for row in rows if isinstance(row, dict)
+    ] if isinstance(rows, list) else []
+
+
+def _rb(value: Any) -> str:
+    """Ruby Float/Integer#to_s for a JSON number (0.0 -> "0.0", 0.1 -> "0.1")."""
+
+    if isinstance(value, bool) or value is None:
+        return _text(value)
+    if isinstance(value, float):
+        return repr(value)
+    return str(value)
+
+
+def _list(value: Any) -> list[Any]:
+    """Ruby Array(): nil -> [], list -> itself, Hash -> pairs (never gap dicts)."""
+
+    if isinstance(value, list):
+        return value
+    if value is None or isinstance(value, dict):
+        return []
+    return [value]
+
+
+def _truthy(value: Any) -> bool:
+    """Ruby truthiness: only nil and false are falsy (0 and "" are truthy)."""
+
+    return value is not None and value is not False
+
+
+def visual_pass(workdir: str | Path) -> bool:
+    """Recorded v2 visual verdict is PASS (parity-final + visual-residuals agree)."""
+
+    root = Path(workdir).expanduser().resolve()
+    parity = _read_json(root / "parity-final.json")
+    residuals = _read_json(root / "visual-residuals.json")
+    return (
+        isinstance(parity, dict)
+        and isinstance(residuals, dict)
+        and _text(parity.get("visual_verdict")).strip().lower() == "pass"
+        and residuals.get("faithful") is True
+        and not _list(residuals.get("fixable_major"))
+    )
+
+
+def _minor_gap(gap: dict[str, Any]) -> bool:
+    return _text(gap.get("severity")).strip().lower() == "minor"
+
+
+def polish_notes(workdir: str | Path) -> list[dict[str, str]]:
+    """Minor gaps a PASSING v2 blind grade recorded; notes, not degradations."""
+
+    root = Path(workdir).expanduser().resolve()
+    if not visual_pass(root):
+        return []
+    document = _read_json(root / "visual-residuals.json")
+    result: list[dict[str, str]] = []
+    for gap in _list(document.get("residuals")):
+        if not isinstance(gap, dict) or not _minor_gap(gap):
+            continue
+        note = {
+            "item": f"{_text(gap.get('tile'))}: {_text(gap.get('description'))}",
+            "dimension": _text(gap.get("dimension")),
+            "source_artifact": "visual-residuals.json",
+        }
+        if note not in result:
+            result.append(note)
+    return result
+
+
+def _platform_difference_entry(row: dict[str, Any], ids: list[str]) -> bool:
+    return _text(row.get("cls")) in {"sigma-capability", "ui-only"} and _text(
+        row.get("catalog_id")
+    ) in ids
+
+
+def platform_differences(workdir: str | Path) -> list[dict[str, str]]:
+    """Recorded Sigma platform differences (catalogued); never degradations."""
+
+    root = Path(workdir).expanduser().resolve()
+    result: list[dict[str, str]] = []
+
+    def add(row: dict[str, str]) -> None:
+        if row not in result:
+            result.append(row)
+
+    ids = _catalog_ids()
+    residuals = _read_json(root / "visual-residuals.json")
+    if isinstance(residuals, dict):
+        for gap in _list(residuals.get("platform_differences")):
+            if isinstance(gap, dict) and _text(gap.get("class")) in ids:
+                add(
+                    {
+                        "item": f"{_text(gap.get('tile'))}: {_text(gap.get('description'))}",
+                        "catalog_id": _text(gap.get("class")),
+                        "source_artifact": "visual-residuals.json",
+                    }
+                )
+    exemptions = _read_json(root / "visual-similarity-exemptions.json")
+    for row in _list(exemptions.get("exemptions") if isinstance(exemptions, dict) else None):
+        if isinstance(row, dict) and _text(row.get("catalog_id")) in ids:
+            add(
+                {
+                    "item": f"visual-similarity floor: {_text(row.get('component'))} "
+                    f"{_rb(row.get('value'))} below {_rb(row.get('floor'))} (RCF {_text(row.get('rcf_id'))})",
+                    "catalog_id": _text(row.get("catalog_id")),
+                    "source_artifact": "visual-similarity-exemptions.json",
+                }
+            )
+    ledger = _read_json(root / "fidelity-ledger.json")
+    for row in _list(ledger.get("entries") if isinstance(ledger, dict) else None):
+        if not isinstance(row, dict) or _truthy(row.get("resolved")) or not _platform_difference_entry(row, ids):
+            continue
+        desc = next(
+            (v for v in (_text(row.get(k)) for k in ("delta", "description", "id")) if v),
+            "",
+        )
+        add(
+            {
+                "item": desc,
+                "catalog_id": _text(row.get("catalog_id")),
+                "source_artifact": "fidelity-ledger.json",
+            }
+        )
+    return result
+
+
 def _fidelity_residuals(workdir: Path) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     parity = _read_json(workdir / "parity-final.json")
@@ -310,6 +457,58 @@ def _fidelity_residuals(workdir: Path) -> list[dict[str, str]]:
                 "visual verdict: divergent",
                 "recorded source-vs-target visual gaps ship in the render",
                 "parity-final.json",
+            )
+        )
+    residuals = _read_json(workdir / "visual-residuals.json")
+    residuals = residuals if isinstance(residuals, dict) else {}
+    ids = _catalog_ids()
+    unproven = [
+        gap
+        for gap in _list(residuals.get("platform_differences"))
+        if isinstance(gap, dict) and _text(gap.get("class")) not in ids
+    ]
+    passed = visual_pass(workdir)
+    for key, reason in (
+        ("residuals", "fixable gap recorded by the blind visual grade and left in the render"),
+        (
+            "fixable_major",
+            "major fixable gap recorded by the blind visual grade and left in the render (run is divergent)",
+        ),
+        (
+            "unproven",
+            "blind-grade gap cites a platform-difference id that is not in the shipped catalog (unproven — treated as fixable)",
+        ),
+    ):
+        rows = unproven if key == "unproven" else _list(residuals.get(key))
+        for gap in rows:
+            if not isinstance(gap, dict):
+                continue
+            if passed and key == "residuals" and _minor_gap(gap):
+                continue
+            severity = "major" if key == "fixable_major" else _text(gap.get("severity"))
+            result.append(
+                _entry(
+                    "fidelity-residual",
+                    f"visual residual ({severity}): {_text(gap.get('tile'))}: "
+                    f"{_text(gap.get('description'))}",
+                    reason,
+                    "visual-residuals.json",
+                )
+            )
+    ledger = _read_json(workdir / "fidelity-ledger.json")
+    for row in _list(ledger.get("entries") if isinstance(ledger, dict) else None):
+        if not isinstance(row, dict) or _truthy(row.get("resolved")):
+            continue
+        if _platform_difference_entry(row, ids):
+            continue
+        label = row.get("dimension") if _truthy(row.get("dimension")) else row.get("cls")
+        delta = _text(row.get("delta"))
+        result.append(
+            _entry(
+                "fidelity-residual",
+                f"RCF residual {_text(row.get('id'))} [{_text(label)}]",
+                delta or f"unresolved {_text(row.get('cls'))} delta",
+                "fidelity-ledger.json",
             )
         )
     arrangement = _read_json(workdir / "layout-arrangement.json")
