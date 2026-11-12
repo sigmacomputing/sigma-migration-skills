@@ -44,14 +44,16 @@ module DaxGate
   end
 
   # Display-names the converter realized in the DM model (element + metric + column
-  # names) — used to tell a handled restructure from a real drop.
+  # names) — used to tell a handled restructure from a real drop. A metric/column whose
+  # formula is Null (nulled by the dm-resolver) is NOT realized: the gate must still ask.
   def realized_names(dm_model)
     names = []
+    live = ->(x) { x['formula'].to_s.strip != 'Null' }
     ((dm_model && dm_model['pages']) || []).each do |pg|
       (pg['elements'] || []).each do |el|
         names << el['name'].to_s.strip unless el['name'].to_s.strip.empty?
-        (el['metrics'] || []).each { |m| names << m['name'].to_s.strip unless m['name'].to_s.strip.empty? }
-        (el['columns'] || []).each { |c| names << c['name'].to_s.strip unless c['name'].to_s.strip.empty? }
+        (el['metrics'] || []).each { |m| names << m['name'].to_s.strip if live.call(m) && !m['name'].to_s.strip.empty? }
+        (el['columns'] || []).each { |c| names << c['name'].to_s.strip if live.call(c) && !c['name'].to_s.strip.empty? }
       end
     end
     names

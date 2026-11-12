@@ -13,6 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+try:  # optional: the report stays runnable standalone without the ledger module
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    import degradation_ledger
+except ImportError:  # pragma: no cover - standalone fallback
+    degradation_ledger = None
+
 TERMINAL = (
     "migrated",
     "approximated",
@@ -195,6 +201,12 @@ class MigrationReport:
                 self.load_artifact(kind, path)
             if not any(row["kind"] == kind for row in self.artifacts):
                 self.add_artifact(kind, self.workdir / f"{kind}.json", False)
+        # Machine render evidence written by the gates themselves; recorded
+        # only when present, like the health artifacts above.
+        for kind in ("visual-similarity", "anchors-verdict", "finalize-gates"):
+            path = self.workdir / f"{kind}.json"
+            if path.is_file():
+                self.load_artifact(kind, path)
 
     def inventory_rows(self, document: Any) -> list[tuple[Any, str]]:
         if isinstance(document, list):
@@ -605,11 +617,66 @@ class MigrationReport:
         walk(document)
         return "fail" if "fail" in signals else "pass" if "pass" in signals else "unknown"
 
+    def visual_similarity_evidence(self) -> tuple[str, str | None] | None:
+        """visual-similarity.json is render evidence only through its
+        render_health record. None = nothing to vouch with; else (state,
+        reason). A missing render image or non-PASS status fails. A majority of
+        measured tiles being blank is also a render-health failure (the same
+        majority rule as visual-similarity.py, but armed at any measured count
+        (> 0) on purpose: png_health's whole-image check only catches
+        all-white, solid or near-empty images, so a page with chrome but 1-of-1
+        or 2-of-2 blank tiles passes it; visual-similarity.py's
+        TILE_MIN_MEASURED = 3 only guards the composite score against noise.
+        Otherwise the artifact's composite pass flag is visual-fidelity
+        evidence, not render-health evidence."""
+        doc = self.artifact_docs.get((self.workdir / "visual-similarity.json").resolve())
+        if not isinstance(doc, dict) or not isinstance(doc.get("render_health"), dict):
+            return None
+        health = doc["render_health"]
+        image = health.get("path")
+        if isinstance(image, str) and image.strip() and not (self.workdir / image).is_file():
+            return ("fail", f"render image missing: {image}")
+        blank = doc.get("tiles_blank")
+        raw_measured = doc.get("tiles_measured")
+        if isinstance(raw_measured, bool):
+            measured = 0
+        elif isinstance(raw_measured, int):
+            measured = raw_measured
+        elif isinstance(raw_measured, str) and re.fullmatch(r"[0-9]+", raw_measured):
+            measured = int(raw_measured)
+        else:
+            measured = 0
+        if isinstance(blank, list) and measured > 0 and 2 * len(blank) > measured:
+            return ("fail", f"{len(blank)} of {measured} tiles blank")
+        status = fold(health.get("status"))
+        if status and status != "pass":
+            return ("fail", f"render_health status {health.get('status')}")
+        if not status:
+            return None
+        return ("pass", None)
+
+    def anchors_tile_census(self) -> bool | None:
+        doc = self.artifact_docs.get((self.workdir / "anchors-verdict.json").resolve())
+        if not isinstance(doc, dict):
+            return None
+        value = doc.get("tiles_all_nonempty")
+        return value if isinstance(value, bool) else None
+
+    def empty_tiles_waived(self) -> bool:
+        return any(
+            row.get("flag") == "--allow-empty-tiles"
+            or row.get("reason") == "--allow-empty-tiles"
+            for row in self.waiver_entries()
+        )
+
     def render_check(self) -> dict[str, str]:
-        results = [
-            (path, self.health_state(self.artifact_docs[path]))
+        results: list[tuple[Path, str, str | None]] = [
+            (path, self.health_state(self.artifact_docs[path]), None)
             for path in self.paths_for_kind("render-health")
         ]
+        similarity = self.visual_similarity_evidence()
+        if similarity:
+            results.append((self.workdir / "visual-similarity.json", similarity[0], similarity[1]))
         parity = self.artifact_docs.get((self.workdir / "parity-final.json").resolve())
         if isinstance(parity, dict) and (
             "visual_checked" in parity or "visual_verdict" in parity
@@ -618,20 +685,49 @@ class MigrationReport:
             visual_pass = (
                 parity.get("visual_checked") is True and (not verdict or verdict == "pass")
             ) if "visual_checked" in parity else verdict == "pass"
-            results.append((self.workdir / "parity-final.json", "pass" if visual_pass else "fail"))
+            # Only a positive visual pass is render evidence; divergent /
+            # not-executable is a fidelity residual (YELLOW via
+            # visual_degradation), never an unhealthy render.
+            if visual_pass:
+                results.append((self.workdir / "parity-final.json", "pass", None))
         if not results:
             return self.check("render-health", "FAIL", "no healthy render evidence found")
-        failed = [path for path, state in results if state != "pass"]
+        failed = [
+            f"{self.display_path(path)} ({reason})" if reason else self.display_path(path)
+            for path, state, reason in results
+            if state != "pass"
+        ]
         return self.check(
             "render-health",
             "FAIL" if failed else "PASS",
             (
                 "unhealthy or indeterminate: "
-                + ", ".join(self.display_path(path) for path in failed)
+                + ", ".join(failed)
                 if failed
                 else f"{len(results)} render health record(s) healthy"
             ),
         )
+
+    def finalize_gates_check(self) -> dict[str, str] | None:
+        """A converter finalize battery's recorded gate statuses: a failed gate
+        makes the report RED (mirrors build-migration-report.rb)."""
+        document = self.artifact_docs.get((self.workdir / "finalize-gates.json").resolve())
+        if document is None:
+            return None
+        gates = document.get("gates") if isinstance(document, dict) else None
+        if not isinstance(gates, dict) or not gates:
+            return self.check("finalize-gates", "FAIL", "finalize-gates.json is malformed (no gates object)")
+        failed = [
+            (name, row) for name, row in gates.items()
+            if fold(row.get("status") if isinstance(row, dict) else row) != "pass"
+        ]
+        if not failed:
+            return self.check("finalize-gates", "PASS", f"{len(gates)} finalize gate(s) passed")
+        names = [
+            f"{name} (exit {row['exit']})" if isinstance(row, dict) and row.get("exit") else str(name)
+            for name, row in failed
+        ]
+        return self.check("finalize-gates", "FAIL", "finalize gate(s) failed: " + ", ".join(names))
 
     def blank_check(self) -> dict[str, str]:
         paths = self.paths_for_kind("blank-risk")
@@ -651,20 +747,46 @@ class MigrationReport:
                 "blank risk indeterminate: "
                 + ", ".join(self.display_path(path) for path in unknown),
             )
+        # Any unwaived explicit FAIL signal wins, even over a clear blank-risk
+        # artifact: the tile census saw empty displayed tiles.
+        census = self.anchors_tile_census()
+        if census is False:
+            if self.empty_tiles_waived():
+                return self.check(
+                    "blank-risk",
+                    "PASS",
+                    "empty displayed tiles accepted via --allow-empty-tiles",
+                )
+            return self.check(
+                "blank-risk", "FAIL", "anchors tile census found empty displayed tiles"
+            )
+        similarity = self.visual_similarity_evidence()
         if not paths:
             if self.paths_for_kind("render-health"):
                 return self.check(
                     "blank-risk", "PASS", "covered by healthy render evidence"
                 )
+            if census is True:
+                return self.check("blank-risk", "PASS", "covered by anchors tile census")
+            if similarity and similarity[0] == "pass":
+                return self.check(
+                    "blank-risk", "PASS", "covered by healthy render evidence"
+                )
             parity = self.artifact_docs.get((self.workdir / "parity-final.json").resolve())
-            visual_pass = isinstance(parity, dict) and (
+            # A recorded blind comparison (pass, or divergent with its
+            # screenshot) looked at the rendered page, so it covers blank risk.
+            verdict = fold(parity.get("visual_verdict")) if isinstance(parity, dict) else ""
+            shot = parity.get("screenshot_path") if isinstance(parity, dict) else None
+            has_shot = isinstance(shot, str) and bool(shot.strip())
+            compared = isinstance(parity, dict) and (
                 parity.get("visual_checked") is True
-                or fold(parity.get("visual_verdict")) == "pass"
+                or verdict == "pass"
+                or (verdict == "divergent" and has_shot)
             )
             return self.check(
                 "blank-risk",
-                "PASS" if visual_pass else "FAIL",
-                "covered by parity visual pass" if visual_pass else "no blank-risk evidence found",
+                "PASS" if compared else "FAIL",
+                "covered by recorded visual comparison" if compared else "no blank-risk evidence found",
             )
         return self.check("blank-risk", "PASS", f"{len(paths)} blank-risk record(s) clear")
 
@@ -672,6 +794,64 @@ class MigrationReport:
         document = self.artifact_docs.get((self.workdir / "degradation-ledger.json").resolve())
         rows = document.get("entries") if isinstance(document, dict) else []
         return [row for row in rows or [] if isinstance(row, dict)]
+
+    def visual_degradation(self) -> dict[str, Any] | None:
+        """A divergent / not-executable blind visual verdict is a fidelity
+        residual that caps the run at YELLOW; it is not RED. Divergent mirrors
+        DegradationLedger#fidelity_residuals exactly; not-executable uses the
+        recorded notes."""
+        parity = self.artifact_docs.get((self.workdir / "parity-final.json").resolve())
+        if not isinstance(parity, dict):
+            return None
+        verdict = fold(parity.get("visual_verdict"))
+        if verdict not in {"divergent", "not-executable"}:
+            return None
+        notes = parity.get("visual_notes")
+        notes = (
+            str(notes)
+            if notes is not None and str(notes).strip()
+            else f"blind visual verdict {verdict} recorded in parity-final.json"
+        )
+        if verdict == "divergent":
+            notes = "recorded source-vs-target visual gaps ship in the render"
+        return {
+            "class": "fidelity-residual",
+            "item": f"visual verdict: {verdict}",
+            "reason": notes,
+            "source_artifact": "parity-final.json",
+        }
+
+    def document_degradations(self) -> list[dict[str, Any]]:
+        entries = self.degradation_entries()
+        visual = self.visual_degradation()
+        ledger_absent = self.artifact_docs.get(
+            (self.workdir / "degradation-ledger.json").resolve()
+        ) is None
+        if (
+            visual
+            and ledger_absent
+            and not any(row.get("item") == visual["item"] for row in entries)
+        ):
+            entries = entries + [visual]
+        return entries
+
+    def platform_difference_entries(self) -> list[dict[str, Any]]:
+        """Recorded, never degradations; they never change the verdict."""
+        fn = getattr(degradation_ledger, "platform_differences", None)
+        return fn(self.workdir) if fn else []
+
+    def polish_note_entries(self) -> list[dict[str, Any]]:
+        """Minor gaps on a PASSING blind grade: notes, never degradations."""
+        fn = getattr(degradation_ledger, "polish_notes", None)
+        if not fn:
+            return []
+        # A ledger written before the polish rule still lists these minors as
+        # degradations; never show one gap in both sections (re-run the gate).
+        listed = {row.get("item") for row in self.degradation_entries()}
+        return [
+            note for note in fn(self.workdir)
+            if f"visual residual (minor): {note['item']}" not in listed
+        ]
 
     def waiver_entries(self) -> list[dict[str, Any]]:
         values: list[Any] = []
@@ -706,13 +886,16 @@ class MigrationReport:
             self.render_check(),
             self.blank_check(),
         ]
+        gates_check = self.finalize_gates_check()
+        if gates_check:
+            checks.append(gates_check)
         hard_failure = any(row["status"] == "FAIL" for row in checks)
-        degradations = self.degradation_entries()
+        degradations = self.document_degradations()
         waivers = self.waiver_entries()
         yellow = any(
             row["status"] in {"approximated", "needs-review", "skipped"}
             for row in self.objects
-        ) or bool(degradations or waivers)
+        ) or bool(degradations or waivers) or self.visual_degradation() is not None
         verdict = "RED" if hard_failure else "YELLOW" if yellow else "GREEN"
         counts = {status: sum(row["status"] == status for row in self.objects) for status in TERMINAL}
         accounted = sum(row["status"] in TERMINAL for row in self.objects)
@@ -730,6 +913,8 @@ class MigrationReport:
             "checks": checks,
             "artifacts": sorted(self.artifacts, key=lambda row: (row["kind"], row["path"])),
             "degradations": degradations,
+            "platform_differences": self.platform_difference_entries(),
+            "polish_notes": self.polish_note_entries(),
             "waivers": waivers,
         }
         if "SOURCE_DATE_EPOCH" in os.environ:
@@ -813,9 +998,38 @@ class MigrationReport:
         )
         for heading, entries in (
             ("Degradations", document["degradations"]),
+            ("Platform differences", document["platform_differences"]),
+            ("Minor polish notes", document["polish_notes"]),
             ("Waivers", document["waivers"]),
         ):
             if not entries:
+                continue
+            if heading == "Platform differences":
+                lines.extend([
+                    "", f"## {heading}", "",
+                    "Recorded, not degradations: Sigma renders these differently from the "
+                    "source and a build cannot change it. They do not affect the verdict.",
+                    "",
+                ])
+                lines.extend(
+                    f"- **{self.md(row.get('catalog_id'))}** — {self.md(row.get('item'))}"
+                    for row in entries
+                )
+                continue
+            if heading == "Minor polish notes":
+                lines.extend([
+                    "", f"## {heading}", "",
+                    "Not degradations: the blind visual grade passed, and these minor "
+                    "differences are optional polish. They do not affect the verdict.",
+                    "",
+                ])
+                for row in entries:
+                    dim = (
+                        f" [{self.md(row.get('dimension'))}]"
+                        if str(row.get("dimension") or "")
+                        else ""
+                    )
+                    lines.append(f"- {self.md(row.get('item'))}{dim}")
                 continue
             lines.extend(["", f"## {heading}", ""])
             for row in entries:

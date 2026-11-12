@@ -29,6 +29,49 @@ module SigmaLayout
     candidates.map { |c| c.to_s.strip }.find { |c| !c.empty? && !generic_title?(c) }
   end
 
+  # Minimum gridRow span per Sigma element kind in the CLEAN page layout. Sigma renders
+  # chart/KPI tiles blank under ~4-8 rows and a pivot/table needs a header plus a few
+  # data rows. KEEP >= LayoutLint::KIND_MIN_ROWS (lib/layout_lint.rb, vendored standalone).
+  KIND_MIN_ROWS = {
+    'kpi-chart' => 4, 'progress' => 4, 'control' => 4, 'text' => 2, 'navigation' => 2,
+    'button' => 2, 'container' => 3, 'image' => 20,
+    'table' => 10, 'pivot-table' => 10,
+    'line-chart' => 9, 'bar-chart' => 9, 'combo-chart' => 9, 'area-chart' => 9, 'waterfall-chart' => 9,
+    'scatter-chart' => 9, 'region-map' => 9, 'point-map' => 9,
+    'pie-chart' => 8, 'donut-chart' => 8
+  }.freeze
+  DEFAULT_MIN_ROWS = 6 # any other element kind
+
+  def min_rows_for(kind)
+    KIND_MIN_ROWS.fetch(kind.to_s, DEFAULT_MIN_ROWS)
+  end
+
+  # A page's slicers wrap in a control band: CONTROLS_PER_ROW per row, each cell
+  # 24/CONTROLS_PER_ROW = 4 grid columns wide and CONTROL_ROW_ROWS rows tall (a dropdown
+  # needs its label plus the box). A band with a single row of fewer controls spreads them
+  # across the full width so the band still fills the grid.
+  CONTROLS_PER_ROW = 6
+  CONTROL_ROW_ROWS = 4
+
+  # ids -> { height: rows, cells: [[id, c0, c1, r0, r1], ...] } with CONTAINER-RELATIVE
+  # rows (start at 1), in the order given.
+  def control_band(ids, per_row: CONTROLS_PER_ROW, row_rows: CONTROL_ROW_ROWS)
+    ids = Array(ids)
+    return { height: 0, cells: [] } if ids.empty?
+    nrows = (ids.length + per_row - 1) / per_row
+    cells = []
+    ids.each_slice(per_row).each_with_index do |row, r|
+      k = nrows == 1 ? row.length : per_row
+      row.each_with_index do |id, j|
+        c0 = 1 + (GRID_COLS * j / k.to_f).round
+        c1 = 1 + (GRID_COLS * (j + 1) / k.to_f).round
+        c1 = c0 + 1 if c1 <= c0
+        cells << [id, c0, c1, r * row_rows + 1, (r + 1) * row_rows + 1]
+      end
+    end
+    { height: nrows * row_rows, cells: cells }
+  end
+
   def gc(eid, c0, c1, r0, r1, inner, row_template: 'auto')
     "<Container elementId=\"#{eid}\" type=\"grid\" " \
     "gridColumn=\"#{c0} / #{c1}\" gridRow=\"#{r0} / #{r1}\" " \
@@ -46,6 +89,37 @@ module SigmaLayout
 
   def assemble(*pages)
     %(<?xml version="1.0" encoding="utf-8"?>\n) + pages.join("\n")
+  end
+
+  # Never ship an empty layout container: PUT /v2/workbooks/{id}/contents answers HTTP 500
+  # service_error for a <Container> with no child (verified by bisection), and a layout entry for
+  # an element the spec does not hold breaks the write too. Drops every <Element> whose id is not
+  # in `known_ids`, then every <Container> left with no child element/container, repeating until
+  # nothing changes (a container whose only child was an empty container goes too).
+  # Returns [xml, removed_container_ids, removed_element_ids]. Pure string work on the layout
+  # shape this module emits (attribute values never contain ">").
+  def prune_empty_containers(xml, known_ids)
+    known = known_ids.respond_to?(:include?) ? known_ids : Array(known_ids)
+    gone_els = []
+    gone_cts = []
+    out = xml.gsub(%r{[ \t]*<Element\s+elementId="([^"]+)"[^>]*/>[ \t]*\n?}) do |m|
+      if known.include?(Regexp.last_match(1))
+        m
+      else
+        gone_els << Regexp.last_match(1)
+        ''
+      end
+    end
+    loop do
+      before = out
+      # empty container, either <Container ...></Container> (whitespace between) or self-closed
+      out = out.gsub(%r{[ \t]*<Container\s+elementId="([^"]+)"[^>]*?(?:/>|>\s*</Container>)[ \t]*\n?}) do
+        gone_cts << Regexp.last_match(1)
+        ''
+      end
+      break if out == before
+    end
+    [out, gone_cts.uniq, gone_els.uniq]
   end
 
   # ---- container-layout helpers --------------------------------------------

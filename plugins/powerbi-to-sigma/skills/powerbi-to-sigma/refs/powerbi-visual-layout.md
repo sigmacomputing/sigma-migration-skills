@@ -317,7 +317,7 @@ Inner `gridRow` matches the container's outer span (`3 / 8`) per the
 | `donutChart` | `donut-chart` | `color` + `value` + `holeValue` required |
 | `scatterChart` | `scatter-chart` | |
 | `tableEx` | `table` | |
-| `pivotTable`, `matrix` | `pivot-table` | Use `rowsBy`/`columnsBy`/`values` shape |
+| `pivotTable`, `matrix` | `pivot-table` | Use `rowsBy`/`columnsBy`/`values` shape. Every Rows and Columns level is carried as nested `rowsBy` / `columnsBy` regardless of the `active` flag; Power BI's collapsed start state (+/- buttons) is a UI adaptation, since Sigma pivots open expanded. Exception: a DATE hierarchy (auto date variation or Year/Quarter/Month/Week/Day levels; it needs two or more date levels with at least two distinct grains, so Order Date + Ship Date is not one) keeps only its active level, because every date level would open the pivot at Day grain. One non-gating `approximated` coverage note records whichever applies (only when Power BI really starts collapsed or date levels were not carried). |
 | `slicer` | `control` | Type derived from slicer mode (list/dropdown/range/date-range) |
 | `azureMap` with `X`/`Y` | `point-map` | Azure roles become longitude/latitude; optional `Size` and `Series` become bubble size and categorical color. |
 | `map`, `filledMap`, `shapeMap` | `region-map` / `point-map` / `bar-chart` | Direct coordinates become a point map; TMSL `dataCategory` can resolve a region map; only unresolvable geocoded locations degrade to a bar. |

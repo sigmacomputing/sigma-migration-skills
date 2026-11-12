@@ -1,0 +1,311 @@
+{
+ "name": "Retail Fixture DM",
+ "schemaVersion": 1,
+ "folderId": "00000000-0000-4000-8000-0000000f01d0",
+ "pages": [
+  {
+   "id": "pg-dm",
+   "name": "Page 1",
+   "elements": [
+    {
+     "id": "dm-sales",
+     "kind": "table",
+     "name": "Sales",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES"
+     },
+     "columns": [
+      {
+       "id": "dm-sales-sale_id",
+       "formula": "[Custom SQL/SALE_ID]",
+       "name": "Sale Id"
+      },
+      {
+       "id": "dm-sales-date_key",
+       "formula": "[Custom SQL/DATE_KEY]",
+       "name": "Date Key"
+      },
+      {
+       "id": "dm-sales-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-sales-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-sales-qty",
+       "formula": "[Custom SQL/QTY]",
+       "name": "Qty"
+      },
+      {
+       "id": "dm-sales-amount",
+       "formula": "[Custom SQL/AMOUNT]",
+       "name": "Amount"
+      },
+      {
+       "id": "dm-sales-cost",
+       "formula": "[Custom SQL/COST]",
+       "name": "Cost"
+      }
+     ]
+    },
+    {
+     "id": "dm-stock",
+     "kind": "table",
+     "name": "Stock",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SNAPSHOT_DATE_KEY, STORE_KEY, PRODUCT_KEY, ON_HAND FROM STOCK"
+     },
+     "columns": [
+      {
+       "id": "dm-stock-snapshot_date_key",
+       "formula": "[Custom SQL/SNAPSHOT_DATE_KEY]",
+       "name": "Snapshot Date Key"
+      },
+      {
+       "id": "dm-stock-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-stock-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-stock-on_hand",
+       "formula": "[Custom SQL/ON_HAND]",
+       "name": "On Hand"
+      }
+     ]
+    },
+    {
+     "id": "dm-calendar",
+     "kind": "table",
+     "name": "Calendar",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT DATE_KEY, CAL_DATE, CAL_YEAR, CAL_MONTH FROM CAL"
+     },
+     "columns": [
+      {
+       "id": "dm-calendar-date_key",
+       "formula": "[Custom SQL/DATE_KEY]",
+       "name": "Date Key"
+      },
+      {
+       "id": "dm-calendar-cal_date",
+       "formula": "[Custom SQL/CAL_DATE]",
+       "name": "Date"
+      },
+      {
+       "id": "dm-calendar-cal_year",
+       "formula": "[Custom SQL/CAL_YEAR]",
+       "name": "Year"
+      },
+      {
+       "id": "dm-calendar-cal_month",
+       "formula": "[Custom SQL/CAL_MONTH]",
+       "name": "Month"
+      }
+     ]
+    },
+    {
+     "id": "dm-store",
+     "kind": "table",
+     "name": "Store",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE"
+     },
+     "columns": [
+      {
+       "id": "dm-store-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-store-store_name",
+       "formula": "[Custom SQL/STORE_NAME]",
+       "name": "Store Name"
+      },
+      {
+       "id": "dm-store-region",
+       "formula": "[Custom SQL/REGION]",
+       "name": "Region"
+      },
+      {
+       "id": "dm-store-manager_key",
+       "formula": "[Custom SQL/MANAGER_KEY]",
+       "name": "Manager Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-manager",
+     "kind": "table",
+     "name": "Manager",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT MANAGER_KEY, MANAGER_NAME FROM MGR"
+     },
+     "columns": [
+      {
+       "id": "dm-manager-manager_key",
+       "formula": "[Custom SQL/MANAGER_KEY]",
+       "name": "Manager Key"
+      },
+      {
+       "id": "dm-manager-manager_name",
+       "formula": "[Custom SQL/MANAGER_NAME]",
+       "name": "Manager Name"
+      }
+     ]
+    },
+    {
+     "id": "dm-product",
+     "kind": "table",
+     "name": "Product",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT"
+     },
+     "columns": [
+      {
+       "id": "dm-product-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-product-product_name",
+       "formula": "[Custom SQL/PRODUCT_NAME]",
+       "name": "Product Name"
+      },
+      {
+       "id": "dm-product-category",
+       "formula": "[Custom SQL/CATEGORY]",
+       "name": "Category"
+      },
+      {
+       "id": "dm-product-supplier_key",
+       "formula": "[Custom SQL/SUPPLIER_KEY]",
+       "name": "Supplier Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-supplier",
+     "kind": "table",
+     "name": "Supplier",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER"
+     },
+     "columns": [
+      {
+       "id": "dm-supplier-supplier_key",
+       "formula": "[Custom SQL/SUPPLIER_KEY]",
+       "name": "Supplier Key"
+      },
+      {
+       "id": "dm-supplier-supplier_name",
+       "formula": "[Custom SQL/SUPPLIER_NAME]",
+       "name": "Supplier Name"
+      }
+     ]
+    },
+    {
+     "id": "dm-rollup",
+     "kind": "table",
+     "name": "Rollup",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT CHILD_PRODUCT_KEY, PARENT_PRODUCT_KEY FROM ROLLUP_MAP"
+     },
+     "columns": [
+      {
+       "id": "dm-rollup-child_product_key",
+       "formula": "[Custom SQL/CHILD_PRODUCT_KEY]",
+       "name": "Child Product Key"
+      },
+      {
+       "id": "dm-rollup-parent_product_key",
+       "formula": "[Custom SQL/PARENT_PRODUCT_KEY]",
+       "name": "Parent Product Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-sales-view",
+     "kind": "table",
+     "name": "Sales View",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT s.SALE_ID, s.AMOUNT, s.COST, s.QTY, st.REGION, st.STORE_NAME, c.CAL_MONTH, c.CAL_YEAR, m.MANAGER_NAME FROM SALES s LEFT JOIN STORE st ON st.STORE_KEY = s.STORE_KEY LEFT JOIN CAL c ON c.DATE_KEY = s.DATE_KEY LEFT JOIN MGR m ON m.MANAGER_KEY = st.MANAGER_KEY"
+     },
+     "columns": [
+      {
+       "id": "dm-sales-view-sale_id",
+       "formula": "[Custom SQL/SALE_ID]",
+       "name": "Sale Id"
+      },
+      {
+       "id": "dm-sales-view-amount",
+       "formula": "[Custom SQL/AMOUNT]",
+       "name": "Amount"
+      },
+      {
+       "id": "dm-sales-view-cost",
+       "formula": "[Custom SQL/COST]",
+       "name": "Cost"
+      },
+      {
+       "id": "dm-sales-view-qty",
+       "formula": "[Custom SQL/QTY]",
+       "name": "Qty"
+      },
+      {
+       "id": "dm-sales-view-region",
+       "formula": "[Custom SQL/REGION]",
+       "name": "Region"
+      },
+      {
+       "id": "dm-sales-view-store_name",
+       "formula": "[Custom SQL/STORE_NAME]",
+       "name": "Store Name"
+      },
+      {
+       "id": "dm-sales-view-cal_month",
+       "formula": "[Custom SQL/CAL_MONTH]",
+       "name": "Month"
+      },
+      {
+       "id": "dm-sales-view-cal_year",
+       "formula": "[Custom SQL/CAL_YEAR]",
+       "name": "Year"
+      },
+      {
+       "id": "dm-sales-view-manager_name",
+       "formula": "[Custom SQL/MANAGER_NAME]",
+       "name": "Manager Name"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

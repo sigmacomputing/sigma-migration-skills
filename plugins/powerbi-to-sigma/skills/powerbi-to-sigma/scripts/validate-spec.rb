@@ -154,6 +154,13 @@ elements.each do |el|
     if src['kind'] == 'warehouse-table' && src['path']
       own_prefixes << src['path'].last
     end
+    # A union-source element reads its output columns as [Union of N Sources/X],
+    # N = sources.length. The live verify rejects the union element's own name.
+    union_prefix = nil
+    if src['kind'] == 'union'
+      union_prefix = "Union of #{Array(src['sources']).length} Sources"
+      own_prefixes << union_prefix
+    end
     # E-02: a SQL source element must carry a non-empty `statement`. The common
     # mistake is using the key `sql` (API rejects with `source.statement:
     # Invalid string: undefined`).
@@ -205,7 +212,12 @@ elements.each do |el|
         if ref.include?('/')
           prefix = ref.split('/', 1)[0] # bug-fix: split with limit 2
           prefix = ref.split('/', 2)[0]
-          unless own_prefixes.include?(prefix) || all_known_set.include?(prefix)
+          # The union's own name/id is wrong as a prefix, unless it IS the union prefix: Sigma auto-names a
+          # union element "Union of N Sources", which is exactly the prefix its columns must use.
+          if union_prefix && prefix != union_prefix && [el['name'], el['id']].include?(prefix)
+            errors << "#{name}.#{col['name']}: ref [#{ref}] — a union-source element reads its columns as " \
+                      "[#{union_prefix}/...], not by its own name"
+          elsif !(own_prefixes.include?(prefix) || all_known_set.include?(prefix))
             errors << "#{name}.#{col['name']}: ref [#{ref}] — prefix \"#{prefix}\" unknown " \
                       "(known: #{(own_prefixes + all_known_set).to_a.sort.join(', ')})"
           end
@@ -227,13 +239,18 @@ elements.each do |el|
       end
 
       if f =~ /\b(Weekday|Month|Year|Quarter|Day|Hour|Minute)\s*\(/i
-        if f.include?('If(') && !f.include?('IsNull(') && !f.include?('Coalesce(')
+        # A real If( call — not the tail of SumIf( / CountIf( / AvgIf(.
+        if f =~ /(?<![A-Za-z0-9_])If\s*\(/ && !f.include?('IsNull(') && !f.include?('Coalesce(')
           errors << "#{name}.#{col['name']}: nested-If on date function without IsNull/Coalesce guard"
         end
       end
     end
 
     errors << "#{name}: invalid kind \"kpi\" — must be \"kpi-chart\"" if kind == 'kpi'
+    # Sigma text bodies accept only #, ## and ### headings; #### makes PUT /contents return 400.
+    if kind == 'text' && el['body'].to_s =~ /^[ \t]*\#{4,}/
+      errors << "#{name}: text body heading level 4+ is not supported (use #, ## or ###)"
+    end
     errors << "#{name}: invalid kind \"pie\" — must be \"pie-chart\"" if kind == 'pie'
     errors << "#{name}: invalid kind \"donut\" — must be \"donut-chart\"" if kind == 'donut'
     errors << "#{name}: kpi-chart missing value" if kind == 'kpi-chart' && !el['value']

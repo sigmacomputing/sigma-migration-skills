@@ -15,6 +15,8 @@
 # Non-mappable (returned as coverage entries, NEVER silently dropped):
 #   fieldValue (a DAX measure returns the hex) — the measure lives in the model,
 #              not the report; recoverable once the measure is translated.
+require_relative 'pbi_theme'
+
 module PbiConditionalFormats
   module_function
 
@@ -36,6 +38,40 @@ module PbiConditionalFormats
     return nil if tl.empty?
     hit = qr_cids.find { |qr, _| leaf(qr).casecmp(tl).zero? }
     hit && hit[1]
+  end
+
+  # True when the exact lookup misses and the leaf fallback would match bound queryRefs that map
+  # to MORE THAN ONE built column (never guess which one a fill meant).
+  def ambiguous_leaf?(target, qr_cids)
+    return false if qr_cids[target]
+    tl = leaf(target)
+    return false if tl.empty?
+    qr_cids.select { |qr, _| leaf(qr).casecmp(tl).zero? }.values.uniq.size > 1
+  end
+
+  # Merge entries that fill the same column into one style (back from the entry that has it, font
+  # from the entry that has it; the later one wins on a shared property, as Power BI applies them in
+  # order). Position of the first entry is kept. With `qr_cids`, value-cell entries are keyed by the
+  # column they resolve to, so spellings that differ ("Sum(T.A)" / "T.A") or parts flags that differ
+  # still become ONE value-cell rule (two always-true rules on one column could paint white on white);
+  # the merged entry keeps every chrome part either entry styled. Other entries key on target + flags.
+  def merge_column_formats(entries, qr_cids = nil)
+    merged = []
+    index = {}
+    Array(entries).each do |cf|
+      cid = qr_cids && cf['values'] && !ambiguous_leaf?(cf['target'], qr_cids) ? resolve(cf['target'], qr_cids) : nil
+      key = cid ? [:column, cid] : [cf['target'], cf['header'], cf['values'], cf['subtotals'], cf['total']]
+      if (i = index[key])
+        m = merged[i]
+        m['back'] = cf['back'] unless cf['back'].nil?
+        m['font'] = cf['font'] unless cf['font'].nil?
+        %w[header subtotals total].each { |f| m[f] = true if cid && cf[f] }
+      else
+        index[key] = merged.size
+        merged << cf.dup
+      end
+    end
+    merged
   end
 
   # "0.15" -> 0.15, "3" -> 3, "East" -> "East" (a threshold value for a single rule).
@@ -146,6 +182,88 @@ module PbiConditionalFormats
           end
         end
       end
+    end
+    { 'formats' => formats, 'coverage' => coverage }
+  end
+
+  # A column_formats color ('#hex' or {'theme'=>id,'percent'=>p}) -> uppercase '#RRGGBB'.
+  def resolve_color(c, palette)
+    case c
+    when String then c =~ /\A#[0-9A-Fa-f]{6}\z/ ? c.upcase : nil
+    when Hash then PbiTheme.theme_color(c['theme'], c['percent'], palette)
+    end
+  end
+
+  # Static per-column fills (rec['column_formats'] from extract-pbir) -> Sigma
+  # element-level `single` / formula True rules (fills every VALUE cell of the column;
+  # `color` styles the font). Sigma cannot fill a per-column header or the grand-total
+  # row, so entries that style only those come back as ONE coverage entry per element.
+  # Returns { 'formats' => [...], 'coverage' => [record_unresolved kwargs...] }.
+  def column_fill_formats(column_formats, qr_cids, name, kind, palette)
+    formats = []
+    coverage = []
+    chrome_only = []
+    chrome_too = [] # value cells are filled, but the header/total part of the same fill is lost
+    merge_column_formats(column_formats, qr_cids).each do |cf|
+      back = resolve_color(cf['back'], palette)
+      font = resolve_color(cf['font'], palette)
+      # A source back colour that did not resolve must never fall through to the '#FFFFFF' default
+      # (white text on white); only a genuinely font-only fill (no back colour in the source) gets it.
+      if (back.nil? && font.nil?) || (back.nil? && !cf['back'].nil?)
+        unless cf['back'].nil? && cf['font'].nil?
+          coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                        severity: 'approximated', recoverable: false,
+                        detail: "column fill on '#{cf['target']}' not reproduced — its source colour " \
+                                "(#{[cf['back'], cf['font']].compact.map(&:inspect).join(', ')}) did not resolve to a hex value" +
+                                (back.nil? && !cf['back'].nil? && !font.nil? ? " (unresolved back colour #{cf['back'].inspect}; rule not emitted)" : '') }
+        end
+        next
+      end
+      # A flat Sigma table has no subtotal rows, so a subtotal fill is chrome only on a matrix.
+      chrome = cf['header'] || cf['total'] || (cf['subtotals'] && kind.to_s == 'pivot-table')
+      desc = "#{leaf(cf['target'])} (#{[back, font && "font #{font}"].compact.join(', ')})"
+      unless cf['values']
+        chrome_only << desc if chrome
+        next
+      end
+      if ambiguous_leaf?(cf['target'], qr_cids)
+        coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                      severity: 'approximated', recoverable: false,
+                      detail: "column fill on '#{cf['target']}' not reproduced — the target is ambiguous " \
+                              "(its name matches more than one bound column in the migrated #{kind})" }
+        next
+      end
+      cid = resolve(cf['target'], qr_cids)
+      unless cid
+        coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                      severity: 'degraded', recoverable: false,
+                      detail: "column fill on '#{cf['target']}' — that column is not in the migrated #{kind}" }
+        next
+      end
+      # Always explicit: a rule with no backgroundColor makes Sigma paint a default green cell fill
+      # (platform verdict table-null-blank). A font-only fill uses white, the repo's table-bg convention.
+      if font.nil? && !cf['font'].nil?
+        coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                      severity: 'approximated', recoverable: false,
+                      detail: "column fill on '#{cf['target']}': font colour #{cf['font'].inspect} did not resolve " \
+                              'to a hex value; background kept, font colour not carried' }
+      end
+      chrome_too << desc if chrome # only once a value-cell rule is really emitted
+      style = { 'backgroundColor' => back || '#FFFFFF' }
+      style['color'] = font if font
+      formats << { 'type' => 'single', 'columnIds' => [cid], 'condition' => 'formula',
+                   'formula' => 'True', 'style' => style }
+    end
+    unless chrome_only.empty?
+      coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                    severity: 'approximated', recoverable: false,
+                    detail: "per-column header/total/subtotal fill not reproduced for #{chrome_only.join('; ')} — " \
+                            'Sigma has no per-column header or grand-total fill (header style is element-wide) and cannot fill subtotal rows per column' }
+    end
+    unless chrome_too.empty?
+      coverage << { visual: name, pbi_type: 'column-format', sigma_kind: kind,
+                    severity: 'approximated', recoverable: false,
+                    detail: "value cells filled, header/total/subtotal part of the fill not reproduced for #{chrome_too.join('; ')}" }
     end
     { 'formats' => formats, 'coverage' => coverage }
   end

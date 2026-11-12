@@ -141,7 +141,7 @@ Dir.mktmpdir('pbi-workbook-code') do |dir|
        bar['legend'] == { 'visibility' => 'hidden' })
   legend_pair = bar && legend &&
                 doc['layout'].match?(
-                  %r{<Container elementId="band-page-p1-legend-#{Regexp.escape(bar['id'])}"[^>]*gridTemplateRows="repeat\(8, 1fr\)"[^>]*>.*?<Element elementId="#{Regexp.escape(bar['id'])}" gridColumn="1 / 25"[^>]*/>.*?<Element elementId="#{Regexp.escape(legend['id'])}" gridColumn="19 / 25"[^>]*/>}m
+                  %r{<Container elementId="band-page-p1-legend-#{Regexp.escape(bar['id'])}"[^>]*gridTemplateRows="auto"[^>]*>.*?<Element elementId="#{Regexp.escape(bar['id'])}" gridColumn="1 / 25"[^>]*/>.*?<Element elementId="#{Regexp.escape(legend['id'])}" gridColumn="19 / 25"[^>]*/>}m
                 )
   ok('visible legend control stays beside and fills its source chart panel', legend_pair)
   donut = doc['elements'].find { |e| e['kind'] == 'donut-chart' }
