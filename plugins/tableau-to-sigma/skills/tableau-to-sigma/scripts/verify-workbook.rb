@@ -21,9 +21,17 @@ require 'uri'
 require 'json'
 
 WB_ID = ARGV[0] or abort("Usage: #{$PROGRAM_NAME} <workbook-id>\n")
-BASE  = ENV['SIGMA_BASE_URL']  or (warn 'SIGMA_BASE_URL not set'; exit 2)
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
+
+# Sigma host from the shared client: an explicit SIGMA_BASE_URL wins, else the host
+# a signed-in Sigma CLI profile reports. Exit 2 (setup error) when neither exists.
+BASE = begin
+  Sigma.base_url
+rescue Sigma::Error => e
+  warn "verify-workbook.rb: #{e.message}"
+  exit 2
+end
 
 ERROR_MARKERS = /Unknown column "[^"]+"|Circular column reference to \[[^\]]+\]/
 
@@ -37,10 +45,18 @@ def http_get(path)
     req = Net::HTTP::Get.new(uri)
     req['Authorization'] = "Bearer #{Sigma.auth_token}"
     req['Accept']        = 'application/json'
-    res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 30) { |h| h.request(req) }
-    if res.code.to_i == 401 && attempts == 1 && ENV['SIGMA_CLIENT_ID']
-      Sigma.refresh_token!
-      next
+    res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 30) { |h| h.request(req) }
+    if res.code.to_i == 401 && attempts == 1
+      # Re-mint through the shared provider (CLI profile, browser keychain or client
+      # credentials); if that fails, hand back the 401 rather than crash.
+      refreshed = begin
+        Sigma.refresh_token!
+        true
+      rescue StandardError => e
+        warn "  [auth] token refresh failed: #{e.message.lines.first.to_s.strip}"
+        false
+      end
+      next if refreshed
     end
     return res
   end

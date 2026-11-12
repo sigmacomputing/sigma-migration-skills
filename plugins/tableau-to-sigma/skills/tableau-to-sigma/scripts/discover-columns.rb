@@ -49,13 +49,16 @@ OptionParser.new do |p|
 end.parse!
 %i[conn path].each { |k| abort "missing --#{k}" unless opts[k] }
 
-BASE = ENV.fetch('SIGMA_BASE_URL') { abort 'set SIGMA_BASE_URL' }
-TOK  = ENV.fetch('SIGMA_API_TOKEN') { abort 'set SIGMA_API_TOKEN' }
+BASE = begin
+  Sigma.base_url # explicit SIGMA_BASE_URL, else the host a signed-in Sigma CLI profile reports
+rescue Sigma::Error => e
+  abort "discover-columns.rb: #{e.message}"
+end
 
 def http(method, path, body = nil)
   uri = URI("#{BASE}#{path}")
   req = method == :post ? Net::HTTP::Post.new(uri) : Net::HTTP::Get.new(uri)
-  req['Authorization'] = "Bearer #{TOK}"
+  req['Authorization'] = "Bearer #{Sigma.auth_token}"
   req['Accept'] = 'application/json'
   if body
     req['Content-Type'] = 'application/json'

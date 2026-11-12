@@ -22,6 +22,15 @@ require 'tmpdir'
 require 'open3'
 require 'rbconfig'
 require_relative 'lib/blind_fixture'
+require 'fileutils'
+
+# Offline: a blank SIGMA_BASE_URL makes the shared client ask its token provider
+# for a host (a signed-in Sigma CLI or exported client credentials would answer),
+# so every credential-less run also pins a provider that reports no credentials.
+OFFLINE_PROVIDER_DIR = Dir.mktmpdir('offline-provider')
+at_exit { FileUtils.rm_rf(OFFLINE_PROVIDER_DIR) }
+OFFLINE_PROVIDER = File.join(OFFLINE_PROVIDER_DIR, 'provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
 
 Encoding.default_external = Encoding::UTF_8
 
@@ -162,7 +171,7 @@ def oracle_workdir(d, coverage:, waivers: nil, omit_coverage: false)
 end
 
 def run_gate(d, *args)
-  env = { 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil }
+  env = { 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil, 'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER }
   Open3.capture3(env, RbConfig.ruby, GATE, '--workdir', d, *args)
 end
 

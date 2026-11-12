@@ -150,9 +150,30 @@ the shared REST clients (`sigma_rest.rb`, `sigma_rest.py`, the Node adapter)
 take the host the provider reports for the profile and validate it like an
 explicit one before any request; an explicit `SIGMA_BASE_URL` always wins, and a
 caller-supplied `SIGMA_API_TOKEN` with no base URL is never swapped for the
-CLI's token. A few standalone scripts (e.g. `find-or-pick-dm`, the phase-6 gate)
-still read `SIGMA_BASE_URL` directly, so export it for those. `SIGMA_CLI_PROFILE`
+CLI's token. Standalone scripts (e.g. `find-or-pick-dm`, the phase-6 gate) ask
+the shared client for the host too (`Sigma.base_url` in Ruby,
+`sigma_rest.base_url()` in Python) instead of reading `SIGMA_BASE_URL`
+themselves, so this route needs no exported base URL. A script that still stops
+with `SIGMA_BASE_URL not set` has not been converted yet: export the variable
+for it. `SIGMA_CLI_PROFILE`
 may be persisted in `~/.sigma-migration/env` like the other settings.
+
+**An explicit `SIGMA_CLI_PROFILE` pins the org.** When the variable is set in the
+process environment (not merely persisted in the settings file), the settings
+file's `SIGMA_BASE_URL`, `SIGMA_CLIENT_ID`, `SIGMA_CLIENT_SECRET`,
+`SIGMA_API_TOKEN` and `SIGMA_AUTH_MODE` are ignored (other keys still load), the
+browser keychain is skipped, and `auto` never falls back to another source: if
+the profile cannot supply a token (signed out, host differs from an explicit
+`SIGMA_BASE_URL`), the provider fails with an error naming the profile and both
+hosts rather than silently using another org's credentials. Explicit
+`SIGMA_AUTH_MODE=browser` / `client-credentials` still behave as asked. Profile
+names may contain letters, digits, `.`, `_`, `@`, `-`, spaces and parentheses
+(for example `work (1)`, which the Sigma CLI creates for a second profile on one
+org), up to 128 characters, not starting with `-`. A profile that a settings-file
+loader copied in is recorded in `SIGMA_CLI_PROFILE_FROM_FILE` and is not
+explicit (the normal order and fallbacks apply). An `auth.json` in
+`SIGMA_WORKDIR` or the cwd is still read before the provider and wins over the
+profile (existing precedence).
 
 Bootstrap and doctor are deliberately noninteractive and **never open a
 browser** or run `sigma auth login`. Run the login command explicitly in an

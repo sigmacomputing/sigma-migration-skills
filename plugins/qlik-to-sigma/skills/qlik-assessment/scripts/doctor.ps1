@@ -193,7 +193,33 @@ if ($crlf -eq 'true') {
 # and, on 401, retries once through the browser/CLI/client provider. Bootstrap
 # and doctor never open a browser, never run `sigma auth login`, and never mint
 # or print a CLI token.
+# A SIGMA_CLI_PROFILE the caller set (not one a settings-file loader copied in,
+# which records it in SIGMA_CLI_PROFILE_FROM_FILE) chooses the org.
+# A profile equal to the settings file's own SIGMA_CLI_PROFILE is not explicit
+# either (a shell that sourced the file has it set, unmarked). Only that one key
+# is read from the file, and never printed.
+function Get-SigmaFileProfile() {
+  $f = if ($envFile) { $envFile } else { Join-Path $env:USERPROFILE '.sigma-migration\env' }
+  if (-not (Test-Path $f)) { return '' }
+  $raw = Get-Content $f -Raw -ErrorAction SilentlyContinue
+  if (-not $raw) { return '' }
+  $m = [regex]::Matches($raw, "(?m)^\s*(?:export\s+)?SIGMA_CLI_PROFILE=(.+?)\s*$")
+  if ($m.Count -eq 0) { return '' }
+  return $m[$m.Count - 1].Groups[1].Value.Trim('"', "'")
+}
+function Test-SigmaProfileExplicit() {
+  return [bool]($env:SIGMA_CLI_PROFILE -and ($env:SIGMA_CLI_PROFILE -cne $env:SIGMA_CLI_PROFILE_FROM_FILE) -and ($env:SIGMA_CLI_PROFILE -cne (Get-SigmaFileProfile)))
+}
+# In auto mode an explicit profile makes the Sigma CLI the only source: the
+# provider skips the browser keychain and client credentials (no fall-through).
+function Test-SigmaCliOnly() {
+  $m = if ($env:SIGMA_AUTH_MODE) { $env:SIGMA_AUTH_MODE } else { 'auto' }
+  return ((Test-SigmaProfileExplicit) -and ($m -eq 'auto'))
+}
 function Test-SigmaEnvFileKey([string]$key, [string]$file) {
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if ((Test-SigmaProfileExplicit) -and @('SIGMA_BASE_URL','SIGMA_CLIENT_ID','SIGMA_CLIENT_SECRET','SIGMA_API_TOKEN','SIGMA_AUTH_MODE') -contains $key) { return $false }
   if (-not (Test-Path $file)) { return $false }
   $content = Get-Content $file -Raw -ErrorAction SilentlyContinue
   return [bool]($content -match "(?m)^\s*(?:export\s+)?$([regex]::Escape($key))=.+$")
@@ -228,6 +254,9 @@ function Test-SigmaPublishedBase([string]$base) {
 }
 # One KEY's value from the neutral env file ('' if absent), quotes stripped.
 function Get-SigmaEnvFileValue([string]$key, [string]$file) {
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if ((Test-SigmaProfileExplicit) -and @('SIGMA_BASE_URL','SIGMA_CLIENT_ID','SIGMA_CLIENT_SECRET','SIGMA_API_TOKEN','SIGMA_AUTH_MODE') -contains $key) { return '' }
   if (-not (Test-Path $file)) { return '' }
   $raw = Get-Content $file -Raw -ErrorAction SilentlyContinue
   if (-not $raw) { return '' }
@@ -277,8 +306,8 @@ function Test-SigmaCliSession([string]$file) {
   $cliProfile = $env:SIGMA_CLI_PROFILE
   if (-not $cliProfile) { $cliProfile = Get-SigmaEnvFileValue 'SIGMA_CLI_PROFILE' $file }
   if ($cliProfile) {
-    if ($cliProfile -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$') {
-      return @{ Ok = $false; Base = ''; Why = 'SIGMA_CLI_PROFILE is not a valid profile name' }
+    if ($cliProfile -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._@ ()-]{0,127}$') {
+      return @{ Ok = $false; Base = ''; Why = 'SIGMA_CLI_PROFILE must be a profile name (letters, digits, . _ @ - space, parentheses; not starting with ''-'')' }
     }
     $profileArgs = @('-p', $cliProfile)
   }
@@ -314,14 +343,14 @@ $sigmaBase = Test-SigmaBaseConfigured $envFile
 $sigmaToken = $sigmaBase -and ($env:SIGMA_API_TOKEN -or (Test-SigmaEnvFileKey 'SIGMA_API_TOKEN' $envFile))
 $sigmaMode = if ($env:SIGMA_AUTH_MODE) { $env:SIGMA_AUTH_MODE } else { 'auto' }
 $sigmaBrowser = $false
-if ((-not $sigmaToken) -and ($sigmaMode -ne 'client-credentials') -and ($sigmaMode -ne 'sigma-cli')) {
+if ((-not $sigmaToken) -and ($sigmaMode -ne 'client-credentials') -and ($sigmaMode -ne 'sigma-cli') -and (-not (Test-SigmaCliOnly))) {
   $sigmaBrowser = Test-SigmaBrowserSession $envFile
 }
 $sigmaCli = @{ Ok = $false; Base = ''; Why = '' }
 if ((-not $sigmaToken) -and (-not $sigmaBrowser) -and ($sigmaMode -ne 'browser') -and ($sigmaMode -ne 'client-credentials')) {
   $sigmaCli = Test-SigmaCliSession $envFile
 }
-$sigmaClient = ($sigmaMode -ne 'browser') -and ($sigmaMode -ne 'sigma-cli') -and $sigmaBase -and (
+$sigmaClient = ($sigmaMode -ne 'browser') -and ($sigmaMode -ne 'sigma-cli') -and (-not (Test-SigmaCliOnly)) -and $sigmaBase -and (
   ($env:SIGMA_CLIENT_ID -and $env:SIGMA_CLIENT_SECRET) -or
   ((Test-SigmaEnvFileKey 'SIGMA_CLIENT_ID' $envFile) -and (Test-SigmaEnvFileKey 'SIGMA_CLIENT_SECRET' $envFile))
 )
@@ -338,14 +367,17 @@ if ($sigmaToken) {
   $script:SigmaAuthMethod = 'sigma-cli'
   # With SIGMA_BASE_URL unset, the shared REST clients (sigma_rest.rb/.py, the
   # Node adapter) derive the host from the token provider, which reads it from
-  # the CLI profile. A few standalone scripts still read the variable directly.
+  # the CLI profile; standalone scripts ask those clients for the host as well.
   if (-not $sigmaBase) {
     Warn "SIGMA_BASE_URL is not set; the shared REST clients derive it from the Sigma CLI profile ($($sigmaCli.Base))" `
-         "Standalone scripts that read SIGMA_BASE_URL directly (e.g. find-or-pick-dm) still need it: set it to '$($sigmaCli.Base)' (or add it to ~/.sigma-migration/env)."
+         "Standalone scripts ask the shared client for the host too; one that still stops with 'SIGMA_BASE_URL not set' needs it: set it to '$($sigmaCli.Base)' (or add it to ~/.sigma-migration/env)."
   }
 } elseif ($sigmaClient) {
   $sigmaCreds = $true
   $script:SigmaAuthMethod = 'client-credentials'
+}
+if ((Test-SigmaCliOnly) -and (-not $sigmaToken) -and (-not $sigmaCli.Ok) -and (-not $sigmaCli.Why)) {
+  $sigmaCli.Why = "SIGMA_CLI_PROFILE '$($env:SIGMA_CLI_PROFILE)' was chosen explicitly, so only that Sigma CLI profile is used (no browser or client-credentials fallback), and the Sigma CLI is not available"
 }
 if ($sigmaCli.Why -and (-not $sigmaCli.Ok)) {
   Warn "Sigma CLI found but not usable: $($sigmaCli.Why)" `

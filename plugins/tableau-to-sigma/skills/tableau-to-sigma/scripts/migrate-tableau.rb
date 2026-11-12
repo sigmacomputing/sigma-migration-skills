@@ -166,6 +166,7 @@ require 'yaml'
 require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/migration_process'
+require_relative 'lib/sigma_profile_pin' # explicit SIGMA_CLI_PROFILE pins the org (cred gate must not refill the file's org keys)
 require_relative 'lib/layout' # SigmaLayout.clear_band_style_sidecar (plan C6)
 require_relative 'lib/execution_identity'
 require_relative 'lib/sql_provenance'
@@ -847,7 +848,12 @@ end
 # runs with SIGMA_SKIP_CRED_GATE="<reason>".
 _cred_skip = ENV['SIGMA_SKIP_CRED_GATE']
 _neutral_env = File.expand_path('~/.sigma-migration/env')
-if File.exist?(_neutral_env)
+# An explicit SIGMA_CLI_PROFILE pins the org: the shared loader already skipped the
+# file's org keys, so refilling them here would put another org's host and client
+# credentials back. Leave them empty; Sigma.auth_token / Sigma.base_url below
+# resolve the host from the CLI profile.
+_pinned = SigmaProfilePin.pinned?(ENV, _neutral_env)
+if File.exist?(_neutral_env) && !_pinned
   File.foreach(_neutral_env, encoding: 'UTF-8') do |line|
     next unless (m = line.chomp.match(/\A\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)\z/))
     key, raw = m[1], m[2].strip
@@ -876,19 +882,53 @@ rescue Errno::ENOENT, StandardError
 end
 
 _sigma_auth_mode = ENV.fetch('SIGMA_AUTH_MODE', 'auto')
-_client_auth = _sigma_auth_mode != 'browser' &&
+# A pinned profile in auto mode makes the Sigma CLI the ONLY token source (the
+# provider skips the browser keychain and client credentials), so neither of those
+# shortcuts may pass the gate: the real route is the provider probe below.
+_pin_auto = _pinned && _sigma_auth_mode == 'auto'
+_client_auth = !_pin_auto && !%w[browser sigma-cli].include?(_sigma_auth_mode) &&
                !ENV['SIGMA_CLIENT_ID'].to_s.empty? &&
                !ENV['SIGMA_CLIENT_SECRET'].to_s.empty?
-_browser_auth = _cred_skip.to_s.empty? && _sigma_auth_mode != 'client-credentials' &&
+_browser_auth = !_pin_auto && _cred_skip.to_s.empty? &&
+                !%w[client-credentials sigma-cli].include?(_sigma_auth_mode) &&
                 sigma_browser_session_present?
-_creds_ok = !ENV['SIGMA_API_TOKEN'].to_s.empty? || _client_auth || _browser_auth
+# A bare caller token still needs a host; Sigma.base_url is offline when a token is
+# present (explicit URL, auth.json, or the profile's host from the provider).
+_token_auth = false
+if !ENV['SIGMA_API_TOKEN'].to_s.empty?
+  _token_auth = !_pin_auto
+  if _pin_auto
+    begin
+      _token_auth = !Sigma.base_url.to_s.empty?
+    rescue StandardError, SystemExit
+      _token_auth = false
+    end
+  end
+end
+_creds_ok = _token_auth || _client_auth || _browser_auth
+_probe_error = nil
 unless _creds_ok || !_cred_skip.to_s.empty?
   begin
     # Use the shared provider for CLI and auth.json sessions too; no interactive login.
     _creds_ok = !Sigma.auth_token.to_s.empty? && !Sigma.base_url.to_s.empty?
-  rescue StandardError, SystemExit
+  rescue StandardError, SystemExit => e
+    _probe_error = e
     _creds_ok = false
   end
+end
+if !_creds_ok && _pinned && _pin_auto && (_cred_skip.nil? || _cred_skip.to_s.empty?)
+  _prof = ENV['SIGMA_CLI_PROFILE'].to_s.strip
+  _why = _probe_error ? _probe_error.message.to_s.lines.first.to_s.strip : ''
+  # A caller token with no explicit host can never resolve through the profile
+  # (the shared Sigma.base_url refuses to derive a host while a caller token is
+  # set), so `sigma auth login` cannot fix it: say what actually does.
+  if !ENV['SIGMA_API_TOKEN'].to_s.empty? && ENV['SIGMA_BASE_URL'].to_s.empty?
+    abort "FATAL: a caller SIGMA_API_TOKEN is set without SIGMA_BASE_URL: export the token's SIGMA_BASE_URL, " \
+          'or unset SIGMA_API_TOKEN so the profile mints one.'
+  end
+  abort "FATAL: SIGMA_CLI_PROFILE='#{_prof}' was set explicitly, so only that Sigma CLI profile is used: " \
+        "run `sigma auth login -p '#{_prof}'` (or unset SIGMA_CLI_PROFILE to use browser login / client credentials)." \
+        "#{_why.empty? ? '' : "\n#{_why}"}"
 end
 if !_creds_ok && (_cred_skip.nil? || _cred_skip.to_s.empty?)
   abort <<~MSG

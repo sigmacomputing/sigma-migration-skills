@@ -15,7 +15,6 @@ OUT_DIR = ARGV.shift || abort('usage: discover-warehouse-columns.rb <out-dir> <i
 INODES  = ARGV
 abort 'no inodeIds given' if INODES.empty?
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'warehouse_columns_pagination'

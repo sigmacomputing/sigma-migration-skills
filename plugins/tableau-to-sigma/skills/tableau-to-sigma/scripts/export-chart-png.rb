@@ -43,8 +43,13 @@ OptionParser.new do |p|
 end.parse!
 %i[workbook out_dir].each { |k| abort "missing --#{k.to_s.tr('_','-')}" unless opts[k] }
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
-TOK  = ENV.fetch('SIGMA_API_TOKEN')
+$LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'sigma_rest'
+BASE = begin
+  Sigma.base_url # explicit SIGMA_BASE_URL, else the host a signed-in Sigma CLI profile reports
+rescue Sigma::Error => e
+  abort "export-chart-png.rb: #{e.message}"
+end
 
 CHART_KINDS = %w[bar-chart line-chart area-chart combo-chart scatter-chart
                  pie-chart donut-chart kpi-chart region-map point-map
@@ -56,9 +61,9 @@ def http(method, path, body = nil, accept: 'application/json')
         when :post then r = Net::HTTP::Post.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
         when :get  then Net::HTTP::Get.new(uri)
         end
-  req['Authorization'] = "Bearer #{TOK}"
+  req['Authorization'] = "Bearer #{Sigma.auth_token}"
   req['Accept']        = accept
-  Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 60) { |h| h.request(req) }
+  Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 60) { |h| h.request(req) }
 end
 
 # 1. Discover elements to screenshot

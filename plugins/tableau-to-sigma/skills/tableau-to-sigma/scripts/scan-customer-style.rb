@@ -44,15 +44,20 @@ OptionParser.new do |p|
 end.parse!
 abort 'missing --out-dir' unless opts[:out_dir]
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
-TOK  = ENV.fetch('SIGMA_API_TOKEN')
+$LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'sigma_rest'
+BASE = begin
+  Sigma.base_url # explicit SIGMA_BASE_URL, else the host a signed-in Sigma CLI profile reports
+rescue Sigma::Error => e
+  abort "scan-customer-style.rb: #{e.message}"
+end
 
 def http_get(path, accept: 'application/json')
   uri = URI("#{BASE}#{path}")
   req = Net::HTTP::Get.new(uri)
-  req['Authorization'] = "Bearer #{TOK}"
+  req['Authorization'] = "Bearer #{Sigma.auth_token}"
   req['Accept']        = accept
-  Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 60) { |h| h.request(req) }
+  Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 60) { |h| h.request(req) }
 end
 
 FileUtils.mkdir_p(opts[:out_dir])

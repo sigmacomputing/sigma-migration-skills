@@ -547,7 +547,33 @@ else {
 
 # --- credentials (non-interactive only; values never echoed) ----------------
 $envFile = Join-Path $StateDir 'env'
+# A SIGMA_CLI_PROFILE the caller set (not one a settings-file loader copied in,
+# which records it in SIGMA_CLI_PROFILE_FROM_FILE) chooses the org.
+# A profile equal to the settings file's own SIGMA_CLI_PROFILE is not explicit
+# either (a shell that sourced the file has it set, unmarked). Only that one key
+# is read from the file, and never printed.
+function Get-SigmaFileProfile() {
+  $f = if ($envFile) { $envFile } else { Join-Path $env:USERPROFILE '.sigma-migration\env' }
+  if (-not (Test-Path $f)) { return '' }
+  $raw = Get-Content $f -Raw -ErrorAction SilentlyContinue
+  if (-not $raw) { return '' }
+  $m = [regex]::Matches($raw, "(?m)^\s*(?:export\s+)?SIGMA_CLI_PROFILE=(.+?)\s*$")
+  if ($m.Count -eq 0) { return '' }
+  return $m[$m.Count - 1].Groups[1].Value.Trim('"', "'")
+}
+function Test-SigmaProfileExplicit() {
+  return [bool]($env:SIGMA_CLI_PROFILE -and ($env:SIGMA_CLI_PROFILE -cne $env:SIGMA_CLI_PROFILE_FROM_FILE) -and ($env:SIGMA_CLI_PROFILE -cne (Get-SigmaFileProfile)))
+}
+# In auto mode an explicit profile makes the Sigma CLI the only source: the
+# provider skips the browser keychain and client credentials (no fall-through).
+function Test-SigmaCliOnly() {
+  $m = if ($env:SIGMA_AUTH_MODE) { $env:SIGMA_AUTH_MODE } else { 'auto' }
+  return ((Test-SigmaProfileExplicit) -and ($m -eq 'auto'))
+}
 function Test-SigmaEnvFileKey([string]$key, [string]$file) {
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if ((Test-SigmaProfileExplicit) -and @('SIGMA_BASE_URL','SIGMA_CLIENT_ID','SIGMA_CLIENT_SECRET','SIGMA_API_TOKEN','SIGMA_AUTH_MODE') -contains $key) { return $false }
   if (-not (Test-Path $file)) { return $false }
   $content = Get-Content $file -Raw -ErrorAction SilentlyContinue
   return [bool]($content -match "(?m)^\s*(?:export\s+)?$([regex]::Escape($key))=.+$")
@@ -579,6 +605,9 @@ function Test-SigmaPublishedBase([string]$base) {
 }
 # One KEY's value from the neutral env file ('' if absent), quotes stripped.
 function Get-SigmaEnvFileValue([string]$key, [string]$file) {
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if ((Test-SigmaProfileExplicit) -and @('SIGMA_BASE_URL','SIGMA_CLIENT_ID','SIGMA_CLIENT_SECRET','SIGMA_API_TOKEN','SIGMA_AUTH_MODE') -contains $key) { return '' }
   if (-not (Test-Path $file)) { return '' }
   $raw = Get-Content $file -Raw -ErrorAction SilentlyContinue
   if (-not $raw) { return '' }
@@ -628,8 +657,8 @@ function Test-SigmaCliSession([string]$file) {
   $cliProfile = $env:SIGMA_CLI_PROFILE
   if (-not $cliProfile) { $cliProfile = Get-SigmaEnvFileValue 'SIGMA_CLI_PROFILE' $file }
   if ($cliProfile) {
-    if ($cliProfile -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$') {
-      return @{ Ok = $false; Base = ''; Why = 'SIGMA_CLI_PROFILE is not a valid profile name' }
+    if ($cliProfile -cnotmatch '^[A-Za-z0-9_][A-Za-z0-9._@ ()-]{0,127}$') {
+      return @{ Ok = $false; Base = ''; Why = 'SIGMA_CLI_PROFILE must be a profile name (letters, digits, . _ @ - space, parentheses; not starting with ''-'')' }
     }
     $profileArgs = @('-p', $cliProfile)
   }
@@ -661,7 +690,7 @@ function Test-SigmaCliSession([string]$file) {
 $hasSigmaToken = (Test-SigmaBaseConfigured $envFile) -and `
   ($env:SIGMA_API_TOKEN -or (Test-SigmaEnvFileKey 'SIGMA_API_TOKEN' $envFile))
 $hasSigmaBrowser = $false
-if ((-not $hasSigmaToken) -and ($env:SIGMA_AUTH_MODE -ne 'client-credentials') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli')) {
+if ((-not $hasSigmaToken) -and ($env:SIGMA_AUTH_MODE -ne 'client-credentials') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and (-not (Test-SigmaCliOnly))) {
   $hasSigmaBrowser = Test-SigmaBrowserSession $envFile
 }
 $sigmaCli = @{ Ok = $false; Base = ''; Why = '' }
@@ -711,13 +740,16 @@ elseif ($hasSigmaBrowser) {
 elseif ($sigmaCli.Ok) {
   Okay "Sigma CLI profile signed in (bootstrap only reads 'sigma auth status'; it never runs login or mints a token)"
 }
-elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and $hasSigmaClientFile) {
+elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and (-not (Test-SigmaCliOnly)) -and $hasSigmaClientFile) {
   Okay "Sigma client credentials present ($envFile)"
 }
-elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and $env:SIGMA_CLIENT_ID -and $env:SIGMA_CLIENT_SECRET) {
+elseif (($env:SIGMA_AUTH_MODE -ne 'browser') -and ($env:SIGMA_AUTH_MODE -ne 'sigma-cli') -and (-not (Test-SigmaCliOnly)) -and $env:SIGMA_CLIENT_ID -and $env:SIGMA_CLIENT_SECRET) {
   Okay 'Sigma client credentials available in this process (session-only; bootstrap does not persist exported secrets)'
   Note 'To persist them explicitly, re-run bootstrap.ps1 with -FromEnv.'
 } else {
+  if ((Test-SigmaCliOnly) -and (-not $sigmaCli.Why)) {
+    $sigmaCli.Why = "SIGMA_CLI_PROFILE '$($env:SIGMA_CLI_PROFILE)' was chosen explicitly, so only that Sigma CLI profile is used (no browser or client-credentials fallback), and the Sigma CLI is not available"
+  }
   if ($sigmaCli.Why) { Note "Sigma CLI found but not usable: $($sigmaCli.Why)" }
   Plan "Sigma authentication MISSING (need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" 'from an interactive Git Bash terminal, set SIGMA_BASE_URL and run: eval "$(bash scripts/browser-login.sh)" (one-time browser sign-in; bootstrap never opens it). Or sign in with the Sigma CLI: sigma auth login (then optionally set SIGMA_CLI_PROFILE=<profile>). Unattended fallback: re-run bootstrap.ps1 with -ClientId ID -ClientSecret SECRET [-BaseUrl URL], or set the client values and use -FromEnv'
 }

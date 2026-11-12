@@ -49,7 +49,18 @@ a signed-in Sigma CLI profile (`sigma auth status` reports `Auth: OK`;
 routes but the CLI also need `SIGMA_BASE_URL`; with the CLI it is optional (the
 shared REST clients take the host from the provider and validate it), and when
 set it must be the profile's host (a mismatch is refused, never sent to the
-other host). `SIGMA_CLI_PROFILE` may live in `~/.sigma-migration/env`. Later bootstrap/doctor runs reuse a keychain session without a
+other host). `SIGMA_CLI_PROFILE` may live in `~/.sigma-migration/env`.
+An **explicit** `SIGMA_CLI_PROFILE` (set in the process environment) pins the org:
+the settings file's `SIGMA_BASE_URL`, client credentials, `SIGMA_API_TOKEN` and
+`SIGMA_AUTH_MODE` are ignored, the browser keychain is skipped, and `auto` never
+falls back to another source - a CLI failure (including a host mismatch with an
+explicit `SIGMA_BASE_URL`) is an error naming the profile and both hosts. Profile
+names may contain parentheses, e.g. `work (1)`. A profile copied in from the
+settings file (recorded in `SIGMA_CLI_PROFILE_FROM_FILE`), or equal to the
+settings file's own `SIGMA_CLI_PROFILE` (e.g. after `source
+~/.sigma-migration/env`), is not explicit. An
+`auth.json` in `SIGMA_WORKDIR` or the cwd is still read first and wins over the
+profile. Later bootstrap/doctor runs reuse a keychain session without a
 browser round-trip. Doctor records the method it found as `sigma_auth_method`
 in `doctor.json` (`api-token`, `browser`, `sigma-cli`, `client-credentials`, or
 `none`).

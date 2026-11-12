@@ -36,7 +36,9 @@
 # Isolation: SIGMA_BASE_URL / SIGMA_API_TOKEN are forced empty in the gate's
 # subprocess env on every invocation (belt-and-braces against a dev shell that
 # happens to have live Sigma creds exported — this suite must never reach the
-# network even by accident).
+# network even by accident). With no base URL the shared client asks its token
+# provider for one (a signed-in Sigma CLI profile would answer), so the
+# provider is pinned to one that always reports "no credentials" as well.
 #
 #   ruby test/test-assert-phase6.rb
 require 'digest'
@@ -51,6 +53,12 @@ GATE = File.expand_path('../scripts/assert-phase6-ran.rb', __dir__)
 # <tool>); falls back to a neutral label when run from the shared canonical
 # location (shared/scripts/), which is not itself a `*-to-sigma` plugin dir.
 TOOL = (__dir__[%r{(\w+-to-sigma)}, 1] || 'assert-phase6')
+OFFLINE_PROVIDER_DIR = Dir.mktmpdir('p6-offline-provider')
+at_exit { FileUtils.rm_rf(OFFLINE_PROVIDER_DIR) }
+OFFLINE_PROVIDER = File.join(OFFLINE_PROVIDER_DIR, 'provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
+OFFLINE_ENV = { 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '',
+                'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER }.freeze
 $failures = 0
 def eq(a, b, m)
   if a == b then puts "  ok: #{m}" else $failures += 1; puts "  FAIL: #{m}\n    exp #{b.inspect}\n    got #{a.inspect}" end
@@ -60,7 +68,7 @@ end
 # (offline, and immune to whatever the invoking shell happens to export).
 def run_gate(dir, *extra_args)
   cmd = ['ruby', GATE, '--workdir', dir] + extra_args
-  env = { 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '' }
+  env = OFFLINE_ENV
   system(env, *cmd, out: File::NULL, err: File::NULL)
   $?.exitstatus
 end
@@ -79,7 +87,7 @@ end
 # the captured stderr string is simply dropped.
 def run_gate_capture(dir, *extra_args)
   cmd = ['ruby', GATE, '--workdir', dir] + extra_args
-  env = { 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '' }
+  env = OFFLINE_ENV
   out, err, status = Open3.capture3(env, *cmd)
   [status.exitstatus, out, err]
 end
@@ -1007,7 +1015,7 @@ Dir.mktmpdir('b14') do |d|
   wd = File.join(d, 'wd'); FileUtils.mkdir_p(wd)
   write_good_fixtures(wd)
   rcf_ledger(wd, [rcf_entry('c1', 'sigma-capability', 'catalog_id' => 'fixture-diff')])
-  _o, _e, st = Open3.capture3({ 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '' }, 'ruby', File.join(tree, 'scripts', 'assert-phase6-ran.rb'),
+  _o, _e, st = Open3.capture3(OFFLINE_ENV, 'ruby', File.join(tree, 'scripts', 'assert-phase6-ran.rb'),
                               '--workdir', wd, *HAPPY_FLAGS, '--require-fidelity-ledger')
   eq(st.exitstatus, 0, '8d: sigma-capability WITH a valid catalog_id never blocks (budget remaining)')
 end
@@ -1070,8 +1078,8 @@ def gate14(dir, doc, catalog_id: 'pivot-row-height-fixed', record: true, render_
     pf['blind_grade']['fidelity_render'] = { 'pass' => 1, 'sha256' => Digest::SHA256.file(tgt).hexdigest }
     write_json(dir, 'parity-final.json', pf)
   end
-  env = { 'SIGMA_BASE_URL' => '', 'SIGMA_API_TOKEN' => '', 'VISUAL_SIMILARITY_SCRIPT' => stub,
-          'VSIM_STUB_JSON' => JSON.generate(doc) }.merge(env_extra)
+  env = OFFLINE_ENV.merge('VISUAL_SIMILARITY_SCRIPT' => stub,
+                          'VSIM_STUB_JSON' => JSON.generate(doc)).merge(env_extra)
   # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
   # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, err, st = Open3.capture3(env, 'ruby', GATE, '--workdir', dir, *V2_FLAGS, *extra_args)

@@ -47,7 +47,6 @@ OptionParser.new do |p|
 end.parse!
 %i[dm_id out].each { |k| abort "missing --#{k.to_s.tr('_','-')}" unless opts[k] }
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 

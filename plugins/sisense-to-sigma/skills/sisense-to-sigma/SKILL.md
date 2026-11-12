@@ -113,6 +113,13 @@ decisions, and declares completion only after strict JAQL parity, readback,
 render health, shared hard gates, and the census-backed migration report are
 GREEN. Exit 10 is an unresolved RLS decision; exit 2 is a failed migration.
 
+If `SIGMA_CLI_PROFILE` is set explicitly, `migrate-sisense.py` does not load
+`~/.sigma-migration/env`'s Sigma base URL, client credentials, API token or auth
+mode. "Explicit" excludes a value equal to the settings file's own
+`SIGMA_CLI_PROFILE` or to `SIGMA_CLI_PROFILE_FROM_FILE`, and an `auth.json` in
+`SIGMA_WORKDIR` or the cwd, or `SIGMA_API_TOKEN` / `SIGMA_BASE_URL` already
+exported, still take precedence; see `refs/environment.md` for the full rule.
+
 ### Core scripts
 
 | Script | Role |

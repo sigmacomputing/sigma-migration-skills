@@ -280,8 +280,12 @@ finally:
 
 print("Part L — Sigma catalog sync resolves neutral-file auth despite empty env")
 saved_env = {key: os.environ.get(key) for key in (
-    "HOME", "SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET"
+    "HOME", "SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET",
+    "SIGMA_CLI_PROFILE", "SIGMA_CLI_PROFILE_FROM_FILE", "SIGMA_WORKDIR"
 )}
+# A developer shell that exports a profile must not turn this into a pinned run.
+for _k in ("SIGMA_CLI_PROFILE", "SIGMA_CLI_PROFILE_FROM_FILE", "SIGMA_WORKDIR"):
+    os.environ.pop(_k, None)
 with tempfile.TemporaryDirectory() as home:
     neutral_dir = os.path.join(home, ".sigma-migration")
     os.makedirs(neutral_dir)

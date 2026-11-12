@@ -110,6 +110,39 @@ module CoverageGate
     s.to_s.downcase.gsub(/[^a-z0-9]/, '')
   end
 
+  # Lowercase alphanumeric words of s, in order. Spaces, brackets, quotes, dots
+  # and punctuation are boundaries: "'Fact Sales'[Sales Rank]" → fact sales sales rank.
+  def ident_words(s)
+    s.to_s.downcase.scan(/[a-z0-9]+/)
+  end
+
+  # True when measure `name` appears in `words` as a whole identifier: a run of
+  # consecutive words that joins to exactly norm_ident(name). "Sales Rank"
+  # matches "[Sales Rank]" and "SalesRank", and "GP" matches the word "GP".
+  # A raw substring test on the space-stripped text also hit "GP" inside "GPS",
+  # "Exp" inside "expand" and "Map" across "Sigma pivot" (review of #966).
+  def mentions_measure?(words, name)
+    target = norm_ident(name)
+    return false if target.empty?
+    words.each_index do |i|
+      run = +''
+      words[i..].each do |w|
+        run << w
+        return true if run == target
+        break unless target.start_with?(run)
+      end
+    end
+    false
+  end
+
+  # Only an entry that lost content and that the converter left recoverable is
+  # attributed to a measure. An approximated entry carried its data over, and a
+  # recoverable:false entry is a limitation the converter already judged, so a
+  # measure name in their text must not flip their recoverable flag.
+  def measure_attributable?(u)
+    u['severity'] != 'approximated' && u['recoverable'] != false
+  end
+
   # Stamp each unresolved entry with a `cause` and (for non-translatable DAX)
   # flip recoverable:false so the visual-compare gate isn't blocked by a genuine
   # Sigma/DAX limitation — it is SURFACED, not gated. Mutates + returns coverage.
@@ -117,22 +150,22 @@ module CoverageGate
   #                      absent from the DM readback = schema the connection can't read)
   #   dax_dropped      : measure names the converter dropped as non-translatable (⛔)
   #   dax_crosstable   : measure names dropped as cross-table (⚠)
+  # Measure names match the entry's detail/visual/entity text as whole
+  # identifiers (mentions_measure?), and only on measure_attributable? entries.
   def classify_causes(coverage, ungranted: {}, connection: nil, dax_dropped: [], dax_crosstable: [])
     return coverage unless coverage.is_a?(Hash)
     ung   = ungranted.values.flatten.map { |t| norm_ident(t) }.reject(&:empty?)
-    drop  = dax_dropped.map { |m| norm_ident(m) }.reject(&:empty?)
-    cross = dax_crosstable.map { |m| norm_ident(m) }.reject(&:empty?)
     (coverage['unresolved'] || []).each do |u|
       en  = norm_ident(u['entity'])
-      hay = norm_ident("#{u['detail']} #{u['visual']} #{u['entity']}")
+      words = measure_attributable?(u) ? ident_words("#{u['detail']} #{u['visual']} #{u['entity']}") : []
       u['cause'] =
         if !en.empty? && ung.any? { |t| t == en || en.include?(t) || t.include?(en) }
           u['recoverable'] = true
           'ungranted_schema'
-        elsif !drop.empty? && drop.any? { |m| hay.include?(m) }
+        elsif dax_dropped.any? { |m| mentions_measure?(words, m) }
           u['recoverable'] = false
           'nontranslatable_dax'
-        elsif !cross.empty? && cross.any? { |m| hay.include?(m) }
+        elsif dax_crosstable.any? { |m| mentions_measure?(words, m) }
           u['recoverable'] = true
           'cross_table_measure'
         elsif u['detail'].to_s =~ /no (resolvable|field|bind)/i

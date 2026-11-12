@@ -67,13 +67,22 @@ require 'workbook_code'
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
 
-BASE = ENV.fetch('SIGMA_BASE_URL') # sigma_rest fills this from auth.json when unset
+# Sigma host from the shared client: an explicit SIGMA_BASE_URL wins, else the
+# host a signed-in Sigma CLI profile reports. Resolved lazily (first request) so
+# paths that need no credentials never ask the token provider.
+def sigma_base
+  @sigma_base ||= begin
+    Sigma.base_url
+  rescue Sigma::Error => e
+    abort "put-layout.rb: #{e.message}"
+  end
+end
 
 def http(method, path, body = nil)
   attempts = 0
   loop do
     attempts += 1
-    uri = URI("#{BASE}#{path}")
+    uri = URI("#{sigma_base}#{path}")
     req = case method
           when :get then Net::HTTP::Get.new(uri)
           when :put then r = Net::HTTP::Put.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
@@ -81,16 +90,29 @@ def http(method, path, body = nil)
     req['Authorization'] = "Bearer #{Sigma.auth_token}"
     req['Accept']        = 'application/json'
     res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') { |h| h.request(req) }
-    if res.code.to_i == 401 && attempts == 1 && ENV['SIGMA_CLIENT_ID']
+    if res.code.to_i == 401 && attempts == 1
       warn '  [auth] Sigma token expired mid-run — refreshing and retrying...'
-      Sigma.refresh_token!
-      next
+      # Re-mint through the shared provider (CLI profile, browser keychain or client
+      # credentials); if that fails, hand back the 401 rather than crash.
+      refreshed = begin
+        Sigma.refresh_token!
+        true
+      rescue StandardError => e
+        warn "  [auth] token refresh failed: #{e.message.lines.first.to_s.strip}"
+        false
+      end
+      next if refreshed
     end
     return res
   end
 end
 
-raw_spec = JSON.parse(http(:get, Sigma::CodeRep.read_path(opts[:wb])).body)
+get_res = http(:get, Sigma::CodeRep.read_path(opts[:wb]))
+unless get_res.code.to_i == 200
+  abort "FATAL: could not read workbook #{opts[:wb]} spec (HTTP #{get_res.code})" \
+        "#{get_res.code.to_i == 401 ? ': Sigma auth failed (the token was rejected and could not be refreshed)' : ''}"
+end
+raw_spec = JSON.parse(get_res.body)
 # Workbook code-rep nests pages/layout/schemaVersion/kind under a top-level
 # `document` key (live since 2026-08) and REJECTS the old flat body on PUT
 # with a 400 — unwrap the GET before any spec['pages'] access below; this

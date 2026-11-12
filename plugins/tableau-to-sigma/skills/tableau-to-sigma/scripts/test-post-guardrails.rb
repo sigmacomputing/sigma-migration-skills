@@ -32,10 +32,18 @@ def check(c, m, fails) fails << m unless c; puts "  #{c ? 'PASS' : 'FAIL'}  #{m}
 # and the past-the-gate cases would hit the live API instead of failing at the
 # (deliberately unset) SIGMA_BASE_URL fetch.
 FAKE_HOME = Dir.mktmpdir
+# The (deliberately empty) spec fails local validation before any request; that
+# message proves a run got past the gate. A blank SIGMA_BASE_URL now makes the
+# shared client ask the token provider, so pin one that always fails: a developer
+# machine's signed-in Sigma CLI must never answer in an offline test.
+PAST_GATE = /code-representation invalid|post-and-readback\.rb: Sigma token provider failed/ # local spec validation, or the host lookup
+OFFLINE_PROVIDER = File.join(FAKE_HOME, 'offline-provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
 def run_par(work, spec, args = [], env_extra = {})
   env = { 'HOME' => FAKE_HOME,
           'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil, 'SIGMA_CLIENT_ID' => nil,
-          'SIGMA_ORCHESTRATED_RUN' => nil }.merge(env_extra)
+          'SIGMA_ORCHESTRATED_RUN' => nil,
+          'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER }.merge(env_extra)
   out, st = Open3.capture2e(env, RbConfig.ruby, PAR, '--type', 'workbook',
                             '--spec', spec, '--out', File.join(work, 'ids.json'),
                             '--workdir', work, *args)
@@ -57,16 +65,16 @@ Dir.mktmpdir do |work|
   check(out.include?('--allow-manual-spec'), 'refusal names the deliberate escape', fails)
 
   # (2) the orchestrator's child marker admits the run (fails later on the
-  #     MISSING SIGMA_BASE_URL — i.e., past the gate, at the env fetch).
+  #     spec validation — i.e., past the gate, before any network).
   out, code = run_par(work, spec, [], 'SIGMA_ORCHESTRATED_RUN' => '1')
   check(code != 7 && !out.include?('not cold'), 'orchestrated child invocation passes the gate', fails)
-  check(out.include?('SIGMA_BASE_URL'), 'orchestrated run proceeded to the env fetch (past the gate)', fails)
+  check(out.match?(PAST_GATE), 'orchestrated run proceeded to the env fetch (past the gate)', fails)
 
   # (3) an orchestrator STOP token admits a standalone run.
   File.write(File.join(work, 'manual-path-authorized.json'),
              JSON.generate('via' => 'workbook-handoff', 'exit_code' => 4))
   out, code = run_par(work, spec)
-  check(code != 7 && out.include?('SIGMA_BASE_URL'), 'manual-path-authorized.json admits a standalone run', fails)
+  check(code != 7 && out.match?(PAST_GATE), 'manual-path-authorized.json admits a standalone run', fails)
   File.delete(File.join(work, 'manual-path-authorized.json'))
 
   # (4) --allow-manual-spec admits AND records the waiver off-ramp.
@@ -82,7 +90,7 @@ Dir.mktmpdir do |work|
     spec2 = File.join(free, 'wb-spec.json')
     File.write(spec2, JSON.generate('pages' => []))
     out, code = run_par(free, spec2)
-    check(code != 7 && out.include?('SIGMA_BASE_URL'), 'workdir without migrate-state.json is not gated', fails)
+    check(code != 7 && out.match?(PAST_GATE), 'workdir without migrate-state.json is not gated', fails)
   end
 end
 

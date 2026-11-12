@@ -26,6 +26,16 @@ differs, the CLI token is refused so a token minted for one org's host is never
 sent to another. When SIGMA_BASE_URL is unset, the profile's Base URL is used
 after the usual published-host validation.
 
+Explicit profile exception: a SIGMA_CLI_PROFILE set in the process environment
+by the caller (not read from ~/.sigma-migration/env) chooses the org. In auto
+mode the browser keychain and client credentials are then skipped, the settings
+file's SIGMA_BASE_URL / client credentials / API token / auth mode are not
+loaded, and a Sigma CLI failure is an error rather than a fall-through. A
+profile the settings-file loaders copied in is recorded in
+SIGMA_CLI_PROFILE_FROM_FILE and keeps the normal order. An auth.json in
+SIGMA_WORKDIR or the cwd is read by the REST clients before this provider and
+still wins over the profile.
+
 CLI compatibility:
   python3 scripts/get_token.py --workdir <DIR>  # writes auth.json (0600)
   python3 scripts/get_token.py --print-export   # shell export statements
@@ -72,7 +82,7 @@ PUBLISHED_API_HOSTS = frozenset(
 AUTH_MODES = ("auto", "browser", "sigma-cli", "client-credentials")
 SIGMA_CLI_TIMEOUT = 30
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
-_CLI_PROFILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$")
+_CLI_PROFILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._@ ()-]{0,127}$")
 _CLI_BASE_RE = re.compile(
     r"^[ \t]*(?:Base URL|API host):[ \t]*(\S+)[ \t]*$", re.MULTILINE
 )
@@ -89,6 +99,61 @@ _NEUTRAL_KEYS = frozenset(
         "SIGMA_CLI_PROFILE",
     )
 )
+# Keys that choose an org, a host or a credential. When SIGMA_CLI_PROFILE was set
+# explicitly in the process environment the profile chooses the org, so the
+# settings file must not supply any of these (it may describe another org).
+_PROFILE_PINNED_KEYS = frozenset(
+    (
+        "SIGMA_BASE_URL",
+        "SIGMA_CLIENT_ID",
+        "SIGMA_CLIENT_SECRET",
+        "SIGMA_API_TOKEN",
+        "SIGMA_AUTH_MODE",
+    )
+)
+# Set (to the profile name it loaded) by every settings-file loader that copies
+# SIGMA_CLI_PROFILE from the file, so a child provider does not mistake that
+# profile for an explicit choice. A profile that differs from the marker's value
+# was set by the caller after the load, so it is explicit.
+_PROFILE_FROM_FILE_VAR = "SIGMA_CLI_PROFILE_FROM_FILE"
+
+
+def _settings_file_profile(path=None):
+    """The SIGMA_CLI_PROFILE value written in the settings file ("" if none).
+
+    Reads only that one key, with the loaders' line and quoting rules (last
+    assignment wins, as when the file is sourced); nothing else is loaded."""
+    env_path = path or _NEUTRAL_ENV
+    value = ""
+    try:
+        with open(env_path, encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if not line.startswith("SIGMA_CLI_PROFILE="):
+                    continue
+                try:
+                    values = shlex.split(line.split("=", 1)[1], posix=True)
+                except ValueError:
+                    continue
+                if len(values) == 1:
+                    value = values[0].strip()
+    except OSError:
+        return ""
+    return value
+
+
+def _profile_is_explicit(path=None):
+    """True when SIGMA_CLI_PROFILE was chosen by the caller.
+
+    Not explicit: a profile the settings-file loaders copied in (recorded in
+    SIGMA_CLI_PROFILE_FROM_FILE), or one that equals the settings file's own
+    value, e.g. a plain shell that ran `source ~/.sigma-migration/env`."""
+    profile = os.environ.get("SIGMA_CLI_PROFILE", "").strip()
+    if not profile or profile == os.environ.get(_PROFILE_FROM_FILE_VAR, "").strip():
+        return False
+    return profile != _settings_file_profile(path)
 
 
 class TokenProviderError(RuntimeError):
@@ -120,9 +185,10 @@ class SigmaCliUnavailable(TokenProviderError):
     ``warn`` marks cases where a real Sigma CLI is present but unusable, so auto
     mode tells the user why it moved on to the next source."""
 
-    def __init__(self, message, warn=False):
+    def __init__(self, message, warn=False, host=None):
         super().__init__(message)
         self.warn = warn
+        self.host = host
 
 
 class TokenResult(NamedTuple):
@@ -137,6 +203,7 @@ def _load_neutral_env(path=None):
     env_path = path or _NEUTRAL_ENV
     if not os.path.isfile(env_path):
         return
+    pinned = _profile_is_explicit(env_path)
     with open(env_path, encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.strip()
@@ -150,6 +217,8 @@ def _load_neutral_env(path=None):
             key = key.strip()
             if key not in _NEUTRAL_KEYS or os.environ.get(key):
                 continue
+            if pinned and key in _PROFILE_PINNED_KEYS:
+                continue
             try:
                 values = shlex.split(raw_value, posix=True)
             except ValueError as exc:
@@ -161,6 +230,8 @@ def _load_neutral_env(path=None):
                     f"{env_path}: {key} must contain one literal value"
                 )
             os.environ[key] = values[0]
+            if key == "SIGMA_CLI_PROFILE":
+                os.environ[_PROFILE_FROM_FILE_VAR] = values[0]
 
 
 def _iso_z(timestamp=None):
@@ -577,7 +648,7 @@ def _mint_sigma_cli(configured_base=None, now=None):
     if profile and not _CLI_PROFILE_RE.fullmatch(profile):
         raise TokenProviderError(
             "SIGMA_CLI_PROFILE must be a profile name (letters, digits, "
-            "'.', '_', '@', '-', spaces; not starting with '-')"
+            "'.', '_', '@', '-', spaces, parentheses; not starting with '-')"
         )
     profile_args = ["-p", profile] if profile else []
 
@@ -626,12 +697,15 @@ def _mint_sigma_cli(configured_base=None, now=None):
             "refusing to use a token minted for a different host. Select the "
             "matching profile with SIGMA_CLI_PROFILE or unset SIGMA_BASE_URL",
             warn=True,
+            host=urllib.parse.urlsplit(cli_base).hostname,
         )
 
     code, out, _err = _cli_run([binary, "auth", "token"] + profile_args)
     if code != 0:
         raise SigmaCliUnavailable(
-            f"`sigma auth token` failed (exit {code}); {login_hint}", warn=True
+            f"`sigma auth token` failed (exit {code}); {login_hint}",
+            warn=True,
+            host=urllib.parse.urlsplit(cli_base).hostname,
         )
     token = out.strip()
     if not _JWT_RE.fullmatch(token):
@@ -653,7 +727,24 @@ def _resolve_auth_mode(cli_mode=None):
     return mode
 
 
+def _explicit_profile_error(profile, exc, base_value):
+    """Error for an explicitly chosen SIGMA_CLI_PROFILE the CLI could not serve."""
+    profile_host = getattr(exc, "host", None) or "unknown"
+    base_host = (
+        urllib.parse.urlsplit(base_value).hostname if base_value else None
+    ) or "unset"
+    return TokenProviderError(
+        f"Sigma CLI profile {profile!r} was chosen explicitly (SIGMA_CLI_PROFILE), "
+        f"so no other credential source is used: {exc}. Profile host: "
+        f"{profile_host}; SIGMA_BASE_URL host: {base_host}. Fix the profile "
+        "(`sigma auth login`), unset SIGMA_BASE_URL, or unset SIGMA_CLI_PROFILE "
+        "to use another source"
+    )
+
+
 def mint_token(auth_mode=None):
+    # Decided before the settings file is read: an explicit profile pins the org.
+    pinned = _profile_is_explicit()
     _load_neutral_env()
     base_value = os.environ.get("SIGMA_BASE_URL")
     mode = _resolve_auth_mode(auth_mode)
@@ -666,7 +757,7 @@ def mint_token(auth_mode=None):
         )
 
     browser_error = None
-    if mode in ("auto", "browser"):
+    if mode in ("auto", "browser") and not (pinned and mode == "auto"):
         if base is None:
             # Auto without a base URL: only the Sigma CLI can supply one.
             browser_error = BrowserUnavailable("SIGMA_BASE_URL is not set")
@@ -688,6 +779,10 @@ def mint_token(auth_mode=None):
         try:
             result = _mint_sigma_cli(base)
         except SigmaCliUnavailable as exc:
+            if pinned:
+                raise _explicit_profile_error(
+                    os.environ.get("SIGMA_CLI_PROFILE", "").strip(), exc, base_value
+                ) from exc
             if mode == "sigma-cli":
                 raise TokenProviderError(
                     f"Sigma CLI auth unavailable: {exc}"

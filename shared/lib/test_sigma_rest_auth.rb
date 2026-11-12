@@ -391,3 +391,146 @@ class SigmaRestDerivedBaseTest < Minitest::Test
     end
   end
 end
+
+# An explicit SIGMA_CLI_PROFILE pins the org: the settings file's base URL and
+# client credentials (another org's) must not be loaded. The loader runs at
+# require time, so each case runs in a fresh Ruby process with a temp HOME.
+class SigmaRestExplicitProfileTest < Minitest::Test
+  require 'tmpdir'
+  require 'open3'
+  require 'rbconfig'
+
+  CLI_BASE = SigmaRestDerivedBaseTest::CLI_BASE
+  FAKE_JWT = SigmaRestDerivedBaseTest::FAKE_JWT
+  FAKE_SIGMA = SigmaRestDerivedBaseTest::FAKE_SIGMA
+  SETTINGS = <<~ENVFILE
+    export SIGMA_BASE_URL='https://api.sigmacomputing.com'
+    export SIGMA_CLIENT_ID='org-a-id'
+    export SIGMA_CLIENT_SECRET='org-a-secret'
+    export SIGMA_AUTH_MODE='client-credentials'
+    export OTHER_SETTING='kept'
+  ENVFILE
+  KEYS = %w[SIGMA_BASE_URL SIGMA_CLIENT_ID SIGMA_CLIENT_SECRET SIGMA_AUTH_MODE OTHER_SETTING
+            SIGMA_CLI_PROFILE SIGMA_CLI_PROFILE_FROM_FILE].freeze
+  LIB = File.expand_path('sigma_rest.rb', __dir__)
+
+  def with_home(settings = SETTINGS)
+    Dir.mktmpdir do |home|
+      Dir.mkdir(File.join(home, '.sigma-migration'))
+      File.write(File.join(home, '.sigma-migration', 'env'), settings)
+      yield home
+    end
+  end
+
+  def clean_env(home, extra = {})
+    env = { 'HOME' => home, 'PATH' => ENV['PATH'], 'LANG' => 'en_US.UTF-8', 'LC_ALL' => 'en_US.UTF-8' }
+    env.merge(extra)
+  end
+
+  def loaded_env(home, extra = {})
+    script = "require #{LIB.inspect}; puts #{KEYS.inspect}.map { |k| \"\#{k}=\#{ENV[k]}\" }"
+    # Test harness: runs a literal require-and-print script with the current interpreter in a scrubbed env; no user input reaches the command.
+    # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+    out, status = Open3.capture2(clean_env(home, extra), RbConfig.ruby, '-e', script, unsetenv_others: true)
+    assert status.success?
+    out.lines.to_h { |l| l.chomp.split('=', 2).then { |k, v| [k, v.to_s] } }
+  end
+
+  def test_explicit_profile_skips_org_keys_but_loads_other_keys
+    with_home do |home|
+      got = loaded_env(home, 'SIGMA_CLI_PROFILE' => 'work (1)')
+      %w[SIGMA_BASE_URL SIGMA_CLIENT_ID SIGMA_CLIENT_SECRET SIGMA_AUTH_MODE].each do |key|
+        assert_equal '', got[key], key
+      end
+      assert_equal 'kept', got['OTHER_SETTING']
+      assert_equal 'work (1)', got['SIGMA_CLI_PROFILE']
+    end
+  end
+
+  def test_no_profile_loads_the_settings_file_as_before
+    with_home do |home|
+      got = loaded_env(home)
+      assert_equal 'https://api.sigmacomputing.com', got['SIGMA_BASE_URL']
+      assert_equal 'org-a-id', got['SIGMA_CLIENT_ID']
+      assert_equal 'client-credentials', got['SIGMA_AUTH_MODE']
+    end
+  end
+
+  def test_profile_from_the_settings_file_is_not_explicit
+    with_home(SETTINGS + "export SIGMA_CLI_PROFILE='from-file'\n") do |home|
+      got = loaded_env(home)
+      assert_equal 'https://api.sigmacomputing.com', got['SIGMA_BASE_URL']
+      assert_equal 'from-file', got['SIGMA_CLI_PROFILE']
+      assert_equal 'from-file', got['SIGMA_CLI_PROFILE_FROM_FILE']
+    end
+  end
+
+  def test_explicit_profile_under_a_stale_marker_still_pins
+    with_home do |home|
+      got = loaded_env(home, 'SIGMA_CLI_PROFILE' => 'work (1)', 'SIGMA_CLI_PROFILE_FROM_FILE' => 'from-file')
+      assert_equal '', got['SIGMA_BASE_URL']
+      assert_equal '', got['SIGMA_CLIENT_ID']
+    end
+  end
+
+  def test_sourced_file_only_profile_without_marker_is_not_explicit
+    with_home(SETTINGS + "export SIGMA_CLI_PROFILE='from-file'\n") do |home|
+      got = loaded_env(home, 'SIGMA_CLI_PROFILE' => 'from-file')
+      assert_equal 'https://api.sigmacomputing.com', got['SIGMA_BASE_URL']
+      got = loaded_env(home, 'SIGMA_CLI_PROFILE' => 'work (1)')
+      assert_equal '', got['SIGMA_BASE_URL']
+    end
+  end
+
+  def test_profile_matching_the_marker_is_not_explicit
+    with_home do |home|
+      got = loaded_env(home, 'SIGMA_CLI_PROFILE' => 'from-file', 'SIGMA_CLI_PROFILE_FROM_FILE' => 'from-file')
+      assert_equal 'https://api.sigmacomputing.com', got['SIGMA_BASE_URL']
+    end
+  end
+
+  def test_explicit_profile_reaches_the_cli_host_not_the_settings_file_org
+    provider = ['../get_token.py', '../scripts/get_token.py']
+               .map { |rel| File.expand_path(rel, __dir__) }.find { |path| File.file?(path) }
+    skip 'get_token.py is not vendored next to this sigma_rest.rb' unless provider
+    with_home do |home|
+      bindir = File.join(home, 'bin')
+      Dir.mkdir(bindir)
+      File.write(File.join(bindir, 'sigma'), FAKE_SIGMA)
+      File.chmod(0o700, File.join(bindir, 'sigma'))
+      wrapper = File.join(home, 'provider.py')
+      File.write(wrapper, <<~PY)
+        import importlib.util, sys
+        spec = importlib.util.spec_from_file_location('gt', #{provider.inspect})
+        gt = importlib.util.module_from_spec(spec); spec.loader.exec_module(gt)
+        gt._verify_token = lambda r: r
+        def _no_client(*a, **k):
+            raise SystemExit('client-credentials must not be attempted')
+        gt._mint_client_credentials = _no_client
+        sys.exit(gt.main(sys.argv[1:]))
+      PY
+      script = <<~RUBY
+        require #{LIB.inspect}
+        class Rec
+          attr_reader :urls, :auth
+          def initialize; @urls = []; @auth = []; end
+          def request(req)
+            @urls << req.uri.to_s; @auth << req['Authorization']
+            v = Net::HTTPOK.new('1.1', '200', 'OK')
+            v.instance_variable_set(:@read, true); v.instance_variable_set(:@body, '{"ok":true}'); v
+          end
+        end
+        http = Rec.new
+        Sigma.request(:get, '/v2/whoami', http: http)
+        puts http.urls.join(','), http.auth.join(',')
+      RUBY
+      env = clean_env(home,
+                      'PATH' => "#{bindir}#{File::PATH_SEPARATOR}#{ENV['PATH']}",
+                      'SIGMA_TOKEN_PROVIDER' => wrapper, 'FAKE_SIGMA_BASE' => CLI_BASE,
+                      'FAKE_SIGMA_TOKEN' => FAKE_JWT, 'SIGMA_CLI_PROFILE' => 'work (1)')
+      out, err, status = Open3.capture3(env, RbConfig.ruby, '-e', script, unsetenv_others: true)
+      assert status.success?, err
+      assert_equal ["#{CLI_BASE}/v2/whoami", "Bearer #{FAKE_JWT}"], out.lines.map(&:chomp)
+    end
+  end
+end

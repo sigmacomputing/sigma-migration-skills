@@ -61,12 +61,34 @@ def phase(number, title):
 
 
 def load_local_env():
+    """Copy `export KEY=value` lines from the settings file into unset env keys.
+
+    An explicit SIGMA_CLI_PROFILE pins the org: the file's base URL, client
+    credentials, API token and auth mode are then skipped (same rule as the
+    shared sigma_rest loader). A SIGMA_CLI_PROFILE copied from the file is
+    recorded in SIGMA_CLI_PROFILE_FROM_FILE so children do not treat it as
+    an explicit choice.
+    """
     env_file = Path("~/.sigma-migration/env").expanduser()
-    if env_file.is_file():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            match = re.match(r"\s*export\s+(\w+)=['\"]?([^'\"]+)", line)
-            if match and not os.environ.get(match.group(1)):
-                os.environ[match.group(1)] = match.group(2)
+    if not env_file.is_file():
+        return
+    profile = (os.environ.get("SIGMA_CLI_PROFILE") or "").strip()
+    pinned = (
+        bool(profile)
+        and profile != (os.environ.get("SIGMA_CLI_PROFILE_FROM_FILE") or "").strip()
+        and profile != sigma_rest._settings_file_profile(env_file)
+    )
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"\s*export\s+(\w+)=['\"]?([^'\"]+)", line)
+        if not match:
+            continue
+        key, value = match.group(1), match.group(2)
+        if pinned and key in sigma_rest._PROFILE_PINNED_KEYS:
+            continue
+        if not os.environ.get(key):
+            os.environ[key] = value
+            if key == "SIGMA_CLI_PROFILE":
+                os.environ["SIGMA_CLI_PROFILE_FROM_FILE"] = value
 
 
 def load_sigma_env(workdir):
@@ -87,7 +109,8 @@ def load_sigma_env(workdir):
     except (sigma_rest.SigmaError, SystemExit) as exc:
         raise MigrationError(
             "Sigma authentication failed: %s. Run scripts/browser-login.sh "
-            "once, or configure SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET for "
+            "once, sign in with the Sigma CLI (`sigma auth login`), or "
+            "configure SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET for "
             "unattended auth." % exc
         ) from exc
 

@@ -615,7 +615,7 @@ begin
     end
   end
 
-  workbook_url = "#{ENV['SIGMA_BASE_URL']}/workbook/#{wb}"
+  workbook_url = "#{Sigma.base_url}/workbook/#{wb}"
   log "resolved workbook #{wb} (#{workbook_url})"
 
   # --- STAGE 2: structural (GET) readback ----------------------------------

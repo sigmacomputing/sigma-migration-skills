@@ -96,6 +96,16 @@ OS keychain, then the Sigma CLI (`sigma auth token` for the profile named by
 `SIGMA_CLIENT_SECRET`. The provider never runs `sigma auth login`. A valid token already held by a caller should be reused
 by that caller until refresh is needed.
 
+**Explicit profile exception.** When the caller sets `SIGMA_CLI_PROFILE` in the
+process environment (a profile merely persisted in `~/.sigma-migration/env` does
+not count; the settings-file loaders record it in `SIGMA_CLI_PROFILE_FROM_FILE`),
+that profile chooses the org. In `auto` mode the browser keychain and client
+credentials are skipped, the settings file's `SIGMA_BASE_URL`, client
+credentials, `SIGMA_API_TOKEN` and `SIGMA_AUTH_MODE` are not loaded, and a Sigma
+CLI failure is an error naming the profile and both hosts instead of a
+fall-through to another org. An `auth.json` in `SIGMA_WORKDIR` or the cwd is
+read by the REST clients before the provider and still wins over the profile.
+
 Before returning a browser, Sigma CLI, or client-credentials result, the Python provider
 verifies the token with `GET /v2/whoami`. It never follows redirects for this
 request, so the bearer cannot be forwarded to a redirect target. A 401, 403,

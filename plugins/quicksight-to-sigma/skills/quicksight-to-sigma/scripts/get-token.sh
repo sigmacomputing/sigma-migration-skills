@@ -12,6 +12,11 @@
 # provider handles every mode. Without Python, this retains safe Sigma CLI and
 # client-credentials fallbacks (browser refresh needs Python).
 # SIGMA_CLI_PROFILE selects a Sigma CLI profile (-p); unset uses its default.
+# A SIGMA_CLI_PROFILE set explicitly by the caller (not copied from the settings
+# file; the loaders record that value in SIGMA_CLI_PROFILE_FROM_FILE) chooses the
+# org: auto mode then skips browser and client credentials, and a CLI failure is
+# an error, not a fall-through. An auth.json in SIGMA_WORKDIR or the cwd is read
+# by the REST clients first and still wins over the profile.
 #
 # Prints SIGMA_API_TOKEN, SIGMA_TOKEN_MINTED_AT, and SIGMA_AUTH_METHOD exports
 # (plus SIGMA_BASE_URL when the host came from the Sigma CLI profile).
@@ -114,6 +119,7 @@ cli_run() {
 CLI_BASE=""
 CLI_TOKEN=""
 CLI_ERROR=""
+CLI_HOST=""
 sigma_cli_token() {
   local bin profile="" status_out base="" auth_ok=0 line re
   local -a pargs=()
@@ -121,9 +127,9 @@ sigma_cli_token() {
   if [ -z "$bin" ]; then CLI_ERROR="the Sigma CLI (sigma) is not on PATH"; return 1; fi
   profile="${SIGMA_CLI_PROFILE:-}"
   if [ -n "$profile" ]; then
-    re='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
+    re='^[A-Za-z0-9_][A-Za-z0-9._@ ()-]{0,127}$'
     if ! [[ "$profile" =~ $re ]]; then
-      CLI_ERROR="SIGMA_CLI_PROFILE must be a profile name (not starting with '-')"; return 1
+      CLI_ERROR="SIGMA_CLI_PROFILE must be a profile name (letters, digits, . _ @ - space, parentheses; not starting with '-')"; return 1
     fi
     pargs=(-p "$profile")
   fi
@@ -152,6 +158,7 @@ sigma_cli_token() {
   if [ -z "$base" ] || ! sigma_published_base "$base"; then
     CLI_ERROR="Sigma CLI profile Base URL is missing or not a published Sigma API host"; return 1
   fi
+  CLI_HOST="${base#*://}"; CLI_HOST="${CLI_HOST%%/*}"
   if [ -n "${SIGMA_BASE_URL:-}" ] && [ "${SIGMA_BASE_URL%/}" != "$base" ]; then
     CLI_ERROR="Sigma CLI profile Base URL differs from SIGMA_BASE_URL; refusing a token minted for a different host"; return 1
   fi
@@ -182,6 +189,28 @@ if [ "$AUTH_MODE" = "auto" ] || [ "$AUTH_MODE" = "sigma-cli" ]; then
   fi
   if [ "$AUTH_MODE" = "sigma-cli" ]; then
     echo "Error: Sigma CLI auth unavailable: $CLI_ERROR" >&2
+    exit 1
+  fi
+  # An explicit SIGMA_CLI_PROFILE pins the org: never fall through to client
+  # credentials (they may belong to another org).
+  # A profile the settings-file loaders copied in (recorded in
+  # SIGMA_CLI_PROFILE_FROM_FILE) is not explicit; a different value is.
+  # A profile equal to the settings file's own SIGMA_CLI_PROFILE is not explicit
+  # either (a plain shell that ran `source ~/.sigma-migration/env` has it set with
+  # no marker). Only that one key is read from the file, and never printed.
+  # Pure bash (no sed/tail): the last SIGMA_CLI_PROFILE assignment wins, as when sourced.
+  _file_profile=""; _settings_file="${HOME:-}/.sigma-migration/env"
+  if [ -n "${HOME:-}" ] && [ -f "$_settings_file" ]; then
+    _prof_re='^[[:space:]]*(export[[:space:]]+)?SIGMA_CLI_PROFILE=(.*)$'
+    while IFS= read -r _line || [ -n "$_line" ]; do
+      if [[ "$_line" =~ $_prof_re ]]; then _file_profile="${BASH_REMATCH[2]}"; fi
+    done < "$_settings_file"
+    _file_profile="${_file_profile%"${_file_profile##*[![:space:]]}"}"
+    _file_profile="${_file_profile%\"}"; _file_profile="${_file_profile#\"}"; _file_profile="${_file_profile%\'}"; _file_profile="${_file_profile#\'}"
+  fi
+  if [ -n "${SIGMA_CLI_PROFILE:-}" ] && [ "${SIGMA_CLI_PROFILE}" != "${SIGMA_CLI_PROFILE_FROM_FILE:-}" ] && [ "${SIGMA_CLI_PROFILE}" != "$_file_profile" ]; then
+    base_host="${SIGMA_BASE_URL:-}"; base_host="${base_host#*://}"; base_host="${base_host%%/*}"
+    echo "Error: Sigma CLI profile '${SIGMA_CLI_PROFILE}' was chosen explicitly (SIGMA_CLI_PROFILE), so no other credential source is used: $CLI_ERROR. Profile host: ${CLI_HOST:-unknown}; SIGMA_BASE_URL host: ${base_host:-unset}. Fix the profile (sigma auth login), unset SIGMA_BASE_URL, or unset SIGMA_CLI_PROFILE to use another source." >&2
     exit 1
   fi
 fi

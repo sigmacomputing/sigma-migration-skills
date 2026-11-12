@@ -6,6 +6,16 @@
 require 'json'
 require 'tmpdir'
 require 'rbconfig'
+require 'fileutils'
+
+# Offline: a blank SIGMA_BASE_URL makes the shared client ask its token provider
+# for a host (a signed-in Sigma CLI or exported client credentials would answer),
+# so every credential-less run also pins a provider that reports no credentials.
+OFFLINE_PROVIDER_DIR = Dir.mktmpdir('offline-provider')
+at_exit { FileUtils.rm_rf(OFFLINE_PROVIDER_DIR) }
+OFFLINE_PROVIDER = File.join(OFFLINE_PROVIDER_DIR, 'provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
+OFFLINE_ENV = { 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil, 'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER }.freeze
 
 VP   = File.join(__dir__, 'verify-parity.rb')
 GATE = File.join(__dir__, 'assert-phase6-ran.rb')
@@ -28,7 +38,7 @@ Dir.mktmpdir do |d|
   score = File.join(d, 'parity-score.json')
   File.write(plan, JSON.generate(PLAN))
   # verify-parity exits 1 when any tile DIVERGEs (HalfMatch) — that's expected.
-  system(RUBY, VP, '--plan', plan, '--score-out', score, out: File::NULL, err: File::NULL)
+  system(OFFLINE_ENV, RUBY, VP, '--plan', plan, '--score-out', score, out: File::NULL, err: File::NULL)
   ok('score-out written', File.exist?(score))
   doc = JSON.parse(File.read(score))
   tiles = doc['tiles'].each_with_object({}) { |t, h| h[t['chart']] = t }
@@ -108,14 +118,14 @@ FINAL = { 'mode' => 'strict', 'status' => 'PASS', 'charts_total' => 2, 'charts_p
 
 Dir.mktmpdir do |d|
   File.write(File.join(d, 'parity-final.json'), JSON.generate(FINAL))
-  below = system(RUBY, GATE, '--workdir', d, '--min-parity-score', '0.80', out: File::NULL, err: File::NULL)
+  below = system(OFFLINE_ENV, RUBY, GATE, '--workdir', d, '--min-parity-score', '0.80', out: File::NULL, err: File::NULL)
   ok('gate FAILS when score below threshold', below == false)
   # gate 1 passes at 0.60; later gates may fail on missing files, so assert the
   # gate-1 score line is printed rather than the overall exit.
-  out = IO.popen([RUBY, GATE, '--workdir', d, '--min-parity-score', '0.60'], err: %i[child out], &:read)
+  out = IO.popen(OFFLINE_ENV, [RUBY, GATE, '--workdir', d, '--min-parity-score', '0.60'], err: %i[child out], &:read)
   ok('gate 1 OK line when score above threshold', out.include?('value-parity score=70.0% (>= 60.0% required)'))
   # off by default: no score gating, no score line
-  out_off = IO.popen([RUBY, GATE, '--workdir', d], err: %i[child out], &:read)
+  out_off = IO.popen(OFFLINE_ENV, [RUBY, GATE, '--workdir', d], err: %i[child out], &:read)
   ok('score gate OFF by default (no false gating)', !out_off.include?('value-parity score='))
 end
 

@@ -83,10 +83,16 @@ def skip!(msg)
 end
 
 # --- creds + ENV gate (never hardcode; skip cleanly, never fake a pass) -----
-unless ENV['SIGMA_BASE_URL'].to_s != '' &&
-       (ENV['SIGMA_API_TOKEN'].to_s != '' || (ENV['SIGMA_CLIENT_ID'].to_s != '' && ENV['SIGMA_CLIENT_SECRET'].to_s != ''))
-  skip!('no Sigma credentials in ENV or ~/.sigma-migration/env — set SIGMA_BASE_URL + ' \
-        'SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET (or SIGMA_API_TOKEN) to run this live probe.')
+# Credentials come from the shared client: an explicit SIGMA_BASE_URL with a
+# token, browser login or client credentials, or a signed-in Sigma CLI profile
+# (its host is derived when SIGMA_BASE_URL is not exported).
+begin
+  Sigma.base_url
+  Sigma.auth_token
+rescue Sigma::Error => e
+  skip!("no Sigma credentials (#{e.message.lines.first.to_s.strip}) — set SIGMA_BASE_URL + " \
+        'SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET (or SIGMA_API_TOKEN), run browser-login.sh, or sign ' \
+        'in with the Sigma CLI (sigma auth login) to run this live probe.')
 end
 
 CONNECTION_ID = ENV['SIGMA_TEST_CONNECTION_ID'].to_s
@@ -488,7 +494,7 @@ begin
   spec = build_spec(home, schema_version)
   wb = post_workbook_spec(spec)
   raise 'no workbookId returned from POST' if wb.to_s.empty?
-  workbook_url = "#{ENV['SIGMA_BASE_URL']}/workbook/#{wb}"
+  workbook_url = "#{Sigma.base_url}/workbook/#{wb}"
   log "workbook #{wb} (#{workbook_url})"
 
   # --- structural (GET) readback ------------------------------------------

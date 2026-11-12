@@ -28,6 +28,15 @@ require 'open3'
 require 'tmpdir'
 require 'rbconfig'
 require_relative 'lib/blind_fixture'
+require 'fileutils'
+
+# Offline: a blank SIGMA_BASE_URL makes the shared client ask its token provider
+# for a host (a signed-in Sigma CLI or exported client credentials would answer),
+# so every credential-less run also pins a provider that reports no credentials.
+OFFLINE_PROVIDER_DIR = Dir.mktmpdir('offline-provider')
+at_exit { FileUtils.rm_rf(OFFLINE_PROVIDER_DIR) }
+OFFLINE_PROVIDER = File.join(OFFLINE_PROVIDER_DIR, 'provider.py')
+File.write(OFFLINE_PROVIDER, "raise SystemExit('offline test: no Sigma credentials')\n")
 
 SCRIPT = File.join(__dir__, 'assert-phase6-ran.rb')
 VERIFY = File.join(__dir__, 'verify-complete.rb')
@@ -68,7 +77,7 @@ def base_workdir(dir, parity_extra: {})
 end
 
 def run_gate(dir, *args)
-  env = { 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil }
+  env = { 'SIGMA_BASE_URL' => nil, 'SIGMA_API_TOKEN' => nil, 'SIGMA_TOKEN_PROVIDER' => OFFLINE_PROVIDER }
   out, err, st = Open3.capture3(env, RbConfig.ruby, SCRIPT, '--workdir', dir, *args)
   [out, err, st]
 end

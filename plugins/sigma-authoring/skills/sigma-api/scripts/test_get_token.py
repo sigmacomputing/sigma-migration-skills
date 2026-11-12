@@ -739,6 +739,218 @@ class SigmaCliTest(unittest.TestCase):
         self.assertIn("auth status -p from-env", self.calls())
         self.assertFalse(any("from-file" in c for c in self.calls()))
 
+    # --- profile names with parentheses; an explicit profile pins the org ----
+
+    def settings_file(self, body=None):
+        path = os.path.join(self.tmp.name, "settings-env")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(
+                body
+                if body is not None
+                else "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+                "export SIGMA_CLIENT_ID='org-a-id'\n"
+                "export SIGMA_CLIENT_SECRET='org-a-secret'\n"
+                "export SIGMA_AUTH_MODE='client-credentials'\n"
+                "export SIGMA_API_TOKEN='org-a-token'\n"
+                "export OTHER_SETTING_IGNORED='x'\n"
+            )
+        return path
+
+    def test_profile_name_with_parentheses_is_accepted(self):
+        with self.env(base=CLI_BASE, SIGMA_CLI_PROFILE="work (1)"):
+            result, _err = self.mint("sigma-cli")
+        self.assertEqual("sigma-cli", result.auth_method)
+        self.assertIn("auth status -p work (1)", self.calls())
+        self.assertIn("auth token -p work (1)", self.calls())
+
+    def test_profile_name_pattern_still_rejects_leading_dash_and_shell_syntax(self):
+        for bad in ("-work (1)", "work;(1)", "work$(1)", "a" * 129):
+            with self.subTest(profile=bad):
+                with self.env(base=CLI_BASE, SIGMA_CLI_PROFILE=bad):
+                    with self.assertRaisesRegex(
+                        get_token.TokenProviderError, "parentheses"
+                    ):
+                        self.mint("sigma-cli")
+        self.assertEqual([], self.calls())
+
+    def test_explicit_profile_ignores_org_keys_in_the_settings_file(self):
+        path = self.settings_file()
+        with self.env(base=None, SIGMA_CLI_PROFILE="work (1)"), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            result, _err = self.mint()
+            for key in ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET",
+                        "SIGMA_API_TOKEN", "SIGMA_AUTH_MODE"):
+                self.assertNotIn(key, os.environ)
+        self.assertEqual("sigma-cli", result.auth_method)
+        self.assertEqual(CLI_BASE, result.base_url)
+        client.assert_not_called()
+        self.assertIn("auth token -p work (1)", self.calls())
+
+    def test_loader_skips_org_keys_but_loads_other_keys_with_explicit_profile(self):
+        path = self.settings_file(
+            "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+            "export SIGMA_CLIENT_ID='org-a-id'\n"
+            "export SIGMA_CLIENT_SECRET='org-a-secret'\n"
+            "export SIGMA_AUTH_MODE='client-credentials'\n"
+        )
+        with mock.patch.dict(os.environ, {"SIGMA_CLI_PROFILE": "work (1)"}, clear=True):
+            get_token._load_neutral_env(path)
+            for key in ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET",
+                        "SIGMA_AUTH_MODE"):
+                self.assertNotIn(key, os.environ)
+
+    def test_profile_set_only_by_the_settings_file_is_not_explicit(self):
+        path = self.settings_file(
+            "export SIGMA_CLI_PROFILE='from-file'\n"
+            "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+            "export SIGMA_CLIENT_ID='file-id'\n"
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            get_token._load_neutral_env(path)
+            self.assertEqual("from-file", os.environ["SIGMA_CLI_PROFILE"])
+            self.assertEqual(BASE, os.environ["SIGMA_BASE_URL"])
+            self.assertEqual("file-id", os.environ["SIGMA_CLIENT_ID"])
+
+    def test_file_profile_with_mismatched_host_still_falls_back_in_auto(self):
+        path = self.settings_file(
+            "export SIGMA_CLI_PROFILE='from-file'\n"
+            "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+            "export SIGMA_CLIENT_ID='file-id'\n"
+            "export SIGMA_CLIENT_SECRET='file-secret'\n"
+        )
+        expected = get_token.TokenResult(BASE, "client-token", MINTED, "client-credentials")
+        with self.env(base=None), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials", return_value=expected):
+            result, _err = self.mint()
+        self.assertEqual("client-credentials", result.auth_method)
+
+    def test_marker_for_the_current_profile_keeps_the_fallback(self):
+        # A REST-client parent copied this profile from the settings file and
+        # recorded it in SIGMA_CLI_PROFILE_FROM_FILE: not explicit.
+        expected = get_token.TokenResult(BASE, "client-token", MINTED, "client-credentials")
+        with self.env(base=BASE, SIGMA_CLI_PROFILE="from-file",
+                      SIGMA_CLI_PROFILE_FROM_FILE="from-file",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_mint_client_credentials", return_value=expected):
+            result, _err = self.mint()
+        self.assertEqual("client-credentials", result.auth_method)
+
+    def test_explicit_different_profile_under_a_stale_marker_is_explicit(self):
+        with self.env(base=BASE, SIGMA_CLI_PROFILE="work (1)",
+                      SIGMA_CLI_PROFILE_FROM_FILE="from-file",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            with self.assertRaisesRegex(get_token.TokenProviderError, "work \\(1\\)"):
+                self.mint()
+        client.assert_not_called()
+
+    def test_sourced_file_only_profile_is_not_explicit(self):
+        # `source ~/.sigma-migration/env` puts the file's profile in the
+        # environment with no FROM_FILE marker: still not explicit.
+        path = self.settings_file(
+            "export SIGMA_CLI_PROFILE='from-file'\n"
+            "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+        )
+        with mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.dict(os.environ, {"SIGMA_CLI_PROFILE": "from-file"}, clear=True):
+            self.assertFalse(get_token._profile_is_explicit())
+        with mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.dict(os.environ, {"SIGMA_CLI_PROFILE": "work (1)"}, clear=True):
+            self.assertTrue(get_token._profile_is_explicit())
+
+    def test_sourced_file_only_profile_keeps_the_client_credentials_fallback(self):
+        path = self.settings_file("export SIGMA_CLI_PROFILE='from-file'\n")
+        expected = get_token.TokenResult(BASE, "client-token", MINTED, "client-credentials")
+        with self.env(base=BASE, SIGMA_CLI_PROFILE="from-file",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials", return_value=expected):
+            result, _err = self.mint()
+        self.assertEqual("client-credentials", result.auth_method)
+
+    def test_profile_differing_from_the_settings_file_value_still_pins(self):
+        path = self.settings_file("export SIGMA_CLI_PROFILE='from-file'\n")
+        with self.env(base=BASE, SIGMA_CLI_PROFILE="work (1)",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            with self.assertRaisesRegex(get_token.TokenProviderError, "work \\(1\\)"):
+                self.mint()
+        client.assert_not_called()
+
+    def test_settings_file_loader_records_the_profile_it_copied(self):
+        path = self.settings_file("export SIGMA_CLI_PROFILE='from-file'\n")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            get_token._load_neutral_env(path)
+            self.assertEqual("from-file", os.environ["SIGMA_CLI_PROFILE_FROM_FILE"])
+            self.assertFalse(get_token._profile_is_explicit())
+
+    def test_explicit_profile_skips_browser_session(self):
+        browser = get_token.TokenResult(CLI_BASE, "browser-token", MINTED, "browser")
+        with self.env(base=CLI_BASE, SIGMA_CLI_PROFILE="work (1)"), \
+             mock.patch.object(get_token, "_mint_browser_refresh", return_value=browser) as b:
+            result, _err = self.mint()
+        self.assertEqual("sigma-cli", result.auth_method)
+        b.assert_not_called()
+
+    def test_explicit_profile_cli_failure_raises_without_falling_back(self):
+        path = self.settings_file()
+        with self.env(base=None, SIGMA_CLI_PROFILE="work (1)", FAKE_SIGMA_TOKEN_FAIL="1",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            with self.assertRaises(get_token.TokenProviderError) as raised:
+                self.mint()
+        client.assert_not_called()
+        message = str(raised.exception)
+        self.assertIn("work (1)", message)
+        self.assertIn("aws-api.sigmacomputing.com", message)
+        self.assertNotIn(FAKE_JWT, message)
+
+    def test_explicit_profile_host_mismatch_error_names_both_hosts(self):
+        with self.env(base="https://api.sigmacomputing.com", SIGMA_CLI_PROFILE="work (1)",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            with self.assertRaises(get_token.TokenProviderError) as raised:
+                self.mint()
+        client.assert_not_called()
+        message = str(raised.exception)
+        self.assertIn("work (1)", message)
+        self.assertIn("aws-api.sigmacomputing.com", message)
+        self.assertIn("api.sigmacomputing.com", message)
+        self.assertIn("SIGMA_BASE_URL", message)
+
+    def test_explicit_profile_with_missing_cli_raises_in_auto(self):
+        with self.env(with_cli=False, base=BASE, SIGMA_CLI_PROFILE="work (1)",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_mint_client_credentials") as client:
+            with self.assertRaisesRegex(get_token.TokenProviderError, "work \\(1\\)"):
+                self.mint()
+        client.assert_not_called()
+
+    def test_explicit_client_credentials_mode_still_honoured_with_a_profile(self):
+        expected = get_token.TokenResult(BASE, "client-token", MINTED, "client-credentials")
+        with self.env(base=BASE, SIGMA_CLI_PROFILE="work (1)",
+                      SIGMA_CLIENT_ID="id", SIGMA_CLIENT_SECRET="secret"), \
+             mock.patch.object(get_token, "_mint_client_credentials", return_value=expected):
+            result, _err = self.mint("client-credentials")
+        self.assertEqual("client-credentials", result.auth_method)
+        self.assertEqual([], self.calls())
+
+    def test_no_profile_loads_the_settings_file_exactly_as_before(self):
+        path = self.settings_file()
+        expected = get_token.TokenResult(BASE, "client-token", MINTED, "client-credentials")
+        with self.env(base=None, with_cli=False), \
+             mock.patch.object(get_token, "_NEUTRAL_ENV", path), \
+             mock.patch.object(get_token, "_mint_client_credentials", return_value=expected) as client:
+            result, _err = self.mint("client-credentials")
+            self.assertEqual("org-a-id", os.environ["SIGMA_CLIENT_ID"])
+            self.assertEqual(BASE, os.environ["SIGMA_BASE_URL"])
+        self.assertEqual("client-credentials", result.auth_method)
+        client.assert_called_once()
+
     def test_cli_never_runs_login(self):
         with self.env(base=CLI_BASE):
             self.mint("sigma-cli")
@@ -872,6 +1084,133 @@ class SigmaCliShellFallbackTest(unittest.TestCase):
         proc = self.run_script("--auth-mode", "sigma-cli", FAKE_SIGMA_HELP_FAIL="1")
         self.assertNotEqual(0, proc.returncode)
         self.assertIn("Sigma CLI", proc.stderr)
+
+    def test_profile_name_with_parentheses_is_accepted(self):
+        proc = self.run_script("--auth-mode", "sigma-cli", SIGMA_CLI_PROFILE="work (1)")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        with open(self.log, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        self.assertIn("auth token -p work (1)", lines)
+
+    def test_bad_profile_names_are_still_rejected(self):
+        for bad in ("-work (1)", "work;(1)", "work$(1)"):
+            with self.subTest(profile=bad):
+                proc = self.run_script("--auth-mode", "sigma-cli", SIGMA_CLI_PROFILE=bad)
+                self.assertNotEqual(0, proc.returncode)
+                self.assertIn("parentheses", proc.stderr)
+
+    def fake_curl(self):
+        self.curl_log = os.path.join(self.tmp.name, "curl.log")
+        write_executable(
+            os.path.join(self.bindir, "curl"),
+            "#!/bin/bash\necho called >> \"$FAKE_CURL_LOG\"\nexit 22\n",
+        )
+
+    def test_explicit_profile_uses_the_cli_and_never_tries_client_credentials(self):
+        self.fake_curl()
+        home = os.path.join(self.tmp.name, "home")
+        os.makedirs(os.path.join(home, ".sigma-migration"))
+        with open(os.path.join(home, ".sigma-migration", "env"), "w") as handle:
+            handle.write("export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n")
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="work (1)", HOME=home, FAKE_CURL_LOG=self.curl_log,
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("export SIGMA_AUTH_METHOD=sigma-cli", proc.stdout)
+        self.assertFalse(os.path.exists(self.curl_log))
+
+    def test_explicit_profile_cli_failure_errors_without_client_credentials(self):
+        self.fake_curl()
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="work (1)", FAKE_SIGMA_TOKEN_FAIL="1",
+            FAKE_CURL_LOG=self.curl_log, SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertFalse(os.path.exists(self.curl_log))
+        self.assertIn("work (1)", proc.stderr)
+        self.assertIn("SIGMA_BASE_URL host: api.sigmacomputing.com", proc.stderr)
+        self.assertNotIn("export SIGMA_API_TOKEN", proc.stdout)
+
+    def test_explicit_profile_host_mismatch_errors_naming_both_hosts(self):
+        self.fake_curl()
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="work (1)", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertFalse(os.path.exists(self.curl_log))
+        self.assertIn("Profile host: aws-api.sigmacomputing.com", proc.stderr)
+        self.assertIn("SIGMA_BASE_URL host: api.sigmacomputing.com", proc.stderr)
+
+    def test_file_set_profile_marker_keeps_the_client_credentials_fallback(self):
+        self.fake_curl()
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="from-file", SIGMA_CLI_PROFILE_FROM_FILE="from-file",
+            FAKE_SIGMA_TOKEN_FAIL="1", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertNotIn("chosen explicitly", proc.stderr)
+
+    def write_settings_profile(self, profile):
+        home = os.path.join(self.tmp.name, "home-sourced")
+        os.makedirs(os.path.join(home, ".sigma-migration"), exist_ok=True)
+        with open(os.path.join(home, ".sigma-migration", "env"), "w") as handle:
+            handle.write(f"export SIGMA_CLI_PROFILE='{profile}'\n")
+        return home
+
+    def test_sourced_file_only_profile_keeps_the_client_credentials_fallback(self):
+        # A plain shell ran `source ~/.sigma-migration/env`: the profile equals the
+        # file's value and carries no marker, so it is not explicit.
+        self.fake_curl()
+        home = self.write_settings_profile("from-file")
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="from-file", HOME=home,
+            FAKE_SIGMA_TOKEN_FAIL="1", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertNotIn("chosen explicitly", proc.stderr)
+
+    def test_profile_differing_from_the_settings_file_value_still_pins(self):
+        self.fake_curl()
+        home = self.write_settings_profile("from-file")
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="work (1)", HOME=home,
+            FAKE_SIGMA_TOKEN_FAIL="1", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertIn("chosen explicitly", proc.stderr)
+        self.assertFalse(os.path.exists(self.curl_log))
+
+    def test_different_profile_under_a_stale_marker_is_explicit(self):
+        self.fake_curl()
+        proc = self.run_script(
+            SIGMA_CLI_PROFILE="work (1)", SIGMA_CLI_PROFILE_FROM_FILE="from-file",
+            FAKE_SIGMA_TOKEN_FAIL="1", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertIn("chosen explicitly", proc.stderr)
+        self.assertFalse(os.path.exists(self.curl_log))
+
+    def test_no_profile_cli_failure_still_falls_through_to_client_credentials(self):
+        self.fake_curl()
+        proc = self.run_script(
+            FAKE_SIGMA_TOKEN_FAIL="1", FAKE_CURL_LOG=self.curl_log,
+            SIGMA_BASE_URL="https://api.sigmacomputing.com",
+            SIGMA_CLIENT_ID="org-a-id", SIGMA_CLIENT_SECRET="org-a-secret",
+        )
+        self.assertNotEqual(0, proc.returncode)
+        self.assertTrue(os.path.exists(self.curl_log) or "required" in proc.stderr)
 
     def test_usage_lists_sigma_cli_mode(self):
         proc = self.run_script("--bogus")

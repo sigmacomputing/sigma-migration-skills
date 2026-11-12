@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -66,6 +67,72 @@ class TableauRefreshTest(unittest.TestCase):
                                 self.assertEqual("fresh-token", future.result(timeout=3))
                                 self.assertEqual("site-new", tableau_rest.site_id())
                     self.assertEqual(1, transport.call_count)
+
+
+class TableauExplicitProfileTest(unittest.TestCase):
+    """The settings-file loader follows the Sigma REST clients' explicit-profile rule."""
+
+    SETTINGS = (
+        "export TABLEAU_PAT_NAME='pat'\n"
+        "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n"
+        "export SIGMA_CLIENT_ID='org-a-id'\n"
+        "export SIGMA_CLIENT_SECRET='org-a-secret'\n"
+        "export SIGMA_API_TOKEN='org-a-token'\n"
+        "export SIGMA_AUTH_MODE='client-credentials'\n"
+    )
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.path = os.path.join(tmp.name, "env")
+        self.write(self.SETTINGS)
+        patcher = mock.patch.object(tableau_rest, "NEUTRAL_ENV", self.path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def write(self, body):
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write(body)
+
+    def load(self, **env):
+        values = dict(env)
+        tableau_rest._load_neutral_env(values)
+        return values
+
+    def test_explicit_profile_skips_sigma_org_keys_but_loads_tableau_keys(self):
+        loaded = self.load(SIGMA_CLI_PROFILE="work (1)")
+        for key in ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET",
+                    "SIGMA_API_TOKEN", "SIGMA_AUTH_MODE"):
+            self.assertNotIn(key, loaded)
+        self.assertEqual("pat", loaded["TABLEAU_PAT_NAME"])
+        self.assertNotIn("SIGMA_CLI_PROFILE_FROM_FILE", loaded)
+
+    def test_no_profile_loads_everything_as_before(self):
+        loaded = self.load()
+        self.assertEqual("org-a-id", loaded["SIGMA_CLIENT_ID"])
+        self.assertEqual("https://api.sigmacomputing.com", loaded["SIGMA_BASE_URL"])
+
+    def test_file_set_profile_is_marked_and_not_explicit(self):
+        self.write(self.SETTINGS + "export SIGMA_CLI_PROFILE='from-file'\n")
+        loaded = self.load()
+        self.assertEqual("from-file", loaded["SIGMA_CLI_PROFILE"])
+        self.assertEqual("from-file", loaded["SIGMA_CLI_PROFILE_FROM_FILE"])
+        self.assertEqual("org-a-id", loaded["SIGMA_CLIENT_ID"])
+
+    def test_explicit_profile_under_a_stale_marker_still_pins(self):
+        loaded = self.load(SIGMA_CLI_PROFILE="work (1)", SIGMA_CLI_PROFILE_FROM_FILE="from-file")
+        self.assertNotIn("SIGMA_CLIENT_ID", loaded)
+
+    def test_sourced_file_only_profile_without_marker_is_not_explicit(self):
+        self.write(self.SETTINGS + "export SIGMA_CLI_PROFILE='from-file'\n")
+        loaded = self.load(SIGMA_CLI_PROFILE="from-file")
+        self.assertEqual("org-a-id", loaded["SIGMA_CLIENT_ID"])
+        loaded = self.load(SIGMA_CLI_PROFILE="work (1)")
+        self.assertNotIn("SIGMA_CLIENT_ID", loaded)
+
+    def test_profile_matching_the_marker_is_not_explicit(self):
+        loaded = self.load(SIGMA_CLI_PROFILE="from-file", SIGMA_CLI_PROFILE_FROM_FILE="from-file")
+        self.assertEqual("org-a-id", loaded["SIGMA_CLIENT_ID"])
 
 
 if __name__ == "__main__":

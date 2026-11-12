@@ -310,6 +310,107 @@ check $? "SIGMA_CLI_PROFILE persisted in ~/.sigma-migration/env is passed as -p"
 grep -qx 'auth status -p other-profile' "$TMP/cli-env-profile.log"
 check $? "an explicit SIGMA_CLI_PROFILE wins over the env file"
 
+# Profile names with parentheses (the Sigma CLI names a second profile on one
+# org "work (1)") are accepted and passed through as one argv element.
+"${cli_env[@]}" SIGMA_CLI_PROFILE="work (1)" FAKE_SIGMA_LOG="$TMP/cli-paren.log" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-paren" >"$TMP/cli-paren.out" 2>&1
+grep -qx 'auth status -p work (1)' "$TMP/cli-paren.log"
+check $? "a profile name with parentheses is passed to the CLI as -p"
+[ "$(cli_method "$TMP/cli-paren/doctor.json")" = "sigma-cli" ]
+check $? "a profile name with parentheses is accepted"
+"${cli_env[@]}" SIGMA_CLI_PROFILE="-work (1)" bash "$HERE/doctor.sh" --workdir "$TMP/cli-badprof" >"$TMP/cli-badprof.out" 2>&1
+[ "$(cli_method "$TMP/cli-badprof/doctor.json")" = "none" ]
+check $? "a profile name starting with '-' is still rejected"
+
+# An explicit SIGMA_CLI_PROFILE pins the org: another org's base URL and client
+# credentials in ~/.sigma-migration/env are ignored, so there is no host mismatch.
+mkdir -p "$TMP/home-pinned/.sigma-migration"
+cat > "$TMP/home-pinned/.sigma-migration/env" <<'ENVFILE'
+export SIGMA_BASE_URL='https://api.sigmacomputing.com'
+export SIGMA_CLIENT_ID='org-a-id'
+export SIGMA_CLIENT_SECRET='org-a-secret'
+ENVFILE
+"${cli_env[@]}" HOME="$TMP/home-pinned" SIGMA_CLI_PROFILE="work (1)" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-pinned" >"$TMP/cli-pinned.out" 2>&1
+[ "$(cli_method "$TMP/cli-pinned/doctor.json")" = "sigma-cli" ]
+check $? "an explicit profile ignores another org's settings-file base URL"
+"${cli_env[@]}" HOME="$TMP/home-pinned" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-unpinned" >"$TMP/cli-unpinned.out" 2>&1
+[ "$(cli_method "$TMP/cli-unpinned/doctor.json")" != "sigma-cli" ]
+check $? "without an explicit profile the settings file base URL still applies"
+"${cli_env[@]}" HOME="$TMP/home-pinned" SIGMA_CLI_PROFILE="work (1)" FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-pinned-fail" >"$TMP/cli-pinned-fail.out" 2>&1
+[ "$(cli_method "$TMP/cli-pinned-fail/doctor.json")" = "none" ]
+check $? "an explicit profile never falls back to the settings file's client credentials"
+# R4: process-exported (not file) base URL + client credentials must not be
+# reported as usable under an explicit profile: the provider skips them in auto
+# mode, so doctor reports the CLI method and is unusable when the CLI is not OK.
+"${cli_env[@]}" SIGMA_CLI_PROFILE="work (1)" SIGMA_BASE_URL="$CLI_BASE" \
+  SIGMA_CLIENT_ID=org-a-id SIGMA_CLIENT_SECRET=org-a-secret FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-pin-env-fail" >"$TMP/cli-pin-env-fail.out" 2>&1
+pin_rc=$?
+[ "$(cli_method "$TMP/cli-pin-env-fail/doctor.json")" = "none" ] && [ "$pin_rc" -ne 0 ]
+check $? "an explicit profile with a failing CLI does not report exported client credentials as usable"
+grep -q "Sigma CLI found but not usable" "$TMP/cli-pin-env-fail.out"
+check $? "the failing explicit profile is explained"
+"${cli_env[@]}" SIGMA_CLI_PROFILE="work (1)" SIGMA_BASE_URL="$CLI_BASE" \
+  SIGMA_CLIENT_ID=org-a-id SIGMA_CLIENT_SECRET=org-a-secret \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-pin-env-ok" >"$TMP/cli-pin-env-ok.out" 2>&1
+[ "$(cli_method "$TMP/cli-pin-env-ok/doctor.json")" = "sigma-cli" ]
+check $? "an explicit profile reports the CLI method even with exported client credentials"
+# A profile a settings-file loader copied in (marker equal) keeps the old order.
+"${cli_env[@]}" SIGMA_CLI_PROFILE="from-file" SIGMA_CLI_PROFILE_FROM_FILE="from-file" \
+  SIGMA_BASE_URL="$CLI_BASE" SIGMA_CLIENT_ID=org-a-id SIGMA_CLIENT_SECRET=org-a-secret \
+  FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-marker-fallback" >"$TMP/cli-marker-fallback.out" 2>&1
+[ "$(cli_method "$TMP/cli-marker-fallback/doctor.json")" = "client-credentials" ]
+check $? "a file-set profile (marker) keeps the client-credentials fallback"
+"${cli_env[@]}" SIGMA_CLI_PROFILE="work (1)" SIGMA_CLI_PROFILE_FROM_FILE="from-file" \
+  SIGMA_BASE_URL="$CLI_BASE" SIGMA_CLIENT_ID=org-a-id SIGMA_CLIENT_SECRET=org-a-secret \
+  FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-marker-stale" >"$TMP/cli-marker-stale.out" 2>&1
+[ "$(cli_method "$TMP/cli-marker-stale/doctor.json")" = "none" ]
+check $? "a different explicit profile under a stale marker is explicit"
+
+# S2: under an explicit profile the settings file's org-selecting keys must not
+# make a configuration "usable" (they are ignored by the provider).
+mkdir -p "$TMP/home-fileonly/.sigma-migration"
+cat > "$TMP/home-fileonly/.sigma-migration/env" <<'ENVFILE'
+export SIGMA_BASE_URL='https://aws-api.sigmacomputing.com'
+export SIGMA_API_TOKEN='org-a-file-token'
+export SIGMA_CLIENT_ID='org-a-id'
+export SIGMA_CLIENT_SECRET='org-a-secret'
+ENVFILE
+"${cli_env[@]}" HOME="$TMP/home-fileonly" SIGMA_CLI_PROFILE="work (1)" FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-fileonly-token" >"$TMP/cli-fileonly-token.out" 2>&1
+fo_rc=$?
+[ "$(cli_method "$TMP/cli-fileonly-token/doctor.json")" = "none" ] && [ "$fo_rc" -ne 0 ]
+check $? "an explicit profile ignores a settings-file-only SIGMA_API_TOKEN (CLI signed out: none, fails)"
+"${cli_env[@]}" HOME="$TMP/home-fileonly" SIGMA_CLI_PROFILE="work (1)" FAKE_SIGMA_AUTH="FAILED" \
+  SIGMA_AUTH_MODE=client-credentials \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-fileonly-cc" >"$TMP/cli-fileonly-cc.out" 2>&1
+fc_rc=$?
+[ "$(cli_method "$TMP/cli-fileonly-cc/doctor.json")" = "none" ] && [ "$fc_rc" -ne 0 ]
+check $? "an explicit profile ignores settings-file-only client credentials in client-credentials mode"
+
+# S1: a plain shell that ran `source ~/.sigma-migration/env` has the file's own
+# profile in the environment with no FROM_FILE marker: not explicit.
+mkdir -p "$TMP/home-sourced/.sigma-migration"
+cat > "$TMP/home-sourced/.sigma-migration/env" <<'ENVFILE'
+export SIGMA_CLI_PROFILE='from-file'
+export SIGMA_BASE_URL='https://aws-api.sigmacomputing.com'
+export SIGMA_CLIENT_ID='org-a-id'
+export SIGMA_CLIENT_SECRET='org-a-secret'
+ENVFILE
+"${cli_env[@]}" HOME="$TMP/home-sourced" SIGMA_CLI_PROFILE="from-file" FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-sourced" >"$TMP/cli-sourced.out" 2>&1
+[ "$(cli_method "$TMP/cli-sourced/doctor.json")" = "client-credentials" ]
+check $? "a sourced file-only profile (no marker) keeps the client-credentials fallback"
+"${cli_env[@]}" HOME="$TMP/home-sourced" SIGMA_CLI_PROFILE="work (1)" FAKE_SIGMA_AUTH="FAILED" \
+  bash "$HERE/doctor.sh" --workdir "$TMP/cli-sourced-diff" >"$TMP/cli-sourced-diff.out" 2>&1
+[ "$(cli_method "$TMP/cli-sourced-diff/doctor.json")" = "none" ]
+check $? "a profile differing from the settings file's value is explicit"
+
 # Live smoke on the CLI path: the shared REST clients derive the base URL from
 # the provider themselves, so the doctor must not inject one (that would mask a
 # broken derivation) and only warns about scripts that read the variable.

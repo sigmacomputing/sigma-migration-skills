@@ -649,7 +649,7 @@ begin
 
   raise "workbook never resolved to real demo data — tried=#{tried.inspect[0, 2000]}" if resolved.nil?
 
-  workbook_url = "#{ENV['SIGMA_BASE_URL']}/workbook/#{wb}"
+  workbook_url = "#{Sigma.base_url}/workbook/#{wb}"
   log "resolved workbook #{wb} (#{workbook_url}) via #{resolved[:candidate]}, flags=#{flags.inspect}"
 
   # --- structural (GET) readback -------------------------------------------

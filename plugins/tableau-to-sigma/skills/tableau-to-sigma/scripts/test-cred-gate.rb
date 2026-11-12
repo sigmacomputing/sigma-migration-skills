@@ -32,21 +32,34 @@ def check(c, m, fails) fails << m unless c; puts "  #{c ? 'PASS' : 'FAIL'}  #{m}
 # positional so `run_no_creds(mt, home, work, 'K' => 'v')` works on both.
 def run_no_creds(mt, home, work, extra_env = {})
   timeout = 20
+  # Blank credentials make the shared client ask the token provider. Pin one that
+  # always fails (cases that need a working provider override it via extra_env) so a
+  # developer's signed-in Sigma CLI or exported client credentials never answer here.
+  dead_provider = File.join(home, 'dead-provider.py')
+  File.write(dead_provider, "raise SystemExit('offline test: no Sigma credentials')\n")
   env = {
+    'SIGMA_TOKEN_PROVIDER' => dead_provider,
     'HOME' => home, 'SIGMA_SKIP_DOCTOR_GATE' => 'test',
     'SIGMA_BASE_URL' => nil, 'SIGMA_AUTH_MODE' => nil,
     'SIGMA_API_TOKEN' => nil, 'SIGMA_CLIENT_ID' => nil,
     'SIGMA_CLIENT_SECRET' => nil, 'SIGMA_TOKEN_MINTED_AT' => nil,
     'SIGMA_SKIP_CRED_GATE' => nil,
+    # A developer shell that exports a profile / workdir must not turn the
+    # "no profile" cases into pinned runs (or feed them an auth.json).
+    'SIGMA_CLI_PROFILE' => nil, 'SIGMA_CLI_PROFILE_FROM_FILE' => nil,
+    'SIGMA_WORKDIR' => nil,
     # Clear Tableau creds too so cases abort at a gate (no network) and the
     # Tableau gate is exercised hermetically.
     'TABLEAU_PAT_NAME' => nil, 'TABLEAU_PAT_SECRET' => nil,
     'SIGMA_SKIP_TABLEAU_GATE' => nil, 'SIGMA_TABLEAU_VIA_MCP' => nil
   }.merge(extra_env)
   cmd = ['ruby', mt, '--workbook-id', 'wb-x', '--connection', 'conn-x', '--out', work]
-  io = IO.popen(env, cmd, err: %i[child out])
+  # Test harness: runs a fixed script under test with the current interpreter and temp-dir fixtures; no user input reaches the command.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  io = IO.popen(env, cmd, err: %i[child out], chdir: home)
   pid = io.pid
   out = +''
+  status = nil
   begin
     reader = Thread.new { out << io.read.to_s }
     killed = reader.join(timeout).nil?
@@ -54,11 +67,14 @@ def run_no_creds(mt, home, work, extra_env = {})
       Process.kill('KILL', pid) rescue nil
       reader.join(2)
     end
-    Process.wait(pid) rescue nil
+    # Capture the status right after the wait: io.close in the ensure below resets
+    # $? (a nil exit status made every `code != 0` check vacuous).
+    status = (Process.wait2(pid).last rescue nil)
   ensure
     io.close rescue nil
   end
-  [$?&.exitstatus, out]
+  code = status && (status.exitstatus || (status.termsig ? 128 + status.termsig : nil))
+  [code, out]
 end
 
 Dir.mktmpdir do |home|
@@ -199,6 +215,124 @@ Dir.mktmpdir do |home|
     code, out = run_no_creds(MT, home, work, 'SIGMA_TOKEN_PROVIDER' => provider)
     check(out.include?('refusing to send Sigma credentials'), 'invalid provider host remains refused', fails)
     check(out.include?('no usable Sigma authentication'), 'provider abort includes actionable credential remediation', fails)
+
+    # (11) An explicit SIGMA_CLI_PROFILE pins the org: the gate must NOT refill the
+    # settings file's base URL / client credentials (another org's), so the gate
+    # resolves through the token provider (the profile's host) instead of a
+    # "client credentials present" shortcut. Observable signal: the provider is
+    # invoked, and the env it inherits has no client credentials or file host.
+    pin_dir = File.join(home, '.sigma-migration')
+    FileUtils.mkdir_p(pin_dir)
+    File.write(File.join(pin_dir, 'env'), <<~ENVFILE)
+      export SIGMA_BASE_URL='https://org-a.example.com'
+      export SIGMA_CLIENT_ID='org-a-id'
+      export SIGMA_CLIENT_SECRET='org-a-secret'
+      export SIGMA_CLI_PROFILE='file-profile'
+    ENVFILE
+    env_dump = File.join(home, 'provider-env')
+    File.write(provider, <<~PY)
+      import os
+      from pathlib import Path
+      Path(#{env_dump.inspect}).write_text(
+          "|".join(os.environ.get(k) or "-" for k in
+                   ("SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_BASE_URL")))
+      print('export SIGMA_API_TOKEN=fixture')
+      print('export SIGMA_AUTH_METHOD=sigma-cli')
+      print('export SIGMA_BASE_URL=https://aws-api.sigmacomputing.com')
+    PY
+    # Non-nil empty values skip the shared require-time settings loaders, so only
+    # the gate's own refill (or its absence) is under test.
+    isolate = { 'SIGMA_CLIENT_ID' => '', 'TABLEAU_PAT_SECRET' => '' }
+    code, out = run_no_creds(MT, home, work, isolate.merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                           'SIGMA_TOKEN_PROVIDER' => provider))
+    check(!out.include?('no usable Sigma authentication'),
+          'explicit profile + other-org settings: gate passes via the provider', fails)
+    check(File.exist?(env_dump) && File.read(env_dump) == '-|-|-',
+          "explicit profile: gate does not refill the file's org keys (provider env: #{File.read(env_dump) rescue 'not invoked'})", fails)
+    File.delete(env_dump) if File.exist?(env_dump)
+
+    # (12) Control: no explicit profile keeps the refill (file creds satisfy the
+    # gate directly, so the provider is never needed).
+    code, out = run_no_creds(MT, home, work, isolate.merge('SIGMA_TOKEN_PROVIDER' => provider))
+    check(!out.include?('no usable Sigma authentication') && !File.exist?(env_dump),
+          'no profile: gate still refills client credentials from the settings file', fails)
+
+    # (13) Pinned auto run + client credentials exported in the env + a provider that
+    # fails: the real route is the CLI only, so the gate must abort (not shortcut on
+    # the client credentials) with the pin-specific remediation, no secrets printed.
+    bad_provider = File.join(home, 'bad_provider.py')
+    File.write(bad_provider, "import sys\nsys.stderr.write('profile signed out\\nsecond line')\nsys.exit(1)\n")
+    env_creds = { 'SIGMA_CLIENT_ID' => 'env-id', 'SIGMA_CLIENT_SECRET' => 'env-secret',
+                  'SIGMA_BASE_URL' => 'https://api.sigmacomputing.com' }
+    code, out = run_no_creds(MT, home, work, env_creds.merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                              'SIGMA_TOKEN_PROVIDER' => bad_provider))
+    check(code != 0 && out.include?("SIGMA_CLI_PROFILE='work (1)' was set explicitly"),
+          'pinned auto + env client creds + failing provider: gate aborts with the pin message', fails)
+    check(out.include?("sigma auth login -p 'work (1)'") && out.include?('unset SIGMA_CLI_PROFILE'),
+          'pin message names the sigma auth login remediation and the unset escape', fails)
+    check(out.include?('profile signed out') && !out.include?('second line'),
+          'pin message appends only the first line of the provider error', fails)
+    check(!out.include?('env-secret') && !out.include?('no usable Sigma authentication'),
+          'pin message leaks no secret and replaces the generic message', fails)
+
+    # (14) Pinned auto + env client creds + a WORKING provider: passes through the provider.
+    File.delete(env_dump) if File.exist?(env_dump)
+    code, out = run_no_creds(MT, home, work, env_creds.merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                              'SIGMA_TOKEN_PROVIDER' => provider))
+    check(!out.include?('was set explicitly') && !out.include?('no usable Sigma authentication'),
+          'pinned auto + working provider: gate passes', fails)
+    check(File.exist?(env_dump), 'pinned auto: the provider (CLI route) was actually consulted', fails)
+
+    # (15) Pinned, but an explicit SIGMA_AUTH_MODE=client-credentials behaves as asked.
+    File.delete(env_dump) if File.exist?(env_dump)
+    code, out = run_no_creds(MT, home, work, env_creds.merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                              'SIGMA_AUTH_MODE' => 'client-credentials',
+                                                              'SIGMA_TOKEN_PROVIDER' => bad_provider))
+    check(!out.include?('was set explicitly') && !out.include?('no usable Sigma authentication'),
+          'pinned + explicit client-credentials mode: env client creds still satisfy the gate', fails)
+
+    # (16) Pinned auto + a bare SIGMA_API_TOKEN but no resolvable host (provider down):
+    # the token alone must not pass the gate.
+    code, out = run_no_creds(MT, home, work, 'SIGMA_API_TOKEN' => 'tok-abc', 'SIGMA_CLI_PROFILE' => 'work (1)',
+                                             'SIGMA_TOKEN_PROVIDER' => bad_provider)
+    check(code != 0 && out.include?('a caller SIGMA_API_TOKEN is set without SIGMA_BASE_URL') &&
+          out.include?('unset SIGMA_API_TOKEN'),
+          'pinned auto + bare token + no host: gate aborts naming the token/host fix', fails)
+    check(!out.include?('sigma auth login'),
+          'bare-token abort does not point at `sigma auth login` (it cannot fix this)', fails)
+    check(!out.include?('tok-abc'), 'bare-token abort leaks no token', fails)
+
+    # (17) The pin guard on the keychain shortcut: a browser keychain session +
+    # base URL would satisfy a non-pinned run, but a pinned auto run must go
+    # through the provider only, so a failing provider yields the pin abort.
+    code, out = run_no_creds(
+      MT, home, work,
+      'PATH' => "#{keychain_bin}#{File::PATH_SEPARATOR}#{ENV.fetch('PATH', '')}",
+      'SIGMA_BASE_URL' => 'https://api.sigmacomputing.com',
+      'SIGMA_CLI_PROFILE' => 'work (1)', 'SIGMA_TOKEN_PROVIDER' => bad_provider)
+    check(code != 0 && out.include?("SIGMA_CLI_PROFILE='work (1)' was set explicitly"),
+          'pinned auto + keychain session + failing provider: keychain does not pass the gate', fails)
+
+    # (18) Explicit SIGMA_AUTH_MODE=sigma-cli uses ONLY the CLI: neither env client
+    # credentials nor a keychain session may pass the gate when the provider fails.
+    code, out = run_no_creds(MT, home, work, env_creds.merge('SIGMA_AUTH_MODE' => 'sigma-cli',
+                                                              'SIGMA_TOKEN_PROVIDER' => bad_provider))
+    check(code != 0 && out.include?('no usable Sigma authentication'),
+          'sigma-cli mode + env client creds + failing provider: gate aborts', fails)
+    code, out = run_no_creds(
+      MT, home, work,
+      'PATH' => "#{keychain_bin}#{File::PATH_SEPARATOR}#{ENV.fetch('PATH', '')}",
+      'SIGMA_BASE_URL' => 'https://api.sigmacomputing.com',
+      'SIGMA_AUTH_MODE' => 'sigma-cli', 'SIGMA_TOKEN_PROVIDER' => bad_provider)
+    check(code != 0 && out.include?('no usable Sigma authentication'),
+          'sigma-cli mode + keychain session + failing provider: gate aborts', fails)
+    # Control: sigma-cli mode with a WORKING provider still passes.
+    File.delete(env_dump) if File.exist?(env_dump)
+    code, out = run_no_creds(MT, home, work, env_creds.merge('SIGMA_AUTH_MODE' => 'sigma-cli',
+                                                              'SIGMA_TOKEN_PROVIDER' => provider))
+    check(!out.include?('no usable Sigma authentication') && File.exist?(env_dump),
+          'sigma-cli mode + working provider: gate passes via the provider', fails)
+    File.delete(File.join(pin_dir, 'env'))
   end
 end
 

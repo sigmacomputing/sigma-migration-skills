@@ -18,6 +18,7 @@ require 'optparse'
 require 'net/http'
 require 'uri'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'sigma_rest'
 require 'code_rep'
 require 'action_ledger'
 require 'probe_registry'
@@ -29,12 +30,19 @@ OptionParser.new do |p|
   p.on('--base-url URL')         { |v| opts[:base] = v }
 end.parse!
 
-token = ENV['SIGMA_API_TOKEN']
-if token.nil? || token.empty?
-  warn 'SKIP: SIGMA_API_TOKEN not set — readback probe not run (this is not a pass)'
+# Token and host come from the shared client: an explicit SIGMA_API_TOKEN /
+# --base-url / SIGMA_BASE_URL win, else a signed-in Sigma CLI profile answers.
+token = begin
+  Sigma.auth_token
+rescue StandardError, SystemExit => e
+  warn "SKIP: no Sigma credentials resolvable (#{e.message.to_s.lines.first.to_s.strip}) — readback probe not run (this is not a pass)"
   exit 0
 end
-base = opts[:base] || ENV['SIGMA_BASE_URL'] or abort('missing --base-url / SIGMA_BASE_URL')
+base = opts[:base] || begin
+  Sigma.base_url
+rescue Sigma::Error => e
+  abort "probe-actions-readback.rb: #{e.message}"
+end
 
 spec     = JSON.parse(File.read(opts[:spec]))
 expected = ActionLedger.read_manifest(opts[:expect])

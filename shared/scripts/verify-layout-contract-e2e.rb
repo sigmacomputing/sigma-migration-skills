@@ -41,9 +41,16 @@ def skip!(m)
 end
 
 skip!('no spec files given') if ARGV.empty?
-unless ENV['SIGMA_BASE_URL'] && (ENV['SIGMA_API_TOKEN'] ||
-       (ENV['SIGMA_CLIENT_ID'] && ENV['SIGMA_CLIENT_SECRET']))
-  skip!('no Sigma creds in env — live probe cannot run')
+# Credentials come from the shared client: an explicit SIGMA_BASE_URL with a
+# token, browser login or client credentials, or a signed-in Sigma CLI profile
+# (its host is derived when SIGMA_BASE_URL is not exported).
+begin
+  Sigma.base_url
+  Sigma.auth_token
+rescue Sigma::Error => e
+  skip!("no Sigma credentials (#{e.message.lines.first.to_s.strip}) — set SIGMA_BASE_URL + " \
+        'SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET (or SIGMA_API_TOKEN), run browser-login.sh, or sign ' \
+        'in with the Sigma CLI (sigma auth login) to run this live probe.')
 end
 
 INCIDENT = /incident-id|An error has occurred/i

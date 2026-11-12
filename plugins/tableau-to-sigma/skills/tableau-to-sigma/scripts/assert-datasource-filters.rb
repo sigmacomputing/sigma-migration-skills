@@ -35,6 +35,8 @@ require 'optparse'
 require_relative 'lib/workdir_guard' # refuse a workdir inside the installed plugin
 require_relative 'lib/datasource_filter_check'
 require_relative 'lib/code_rep'
+$LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'sigma_rest'
 
 opts = {}
 OptionParser.new do |p|
@@ -83,13 +85,22 @@ if wb_id.nil?
   wbp = File.join(work, 'wb-ids.json')
   wb_id = (JSON.parse(File.read(wbp))['workbookId'] rescue nil) if File.exist?(wbp)
 end
-base = ENV['SIGMA_BASE_URL']
-tok  = ENV['SIGMA_API_TOKEN']
 if wb_id.nil? || wb_id.to_s.empty?
   puts "[SKIP] datasource-filter gate: no workbook ID resolvable — cannot verify #{ds.size} data-source filter(s)"
   exit 0
-elsif base.nil? || base.empty? || tok.nil? || tok.empty?
-  puts "[SKIP] datasource-filter gate: SIGMA_BASE_URL / SIGMA_API_TOKEN not set — cannot fetch spec to verify #{ds.size} data-source filter(s)"
+end
+# Host + token come from the shared client: explicit SIGMA_BASE_URL / SIGMA_API_TOKEN
+# win, else a signed-in Sigma CLI profile (or browser / client credentials) answers.
+base = tok = nil
+sigma_why = nil
+begin
+  base = Sigma.base_url
+  tok  = Sigma.auth_token
+rescue StandardError, SystemExit => e
+  sigma_why = e.message.to_s.lines.first.to_s.strip
+end
+if base.to_s.empty? || tok.to_s.empty?
+  puts "[SKIP] datasource-filter gate: no Sigma host/credentials resolvable#{sigma_why.to_s.empty? ? '' : " (#{sigma_why})"} — cannot fetch spec to verify #{ds.size} data-source filter(s)"
   exit 0
 end
 

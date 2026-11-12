@@ -575,7 +575,10 @@ jobs:
   unit-tests:
     name: offline unit/regression tests (creds-free)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Runs 190-310 s on main (median ~250 s) and the suite keeps growing, so a
+    # 5-minute cap cancelled otherwise-green runs ("The operation was
+    # canceled"). 10 minutes leaves real headroom without masking a hang.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Validate sigma-workbooks formula and control contracts
@@ -629,6 +632,8 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-sql-ident-check.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-dm-quarantine.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-cred-gate.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-sigma-profile-pin.rb
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-cli-profile-base-url.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-validate-spec-guards.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-zip-extract.rb
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test-py-resolve-winpath.rb
@@ -707,6 +712,9 @@ jobs:
             shared/scripts/test-intake-triage.rb
             shared/scripts/test-assert-phase6.rb
             shared/scripts/test-assert-phase6-auth.rb
+            shared/scripts/test-cli-profile-base-url.rb
+            plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/test-cli-base-url.rb
+            plugins/cognos-to-sigma/skills/cognos-to-sigma/scripts/test-cli-base-url.rb
             shared/scripts/test-probe-controls-json.rb
             shared/scripts/test-cleanup-orphan-workbooks.rb
             shared/scripts/test-build-migration-report.rb
@@ -846,6 +854,7 @@ jobs:
             plugins/looker-to-sigma/skills/looker-to-sigma/tests/test_course_performance_fixture.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_build_looker_accounting.py
             plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_post_workbook_coderep.py
+            plugins/looker-to-sigma/skills/looker-to-sigma/scripts/test_migrate_looker_resolved_base_url.py
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_grounding.py
             plugins/qlik-to-sigma/skills/qlik-to-sigma/tests/test_completion_contract.py
             shared/lib/test_metric_binding.py
@@ -879,6 +888,7 @@ jobs:
             shared/lib/test_richness.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_sigma_rest.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_tableau_rest.py
+            plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_land_extracts_profile_pin.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_pick_destination.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_assert_doctor_ran.py
             plugins/tableau-to-sigma/skills/tableau-to-sigma/scripts/test_convert_tableau.py
@@ -923,6 +933,8 @@ jobs:
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_metric_reference.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_scan_gaps.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_uplift_orchestrator.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_profile_pin.py
+            plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_resolved_base_url.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/scripts/test_verify_guards.py
             # hex-to-sigma (own converter/ package, no shared catalog/metric_binding usage)
             plugins/hex-to-sigma/skills/hex-to-sigma/tests/test_hex_yaml.py

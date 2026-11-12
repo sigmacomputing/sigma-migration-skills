@@ -118,6 +118,70 @@ ok('grouped: surfaces non-translatable DAX as its own cause',
 ok('grouped: falls back to flat report when unclassified',
    CoverageGate.report_lines_by_cause(COVERAGE).size == 2)
 
+# review finding (#966): measure names were matched as raw substrings of the
+# detail with every space and bracket stripped, so a short measure name hit
+# unrelated words. "Exp" sat inside "expand" and "Map" spanned "Sigma pivot",
+# which turned powerbi-to-sigma's informational matrix_levels note into a
+# recoverable cross-table-measure item that blocks sign-off. "GP" sat inside
+# "GPS", which flipped a recoverable sort drop to recoverable:false and hid it.
+false_hits = {
+  'unresolved' => [
+    { 'visual' => 'Region matrix', 'source_type' => 'pivotTable', 'sigma_kind' => 'pivot-table',
+      'severity' => 'approximated', 'recoverable' => false, 'role_class' => 'table',
+      'detail' => 'Power BI opens this matrix collapsed with +/- to expand (rows (3 levels, Power BI opens at Year)); ' \
+                  'the Sigma pivot carries the listed levels as nested rowsBy/columnsBy and opens expanded',
+      'action' => 'UI adaptation: Sigma pivots open expanded; collapsed start state is not exposed by the workbook spec.' },
+    { 'visual' => 'Route table', 'severity' => 'degraded', 'recoverable' => true,
+      'detail' => "sort field 'Fleet.GPS Zone' is not among the built columns — sort skipped" }
+  ]
+}
+CoverageGate.classify_causes(false_hits, dax_dropped: ['GP'], dax_crosstable: %w[Exp Map])
+fh = false_hits['unresolved'].each_with_object({}) { |u, h| h[u['visual']] = u }
+ok('classify: matrix_levels note stays recoverable:false (no substring hit on "expand" / "Sigma pivot")',
+   fh['Region matrix']['recoverable'] == false)
+ok('classify: matrix_levels note is not attributed to a cross-table measure',
+   fh['Region matrix']['cause'] != 'cross_table_measure')
+ok('classify: "GP" does not match inside "GPS" (recoverable sort drop stays recoverable)',
+   fh['Route table']['recoverable'] == true && fh['Route table']['cause'] != 'nontranslatable_dax')
+
+# A whole-word hit on a note the converter already judged non-recoverable or
+# merely approximated does not re-attribute it either. The occluder here is a
+# visual titled after a cross-table measure; the decorative drop stays a
+# by-design omission, and the approximated map keeps its own recoverable flag.
+judged = {
+  'unresolved' => [
+    { 'visual' => 'Banner', 'severity' => 'dropped', 'recoverable' => false, 'role_class' => 'decoration',
+      'detail' => "occluded by Bar chart 'Sales Rank' on the default view — Power BI never shows this shape by default; not emitted" },
+    { 'visual' => 'Store map', 'severity' => 'approximated', 'recoverable' => true,
+      'detail' => 'PBI map downgraded to bar chart — Weird Ratio has no latitude/longitude' }
+  ]
+}
+CoverageGate.classify_causes(judged, dax_dropped: ['Weird Ratio'], dax_crosstable: ['Sales Rank'])
+jd = judged['unresolved'].each_with_object({}) { |u, h| h[u['visual']] = u }
+ok('classify: a recoverable:false drop is not promoted to a recoverable cross-table measure',
+   jd['Banner']['recoverable'] == false && jd['Banner']['cause'] != 'cross_table_measure')
+ok('classify: an approximated entry keeps its own recoverable flag (not flipped by a DAX-drop name)',
+   jd['Store map']['recoverable'] == true && jd['Store map']['cause'] != 'nontranslatable_dax')
+
+# The true matches keep working: a short name as a whole word, a bracketed
+# 'Table'[Measure] reference, and a camelCase spelling of a spaced name.
+true_hits = {
+  'unresolved' => [
+    { 'visual' => 'GP tile', 'severity' => 'dropped', 'recoverable' => true,
+      'detail' => 'field(s) GP could not be resolved to a master column — dropped' },
+    { 'visual' => 'Rank card', 'severity' => 'degraded', 'recoverable' => true,
+      'detail' => "measure 'Fact Sales'[Sales Rank] did not bind — dropped" },
+    { 'visual' => 'Ratio card', 'severity' => 'dropped', 'recoverable' => true,
+      'detail' => 'field(s) WeirdRatio could not be resolved to a master column — dropped' }
+  ]
+}
+CoverageGate.classify_causes(true_hits, dax_dropped: ['Weird Ratio'], dax_crosstable: ['GP', 'Sales Rank'])
+th = true_hits['unresolved'].each_with_object({}) { |u, h| h[u['visual']] = u }
+ok('classify: short measure name still matches as a whole word', th['GP tile']['cause'] == 'cross_table_measure')
+ok('classify: bracketed Table[Measure] reference still matches', th['Rank card']['cause'] == 'cross_table_measure')
+ok('classify: camelCase spelling of a spaced measure name still matches',
+   th['Ratio card']['cause'] == 'nontranslatable_dax' && th['Ratio card']['recoverable'] == false)
+
 # ── binding-level coverage (the defect this exists to catch): a dashboard
 # where every visual BUILT but half its FIELDS dropped previously reported
 # "12/12 source visuals carried over; 0 dropped" and passed every gate. Fields

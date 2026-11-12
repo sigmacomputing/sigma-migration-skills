@@ -49,24 +49,67 @@ _refresh_inflight = False
 _refresh_flight = None
 
 
+# Same rule as sigma_rest/get_token: an explicit SIGMA_CLI_PROFILE (set by the
+# caller, not copied from the file) chooses the Sigma org, so the file's
+# org-selecting SIGMA_* keys are not loaded here either.
+_SIGMA_PINNED_KEYS = frozenset(
+    ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_API_TOKEN", "SIGMA_AUTH_MODE")
+)
+
+
+def _settings_file_profile(path):
+    """The SIGMA_CLI_PROFILE value in the settings file ("" if none): only that
+    key, same line/quote rules as the loader, last assignment wins (as when the
+    file is sourced)."""
+    value = ""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                m = _NEUTRAL_LINE.match(line.rstrip("\n"))
+                if not m or m.group(1) != "SIGMA_CLI_PROFILE":
+                    continue
+                raw = m.group(2).strip()
+                if len(raw) >= 2 and (
+                    (raw.startswith("'") and raw.endswith("'"))
+                    or (raw.startswith('"') and raw.endswith('"'))
+                ):
+                    raw = raw[1:-1]
+                value = raw.strip()
+    except OSError:
+        return ""
+    return value
+
+
 def _load_neutral_env(env=None):
     """Agent-neutral credential bootstrap. Load Tableau PAT creds from
     ~/.sigma-migration/env when TABLEAU_PAT_SECRET is absent. Existing env wins
-    (mirrors Ruby's `.nil?` guard + `ENV[key] ||= raw`)."""
+    (mirrors Ruby's `.nil?` guard + `ENV[key] ||= raw`). The file's SIGMA_* keys
+    follow the Sigma REST clients' explicit-profile pin rule and marker."""
     env = os.environ if env is None else env
     if "TABLEAU_PAT_SECRET" in env or not os.path.exists(NEUTRAL_ENV):
         return
+    profile = (env.get("SIGMA_CLI_PROFILE") or "").strip()
+    pinned = (
+        bool(profile)
+        and profile != (env.get("SIGMA_CLI_PROFILE_FROM_FILE") or "").strip()
+        # a plain shell that sourced the file has the file's own profile, unmarked
+        and profile != _settings_file_profile(NEUTRAL_ENV)
+    )
     with open(NEUTRAL_ENV, encoding="utf-8") as fh:
         for line in fh:
             m = _NEUTRAL_LINE.match(line.rstrip("\n"))
             if not m:
                 continue
             key, raw = m.group(1), m.group(2).strip()
+            if pinned and key in _SIGMA_PINNED_KEYS:
+                continue
             if len(raw) >= 2 and (
                 (raw.startswith("'") and raw.endswith("'"))
                 or (raw.startswith('"') and raw.endswith('"'))
             ):
                 raw = raw[1:-1]
+            if key == "SIGMA_CLI_PROFILE" and key not in env:
+                env["SIGMA_CLI_PROFILE_FROM_FILE"] = raw
             env.setdefault(key, raw)
 
 

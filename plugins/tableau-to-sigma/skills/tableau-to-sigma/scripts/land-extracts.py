@@ -310,6 +310,28 @@ def load_neutral_env():
     return out
 
 
+def sigma_profile_pinned():
+    """True when an explicit SIGMA_CLI_PROFILE chooses the Sigma org, so the
+    settings file's org-selecting keys (base URL, client credentials) must not
+    be copied into the environment. Same rule as the vendored sigma_rest loader
+    (`_load_neutral_env`): the profile is set, is not the value an earlier loader
+    copied from the file (SIGMA_CLI_PROFILE_FROM_FILE), and is not the file's own
+    SIGMA_CLI_PROFILE. The file is read at call time, not import time."""
+    profile = (os.environ.get("SIGMA_CLI_PROFILE") or "").strip()
+    if not profile:
+        return False
+    if profile == (os.environ.get("SIGMA_CLI_PROFILE_FROM_FILE") or "").strip():
+        return False
+    try:
+        file_profile = sigma_rest._settings_file_profile(
+            os.path.expanduser("~/.sigma-migration/env"))
+    except (UnicodeDecodeError, ValueError):
+        # A settings file that is not valid UTF-8 cannot vouch for the profile:
+        # treat it as unknown, which fails toward pinned (no refill).
+        file_profile = ""
+    return profile != file_profile
+
+
 def env_or_neutral(key):
     return os.environ.get(key) or load_neutral_env().get(key)
 
@@ -407,10 +429,11 @@ def sigma_sync_tables(connection_id, tables, db, schema):
     immediately, no UI 'refresh schema'). Authentication and the single 401
     refresh/retry are owned by scripts/lib/sigma_rest.py. Returns (ok, fail)
     counts."""
-    neutral = load_neutral_env()
-    for key in ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET"):
-        if not os.environ.get(key) and neutral.get(key):
-            os.environ[key] = neutral[key]
+    if not sigma_profile_pinned():
+        neutral = load_neutral_env()
+        for key in ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET"):
+            if not os.environ.get(key) and neutral.get(key):
+                os.environ[key] = neutral[key]
     try:
         sigma_rest.base_url()
         # Fail before reporting every table as an independent sync failure when

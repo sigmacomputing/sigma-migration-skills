@@ -17,11 +17,30 @@ require 'cgi'
 # env always wins.
 _neutral_env = File.expand_path('~/.sigma-migration/env')
 if ENV['TABLEAU_PAT_SECRET'].nil? && File.exist?(_neutral_env)
+  # Same rule as sigma_rest/get_token: an explicit SIGMA_CLI_PROFILE (set by the
+  # caller, not copied from the file) chooses the Sigma org, so the file's
+  # org-selecting SIGMA_* keys are not loaded here either.
+  _profile = ENV['SIGMA_CLI_PROFILE'].to_s.strip
+  # A plain shell that sourced the file has the file's own profile, unmarked: that
+  # is not explicit either. Only the one key is read (last assignment wins).
+  _file_profile = ''
+  File.foreach(_neutral_env, encoding: 'UTF-8') do |line|
+    next unless (fm = line.chomp.match(/\A\s*(?:export\s+)?SIGMA_CLI_PROFILE=(.*)\z/))
+    fraw = fm[1].strip
+    fraw = fraw[1..-2] if fraw.length >= 2 &&
+      ((fraw.start_with?("'") && fraw.end_with?("'")) || (fraw.start_with?('"') && fraw.end_with?('"')))
+    _file_profile = fraw.strip
+  end
+  _profile_pinned = !_profile.empty? && _profile != ENV['SIGMA_CLI_PROFILE_FROM_FILE'].to_s.strip &&
+                    _profile != _file_profile
+  _sigma_pinned_keys = %w[SIGMA_BASE_URL SIGMA_CLIENT_ID SIGMA_CLIENT_SECRET SIGMA_API_TOKEN SIGMA_AUTH_MODE].freeze
   File.foreach(_neutral_env, encoding: 'UTF-8') do |line|
     next unless (m = line.chomp.match(/\A\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)\z/))
     key, raw = m[1], m[2].strip
+    next if _profile_pinned && _sigma_pinned_keys.include?(key)
     raw = raw[1..-2] if raw.length >= 2 &&
       ((raw.start_with?("'") && raw.end_with?("'")) || (raw.start_with?('"') && raw.end_with?('"')))
+    ENV['SIGMA_CLI_PROFILE_FROM_FILE'] = raw if key == 'SIGMA_CLI_PROFILE' && ENV[key].nil?
     ENV[key] ||= raw
   end
 end

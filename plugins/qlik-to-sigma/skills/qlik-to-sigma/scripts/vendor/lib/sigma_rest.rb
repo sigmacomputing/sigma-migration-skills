@@ -48,11 +48,35 @@ require 'time'
 # them from the neutral cred file written by setup.rb. Existing env always wins.
 _neutral_env = File.expand_path('~/.sigma-migration/env')
 if ENV['SIGMA_CLIENT_ID'].nil? && File.exist?(_neutral_env)
+  # An explicit SIGMA_CLI_PROFILE (set before this file is read) chooses the org
+  # and its host, so the file's org-selecting keys must not leak in: org A's base
+  # URL / client credentials would otherwise win and requests would go to org A.
+  # "Explicit" = set by the caller, not copied from the file by an earlier loader
+  # (that loader records the value it copied in SIGMA_CLI_PROFILE_FROM_FILE).
+  _profile = ENV['SIGMA_CLI_PROFILE'].to_s.strip
+  # A plain shell that sourced the file has the file's own profile, unmarked: that
+  # is not explicit either. Only the one key is read (last assignment wins).
+  _file_profile = ''
+  File.foreach(_neutral_env, encoding: 'UTF-8') do |line|
+    next unless (fm = line.chomp.match(/\A\s*(?:export\s+)?SIGMA_CLI_PROFILE=(.*)\z/))
+    fraw = fm[1].strip
+    fraw = fraw[1..-2] if fraw.length >= 2 &&
+      ((fraw.start_with?("'") && fraw.end_with?("'")) || (fraw.start_with?('"') && fraw.end_with?('"')))
+    _file_profile = fraw.strip
+  end
+  _profile_pinned = !_profile.empty? && _profile != ENV['SIGMA_CLI_PROFILE_FROM_FILE'].to_s.strip &&
+                    _profile != _file_profile
+  _pinned_keys = %w[SIGMA_BASE_URL SIGMA_CLIENT_ID SIGMA_CLIENT_SECRET SIGMA_API_TOKEN SIGMA_AUTH_MODE].freeze
   File.foreach(_neutral_env, encoding: 'UTF-8') do |line|
     next unless (m = line.chomp.match(/\A\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)\z/))
     key, raw = m[1], m[2].strip
+    next if _profile_pinned && _pinned_keys.include?(key)
     raw = raw[1..-2] if raw.length >= 2 &&
       ((raw.start_with?("'") && raw.end_with?("'")) || (raw.start_with?('"') && raw.end_with?('"')))
+    if key == 'SIGMA_CLI_PROFILE' && ENV[key].nil?
+      # Tell a child token provider this profile came from the file, not the caller.
+      ENV['SIGMA_CLI_PROFILE_FROM_FILE'] = raw
+    end
     ENV[key] ||= raw
   end
 end

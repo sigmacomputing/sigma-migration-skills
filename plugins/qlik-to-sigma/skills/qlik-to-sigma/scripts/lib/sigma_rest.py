@@ -106,24 +106,68 @@ def _parse_iso_epoch(ts):
         return None
 
 
+_PROFILE_PINNED_KEYS = frozenset(
+    ("SIGMA_BASE_URL", "SIGMA_CLIENT_ID", "SIGMA_CLIENT_SECRET", "SIGMA_API_TOKEN", "SIGMA_AUTH_MODE")
+)
+
+
+def _settings_file_profile(path):
+    """The SIGMA_CLI_PROFILE value in the settings file ("" if none): only that
+    key, same line/quote rules as the loader, last assignment wins (as when the
+    file is sourced)."""
+    value = ""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                m = _NEUTRAL_LINE.match(line.rstrip("\n"))
+                if not m or m.group(1) != "SIGMA_CLI_PROFILE":
+                    continue
+                raw = m.group(2).strip()
+                if len(raw) >= 2 and (
+                    (raw.startswith("'") and raw.endswith("'"))
+                    or (raw.startswith('"') and raw.endswith('"'))
+                ):
+                    raw = raw[1:-1]
+                value = raw.strip()
+    except OSError:
+        return ""
+    return value
+
+
 def _load_neutral_env(env=None):
     """Agent-neutral credential bootstrap. If SIGMA_CLIENT_ID is absent, load
     creds from ~/.sigma-migration/env (written by setup.rb). Existing env always
-    wins (mirrors Ruby's `ENV[key] ||= raw` + the `.nil?` — not empty — guard)."""
+    wins (mirrors Ruby's `ENV[key] ||= raw` + the `.nil?` — not empty — guard).
+    An explicit SIGMA_CLI_PROFILE (set before the file is read) chooses the org
+    and its host, so the file's base URL / credentials / auth mode are skipped."""
     env = os.environ if env is None else env
     if "SIGMA_CLIENT_ID" in env or not os.path.exists(NEUTRAL_ENV):
         return
+    # Explicit = set by the caller, not copied from the file by an earlier loader
+    # (that loader records the value it copied in SIGMA_CLI_PROFILE_FROM_FILE).
+    profile = (env.get("SIGMA_CLI_PROFILE") or "").strip()
+    pinned = (
+        bool(profile)
+        and profile != (env.get("SIGMA_CLI_PROFILE_FROM_FILE") or "").strip()
+        # a plain shell that sourced the file has the file's own profile, unmarked
+        and profile != _settings_file_profile(NEUTRAL_ENV)
+    )
     with open(NEUTRAL_ENV, encoding="utf-8") as fh:
         for line in fh:
             m = _NEUTRAL_LINE.match(line.rstrip("\n"))
             if not m:
                 continue
             key, raw = m.group(1), m.group(2).strip()
+            if pinned and key in _PROFILE_PINNED_KEYS:
+                continue
             if len(raw) >= 2 and (
                 (raw.startswith("'") and raw.endswith("'"))
                 or (raw.startswith('"') and raw.endswith('"'))
             ):
                 raw = raw[1:-1]
+            if key == "SIGMA_CLI_PROFILE" and key not in env:
+                # Tell a child token provider this profile came from the file.
+                env["SIGMA_CLI_PROFILE_FROM_FILE"] = raw
             env.setdefault(key, raw)
 
 

@@ -74,10 +74,18 @@ OptionParser.new do |p|
 end.parse!
 %i[sig out].each { |k| abort "missing --#{k}" unless opts[k] }
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
 $LOAD_PATH.unshift File.expand_path('../lib', __dir__) # canonical shared/ layout
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
+
+# The host the shared client resolved: an explicit SIGMA_BASE_URL wins; with
+# none exported, the host a signed-in Sigma CLI profile reports. Resolved on the
+# first API call, so a re-entry cache hit below still needs no credentials.
+def sigma_base
+  @sigma_base ||= Sigma.base_url
+rescue Sigma::Error => e
+  abort "find-or-pick-dm: #{e.message}"
+end
 
 # Preserve the response-object contract used by the ranking/retry code while
 # delegating request construction, bearer auth, and the single 401 refresh to
@@ -110,7 +118,7 @@ end
 # DM-shortlisting scans many candidates and is called per-follower in cluster
 # orchestration. The optional HTTP transport retains the offline test seam.
 def http_get(path, http = nil)
-  transport = SigmaResponseHTTP.new(URI("#{BASE}#{path}"), http)
+  transport = SigmaResponseHTTP.new(URI("#{sigma_base}#{path}"), http)
   begin
     Sigma.request(:get, path, http: transport)
   rescue Sigma::Error, JSON::ParserError

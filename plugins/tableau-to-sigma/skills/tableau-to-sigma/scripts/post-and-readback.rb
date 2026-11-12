@@ -134,7 +134,16 @@ QUARANTINE = opts[:quarantine] && opts[:type] == 'datamodel'
 DEFERRED_PATH = File.join(opts[:workdir], 'deferred-elements.json')
 warn 'NOTE: --quarantine-on-failure only applies to --type datamodel; ignored.' if opts[:quarantine] && opts[:type] != 'datamodel'
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
+# Sigma host from the shared client: an explicit SIGMA_BASE_URL wins, else the
+# host a signed-in Sigma CLI profile reports. Resolved lazily (first request) so
+# paths that need no credentials never ask the token provider.
+def sigma_base
+  @sigma_base ||= begin
+    Sigma.base_url
+  rescue Sigma::Error => e
+    abort "post-and-readback.rb: #{e.message}"
+  end
+end
 
 # Workbooks use the code-rep endpoints (POST /v2/workbooks, GET
 # /v2/workbooks/{id}?includeContents=true, PUT /v2/workbooks/{id}/contents);
@@ -179,7 +188,7 @@ def http(method, path, body = nil, accept_json: false)
   attempts = 0
   loop do
     attempts += 1
-    uri = URI("#{BASE}#{path}")
+    uri = URI("#{sigma_base}#{path}")
     req = case method
           when :post then r = Net::HTTP::Post.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
           when :put  then r = Net::HTTP::Put.new(uri);  r.body = body; r['Content-Type'] = 'application/json'; r
@@ -190,10 +199,18 @@ def http(method, path, body = nil, accept_json: false)
     # TLS follows the base URL's scheme (always https against Sigma; plain http
     # only for the loopback servers the offline tests stand up).
     res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 120) { |h| h.request(req) }
-    if res.code.to_i == 401 && attempts == 1 && ENV['SIGMA_CLIENT_ID']
+    if res.code.to_i == 401 && attempts == 1
       warn '  [auth] Sigma token expired mid-run, refreshing and retrying...'
-      Sigma.refresh_token!
-      next
+      # Re-mint through the shared provider (CLI profile, browser keychain or client
+      # credentials); if that fails, hand back the 401 rather than crash.
+      refreshed = begin
+        Sigma.refresh_token!
+        true
+      rescue StandardError => e
+        warn "  [auth] token refresh failed: #{e.message.lines.first.to_s.strip}"
+        false
+      end
+      next if refreshed
     end
     return res
   end

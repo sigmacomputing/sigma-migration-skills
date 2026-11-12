@@ -693,8 +693,39 @@ fi
 
 # ── credentials (non-interactive only — setup.rb is the single writer) ──────
 NEUTRAL_ENV="$STATE_DIR/env"
+# A SIGMA_CLI_PROFILE the caller set (not one a settings-file loader copied in,
+# which records it in SIGMA_CLI_PROFILE_FROM_FILE) chooses the org.
+# A profile equal to the settings file's own SIGMA_CLI_PROFILE is not explicit
+# either: a plain shell that ran `source ~/.sigma-migration/env` has it in the
+# environment with no FROM_FILE marker. Only that one key is read (never printed).
+sigma_env_file_raw() {
+  local key="$1" f="${2:-$HOME/.sigma-migration/env}" v=""
+  if [ -f "$f" ]; then
+    v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=(.*)$/\\2/p" "$f" 2>/dev/null | tail -n 1)"
+    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  fi
+  printf '%s' "$v"
+}
+sigma_profile_explicit() {
+  local p="${SIGMA_CLI_PROFILE:-}"
+  [ -n "$p" ] || return 1
+  [ "$p" != "${SIGMA_CLI_PROFILE_FROM_FILE:-}" ] || return 1
+  [ "$p" != "$(sigma_env_file_raw SIGMA_CLI_PROFILE "${NEUTRAL_ENV:-$HOME/.sigma-migration/env}")" ]
+}
+# In auto mode an explicit profile makes the Sigma CLI the only source: the
+# provider skips the browser keychain and client credentials (no fall-through).
+sigma_cli_only() {
+  sigma_profile_explicit && [ "${SIGMA_AUTH_MODE:-auto}" = "auto" ]
+}
 sigma_env_file_has() {
   local key="$1" file="${2:-$HOME/.sigma-migration/env}"
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if sigma_profile_explicit; then
+    case "$key" in
+      SIGMA_BASE_URL|SIGMA_CLIENT_ID|SIGMA_CLIENT_SECRET|SIGMA_API_TOKEN|SIGMA_AUTH_MODE) return 1 ;;
+    esac
+  fi
   [ -f "$file" ] && grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}=.+" "$file" 2>/dev/null
 }
 sigma_base_configured() {
@@ -726,11 +757,14 @@ sigma_published_base() {
 # One KEY's value from the neutral env file ("" if absent), quotes stripped.
 sigma_env_file_value() {
   local key="$1" f="${2:-$HOME/.sigma-migration/env}" v=""
-  if [ -f "$f" ]; then
-    v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?${key}=(.*)$/\\2/p" "$f" 2>/dev/null | tail -n 1)"
-    v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+  # An explicit SIGMA_CLI_PROFILE chooses the org: the settings file's org-selecting
+  # keys are ignored (same rule as get_token.py and the REST clients).
+  if sigma_profile_explicit; then
+    case "$key" in
+      SIGMA_BASE_URL|SIGMA_CLIENT_ID|SIGMA_CLIENT_SECRET|SIGMA_API_TOKEN|SIGMA_AUTH_MODE) printf '' ; return 0 ;;
+    esac
   fi
-  printf '%s' "$v"
+  sigma_env_file_raw "$key" "$f"
 }
 # SIGMA_BASE_URL from the environment, else the neutral env file ("" if unset).
 sigma_configured_base() {
@@ -771,7 +805,7 @@ sigma_cli_session_ok() {
   local bin profile="${SIGMA_CLI_PROFILE:-}" line base="" auth_ok=0 conf
   local re_auth='^[[:space:]]*Auth:[[:space:]]*[Oo][Kk]'
   local re_base='^[[:space:]]*(Base URL|API host):[[:space:]]*([^[:space:]]+)[[:space:]]*$'
-  local re_prof='^[A-Za-z0-9_][A-Za-z0-9._@ -]{0,127}$'
+  local re_prof='^[A-Za-z0-9_][A-Za-z0-9._@ ()-]{0,127}$'
   local re_tok='(^|[^A-Za-z0-9_])token([^A-Za-z0-9_]|$)'
   local -a pargs=()
   _SIGMA_CLI_BASE=""; _SIGMA_CLI_WHY=""
@@ -781,7 +815,7 @@ sigma_cli_session_ok() {
   [ -n "$profile" ] || profile="$(sigma_env_file_value SIGMA_CLI_PROFILE)"
   if [ -n "$profile" ]; then
     if ! [[ "$profile" =~ $re_prof ]]; then
-      _SIGMA_CLI_WHY="SIGMA_CLI_PROFILE is not a valid profile name"; return 1
+      _SIGMA_CLI_WHY="SIGMA_CLI_PROFILE must be a profile name (letters, digits, . _ @ - space, parentheses; not starting with '-')"; return 1
     fi
     pargs=(-p "$profile")
   fi
@@ -843,21 +877,27 @@ elif sigma_base_configured \
      && { [ -n "${SIGMA_API_TOKEN:-}" ] || sigma_env_file_has SIGMA_API_TOKEN "$NEUTRAL_ENV"; }; then
   okay "Sigma current API token configuration present (bootstrap will not replace it)"
 elif [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && ! sigma_cli_only \
      && sigma_browser_session_present; then
   okay "Sigma browser refresh session present in the OS keychain (bootstrap stays noninteractive)"
 elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "client-credentials" ] \
      && sigma_cli_session_ok; then
   okay "Sigma CLI profile signed in (bootstrap only reads 'sigma auth status'; it never runs login or mints a token)"
 elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && ! sigma_cli_only \
      && sigma_base_configured \
      && sigma_env_file_has SIGMA_CLIENT_ID "$NEUTRAL_ENV" \
      && sigma_env_file_has SIGMA_CLIENT_SECRET "$NEUTRAL_ENV"; then
   okay "Sigma client credentials present ($NEUTRAL_ENV)"
 elif [ "${SIGMA_AUTH_MODE:-auto}" != "browser" ] && [ "${SIGMA_AUTH_MODE:-auto}" != "sigma-cli" ] \
+     && ! sigma_cli_only \
      && [ -n "${SIGMA_CLIENT_ID:-}" ] && [ -n "${SIGMA_CLIENT_SECRET:-}" ]; then
   okay "Sigma client credentials available in this process (session-only; bootstrap does not persist exported secrets)"
   note "To persist them explicitly, re-run bootstrap with --from-env."
 else
+  if sigma_cli_only && [ -z "$_SIGMA_CLI_WHY" ]; then
+    _SIGMA_CLI_WHY="SIGMA_CLI_PROFILE '${SIGMA_CLI_PROFILE}' was chosen explicitly, so only that Sigma CLI profile is used (no browser or client-credentials fallback), and the Sigma CLI is not available"
+  fi
   [ -z "$_SIGMA_CLI_WHY" ] || note "Sigma CLI found but not usable: $_SIGMA_CLI_WHY"
   plan "Sigma authentication MISSING (need SIGMA_BASE_URL plus a current token, browser-keychain session, or client credentials; or a signed-in Sigma CLI profile)" \
        "in an interactive terminal, set SIGMA_BASE_URL and run: eval \"\$(bash scripts/browser-login.sh)\" (one-time browser sign-in; bootstrap never opens it). Or sign in with the Sigma CLI: sigma auth login (then optionally export SIGMA_CLI_PROFILE=<profile>). Unattended fallback: re-run bootstrap with --client-id ID --client-secret SECRET [--base-url URL], or export the client values and use --from-env"

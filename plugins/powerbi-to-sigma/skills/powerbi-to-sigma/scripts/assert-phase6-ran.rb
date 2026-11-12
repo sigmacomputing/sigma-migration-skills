@@ -511,12 +511,23 @@ _sigma_rest_path = [
 ].find { |path| File.file?(path) }
 raise LoadError, 'lib/sigma_rest.rb is required by assert-phase6-ran.rb' unless _sigma_rest_path
 require _sigma_rest_path
-if !ENV['SIGMA_BASE_URL'].to_s.empty?
-  begin
-    _sigma_startup_token = Sigma.auth_token
-    ENV['SIGMA_API_TOKEN'] = _sigma_startup_token unless _sigma_startup_token.to_s.empty?
+# The live gates' host is the one the shared client resolves: an explicit
+# SIGMA_BASE_URL wins; with none exported, the host a signed-in Sigma CLI
+# profile reports. nil when neither resolves (or a caller token has no base
+# URL): the live gates then keep their fail-closed exits. Resolved once, on the
+# first live gate that needs it (never for --help or an all-offline run), and
+# the fresh bearer is surfaced as SIGMA_API_TOKEN for the gates and children.
+def sigma_gate_base
+  return @sigma_gate_base if defined?(@sigma_gate_base)
+
+  @sigma_gate_base = begin
+    base = Sigma.base_url
+    token = Sigma.auth_token
+    ENV['SIGMA_API_TOKEN'] = token unless token.to_s.empty?
+    base
   rescue Sigma::Error
     # Deliberately defer to the existing gate-specific diagnostics and exits.
+    nil
   end
 end
 
@@ -1567,7 +1578,7 @@ unless opts[:skip_column]
     record_column_scan.call('status' => 'skipped-no-workbook-id',
                             'reason' => 'no workbook ID resolvable (no --workbook-id and no wb-ids.json)')
   else
-    base = ENV['SIGMA_BASE_URL']
+    base = sigma_gate_base
     tok  = ENV['SIGMA_API_TOKEN']
     if base.nil? || base.empty? || tok.nil? || tok.empty?
       # FAIL CLOSED (field-caught): a hard gate that SKIPS without credentials
@@ -1738,7 +1749,7 @@ unless opts[:skip_layout]
   if wb_id.nil? || wb_id.empty?
     puts "[SKIP] gate 4/7: no workbook ID resolvable for layout check"
   else
-    base = ENV['SIGMA_BASE_URL']
+    base = sigma_gate_base
     tok  = ENV['SIGMA_API_TOKEN']
     if base.nil? || base.empty? || tok.nil? || tok.empty?
       # FAIL CLOSED — same doctrine as gate 3/7: no credentials, no live layout
@@ -1897,7 +1908,7 @@ else
       wb_id = wb_ids['workbookId']
     end
   end
-  base = ENV['SIGMA_BASE_URL']
+  base = wb_id.to_s.empty? ? nil : sigma_gate_base # no workbook: nothing to resolve
   tok  = ENV['SIGMA_API_TOKEN']
   if wb_id.nil? || wb_id.to_s.empty?
     puts "[SKIP] gate 6/7: no workbook ID resolvable for layout lint"
@@ -1952,7 +1963,7 @@ else
       wb_id = wb_ids['workbookId']
     end
   end
-  base = ENV['SIGMA_BASE_URL']
+  base = wb_id.to_s.empty? ? nil : sigma_gate_base # no workbook: nothing to resolve
   tok  = ENV['SIGMA_API_TOKEN']
   if wb_id.nil? || wb_id.to_s.empty?
     puts "[SKIP] gate 7/7: no workbook ID resolvable for control lint"
@@ -2167,7 +2178,7 @@ else
     _p = File.join(opts[:tab], 'wb-ids.json')
     flip_wb = (JSON.parse(File.read(_p))['workbookId'] rescue nil) if File.exist?(_p)
   end
-  flip_base = ENV['SIGMA_BASE_URL']
+  flip_base = flip_wb.to_s.empty? ? nil : sigma_gate_base # no workbook: nothing to resolve
   flip_tok  = ENV['SIGMA_API_TOKEN']
   probe = File.join(__dir__, 'probe-controls.rb')
   if flip_wb.nil? || flip_wb.to_s.empty?

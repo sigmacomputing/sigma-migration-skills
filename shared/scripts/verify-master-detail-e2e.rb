@@ -344,7 +344,7 @@ begin
       verdict = {
         go: ok,
         workbook_id: wb,
-        workbook_url: "#{ENV['SIGMA_BASE_URL']}/workbook/#{wb}",
+        workbook_url: "#{Sigma.base_url}/workbook/#{wb}",
         resolved_formula_candidate: resolved[:candidate],
         control_id: CONTROL_ID, control_element_id: CONTROL_EL_ID, detail_element_id: DETAIL_ID,
         baseline_detail_rows: baseline[:rows],

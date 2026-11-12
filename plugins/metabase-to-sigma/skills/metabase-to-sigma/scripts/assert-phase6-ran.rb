@@ -89,6 +89,26 @@ require 'net/http'
 require 'uri'
 require 'optparse'
 require_relative 'lib/code_rep'
+require_relative 'lib/sigma_rest'
+
+# The live gates' host is the one the shared client resolves: an explicit
+# SIGMA_BASE_URL wins; with none exported, the host a signed-in Sigma CLI
+# profile reports. nil when neither resolves (or a caller token has no base
+# URL): the live gates then keep their SKIP messages. Resolved once, on the
+# first live gate that needs it (never for --help or an all-offline run), and
+# the fresh bearer is surfaced as SIGMA_API_TOKEN for the gates.
+def sigma_gate_base
+  return @sigma_gate_base if defined?(@sigma_gate_base)
+
+  @sigma_gate_base = begin
+    base = Sigma.base_url
+    token = Sigma.auth_token
+    ENV['SIGMA_API_TOKEN'] = token unless token.to_s.empty?
+    base
+  rescue Sigma::Error
+    nil
+  end
+end
 
 opts = { min_pass_rate: 1.0, allow_extract: false, min_layout_elements: 1,
          allow_missing_tiles: 0 }
@@ -226,7 +246,7 @@ unless opts[:skip_column]
   if wb_id.nil? || wb_id.empty?
     puts "[SKIP] gate 3/7: no workbook ID resolvable (pass --workbook-id or ensure wb-ids.json exists)"
   else
-    base = ENV['SIGMA_BASE_URL']
+    base = sigma_gate_base
     tok  = ENV['SIGMA_API_TOKEN']
     if base.nil? || base.empty? || tok.nil? || tok.empty?
       warn "[SKIP] gate 3/7: SIGMA_BASE_URL / SIGMA_API_TOKEN not set — cannot fetch /columns"
@@ -281,7 +301,7 @@ unless opts[:skip_layout]
   if wb_id.nil? || wb_id.empty?
     puts "[SKIP] gate 4/7: no workbook ID resolvable for layout check"
   else
-    base = ENV['SIGMA_BASE_URL']
+    base = sigma_gate_base
     tok  = ENV['SIGMA_API_TOKEN']
     if base.nil? || base.empty? || tok.nil? || tok.empty?
       warn "[SKIP] gate 4/7: SIGMA_BASE_URL / SIGMA_API_TOKEN not set — cannot fetch spec"
@@ -380,7 +400,7 @@ else
       wb_id = wb_ids['workbookId']
     end
   end
-  base = ENV['SIGMA_BASE_URL']
+  base = wb_id.to_s.empty? ? nil : sigma_gate_base # no workbook: nothing to resolve
   tok  = ENV['SIGMA_API_TOKEN']
   if wb_id.nil? || wb_id.to_s.empty?
     puts "[SKIP] gate 6/7: no workbook ID resolvable for layout lint"
@@ -446,7 +466,7 @@ else
       wb_id = wb_ids['workbookId']
     end
   end
-  base = ENV['SIGMA_BASE_URL']
+  base = wb_id.to_s.empty? ? nil : sigma_gate_base # no workbook: nothing to resolve
   tok  = ENV['SIGMA_API_TOKEN']
   if wb_id.nil? || wb_id.to_s.empty?
     puts "[SKIP] gate 7/7: no workbook ID resolvable for control lint"

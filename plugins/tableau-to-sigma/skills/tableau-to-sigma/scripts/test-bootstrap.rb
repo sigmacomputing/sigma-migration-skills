@@ -253,6 +253,79 @@ Dir.mktmpdir do |t|
   ok('SIGMA_CLI_PROFILE persisted in ~/.sigma-migration/env is passed as -p',
      read_log.call(cli_log).lines.map(&:strip).include?('auth status -p example-profile'))
 
+  File.delete(cli_log) if File.exist?(cli_log)
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)'))
+  ok('a profile name with parentheses is passed to the CLI as -p and accepted',
+     read_log.call(cli_log).lines.map(&:strip).include?('auth status -p work (1)') &&
+       out.include?('Sigma CLI profile signed in'))
+  st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('SIGMA_CLI_PROFILE' => '-work (1)'))
+  ok('a profile name starting with - is still rejected', out.include?('Sigma authentication MISSING'))
+
+  cli_pinned_home = File.join(t, 'cli-pinned-home')
+  FileUtils.mkdir_p(File.join(cli_pinned_home, '.sigma-migration'))
+  File.write(File.join(cli_pinned_home, '.sigma-migration', 'env'),
+             "export SIGMA_BASE_URL='https://api.sigmacomputing.com'\n" \
+             "export SIGMA_CLIENT_ID='org-a-id'\nexport SIGMA_CLIENT_SECRET='org-a-secret'\n")
+  st, out = run_bootstrap(cli_pinned_home, cli_path, '--check', env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)'))
+  ok('an explicit profile ignores another org base URL in the settings file',
+     out.include?('Sigma CLI profile signed in'))
+  st, out = run_bootstrap(cli_pinned_home, cli_path, '--check',
+                          env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)', 'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('an explicit profile never falls back to the settings file client credentials',
+     out.include?('Sigma authentication MISSING'))
+  exported = { 'SIGMA_BASE_URL' => 'https://aws-api.sigmacomputing.com',
+               'SIGMA_CLIENT_ID' => 'org-a-id', 'SIGMA_CLIENT_SECRET' => 'org-a-secret' }
+  st, out = run_bootstrap(cli_pinned_home, cli_path, '--check',
+                          env: cli_env.merge(exported).merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                             'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('an explicit profile with a failing CLI does not accept exported client credentials',
+     out.include?('Sigma authentication MISSING') && !out.include?('Sigma client credentials'))
+  st, out = run_bootstrap(cli_pinned_home, cli_path, '--check',
+                          env: cli_env.merge(exported).merge('SIGMA_CLI_PROFILE' => 'from-file',
+                                                             'SIGMA_CLI_PROFILE_FROM_FILE' => 'from-file',
+                                                             'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('a file-set profile (marker) keeps the exported client-credentials fallback',
+     out.include?('Sigma client credentials') && !out.include?('Sigma authentication MISSING'))
+  st, out = run_bootstrap(cli_pinned_home, cli_path, '--check',
+                          env: cli_env.merge(exported).merge('SIGMA_CLI_PROFILE' => 'work (1)',
+                                                             'SIGMA_CLI_PROFILE_FROM_FILE' => 'from-file',
+                                                             'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('a different explicit profile under a stale marker is explicit',
+     out.include?('Sigma authentication MISSING'))
+
+  # S2: settings-file-only token / client credentials are ignored under an explicit profile.
+  cli_fileonly_home = File.join(t, 'cli-fileonly-home')
+  FileUtils.mkdir_p(File.join(cli_fileonly_home, '.sigma-migration'))
+  File.write(File.join(cli_fileonly_home, '.sigma-migration', 'env'),
+             "export SIGMA_BASE_URL='https://aws-api.sigmacomputing.com'\n" \
+             "export SIGMA_API_TOKEN='org-a-file-token'\n" \
+             "export SIGMA_CLIENT_ID='org-a-id'\nexport SIGMA_CLIENT_SECRET='org-a-secret'\n")
+  st, out = run_bootstrap(cli_fileonly_home, cli_path, '--check',
+                          env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)', 'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('an explicit profile ignores a settings-file-only SIGMA_API_TOKEN (CLI signed out: MISSING)',
+     out.include?('Sigma authentication MISSING') && !out.include?('current API token'))
+  st, out = run_bootstrap(cli_fileonly_home, cli_path, '--check',
+                          env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)', 'FAKE_SIGMA_AUTH' => 'FAILED',
+                                             'SIGMA_AUTH_MODE' => 'client-credentials'))
+  ok('an explicit profile ignores settings-file-only client credentials in client-credentials mode',
+     out.include?('Sigma authentication MISSING') && !out.include?('Sigma client credentials'))
+
+  # S1: a shell that sourced the file has the file's own profile, unmarked: not explicit.
+  cli_sourced_home = File.join(t, 'cli-sourced-home')
+  FileUtils.mkdir_p(File.join(cli_sourced_home, '.sigma-migration'))
+  File.write(File.join(cli_sourced_home, '.sigma-migration', 'env'),
+             "export SIGMA_CLI_PROFILE='from-file'\n" \
+             "export SIGMA_BASE_URL='https://aws-api.sigmacomputing.com'\n" \
+             "export SIGMA_CLIENT_ID='org-a-id'\nexport SIGMA_CLIENT_SECRET='org-a-secret'\n")
+  st, out = run_bootstrap(cli_sourced_home, cli_path, '--check',
+                          env: cli_env.merge('SIGMA_CLI_PROFILE' => 'from-file', 'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('a sourced file-only profile (no marker) keeps the settings-file client-credentials fallback',
+     out.include?('Sigma client credentials') && !out.include?('Sigma authentication MISSING'))
+  st, out = run_bootstrap(cli_sourced_home, cli_path, '--check',
+                          env: cli_env.merge('SIGMA_CLI_PROFILE' => 'work (1)', 'FAKE_SIGMA_AUTH' => 'FAILED'))
+  ok('a profile differing from the settings file value is explicit',
+     out.include?('Sigma authentication MISSING'))
+
   st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_AUTH' => 'FAILED (401)'))
   ok('a CLI profile reporting Auth: FAILED is not accepted', out.include?('Sigma authentication MISSING'))
   st, out = run_bootstrap(cli_home, cli_path, '--check', env: cli_env.merge('FAKE_SIGMA_HELP_FAIL' => '1'))

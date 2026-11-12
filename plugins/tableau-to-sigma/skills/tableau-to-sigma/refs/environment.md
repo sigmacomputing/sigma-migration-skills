@@ -22,10 +22,30 @@ bootstrap sentinel + a passing `doctor.json` exist.
 
 Bootstrap is deliberately noninteractive and never opens a browser. It accepts
 an already-current `SIGMA_API_TOKEN`, a browser refresh session already stored
-in the OS keychain, or complete client credentials. Each route also needs
-`SIGMA_BASE_URL`. The doctor verifies the route with `GET /v2/whoami` through
+in the OS keychain, a signed-in Sigma CLI profile, or complete client
+credentials. All routes but the CLI also need `SIGMA_BASE_URL`; with the CLI it
+is optional (the host comes from the profile and, when `SIGMA_BASE_URL` is set,
+it must be that profile's host). The doctor verifies the route with `GET /v2/whoami` through
 the shared `sigma_rest` client: it tries the caller token first, then retries
 one 401 through the browser-first/client-fallback provider.
+
+An **explicit** `SIGMA_CLI_PROFILE` (set in the process environment) pins the
+Sigma org: the settings file's `SIGMA_BASE_URL`, client credentials,
+`SIGMA_API_TOKEN` and `SIGMA_AUTH_MODE` are ignored everywhere they could be
+loaded - the shared libs, the orchestrator's Step-0 credential gate, and the
+extract-landing `--sigma-connection-id` sync - and the host comes from the CLI
+profile. In `auto` mode the browser keychain is skipped and there is no fallback
+to client credentials or a caller token alone, so a CLI failure is an error (the
+Step-0 gate aborts naming the profile and `sigma auth login -p`; with a caller
+`SIGMA_API_TOKEN` set but no `SIGMA_BASE_URL` it instead asks you to export the
+token's base URL or unset the token); an explicit `SIGMA_AUTH_MODE=browser` /
+`client-credentials` still behaves as asked, and `SIGMA_AUTH_MODE=sigma-cli`
+uses the CLI only (the gate no longer passes on env client credentials or a
+keychain session). An `auth.json` in `SIGMA_WORKDIR` or the current directory is
+still read first and wins, so delete or re-mint it when switching orgs. A
+profile copied from the file (`SIGMA_CLI_PROFILE_FROM_FILE`) or equal to the
+file's own `SIGMA_CLI_PROFILE` is not explicit. Other keys (`TABLEAU_*`,
+`SNOWFLAKE_*`) still load.
 
 For the preferred one-time human login, run this explicitly from an interactive
 terminal (Git Bash on Windows):
@@ -155,7 +175,8 @@ Three Windows-specific practices that prevent the most time-consuming failure lo
    `~/.sigma-migration/env` written by `setup.rb` / `setup-tableau.rb` (every shared
    lib reads it at load, and the orchestrator's in-process token minting starts from
    it) and `<WORKDIR>/auth.json` (above) — rather than exported variables that
-   silently evaporate between invocations.
+   silently evaporate between invocations. (An explicit `SIGMA_CLI_PROFILE` changes
+   which of these files' keys apply: see "Sigma authentication at preflight".)
 
 ## Managed-machine permission classifiers
 

@@ -181,11 +181,9 @@ module OrphanWorkbookCleanup
     end
 
     unless requester
-      base = env['SIGMA_BASE_URL']
-      unless base && !base.empty?
-        error.puts 'SIGMA_BASE_URL not set'
-        return 2
-      end
+      base = resolve_base_url(env, error)
+      return 2 unless base
+
       requester = real_requester(base, env)
     end
 
@@ -284,10 +282,28 @@ module OrphanWorkbookCleanup
     2
   end
 
-  def real_requester(base, env, http: nil)
+  def load_sigma_rest
     $LOAD_PATH.unshift File.expand_path('../lib', __dir__) # canonical shared/ layout
     $LOAD_PATH.unshift File.expand_path('lib', __dir__)
     require 'sigma_rest'
+  end
+
+  # An explicit SIGMA_BASE_URL wins; with none exported, the host the shared
+  # client derives (a signed-in Sigma CLI profile reports it). nil, with the
+  # reason on `error`, when neither resolves.
+  def resolve_base_url(env, error)
+    base = env['SIGMA_BASE_URL'].to_s
+    return base unless base.empty?
+
+    load_sigma_rest
+    Sigma.base_url
+  rescue Sigma::Error => e
+    error.puts e.message
+    nil
+  end
+
+  def real_requester(base, env, http: nil)
+    load_sigma_rest
     lambda do |method, path|
       uri = URI("#{base}#{path}")
       response = nil
