@@ -1,0 +1,443 @@
+{
+ "name": "Retail Fixture DM",
+ "schemaVersion": 1,
+ "folderId": "00000000-0000-4000-8000-0000000f01d0",
+ "pages": [
+  {
+   "id": "pg-dm",
+   "name": "Page 1",
+   "elements": [
+    {
+     "id": "dm-sales",
+     "kind": "table",
+     "name": "Sales",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES"
+     },
+     "columns": [
+      {
+       "id": "dm-sales-sale_id",
+       "formula": "[Custom SQL/SALE_ID]",
+       "name": "Sale Id"
+      },
+      {
+       "id": "dm-sales-date_key",
+       "formula": "[Custom SQL/DATE_KEY]",
+       "name": "Date Key"
+      },
+      {
+       "id": "dm-sales-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-sales-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-sales-qty",
+       "formula": "[Custom SQL/QTY]",
+       "name": "Qty"
+      },
+      {
+       "id": "dm-sales-amount",
+       "formula": "[Custom SQL/AMOUNT]",
+       "name": "Amount"
+      },
+      {
+       "id": "dm-sales-cost",
+       "formula": "[Custom SQL/COST]",
+       "name": "Cost"
+      }
+     ]
+    },
+    {
+     "id": "dm-stock",
+     "kind": "table",
+     "name": "Stock",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SNAPSHOT_DATE_KEY, STORE_KEY, PRODUCT_KEY, ON_HAND FROM STOCK"
+     },
+     "columns": [
+      {
+       "id": "dm-stock-snapshot_date_key",
+       "formula": "[Custom SQL/SNAPSHOT_DATE_KEY]",
+       "name": "Snapshot Date Key"
+      },
+      {
+       "id": "dm-stock-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-stock-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-stock-on_hand",
+       "formula": "[Custom SQL/ON_HAND]",
+       "name": "On Hand"
+      }
+     ]
+    },
+    {
+     "id": "dm-calendar",
+     "kind": "table",
+     "name": "Calendar",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT DATE_KEY, CAL_DATE, CAL_YEAR, CAL_MONTH FROM CAL"
+     },
+     "columns": [
+      {
+       "id": "dm-calendar-date_key",
+       "formula": "[Custom SQL/DATE_KEY]",
+       "name": "Date Key"
+      },
+      {
+       "id": "dm-calendar-cal_date",
+       "formula": "[Custom SQL/CAL_DATE]",
+       "name": "Date"
+      },
+      {
+       "id": "dm-calendar-cal_year",
+       "formula": "[Custom SQL/CAL_YEAR]",
+       "name": "Year"
+      },
+      {
+       "id": "dm-calendar-cal_month",
+       "formula": "[Custom SQL/CAL_MONTH]",
+       "name": "Month"
+      }
+     ]
+    },
+    {
+     "id": "dm-store",
+     "kind": "table",
+     "name": "Store",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE"
+     },
+     "columns": [
+      {
+       "id": "dm-store-store_key",
+       "formula": "[Custom SQL/STORE_KEY]",
+       "name": "Store Key"
+      },
+      {
+       "id": "dm-store-store_name",
+       "formula": "[Custom SQL/STORE_NAME]",
+       "name": "Store Name"
+      },
+      {
+       "id": "dm-store-region",
+       "formula": "[Custom SQL/REGION]",
+       "name": "Region"
+      },
+      {
+       "id": "dm-store-manager_key",
+       "formula": "[Custom SQL/MANAGER_KEY]",
+       "name": "Manager Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-manager",
+     "kind": "table",
+     "name": "Manager",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT MANAGER_KEY, MANAGER_NAME FROM MGR"
+     },
+     "columns": [
+      {
+       "id": "dm-manager-manager_key",
+       "formula": "[Custom SQL/MANAGER_KEY]",
+       "name": "Manager Key"
+      },
+      {
+       "id": "dm-manager-manager_name",
+       "formula": "[Custom SQL/MANAGER_NAME]",
+       "name": "Manager Name"
+      }
+     ]
+    },
+    {
+     "id": "dm-product",
+     "kind": "table",
+     "name": "Product",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT"
+     },
+     "columns": [
+      {
+       "id": "dm-product-product_key",
+       "formula": "[Custom SQL/PRODUCT_KEY]",
+       "name": "Product Key"
+      },
+      {
+       "id": "dm-product-product_name",
+       "formula": "[Custom SQL/PRODUCT_NAME]",
+       "name": "Product Name"
+      },
+      {
+       "id": "dm-product-category",
+       "formula": "[Custom SQL/CATEGORY]",
+       "name": "Category"
+      },
+      {
+       "id": "dm-product-supplier_key",
+       "formula": "[Custom SQL/SUPPLIER_KEY]",
+       "name": "Supplier Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-supplier",
+     "kind": "table",
+     "name": "Supplier",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER"
+     },
+     "columns": [
+      {
+       "id": "dm-supplier-supplier_key",
+       "formula": "[Custom SQL/SUPPLIER_KEY]",
+       "name": "Supplier Key"
+      },
+      {
+       "id": "dm-supplier-supplier_name",
+       "formula": "[Custom SQL/SUPPLIER_NAME]",
+       "name": "Supplier Name"
+      }
+     ]
+    },
+    {
+     "id": "dm-rollup",
+     "kind": "table",
+     "name": "Rollup",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT CHILD_PRODUCT_KEY, PARENT_PRODUCT_KEY FROM ROLLUP_MAP"
+     },
+     "columns": [
+      {
+       "id": "dm-rollup-child_product_key",
+       "formula": "[Custom SQL/CHILD_PRODUCT_KEY]",
+       "name": "Child Product Key"
+      },
+      {
+       "id": "dm-rollup-parent_product_key",
+       "formula": "[Custom SQL/PARENT_PRODUCT_KEY]",
+       "name": "Parent Product Key"
+      }
+     ]
+    },
+    {
+     "id": "dm-sales-view",
+     "kind": "table",
+     "name": "Sales View",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "SELECT s.SALE_ID, s.AMOUNT, s.COST, s.QTY, st.REGION, st.STORE_NAME, c.CAL_MONTH, c.CAL_YEAR, m.MANAGER_NAME FROM SALES s LEFT JOIN STORE st ON st.STORE_KEY = s.STORE_KEY LEFT JOIN CAL c ON c.DATE_KEY = s.DATE_KEY LEFT JOIN MGR m ON m.MANAGER_KEY = st.MANAGER_KEY"
+     },
+     "columns": [
+      {
+       "id": "dm-sales-view-sale_id",
+       "formula": "[Custom SQL/SALE_ID]",
+       "name": "Sale Id"
+      },
+      {
+       "id": "dm-sales-view-amount",
+       "formula": "[Custom SQL/AMOUNT]",
+       "name": "Amount"
+      },
+      {
+       "id": "dm-sales-view-cost",
+       "formula": "[Custom SQL/COST]",
+       "name": "Cost"
+      },
+      {
+       "id": "dm-sales-view-qty",
+       "formula": "[Custom SQL/QTY]",
+       "name": "Qty"
+      },
+      {
+       "id": "dm-sales-view-region",
+       "formula": "[Custom SQL/REGION]",
+       "name": "Region"
+      },
+      {
+       "id": "dm-sales-view-store_name",
+       "formula": "[Custom SQL/STORE_NAME]",
+       "name": "Store Name"
+      },
+      {
+       "id": "dm-sales-view-cal_month",
+       "formula": "[Custom SQL/CAL_MONTH]",
+       "name": "Month"
+      },
+      {
+       "id": "dm-sales-view-cal_year",
+       "formula": "[Custom SQL/CAL_YEAR]",
+       "name": "Year"
+      },
+      {
+       "id": "dm-sales-view-manager_name",
+       "formula": "[Custom SQL/MANAGER_NAME]",
+       "name": "Manager Name"
+      }
+     ]
+    },
+    {
+     "id": "pf-26dd4e2616",
+     "kind": "table",
+     "name": "Rollup Page Fact",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "-- page fact for page 'Rollup' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Product[Category]\n-- SUM_AMOUNT = SUM(Sales.Amount) on Sales [USERELATIONSHIP]\n-- SUM_QTY = SUM(Sales.Qty) on Sales [USERELATIONSHIP]\n-- TODO Orders: DAX function DISTINCTCOUNT is not decomposed into additive components\n--     DISTINCTCOUNT(Sales[Sale Id])\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_rollup AS (\n  SELECT CHILD_PRODUCT_KEY, PARENT_PRODUCT_KEY FROM ROLLUP_MAP\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_sales_ur1 AS (\n  SELECT\n    j2.\"CATEGORY\" AS \"G_CATEGORY\",\n    SUM(f.\"AMOUNT\") AS \"SUM_AMOUNT\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_rollup j1 ON j1.\"CHILD_PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_product j2 ON j2.\"PRODUCT_KEY\" = j1.\"PARENT_PRODUCT_KEY\"\n  WHERE 1 = 1\n    /*@slicers fact=\"Sales\" alias=\"f\" userelationship=\"'Rollup'[Child Product Key]|'Sales'[Product Key]\" sources=\"Product=pfs_product;Rollup=pfs_rollup;Supplier=pfs_supplier\"*/\n  GROUP BY j2.\"CATEGORY\"\n)\nSELECT\n  \"G_CATEGORY\",\n  \"SUM_AMOUNT\",\n  \"SUM_QTY\",\n  CAST(NULL AS DOUBLE) AS \"TODO_ORDERS\"\nFROM agg_sales_ur1"
+     },
+     "columns": [
+      {
+       "id": "pf-26dd4e2616-a3c686",
+       "formula": "[Custom SQL/G_CATEGORY]",
+       "name": "Category"
+      },
+      {
+       "id": "pf-26dd4e2616-c2ddae",
+       "formula": "[Custom SQL/SUM_AMOUNT]",
+       "name": "Sum Amount"
+      },
+      {
+       "id": "pf-26dd4e2616-5c0bfe",
+       "formula": "[Custom SQL/SUM_QTY]",
+       "name": "Sum Qty"
+      },
+      {
+       "id": "pf-26dd4e2616-17ec1e",
+       "formula": "[Custom SQL/TODO_ORDERS]",
+       "name": "Todo Orders"
+      }
+     ],
+     "order": [
+      "pf-26dd4e2616-a3c686",
+      "pf-26dd4e2616-c2ddae",
+      "pf-26dd4e2616-5c0bfe",
+      "pf-26dd4e2616-17ec1e"
+     ]
+    },
+    {
+     "id": "pf-a01377eeab",
+     "kind": "table",
+     "name": "Sales Overview Page Fact",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "-- page fact for page 'Sales Overview' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Store[Region], Calendar[Month]\n-- SUM_AMOUNT = SUM(Sales.Amount) on Sales\n-- SUM_COST = SUM(Sales.Cost) on Sales\n-- SUM_QTY = SUM(Sales.Qty) on Sales\n-- TODO West Sales: CALCULATE replaces the filter on Store[Region], a grouping column of this page: the page fact applies that filter to every component, so this measure needs its own handling (add KEEPFILTERS in the source if an intersection is meant, or model it by hand)\n--     CALCULATE([Sales Amount], Store[Region] = \"West\")\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_calendar AS (\n  SELECT DATE_KEY, CAL_DATE, CAL_YEAR, CAL_MONTH FROM CAL\n),\npfs_manager AS (\n  SELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_store AS (\n  SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_sales AS (\n  SELECT\n    j2.\"REGION\" AS \"G_REGION\",\n    j1.\"CAL_MONTH\" AS \"G_MONTH\",\n    SUM(f.\"AMOUNT\") AS \"SUM_AMOUNT\",\n    SUM(f.\"COST\") AS \"SUM_COST\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_calendar j1 ON j1.\"DATE_KEY\" = f.\"DATE_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    /*@slicers fact=\"Sales\" alias=\"f\" sources=\"Calendar=pfs_calendar;Manager=pfs_manager;Product=pfs_product;Store=pfs_store;Supplier=pfs_supplier\"*/\n  GROUP BY j2.\"REGION\", j1.\"CAL_MONTH\"\n)\nSELECT\n  \"G_REGION\",\n  \"G_MONTH\",\n  \"SUM_AMOUNT\",\n  \"SUM_COST\",\n  \"SUM_QTY\",\n  CAST(NULL AS DOUBLE) AS \"TODO_WEST_SALES\"\nFROM agg_sales"
+     },
+     "columns": [
+      {
+       "id": "pf-a01377eeab-0f2171",
+       "formula": "[Custom SQL/G_REGION]",
+       "name": "Region"
+      },
+      {
+       "id": "pf-a01377eeab-082bc3",
+       "formula": "[Custom SQL/G_MONTH]",
+       "name": "Month"
+      },
+      {
+       "id": "pf-a01377eeab-c2ddae",
+       "formula": "[Custom SQL/SUM_AMOUNT]",
+       "name": "Sum Amount"
+      },
+      {
+       "id": "pf-a01377eeab-d77ab0",
+       "formula": "[Custom SQL/SUM_COST]",
+       "name": "Sum Cost"
+      },
+      {
+       "id": "pf-a01377eeab-5c0bfe",
+       "formula": "[Custom SQL/SUM_QTY]",
+       "name": "Sum Qty"
+      },
+      {
+       "id": "pf-a01377eeab-fd8928",
+       "formula": "[Custom SQL/TODO_WEST_SALES]",
+       "name": "Todo West Sales"
+      }
+     ],
+     "order": [
+      "pf-a01377eeab-0f2171",
+      "pf-a01377eeab-082bc3",
+      "pf-a01377eeab-c2ddae",
+      "pf-a01377eeab-d77ab0",
+      "pf-a01377eeab-5c0bfe",
+      "pf-a01377eeab-fd8928"
+     ]
+    },
+    {
+     "id": "pf-8a88410224",
+     "kind": "table",
+     "name": "Stock Cover Page Fact",
+     "source": {
+      "kind": "sql",
+      "connectionId": "00000000-0000-4000-8000-00000000c0de",
+      "statement": "-- page fact for page 'Stock Cover' (scaffold-page-fact.py). Edit freely; keep each @slicers hook comment inside its WHERE clause.\n-- grain: Product[Category], Store[Store Name]\n-- SUM_ON_HAND = SUM(Stock.On Hand) on Stock\n-- SUM_QTY = SUM(Sales.Qty) on Sales\n-- SUM_ON_HAND_2 = SUM(Stock.On Hand) WHERE Store.Manager Key IS NULL on Stock\nWITH\npfs_sales AS (\n  SELECT SALE_ID, DATE_KEY, STORE_KEY, PRODUCT_KEY, QTY, AMOUNT, COST FROM SALES\n),\npfs_stock AS (\n  SELECT SNAPSHOT_DATE_KEY, STORE_KEY, PRODUCT_KEY, ON_HAND FROM STOCK\n),\npfs_manager AS (\n  SELECT MANAGER_KEY, MANAGER_NAME FROM MGR\n),\npfs_product AS (\n  SELECT PRODUCT_KEY, PRODUCT_NAME, CATEGORY, SUPPLIER_KEY FROM PRODUCT\n),\npfs_store AS (\n  SELECT STORE_KEY, STORE_NAME, REGION, MANAGER_KEY FROM STORE\n),\npfs_supplier AS (\n  SELECT SUPPLIER_KEY, SUPPLIER_NAME FROM SUPPLIER\n),\nagg_stock AS (\n  SELECT\n    j1.\"CATEGORY\" AS \"G_CATEGORY\",\n    j2.\"STORE_NAME\" AS \"G_STORE_NAME\",\n    SUM(f.\"ON_HAND\") AS \"SUM_ON_HAND\",\n    SUM(CASE WHEN j2.\"MANAGER_KEY\" IS NULL THEN f.\"ON_HAND\" END) AS \"SUM_ON_HAND_2\"\n  FROM pfs_stock f\n  LEFT JOIN pfs_product j1 ON j1.\"PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    AND f.\"PRODUCT_KEY\" IN (SELECT sj1.\"PRODUCT_KEY\" FROM pfs_product sj1 WHERE sj1.\"SUPPLIER_KEY\" IN (SELECT sj2.\"SUPPLIER_KEY\" FROM pfs_supplier sj2 WHERE COALESCE(CAST(sj2.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN ('Acme', 'Globex')))\n    /*@slicers fact=\"Stock\" alias=\"f\" sources=\"Manager=pfs_manager;Product=pfs_product;Sales=pfs_sales;Store=pfs_store;Supplier=pfs_supplier\"*/\n  GROUP BY j1.\"CATEGORY\", j2.\"STORE_NAME\"\n),\nagg_sales AS (\n  SELECT\n    j1.\"CATEGORY\" AS \"G_CATEGORY\",\n    j2.\"STORE_NAME\" AS \"G_STORE_NAME\",\n    SUM(f.\"QTY\") AS \"SUM_QTY\"\n  FROM pfs_sales f\n  LEFT JOIN pfs_product j1 ON j1.\"PRODUCT_KEY\" = f.\"PRODUCT_KEY\"\n  LEFT JOIN pfs_store j2 ON j2.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    AND f.\"PRODUCT_KEY\" IN (SELECT sj1.\"PRODUCT_KEY\" FROM pfs_product sj1 WHERE sj1.\"SUPPLIER_KEY\" IN (SELECT sj2.\"SUPPLIER_KEY\" FROM pfs_supplier sj2 WHERE COALESCE(CAST(sj2.\"SUPPLIER_NAME\" AS VARCHAR), '(Blank)') IN ('Acme', 'Globex')))\n    /*@slicers fact=\"Sales\" alias=\"f\" sources=\"Manager=pfs_manager;Product=pfs_product;Stock=pfs_stock;Store=pfs_store;Supplier=pfs_supplier\"*/\n  GROUP BY j1.\"CATEGORY\", j2.\"STORE_NAME\"\n)\nSELECT\n  \"G_CATEGORY\",\n  \"G_STORE_NAME\",\n  SUM(\"SUM_ON_HAND\") AS \"SUM_ON_HAND\",\n  SUM(\"SUM_QTY\") AS \"SUM_QTY\",\n  SUM(\"SUM_ON_HAND_2\") AS \"SUM_ON_HAND_2\"\nFROM (\n  SELECT \"G_CATEGORY\", \"G_STORE_NAME\", \"SUM_ON_HAND\", NULL AS \"SUM_QTY\", \"SUM_ON_HAND_2\" FROM agg_stock\n  UNION ALL\n  SELECT \"G_CATEGORY\", \"G_STORE_NAME\", NULL AS \"SUM_ON_HAND\", \"SUM_QTY\", NULL AS \"SUM_ON_HAND_2\" FROM agg_sales\n) u\nGROUP BY \"G_CATEGORY\", \"G_STORE_NAME\""
+     },
+     "columns": [
+      {
+       "id": "pf-8a88410224-a3c686",
+       "formula": "[Custom SQL/G_CATEGORY]",
+       "name": "Category"
+      },
+      {
+       "id": "pf-8a88410224-110ef1",
+       "formula": "[Custom SQL/G_STORE_NAME]",
+       "name": "Store Name"
+      },
+      {
+       "id": "pf-8a88410224-d66960",
+       "formula": "[Custom SQL/SUM_ON_HAND]",
+       "name": "Sum On Hand"
+      },
+      {
+       "id": "pf-8a88410224-5c0bfe",
+       "formula": "[Custom SQL/SUM_QTY]",
+       "name": "Sum Qty"
+      },
+      {
+       "id": "pf-8a88410224-f7dbba",
+       "formula": "[Custom SQL/SUM_ON_HAND_2]",
+       "name": "Sum On Hand 2"
+      }
+     ],
+     "order": [
+      "pf-8a88410224-a3c686",
+      "pf-8a88410224-110ef1",
+      "pf-8a88410224-d66960",
+      "pf-8a88410224-5c0bfe",
+      "pf-8a88410224-f7dbba"
+     ]
+    }
+   ]
+  }
+ ]
+}

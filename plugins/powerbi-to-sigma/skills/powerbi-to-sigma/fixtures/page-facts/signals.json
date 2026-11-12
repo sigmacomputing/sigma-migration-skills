@@ -1,0 +1,439 @@
+{
+ "source": "powerbi",
+ "pbir_dir": "fixture",
+ "pages": [
+  {
+   "page_id": "p1",
+   "page_title": "Sales Overview",
+   "page_w": 1280,
+   "page_h": 720,
+   "interactions": [],
+   "visuals": [
+    {
+     "visual_id": "s1_year",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Year",
+     "x": 0,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Calendar.Year"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Year",
+     "slicer_state": {
+      "saved_selection": {
+       "mode": "include",
+       "column": "Calendar.Year",
+       "values": [
+        2026
+       ],
+       "has_null": false
+      }
+     }
+    },
+    {
+     "visual_id": "s1_mgr",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Manager",
+     "x": 160,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Manager.Manager Name"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Manager"
+    },
+    {
+     "visual_id": "s1_sup",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Supplier",
+     "x": 320,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Supplier.Supplier Name"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Supplier"
+    },
+    {
+     "visual_id": "v1_kpi",
+     "visual_type": "card",
+     "sigma_kind": "kpi",
+     "title": "Total Sales",
+     "x": 0,
+     "y": 80,
+     "w": 300,
+     "h": 100,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Sales.Sales Amount"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v1_bar",
+     "visual_type": "clusteredColumnChart",
+     "sigma_kind": "bar",
+     "title": "Sales by Region",
+     "x": 0,
+     "y": 200,
+     "w": 620,
+     "h": 260,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Category": [
+       "Store.Region"
+      ],
+      "Y": [
+       "Sales.Sales Amount"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "filters": [
+      {
+       "type": "list",
+       "mode": "exclude",
+       "values": [
+        null
+       ],
+       "target": "Store.Region",
+       "scope": "visual"
+      }
+     ]
+    },
+    {
+     "visual_id": "v1_line",
+     "visual_type": "lineChart",
+     "sigma_kind": "line",
+     "title": "Margin by Month",
+     "x": 640,
+     "y": 200,
+     "w": 620,
+     "h": 260,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Category": [
+       "Calendar.Month"
+      ],
+      "Y": [
+       "Sales.Margin %"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v1_pivot",
+     "visual_type": "pivotTable",
+     "sigma_kind": "pivot-table",
+     "title": "Region Detail",
+     "x": 0,
+     "y": 480,
+     "w": 1260,
+     "h": 220,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Rows": [
+       "Store.Region"
+      ],
+      "Values": [
+       "Sales.Sales Amount",
+       "Sales.Gross Margin",
+       "Sales.West Sales",
+       "Sales.Margin per Unit"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    }
+   ]
+  },
+  {
+   "page_id": "p2",
+   "page_title": "Stock Cover",
+   "page_w": 1280,
+   "page_h": 720,
+   "interactions": [],
+   "filters": [
+    {
+     "type": "list",
+     "mode": "include",
+     "values": [
+      "Acme",
+      "Globex"
+     ],
+     "target": "Supplier.Supplier Name",
+     "scope": "page"
+    }
+   ],
+   "visuals": [
+    {
+     "visual_id": "s2_region",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Region",
+     "x": 0,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Store.Region"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Region"
+    },
+    {
+     "visual_id": "s2_mgr",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Manager",
+     "x": 160,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Manager.Manager Name"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Manager"
+    },
+    {
+     "visual_id": "v2_pivot",
+     "visual_type": "pivotTable",
+     "sigma_kind": "pivot-table",
+     "title": "Cover by Category",
+     "x": 0,
+     "y": 80,
+     "w": 800,
+     "h": 300,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Rows": [
+       "Product.Category"
+      ],
+      "Values": [
+       "Stock.On Hand",
+       "Sales.Units",
+       "Stock.Weeks of Cover"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v2_kpi",
+     "visual_type": "card",
+     "sigma_kind": "kpi",
+     "title": "Units on Hand",
+     "x": 820,
+     "y": 80,
+     "w": 440,
+     "h": 120,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Stock.On Hand"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v2_unassigned",
+     "visual_type": "card",
+     "sigma_kind": "kpi",
+     "title": "Unassigned Stock",
+     "x": 820,
+     "y": 220,
+     "w": 440,
+     "h": 120,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Stock.Unassigned Stock"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v2_bar",
+     "visual_type": "clusteredBarChart",
+     "sigma_kind": "bar",
+     "title": "Units by Store",
+     "x": 0,
+     "y": 400,
+     "w": 1260,
+     "h": 300,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Category": [
+       "Store.Store Name"
+      ],
+      "Y": [
+       "Sum(Sales.Qty)"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "orientation": "horizontal"
+    }
+   ]
+  },
+  {
+   "page_id": "p3",
+   "page_title": "Rollup",
+   "page_w": 1280,
+   "page_h": 720,
+   "interactions": [],
+   "visuals": [
+    {
+     "visual_id": "s3_sup",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Supplier",
+     "x": 0,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Supplier.Supplier Name"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Supplier"
+    },
+    {
+     "visual_id": "s3_cat",
+     "visual_type": "slicer",
+     "sigma_kind": "control",
+     "title": "Category",
+     "x": 160,
+     "y": 0,
+     "w": 150,
+     "h": 60,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Product.Category"
+      ]
+     },
+     "sort": null,
+     "formats": {},
+     "header_title": "Category"
+    },
+    {
+     "visual_id": "v3_bar",
+     "visual_type": "clusteredColumnChart",
+     "sigma_kind": "bar",
+     "title": "Rollup Sales by Category",
+     "x": 0,
+     "y": 80,
+     "w": 800,
+     "h": 300,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Category": [
+       "Product.Category"
+      ],
+      "Y": [
+       "Sales.Rollup Sales"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v3_orders",
+     "visual_type": "card",
+     "sigma_kind": "kpi",
+     "title": "Orders",
+     "x": 820,
+     "y": 80,
+     "w": 440,
+     "h": 120,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Sales.Orders"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    },
+    {
+     "visual_id": "v3_units",
+     "visual_type": "card",
+     "sigma_kind": "kpi",
+     "title": "Rollup Units",
+     "x": 820,
+     "y": 220,
+     "w": 440,
+     "h": 120,
+     "z": 0,
+     "parent_group": null,
+     "bindings": {
+      "Values": [
+       "Sales.Rollup Units"
+      ]
+     },
+     "sort": null,
+     "formats": {}
+    }
+   ]
+  }
+ ]
+}

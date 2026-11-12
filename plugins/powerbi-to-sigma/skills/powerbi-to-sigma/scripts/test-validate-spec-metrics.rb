@@ -79,5 +79,25 @@ code4, out4 = run_validate(donut_spec)
 ok('donut holeValue matching value.columnId is rejected', !code4.zero?)
 ok('the donut silent-drop error names the current value binding', out4.include?('holeValue.id equals value.columnId'))
 
+# 5) The nested-If date guard matches a real If( call, not the tail of SumIf( / CountIf(.
+code5, out5 = run_validate(spec_with('SumIf([Region], Year(Today()) = 2026)'))
+ok('SumIf over a date function is not a nested-If (exit 0)', code5.zero? || (puts("    out: #{out5}") && false))
+code6, out6 = run_validate(spec_with('If(Year([Region]) = 2026, 1, 0)'))
+ok('an unguarded If over a date function is still rejected', !code6.zero? && out6.include?('nested-If on date function'))
+code7, = run_validate(spec_with('If(IsNull([Region]), 0, Year([Region]))'))
+ok('a guarded If over a date function passes', code7.zero?)
+
+# 6) Sigma text bodies accept only #, ## and ### headings (#### -> PUT /contents HTTP 400).
+txt_spec = spec_with('[Metrics/Net Revenue]')
+txt_spec['document']['elements'] << { 'id' => 'tx1', 'kind' => 'text', 'body' => "#### Too deep\nbody" }
+txt_spec['document']['layout'] = txt_spec['document']['layout'].sub(%r{</Page>\z}, '<Element elementId="tx1"/></Page>')
+code8, out8 = run_validate(txt_spec)
+ok('a #### heading in a text body is rejected', !code8.zero? && out8.include?('heading level'))
+ok3 = spec_with('[Metrics/Net Revenue]')
+ok3['document']['elements'] << { 'id' => 'tx2', 'kind' => 'text', 'body' => "### Fine\nbody" }
+ok3['document']['layout'] = ok3['document']['layout'].sub(%r{</Page>\z}, '<Element elementId="tx2"/></Page>')
+code9, = run_validate(ok3)
+ok('a ### heading in a text body passes', code9.zero?)
+
 puts($fail.zero? ? "\nall validate-spec metrics tests passed" : "\n#{$fail} FAILED")
 exit($fail.zero? ? 0 : 1)

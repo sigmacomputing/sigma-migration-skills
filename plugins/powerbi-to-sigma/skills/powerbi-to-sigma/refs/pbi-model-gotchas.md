@@ -34,8 +34,13 @@ converter) — the critic's "completely absent" was wrong. Don't bead it.
 Kind-chain nav (Snowflake/Databricks-A/BigQuery-with-Kind/Athena), Redshift 2-level
 Name-nav, calculated tables (CALENDAR/GENERATESERIES → SQL spine; else loud
 placeholder), native-query partitions (`Value.NativeQuery` / connector `Query=`
-preserved as complete named Custom SQL by `lib/pbi_native_query.rb`; post-query M
-steps gate), calc groups (excluded as source + loud item stubs; array-valued item
+preserved as complete named Custom SQL by `lib/pbi_native_query.rb`; the M steps
+after it fold where exact: renames/duplicated columns bind to the column the SQL
+returns, `Table.SelectRows` becomes a null-aware `WHERE`, `Table.Distinct` a
+`SELECT DISTINCT`, type/remove/reorder/sort steps are recorded no-ops, and a
+`{[Name=<parameter>]}` database navigation qualifies two-part `FROM`/`JOIN`
+tables; only the steps left over gate), user-hierarchy level bindings →
+`Table.Level` (PBIR), calc groups (excluded as source + loud item stubs; array-valued item
 expressions normalized before conversion), RLS/OLS
 (makeRlsSecurity/makeClsSecurity, surfaced not injected), USERELATIONSHIP (activated
 as named alt join), inactive rels (only emitted if a measure uses them), rowNumber/

@@ -34,7 +34,13 @@ $LOAD_PATH.unshift File.expand_path('lib', __dir__)
 require 'sigma_rest'
 require 'code_rep'
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
+# Resolved lazily through the shared client: SIGMA_BASE_URL when exported, else
+# the host of a signed-in Sigma CLI profile (a CLI-only user has no env var).
+def sigma_base
+  @sigma_base ||= Sigma.base_url
+rescue Sigma::Error => e
+  abort "post-and-readback: #{e.message}"
+end
 
 # Workbook endpoints are the code-rep helpers (POST /v2/workbooks, GET
 # /v2/workbooks/{id}?includeContents=true, PUT /v2/workbooks/{id}/contents);
@@ -52,7 +58,7 @@ def http(method, path, body = nil, accept_json: false)
   attempts = 0
   loop do
     attempts += 1
-    uri = URI("#{BASE}#{path}")
+    uri = URI("#{sigma_base}#{path}")
     req = case method
           when :post then r = Net::HTTP::Post.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
           when :put  then r = Net::HTTP::Put.new(uri);  r.body = body; r['Content-Type'] = 'application/json'; r
@@ -60,11 +66,18 @@ def http(method, path, body = nil, accept_json: false)
           end
     req['Authorization'] = "Bearer #{Sigma.auth_token}"
     req['Accept']        = 'application/json' if accept_json
-    res = Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 120) { |h| h.request(req) }
+    res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https', read_timeout: 120) { |h| h.request(req) }
     if res.code.to_i == 401 && attempts == 1
       warn '  [auth] Sigma token expired mid-run; refreshing through the browser/client provider and retrying...'
-      Sigma.refresh_token!
-      next
+      # If the re-mint fails, hand back the 401 rather than crash.
+      refreshed = begin
+        Sigma.refresh_token!
+        true
+      rescue StandardError => e
+        warn "  [auth] token refresh failed: #{e.message.lines.first.to_s.strip}"
+        false
+      end
+      next if refreshed
     end
     return res
   end

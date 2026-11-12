@@ -655,11 +655,19 @@ jobs:
             plugins/tableau-to-sigma/skills/tableau-assessment/scripts/test-predicted-parity.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-dax-restructure.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-model-scope.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-warehouse.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-parity-plan.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-phase6-parity-pbi.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-element-match.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-native-query.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-parse.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-sql.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-dm-resolver.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-name-sanitize.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-extract-cache.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-probe-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-orchestrator-speed.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-composite-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-convert-model-reprefix.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-warehouse-column-refs.rb
@@ -676,16 +684,26 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-metric-reference.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild-emit.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-slicer-heavy-build.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-page-facts-orchestrator.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-builder-followups.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-b.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-f.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-validate-spec-metrics.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-role-routing.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-alt-agg-wrapper.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-field-binding-coverage.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-field-loss-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-roleplaying-dims.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-cross-table-view-route.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-visual-fidelity.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-layout-geometry-check.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-polish-layout.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-columns-pagination.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-intake-offramp.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-offramp-attribution.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-flip-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-cli-profile-base-url.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-control-flip-coderep-unwrap.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-suite-registration.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-verify-anchors.rb
@@ -876,9 +894,18 @@ jobs:
             # powerbi-to-sigma uses HYPHENATED test-*.py names, which is why these were
             # never picked up by the test_*.py convention above. Listed explicitly.
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-viz-signals.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-hidden-bookmarks.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-visual-fidelity.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-extract-column-formats.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-crop-source-visuals.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-filters.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-viz-kind-parity.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-fabric-resolve.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-sigma-sql-probe.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-probe-native-sources.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-parity-from-oracle.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-page-fact-scaffold.py
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-slicer-gate.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-model-pbix.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-extract-report-classic.py
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/tests/test-semantic-context.py
@@ -1026,6 +1053,10 @@ jobs:
           # run above.
           tests+=(
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-conditional-formats.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-apply-pbi-column-formats.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-theme-fixes.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-matrix-levels.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-validate-spec-union.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-dax-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-retail-calendar.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-style.rb

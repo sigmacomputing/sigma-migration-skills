@@ -55,6 +55,24 @@
 # MCP tool yourself and resume with --converter-out <its result JSON> — the
 # default route on machines without a local build.
 #
+# RERUN CACHE (Phase 0/1): extracting a large .pbix costs 60-120 s and a big migration is a
+# loop of reruns. After a completed extraction the input fingerprint (content digest of
+# --pbix, or --tmsl + --pbir, plus the extractor scripts) is recorded in
+# <WORK>/run-provenance.json; a rerun whose fingerprint matches skips extraction
+# automatically and says so on the PHASE TIMINGS line. --reuse-extract skips it whenever the
+# extracted files (model.bim, signals.json, report-layout.json) are in <WORK>;
+# --no-reuse-extract always extracts. See lib/pbi_extract_cache.rb.
+#
+# --probe-sources (OPT-IN, recommended for import / NativeQuery models): before the data model
+# is posted, run scripts/probe-native-sources.py against --connection (scratch objects in
+# --folder) so every Custom SQL element is checked ONCE instead of one POST 400 at a time:
+# unknown [Custom SQL/X] refs are nulled pre-POST (<WORK>/sql-output-names.json feeds the
+# dm-resolver), TMSL-vs-warehouse type mismatches get a cast in the element SQL
+# (VARCHAR 'True'/'False' -> TRY_TO_BOOLEAN, ...), and the run STOPS (exit 10) when a bound
+# column is missing from the SQL output (--probe-allow-missing proceeds and nulls it).
+# Audit: <WORK>/native-source-probe.json. --probe-results <file> replays captured probe
+# results offline instead of querying the warehouse.
+#
 # Phase E (OPT-IN) — Enhance: pass --enhance to run the shared enhancement
 # engine AFTER parity passes: enhance-scan.rb emits candidates + app_options;
 # design interview via enhance-select.rb / enhance-app-plan.rb; nothing
@@ -76,6 +94,12 @@ require 'time'
 require_relative 'lib/py_resolve'
 require_relative 'lib/pbi_field_alts'
 require_relative 'lib/pbi_master_key'
+require_relative 'lib/pbi_view_route' # cross-table visuals -> joined View alts; friendly-entity aliases
+require_relative 'lib/pbi_model_scope'  # scope the DM to the tables the report uses (default; --full-model opts out)
+require_relative 'lib/offramp'
+require_relative 'lib/pbi_extract_cache' # Phase 0/1 rerun cache (input fingerprint in run-provenance.json)
+require_relative 'lib/pbi_probe_gate'    # --probe-sources: probe report -> sql-output-names / casts / stop
+require_relative 'lib/pbi_extract_notes' # extraction notes that mean data was lost (Enter-data NULLs, assumed culture)
 require_relative 'lib/code_rep'
 require_relative 'lib/pbi_offramp_reason' # name the FAILING STAGE, never assert a cause we did not establish # role-playing dim copies must key on PBI table identity # derived field_map entries must wrap their ALTS too (pie/date-grain render bug) # real-Python resolver (Windows Store-stub safe)
 begin; require_relative 'lib/modeling_advisory'; rescue LoadError; end # shared, vendor-neutral CDW join-cost advisory (optional; synced from shared/)
@@ -87,8 +111,11 @@ require 'dax_gate'      # DAX warning → decision-question classifier (regressi
 require 'coverage_gate' # workbook-build coverage.json → consolidated report + assistance prompt
 require 'pbi_element_match' # converter→readback element pairing (POST reorders; regression-tested)
 require 'pbi_timeintel_route' # time-intel fallback-router fact-provenance guard (regression-tested)
+require 'pbi_calc_table_sql' # DISTINCT/VALUES/SUMMARIZE calculated tables -> Custom SQL
 require 'pbi_native_query' # preserve Value.NativeQuery/Query= SQL around the pinned converter
 require 'pbi_composite' # remote-model detection; NativeQuery is warehouse SQL
+require 'pbi_dm_resolver' # deterministic converter-output fixer (D1-D8) -> <WORK>/dm-resolver.json
+require 'pbi_name_sanitize' # F13: "/" in column/measure names -> U+2215 before conversion
 require 'materialization_schedules' # opt-in DM element schedule lifecycle
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
@@ -195,6 +222,11 @@ OptionParser.new do |o|
   # builds a new DM.
   o.on('--reuse-dm ID')        { |v| opts[:reuse_dm] = v }
   o.on('--no-reuse')           {     opts[:no_reuse] = true }
+  # MODEL SCOPING (default ON): the Sigma DM only carries the tables the report
+  # uses (plus measure/join-path/RLS closure), joined Views only where a visual
+  # needs one, and Data-page masters only where something reads them.
+  # --full-model restores the whole-semantic-model build (byte-identical).
+  o.on('--full-model')         {     opts[:full_model] = true }
   # Phase 6b (runtime control-flip proof) is DEFAULT-ON: after posting, each
   # control is flipped live (probe-controls.rb) to prove it actually filters its
   # targets — a control that lints clean but is INERT fails the migration.
@@ -210,6 +242,30 @@ OptionParser.new do |o|
   # represented by preserving the SQL alone. Gate by default; this override is
   # only for a user who has manually folded those transforms into the SQL.
   o.on('--allow-native-m-transforms') { opts[:allow_native_m_transforms] = true }
+  # Debugging escape hatches for the two deterministic fixers. Both are ON by
+  # default and write an audit file (name-sanitize.json / dm-resolver.json).
+  # Rerun cache for the Phase 0/1 extraction (see the header comment).
+  o.on('--reuse-extract', 'skip Phase 0/1 extraction when the extracted files are already in the work dir') { opts[:reuse_extract] = true }
+  o.on('--no-reuse-extract', 'always re-extract (ignore the automatic fingerprint-match reuse)') { opts[:no_reuse_extract] = true }
+  # Pre-POST Custom SQL probe (opt-in; see the header comment).
+  o.on('--probe-sources', 'probe Custom SQL elements against the warehouse before the DM POST (needs --connection + --folder)') { opts[:probe_sources] = true }
+  o.on('--probe-results FILE', 'with --probe-sources: replay captured sigma-sql-probe --types results instead of probing live') { |v| opts[:probe_results] = File.expand_path(v) }
+  o.on('--probe-concurrency N', Integer, 'with --probe-sources: parallel export polls against the one scratch workbook (default 6)') { |v| opts[:probe_concurrency] = v }
+  o.on('--probe-no-cache', 'with --probe-sources: ignore and do not write the per-statement probe cache (use after a warehouse-side fix)') { opts[:probe_no_cache] = true }
+  o.on('--probe-cache-max-age-hours N', Float, 'with --probe-sources: re-probe cached statements older than N hours (default 24; 0 = never reuse)') { |v| opts[:probe_cache_max_age_hours] = v }
+  o.on('--keep-probe-workbook', 'with --probe-sources: keep the scratch probe workbook (default: deleted after the run; debugging)') { opts[:keep_probe_workbook] = true }
+  o.on('--probe-allow-missing', 'with --probe-sources: do not stop on a bound column missing from the SQL output (the resolver nulls it)') { opts[:probe_allow_missing] = true }
+  o.on('--stop-before-post', 'run everything up to the validated DM spec (incl. --probe-sources), create nothing in Sigma, exit 0') { opts[:stop_before_post] = true }
+  o.on('--skip-dm-resolver') { opts[:skip_dm_resolver] = true }
+  # Page facts (refs/large-pbix.md "Measures: classify the page, then build it"). --scaffold-page-facts
+  # drafts them (scaffold-page-fact.py -> <WORK>/page-facts-draft); --page-facts DIR folds COMPLETED
+  # ones into the DM spec + master-map (integrate-page-fact.py) and gates their slicers after the
+  # workbook build (wire-slicer-gate.py).
+  o.on('--scaffold-page-facts [PAGES]', 'draft page facts into <WORK>/page-facts-draft (PAGES: comma-separated titles; default: pages classified page-fact); with --stop-before-post it is a draft-only run that writes nothing to Sigma') { |v| opts[:scaffold_page_facts] = v || true }
+  o.on('--page-facts DIR', 'integrate the completed page facts under DIR (<page>/page-fact.json) and wire their slicers') { |v| opts[:page_facts] = File.expand_path(v) }
+  o.on('--page-facts-update-dm', 'with --page-facts on a REUSED data model: PUT it with the page-fact elements added') { opts[:page_facts_update_dm] = true }
+  o.on('--allow-page-fact-todo', 'with --page-facts: integrate page facts that still have TODO measures (those bind to their NULL stubs)') { opts[:allow_page_fact_todo] = true }
+  o.on('--skip-name-sanitize') { opts[:skip_name_sanitize] = true }
   # Opt-in materialization schedule for converted Custom SQL elements. Cron is
   # required; timezone is IANA. Without --materialization-elements every SQL
   # source element is targeted. A comma-list selects exact element names.
@@ -220,6 +276,16 @@ end.parse!
 
 if opts[:materialization_timezone] && !opts[:materialization_cron]
   abort 'FATAL: --materialization-timezone requires --materialization-cron'
+end
+if (opts[:probe_results] || opts[:probe_allow_missing] || opts[:probe_concurrency] || opts[:probe_no_cache] || opts[:probe_cache_max_age_hours] || opts[:keep_probe_workbook]) && !opts[:probe_sources]
+  abort 'FATAL: --probe-results / --probe-allow-missing / --probe-concurrency / --probe-no-cache / --probe-cache-max-age-hours / --keep-probe-workbook require --probe-sources'
+end
+if opts[:probe_sources] && !opts[:probe_results] && !opts[:folder]
+  abort 'FATAL: --probe-sources needs --folder <Sigma folder id> (the probe writes scratch objects there) ' \
+        'or --probe-results <file> to replay captured results'
+end
+if opts[:reuse_extract] && opts[:no_reuse_extract]
+  abort 'FATAL: --reuse-extract and --no-reuse-extract are mutually exclusive'
 end
 
 # #347: publish the target tenant into the env so EVERY Power BI child process
@@ -314,7 +380,40 @@ run_provenance = {
   'converterProvenance' => converter_prov,
   'recordedAt' => Time.now.utc.iso8601
 }
+# Python interpreter resolution (shared by Phase 0 local extract + Phase 1).
+# bead 7o01: --python / PBI_PY, else a bootstrapped venv (<work>/.venv), else
+# the legacy /tmp/pbiauth venv, else a real system Python via PyResolve
+# (Windows Store-stub safe; the offline PBIR parse is stdlib-only). PY_ARGV is
+# an array so a multi-token launcher (`py -3`) survives the splat below.
+# bead 4alk.4: venvs are POSIX bin/python OR Windows Scripts\python.exe.
+py = opts[:python] || ENV['PBI_PY'] ||
+     [File.join(WORK, '.venv', 'bin', 'python'), File.join(WORK, '.venv', 'Scripts', 'python.exe'),
+      '/tmp/pbiauth/bin/python', '/tmp/pbiauth/Scripts/python.exe']
+       .find { |p| File.exist?(p) }
+PY_ARGV = py ? [py] : PyResolve.argv
+
+# RERUN CACHE (Phase 0/1). The decision is made BEFORE run-provenance.json is rewritten: the
+# recorded input fingerprint lives in that file. A run that extracts again starts without
+# one (it is recorded only once the extraction has finished).
+# The Enter-data SQL baked into model.bim is warehouse-dialect specific, and the pbixray version decides
+# the VertiPaq decode: both are part of the pbix-route identity.
+extract_dialect = PbiProbeGate.extract_dialect_for(opts[:wh_type])
+extract_fp = PbiExtractCache.fingerprint(pbix: opts[:pbix], tmsl: opts[:tmsl], pbir: opts[:pbir],
+                                         name: opts[:name], scripts_dir: HERE, dialect: extract_dialect,
+                                         pbixray: (opts[:pbix] ? PbiExtractCache.pbixray_version(PY_ARGV) : nil))
+extract_cache = PbiExtractCache.decide(WORK, extract_fp, forced: opts[:reuse_extract],
+                                       disabled: opts[:no_reuse_extract])
+_prior_fp = PbiExtractCache.recorded(WORK)
+run_provenance[PbiExtractCache::KEY] = _prior_fp if extract_cache['reuse'] && _prior_fp
 File.write(File.join(WORK, 'run-provenance.json'), JSON.pretty_generate(run_provenance))
+# Name-sanitize rewrites signals.json in place; the pristine extraction is kept beside it so a
+# cached rerun starts from the extraction, not from an already-sanitized file.
+extracted_signals_copy = File.join(WORK, 'signals-extracted.json')
+if extract_cache['reuse']
+  FileUtils.cp(extracted_signals_copy, File.join(WORK, 'signals.json')) if File.exist?(extracted_signals_copy)
+else
+  FileUtils.rm_f(extracted_signals_copy)
+end
 
 # ---- phase timings (always written to <WORK>/timings.json) ------------------
 # Fast-discovery evidence trail: every terminal exit (success, decisions gate,
@@ -322,6 +421,7 @@ File.write(File.join(WORK, 'run-provenance.json'), JSON.pretty_generate(run_prov
 # per-phase wall clock, so old-vs-new discovery comparisons are always possible.
 $phase_times = []
 $phase_open = nil
+$extract_cache_note = nil # set when Phase 0/1 extraction was served from the rerun cache
 def phase_mark(name)
   now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   $phase_times << [$phase_open[0], (now - $phase_open[1]).round(1)] if $phase_open
@@ -334,12 +434,13 @@ at_exit do
     begin
       File.write(File.join(WORK, 'timings.json'), JSON.pretty_generate(
         { 'phases' => $phase_times.map { |n, s| { 'phase' => n, 'seconds' => s } },
-          'totalSeconds' => total }))
+          'totalSeconds' => total }.merge($extract_cache_note ? { 'extractCache' => $extract_cache_note } : {})))
     rescue StandardError
       nil # timings are evidence, never a failure
     end
     puts
-    puts 'PHASE TIMINGS  ' + $phase_times.map { |n, s| "#{n}=#{s}s" }.join('  ') + "  total=#{total}s"
+    puts 'PHASE TIMINGS  ' + $phase_times.map { |n, s| "#{n}=#{s}s" }.join('  ') + "  total=#{total}s" +
+         ($extract_cache_note ? "  [#{$extract_cache_note}]" : '')
   end
 end
 
@@ -354,6 +455,46 @@ def run!(cmd, env: {})
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   abort "FATAL: command failed (#{st.exitstatus}): #{cmd.join(' ')}" unless st.success?
   out
+end
+
+# --scaffold-page-facts: draft page facts from each page's DAX closure (offline, seconds) into
+# <WORK>/page-facts-draft. Never blocks the run. mmap_path is optional: before the DM is posted (the
+# --stop-before-post exits) the draft resolves sources by element name instead.
+def scaffold_page_facts!(opts, model_path, signals_path, dm_spec, mmap_path, dialect)
+  draft = File.join(WORK, 'page-facts-draft')
+  cmd = [*PY_ARGV, File.join(HERE, 'scaffold-page-fact.py'), '--model', model_path, '--signals', signals_path,
+         '--dm-spec', dm_spec, '--out-dir', draft,
+         '--dialect', (%w[snowflake databricks bigquery].include?(dialect) ? dialect : 'snowflake')]
+  cmd += ['--master-map', mmap_path] if mmap_path && File.exist?(mmap_path)
+  opts[:scaffold_page_facts].split(',').map(&:strip).reject(&:empty?).each { |t| cmd += ['--page', t] } if opts[:scaffold_page_facts].is_a?(String)
+  # Not a shell: an argv array that runs this plugin's scaffold-page-fact.py with the current Python; options come from this run's own flags and paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  out, st = Open3.capture2e(*cmd)
+  puts '   PAGE FACTS (draft):'
+  out.each_line { |l| puts "     #{l.rstrip}" } unless out.strip.empty?
+  if st.success?
+    puts "   -> #{draft}: read each <page>/closure.md, fill the TODOs, run check-plan.json, then rerun with --page-facts <dir>"
+  else
+    warn "   [warn] scaffold-page-fact.py failed (#{st.exitstatus}); the run continues without drafts"
+  end
+end
+
+# Raised (and rescued in the DM-reuse block) to stop before PUTting page facts into a reused DM.
+class StopBeforePostPageFacts < StandardError; end
+
+# Page facts (--page-facts DIR): fold the completed page-fact.json files into a DM spec with
+# integrate-page-fact.py. check: true reports without writing and returns :changed / :current.
+def integrate_page_facts_dm!(opts, dm_spec, check: false)
+  cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--dm-spec', dm_spec]
+  cmd += check ? ['--check'] : ['--connection', opts[:conn].to_s]
+  cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  # Not a shell: an argv array that runs this plugin's integrate-page-fact.py with the current Python; options come from this run's own flags and paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+  out, st = Open3.capture2e(*cmd)
+  out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
+  return :changed if check && st.exitstatus == 3
+  abort "FATAL: page-fact integration failed (#{st.exitstatus}); nothing was posted. Fix #{opts[:page_facts]} and rerun." unless st.success?
+  :current
 end
 
 # Raised when the MECHANICAL WORKBOOK layer (build / validate / POST) fails after
@@ -438,17 +579,6 @@ end
 # RemoteArtifacts tell (extract-model-pbix.py is_composite_connections).
 TOTAL = 6
 
-# Python interpreter resolution (shared by Phase 0 local extract + Phase 1).
-# bead 7o01: --python / PBI_PY, else a bootstrapped venv (<work>/.venv), else
-# the legacy /tmp/pbiauth venv, else a real system Python via PyResolve
-# (Windows Store-stub safe; the offline PBIR parse is stdlib-only). PY_ARGV is
-# an array so a multi-token launcher (`py -3`) survives the splat below.
-# bead 4alk.4: venvs are POSIX bin/python OR Windows Scripts\python.exe.
-py = opts[:python] || ENV['PBI_PY'] ||
-     [File.join(WORK, '.venv', 'bin', 'python'), File.join(WORK, '.venv', 'Scripts', 'python.exe'),
-      '/tmp/pbiauth/bin/python', '/tmp/pbiauth/Scripts/python.exe']
-       .find { |p| File.exist?(p) }
-PY_ARGV = py ? [py] : PyResolve.argv
 
 # ---------------------------------------------------------------------------
 # Phase 0 — LOCAL .pbix extract (only with --pbix; no Fabric/tenant). Reads the
@@ -459,7 +589,18 @@ PY_ARGV = py ? [py] : PyResolve.argv
 # run stops here — the Fabric --tmsl/--pbir route and the report front door
 # (extract-report-classic.py --pbix) do NOT need pbixray.
 # ---------------------------------------------------------------------------
+extract_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+if extract_cache['reuse']
+  puts
+  puts "   EXTRACT CACHE: #{extract_cache['reason']} - skipping the Phase 0/1 extraction " \
+       "(#{opts[:pbix] ? 'model.bim, report-layout.json, signals.json' : 'signals.json'} from #{WORK}; " \
+       '--no-reuse-extract forces a fresh one)'
+elsif opts[:reuse_extract] || extract_cache['reason'] !~ /no recorded input fingerprint/
+  puts
+  puts "   EXTRACT CACHE: not used - #{extract_cache['reason']}"
+end
 if opts[:pbix]
+  phase_mark('0-local-pbix-extract')
   puts
   puts '── Phase 0/6 · Local .pbix extract (no Fabric) ──'
   # Cheap stdlib-only probe (no pbixray): is this a composite / live-connected
@@ -472,10 +613,14 @@ if opts[:pbix]
     puts '   model (a Fabric getDefinition of the bound dataset would be incomplete). Using it.'
   end
   model_bim = File.join(WORK, 'model.bim')
-  puts "   VertiPaq model (pbixray) -> #{model_bim}"
-  run!([*PY_ARGV, File.join(HERE, 'extract-model-pbix.py'),
-        '--pbix', opts[:pbix], '--out', model_bim,
-        *(opts[:name] ? ['--name', opts[:name]] : [])])
+  if extract_cache['reuse']
+    puts "   VertiPaq model: reusing #{model_bim} (extract cache)"
+  else
+    puts "   VertiPaq model (pbixray) -> #{model_bim}"
+    run!([*PY_ARGV, File.join(HERE, 'extract-model-pbix.py'),
+          '--pbix', opts[:pbix], '--out', model_bim, '--dialect', extract_dialect,
+          *(opts[:name] ? ['--name', opts[:name]] : [])])
+  end
   opts[:tmsl] = model_bim
 end
 
@@ -485,16 +630,29 @@ end
 hdr(1, TOTAL, 'Discover / Extract')
 
 signals_path = File.join(WORK, 'signals.json')
-if opts[:pbix]
+if opts[:pbix] && extract_cache['reuse']
+  puts "   report: reusing #{signals_path} + report-layout.json (extract cache)"
+elsif opts[:pbix]
   # Both classic Report/Layout and modern PBIR emit the same signals schema.
   puts '   local .pbix report — detecting classic Report/Layout or modern Report/definition PBIR'
-  run!([*PY_ARGV, File.join(HERE, 'extract-report-classic.py'), '--pbix', opts[:pbix], '--out', signals_path])
+  pbix_layout_dump = File.join(WORK, 'report-layout.json')
+  run!([*PY_ARGV, File.join(HERE, 'extract-report-classic.py'), '--pbix', opts[:pbix], '--out', signals_path,
+        '--dump-layout', pbix_layout_dump])
+elsif extract_cache['reuse']
+  # The bundle is still read (cheap) for the model-scope documents; only the explode +
+  # extract-pbir/extract-report-classic run is skipped.
+  bundle = JSON.parse(File.read(opts[:pbir]))
+  scope_docs = bundle.select { |part, _| part.start_with?('definition/') }.values
+  scope_docs = [bundle['report.json']].compact if scope_docs.empty?
+  puts "   report: reusing #{signals_path} (extract cache; PBIR explode + extractor skipped)"
 else
   # The raw-pbir/*.json files are a FLAT bundle: { "<part-path>": "<json text>", ... }.
   # extract-pbir.py wants an exploded definition/ folder — so explode it first.
   pbir_dir = File.join(WORK, 'pbir')
   FileUtils.mkdir_p(pbir_dir)
   bundle = JSON.parse(File.read(opts[:pbir]))
+  scope_docs = bundle.select { |part, _| part.start_with?('definition/') }.values
+  scope_docs = [bundle['report.json']].compact if scope_docs.empty?
   exploded = 0
   bundle.each do |part, payload|
     next unless part.start_with?('definition/') # the exploded-PBIR parts only
@@ -521,33 +679,151 @@ else
   end
 end
 signals = JSON.parse(File.read(signals_path))
+# Extraction finished (or was served from the cache): record the input fingerprint so the next
+# rerun can skip it, and say so on the PHASE TIMINGS line when it was skipped.
+extract_elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - extract_t0).round(1)
+if extract_cache['reuse']
+  $extract_cache_note = PbiExtractCache.timings_note(extract_cache, extract_elapsed)
+  puts "   #{$extract_cache_note}"
+else
+  PbiExtractCache.record(WORK, extract_fp, extract_elapsed)
+end
 
 # TMSL model summary + import/DirectQuery mode.
 tmsl = JSON.parse(File.read(opts[:tmsl]))
 model = tmsl['model'] || tmsl
 
-# NativeQuery is ordinary warehouse SQL, not evidence of a remote/composite
-# semantic model. Preserve it through the pinned converter. Downstream M steps
-# are a separate fidelity question: they must be folded into the SQL or
-# explicitly accepted, never silently discarded.
-native_queries = PbiNativeQuery.native_queries(model)
-native_transform_gaps = native_queries.select(&:post_transform)
-if native_transform_gaps.any? && !opts[:allow_native_m_transforms]
-  puts
-  puts '╭─ OPEN QUESTION — NativeQuery has downstream Power Query transforms ─'
-  native_transform_gaps.each do |native|
-    puts "│  • #{native.table}: #{native.source} is followed by M transform steps"
-  end
-  puts '│'
-  puts '│  The SQL itself can be preserved, but Table.RenameColumns/Table.SelectRows/etc.'
-  puts '│  after it are not part of that SQL. Fold those steps into the SQL and rerun.'
-  puts '│  If they are already represented manually, rerun with --allow-native-m-transforms.'
-  puts '╰──────────────────────────────────────────────────────────────────────────────'
-  exit 10
+# Extraction notes that mean data was LOST (Enter-data cells loaded as NULL, Enter-data SQL not
+# generated for this warehouse, an assumed model culture). They live in model.bim annotations; read
+# them here on every route (also a cached rerun) so they are loud, not buried in the TMSL.
+extract_notes = PbiExtractNotes.collect(tmsl)
+unless extract_notes.empty?
+  File.write(File.join(WORK, 'extract-notes.json'), JSON.pretty_generate(extract_notes))
+  PbiExtractNotes.lines(extract_notes).each { |l| warn "   #{l}" }
 end
 
 normalized_tmsl_path = File.join(WORK, 'model-normalized.bim')
 File.write(normalized_tmsl_path, JSON.pretty_generate(PbiNativeQuery.normalize_tmsl(tmsl)))
+
+# ---------------------------------------------------------------------------
+# MODEL SCOPE — keep only the tables the report uses (default). The pruned
+# model drives the converter, the DM-reuse signature and the workbook builder;
+# everything else in this script keeps reading the FULL model (a superset is
+# harmless there). --full-model skips all of it. Audit trail: model-scope.json.
+# ---------------------------------------------------------------------------
+scope_docs ||= []
+if opts[:pbix]
+  _ld = File.join(WORK, 'report-layout.json')
+  scope_docs = [File.read(_ld)] if File.exist?(_ld)
+end
+scoped_tmsl_path = nil
+scoped_model = nil
+model_scope_path = File.join(WORK, 'model-scope.json')
+model_scope = { 'enabled' => false, 'kept' => [], 'dropped_tables' => [], 'dropped_measures' => [],
+                'dropped_calc_columns' => [], 'dropped_views' => [], 'dropped_masters' => [] }
+write_model_scope = -> { File.write(model_scope_path, JSON.pretty_generate(model_scope)) }
+if opts[:full_model]
+  puts
+  puts 'MODEL SCOPE: off (--full-model) - building the whole semantic model'
+else
+  _m0 = tmsl['model'] || tmsl
+  _measure_home = {}
+  (_m0['tables'] || []).each { |t| (t['measures'] || []).each { |m| _measure_home[m['name']] = t['name'] } }
+  _measure_names = Set.new(_measure_home.keys)
+  _tnames = (_m0['tables'] || []).map { |t| t['name'] }
+  _used = PbiModelScope.report_measures(scope_docs, _measure_names)
+  _sig_seeds = Set.new
+  _used_columns = PbiModelScope.report_columns(scope_docs, _tnames)
+  PbiModelScope.signal_page_refs(signals).flatten.each do |r|
+    rb = PbiModelScope.resolve_binding(r, _tnames)
+    next unless rb
+    _sig_seeds << rb[0]
+    _used << rb[1] if _measure_home[rb[1]] == rb[0]
+    _used_columns << rb.join('.')
+  end
+  res = PbiModelScope.scope(tmsl, scope_docs, _used.to_a, _sig_seeds.to_a, _used_columns.to_a)
+  model_scope.merge!(res.reject { |k, _| k == 'tmsl' })
+  model_scope.delete('fallback_reason') unless res['fallback_reason']
+  puts
+  if res['fallback_reason']
+    puts "MODEL SCOPE: fallback to the FULL model - #{res['fallback_reason']}"
+    Offramp.log(WORK, kind: 'model-scope-fallback', reason: res['fallback_reason'])
+  else
+    total_tables = ((tmsl['model'] || tmsl)['tables'] || []).count { |t| !PbiModelScope.date_table?(t['name']) }
+    puts "MODEL SCOPE: kept #{res['kept'].size} of #{total_tables} tables"
+    res['kept'].each { |k| puts "   keep  #{k['table']}  (#{k['reasons'].join(', ')})" }
+    puts "   dropped tables: #{res['dropped_tables'].join(', ')}" unless res['dropped_tables'].empty?
+    puts "   dropped measures: #{res['dropped_measures'].join(', ')}" unless res['dropped_measures'].empty?
+    puts "   dropped calculated columns: #{res['dropped_calc_columns'].join(', ')}" unless res['dropped_calc_columns'].empty?
+    scoped_tmsl_path = File.join(WORK, 'model-scoped.bim')
+    File.write(scoped_tmsl_path, JSON.pretty_generate(res['tmsl']))
+    scoped_model = res['tmsl']['model'] || res['tmsl']
+    normalized_tmsl_path = File.join(WORK, 'model-scoped-normalized.bim')
+    File.write(normalized_tmsl_path, JSON.pretty_generate(PbiNativeQuery.normalize_tmsl(res['tmsl'])))
+  end
+end
+write_model_scope.call
+
+# ---------------------------------------------------------------------------
+# F13 NAME SANITIZE - a column/measure name containing "/" cannot be referenced
+# from a Sigma formula ([A/B] = "Dependency not found"). Rename it to U+2215
+# (same glyph) consistently in the TMSL (names, DAX, relationships) and the
+# signals bindings BEFORE conversion. Runs AFTER model scope on purpose: scope
+# matches the raw report documents, which still carry the original names.
+# Audit + rename map: <WORK>/name-sanitize.json (consumers translating a
+# source-side name back, e.g. parity against live Power BI, read it).
+# ---------------------------------------------------------------------------
+name_sanitize = { 'renames' => [], 'unsanitized_tables' => [] }
+unless opts[:skip_name_sanitize]
+  _t_full, _s_new, name_sanitize = PbiNameSanitize.sanitize(tmsl, signals)
+  unless name_sanitize['renames'].empty?
+    tmsl = _t_full
+    model = tmsl['model'] || tmsl
+    signals = _s_new
+    FileUtils.cp(signals_path, extracted_signals_copy) unless File.exist?(extracted_signals_copy)
+    File.write(signals_path, JSON.pretty_generate(signals))
+    if scoped_model
+      _scoped_t = JSON.parse(File.read(scoped_tmsl_path))
+      PbiNameSanitize.sanitize!(_scoped_t)
+      File.write(scoped_tmsl_path, JSON.pretty_generate(_scoped_t))
+      scoped_model = _scoped_t['model'] || _scoped_t
+      File.write(normalized_tmsl_path, JSON.pretty_generate(PbiNativeQuery.normalize_tmsl(_scoped_t)))
+    else
+      _sanitized_bim = File.join(WORK, 'model-sanitized.bim')
+      File.write(_sanitized_bim, JSON.pretty_generate(tmsl))
+      opts[:tmsl] = _sanitized_bim
+      File.write(normalized_tmsl_path, JSON.pretty_generate(PbiNativeQuery.normalize_tmsl(tmsl)))
+    end
+    puts "   NAME SANITIZE: renamed #{name_sanitize['renames'].size} column/measure name(s) containing '/' to U+2215 (see name-sanitize.json)"
+  end
+  unless name_sanitize['unsanitized_tables'].empty?
+    warn "   \u26A0 table name(s) containing '/' cannot be referenced from a Sigma formula and were NOT renamed: #{name_sanitize['unsanitized_tables'].join(', ')}"
+  end
+  File.write(File.join(WORK, 'name-sanitize.json'), JSON.pretty_generate(name_sanitize)) unless name_sanitize['renames'].empty? && name_sanitize['unsanitized_tables'].empty?
+end
+
+# NativeQuery is ordinary warehouse SQL, not evidence of a remote/composite
+# semantic model. Preserve it through the pinned converter. Downstream M steps
+# are a separate fidelity question: they must be folded into the SQL or
+# explicitly accepted, never silently discarded.
+# Renames, duplicated columns, row filters and Table.Distinct fold into the
+# SQL and its column bindings; type changes, removed/reordered columns and
+# sorts are no-ops for a model table. Only the steps left over stop the run,
+# and only in tables the report uses (after MODEL SCOPE).
+native_transform_gaps = PbiNativeQuery.unfoldable(scoped_model || model, opts[:wh_type])
+if native_transform_gaps.any? && !opts[:allow_native_m_transforms]
+  puts
+  puts '╭─ OPEN QUESTION — NativeQuery has Power Query steps that cannot be folded ─'
+  native_transform_gaps.each do |native, folded|
+    puts "│  • #{native.table}: #{folded.unsupported.join(', ')}"
+  end
+  puts '│'
+  puts '│  The SQL and every foldable step are preserved; these steps are not part of'
+  puts '│  it. Fold them into the SQL and rerun. If they are already represented'
+  puts '│  manually, rerun with --allow-native-m-transforms.'
+  puts '╰──────────────────────────────────────────────────────────────────────────────'
+  exit 10
+end
 
 # COMPOSITE GATE (Fabric --tmsl path only; --pbix already IS the complete local
 # model). getDefinition returns an INCOMPLETE model for composite / live-
@@ -592,7 +868,6 @@ all_measures.each { |tbl, mname, _| measure_orig_table[mname] = tbl }
 # queryRef misses the master-map and the column silently drops — the customer's missing
 # dim NAME columns ([bead]). Capture the map so the master-map can alias every
 # key under the friendly entity too.
-_normt = ->(s) { s.to_s.downcase.gsub(/[^a-z0-9]/, '') }
 # 1:N, not 1:1. A model can import the SAME warehouse table under several names (six
 # role-playing DATE_DIMs on real report R2); the old 1:1 Hash kept only the LAST, so five
 # of the six copies got no alias at all.
@@ -651,7 +926,7 @@ elsif CONV_MODULE.nil?
   puts '   vendored converter (converter/powerbi.mjs) missing and no local converter-source build (--mcp-dir / PBI_MCP_DIR).'
   puts
   puts '   >>> GATE: run the convert_powerbi_to_sigma MCP tool on the TMSL model'
-  puts "       (#{opts[:tmsl]}) with connectionId=#{opts[:conn]} database=#{opts[:db]} schema=#{opts[:schema]} warehouseType=#{opts[:wh_type].to_s.empty? ? '(default UPPER)' : opts[:wh_type]},"
+  puts "       (#{scoped_tmsl_path || opts[:tmsl]}) with connectionId=#{opts[:conn]} database=#{opts[:db]} schema=#{opts[:schema]} warehouseType=#{opts[:wh_type].to_s.empty? ? '(default UPPER)' : opts[:wh_type]},"
   puts '       save the tool result JSON to a file, then re-run this command with'
   puts '       --converter-out <that file>. No Sigma objects were created.'
   exit 10
@@ -697,7 +972,7 @@ conv = JSON.parse(File.read(File.join(WORK, 'conv-meta.json')))
 dm_model = conv['model']
 conv_warnings = conv['warnings'] || []
 conv_stats = conv['stats'] || {}
-native_result = PbiNativeQuery.apply!(dm_model, model)
+native_result = PbiNativeQuery.apply!(dm_model, scoped_model || model, dialect: opts[:wh_type])
 native_blockers = native_result['blockers'].reject do |blocker|
   opts[:allow_native_m_transforms] &&
     blocker['reason'].to_s.include?('followed by Power Query M transforms')
@@ -712,6 +987,158 @@ if native_result['converted'].any?
   conv['model'] = dm_model
   File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
   puts "   restored #{native_result['converted'].size} NativeQuery source(s) as Custom SQL"
+end
+
+# MODEL SCOPE: drop converter Views no visual / helper / relocated column needs.
+dropped_views = []
+if scoped_model
+  dropped_views = PbiModelScope.filter_views!(dm_model, signals, scoped_model)
+  unless dropped_views.empty?
+    File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+    conv['model'] = dm_model
+    File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+    puts "   MODEL SCOPE: dropped #{dropped_views.size} View(s): #{dropped_views.join(', ')}"
+  end
+  model_scope['dropped_views'] = dropped_views
+  write_model_scope.call
+end
+
+# PROBE SOURCES (opt-in, --probe-sources): run every Custom SQL statement ONCE against the warehouse
+# (scripts/probe-native-sources.py) BEFORE the data model is posted, instead of discovering a
+# missing column / VARCHAR-vs-boolean mismatch one POST 400 at a time. The probe's output names
+# become <WORK>/sql-output-names.json (the dm-resolver's authoritative [Custom SQL/X] source, so an
+# unknown ref is nulled pre-POST), its casts are folded into the element SQL, and the run STOPS
+# (exit 10) when a bound column is missing from the SQL output. Audit: native-source-probe.json.
+probe_applied = []
+probe_names_fresh = false # true only when THIS run wrote sql-output-names.json (it is then authoritative)
+sql_names_path = File.join(WORK, 'sql-output-names.json')
+sql_names_stamp_path = File.join(WORK, 'sql-output-names.stamp.json')
+if opts[:probe_sources]
+  phase_mark('2a-probe-sources')
+  if PbiProbeGate.sql_elements(dm_model).empty?
+    puts '   probe-sources: no Custom SQL elements in the data model - nothing to probe'
+    FileUtils.rm_f([sql_names_path, sql_names_stamp_path]) # nothing probed: a previous run's names are stale
+  else
+    probe_report_path = File.join(WORK, 'native-source-probe.json')
+    abort 'FATAL: --probe-sources needs a Sigma connection (--connection <id>) to probe against' unless opts[:probe_results] || opts[:conn]
+    FileUtils.rm_f(probe_report_path)
+    probe_dm_path = File.join(WORK, 'dm-probe-input.json')
+    File.write(probe_dm_path, JSON.pretty_generate(dm_model))
+    probe_argv = [*PY_ARGV, *PbiProbeGate.command(
+      File.join(HERE, 'probe-native-sources.py'), dm_path: probe_dm_path, tmsl_path: normalized_tmsl_path,
+      out_path: probe_report_path, state_path: File.join(WORK, 'native-source-probe.state.json'),
+      connection: opts[:conn], folder: opts[:folder], dialect: PbiProbeGate.dialect_for(opts[:wh_type]),
+      probe_results: opts[:probe_results]
+    ),
+                   *(opts[:probe_concurrency] ? ['--probe-concurrency', opts[:probe_concurrency].to_s] : []),
+                   *(opts[:probe_no_cache] ? ['--probe-no-cache'] : []),
+                   *(opts[:probe_cache_max_age_hours] ? ['--probe-cache-max-age-hours', opts[:probe_cache_max_age_hours].to_s] : []),
+                   *(opts[:keep_probe_workbook] ? ['--keep-probe-workbook'] : [])]
+    puts "   probe-sources: #{PbiProbeGate.sql_elements(dm_model).size} Custom SQL element(s) -> " \
+         "#{opts[:probe_results] ? "replaying #{opts[:probe_results]}" : 'warehouse probe (one round trip per distinct statement)'}"
+    _po, probe_err, probe_st = Open3.capture3(*probe_argv)
+    (_po + probe_err).each_line { |l| puts "   #{l.rstrip}" unless l.strip.empty? }
+    unless File.exist?(probe_report_path)
+      abort "FATAL: probe-native-sources.py produced no report (exit #{probe_st.exitstatus}); nothing was posted. " \
+            'Fix the probe error above, or rerun without --probe-sources.'
+    end
+    probe_report = JSON.parse(File.read(probe_report_path))
+    probe_blocks = PbiProbeGate.blockers(probe_report, allow_missing: opts[:probe_allow_missing])
+    unless probe_blocks.empty?
+      puts
+      puts PbiProbeGate.stop_message(probe_blocks, probe_report_path)
+      exit 10
+    end
+    # sql-output-names.json is stamped with each element's statement hash (taken BEFORE the casts
+    # are folded in): a later run without --probe-sources ignores the names of any element whose
+    # SQL changed instead of nulling valid refs against a stale output list.
+    File.write(sql_names_path, JSON.pretty_generate(PbiProbeGate.sql_output_names(probe_report)))
+    File.write(sql_names_stamp_path, JSON.pretty_generate(PbiProbeGate.statement_stamps(dm_model)))
+    probe_names_fresh = true
+    probe_applied = PbiProbeGate.apply_casts!(dm_model, probe_report)
+    probe_report['applied_to_dm'] = probe_applied
+    File.write(probe_report_path, JSON.pretty_generate(probe_report))
+    puts "   #{PbiProbeGate.summary_line(probe_report, probe_applied)} (native-source-probe.json)"
+    probe_applied.each { |c| puts "   cast #{c['element']} / #{c['column']}: #{c['expression']} (#{c['warehouse_type']} -> #{c['tmsl_type']})" }
+    probe_report['type_warnings'].to_a.first(8).each do |w|
+      warn "   \u26A0 probe: #{w['table']}.#{w['column']}: #{w['reason']}"
+    end
+    PbiProbeGate.probe_errors(probe_report).each do |e|
+      warn "   \u26A0 probe could not check #{e['element']}: #{e['error'][0, 200]} (its [Custom SQL/X] refs are left unverified)"
+    end
+    unless probe_applied.empty?
+      File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+      conv['model'] = dm_model
+      File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+    end
+  end
+  phase_mark('2-convert-fixers')
+end
+
+# DM RESOLVER (D1-D8): deterministic fixes for the converter output that
+# otherwise surface as one POST 400 at a time - stale element prefixes left by
+# the NativeQuery restore, refs that differ from the target column only by
+# case/punctuation, leaked DAX, refs that resolve nowhere (nulled + recorded),
+# duplicate element ids, integer YYYYMMDD keys under DateTrunc/DateLookback,
+# unnamed Null columns. Every rewrite and every nulled formula (with its
+# unresolved refs) is written to <WORK>/dm-resolver.json.
+# Optional inputs: <WORK>/sql-output-names.json {"Element": ["SQL output", ..]}
+# (probed SQL output names, authoritative for [Custom SQL/X]) and
+# <WORK>/dm-resolver-overrides.json {"overrides": {"Element|Name": formula}, "null_list": [..]}.
+dm_resolver_changed = false
+unless opts[:skip_dm_resolver]
+  _rd = lambda do |fname|
+    path = File.join(WORK, fname)
+    File.exist?(path) ? JSON.parse(File.read(path)) : {}
+  end
+  _rov = _rd.call('dm-resolver-overrides.json')
+  sql_names_in = _rd.call('sql-output-names.json')
+  unless probe_names_fresh || sql_names_in.empty?
+    # Not written by this run: only trust the entries whose statement is unchanged since the probe.
+    _stamps = File.exist?(sql_names_stamp_path) ? (JSON.parse(File.read(sql_names_stamp_path)) rescue nil) : nil
+    sql_names_in, _stale = PbiProbeGate.fresh_sql_names(sql_names_in, _stamps, dm_model)
+    puts "   probe names ignored for #{_stale.join(', ')}: their Custom SQL changed since the last --probe-sources run (rerun with --probe-sources to re-check)" unless _stale.empty?
+  end
+  resolver_log = PbiDmResolver.resolve!(dm_model,
+                                        sql_names: sql_names_in,
+                                        overrides: _rov['overrides'] || {}, null_list: _rov['null_list'] || [],
+                                        date_key_columns: PbiDmResolver.date_key_columns_from_tmsl(scoped_model || model))
+  File.write(File.join(WORK, 'dm-resolver.json'), JSON.pretty_generate(resolver_log))
+  puts "   #{PbiDmResolver.summary_line(resolver_log)} (dm-resolver.json)"
+  # Every nulled formula is listed (a capped list hid lost calculated columns);
+  # nulled names also stop counting as realized, so the DAX gate asks about them.
+  PbiDmResolver.report_lines(resolver_log).each { |line| puts "   #{line}" }
+  resolver_log['prefix_unresolved'].each { |p, why| warn "   \u26A0 dm-resolver: stale prefix [#{p}/..] #{why}" }
+  unless (resolver_log['blockers'] || []).empty?
+    warn "FATAL: dm-resolver found #{resolver_log['blockers'].size} blocker(s) (see above and dm-resolver.json); " \
+         'no Sigma objects were created. Disambiguate the element ids, or pin the intended formulas in ' \
+         'dm-resolver-overrides.json, then rerun.'
+    exit 10
+  end
+  dm_resolver_changed = resolver_log['summary'].reject { |k, _| %w[ambiguous unverified].include?(k) }.values.any?(&:positive?)
+  if dm_resolver_changed
+    File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+    conv['model'] = dm_model
+    File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  end
+end
+
+# Calculated tables that are just the distinct values of another table's columns
+# have a warehouse source (the source table itself): convert them to Custom SQL
+# and drop the converter's placeholder warning so the gate below only stops on
+# the ones that are really unresolved. Record: <WORK>/calc-table-sql.json.
+calc_sql_result = PbiCalcTableSql.apply!(dm_model, scoped_model || model, conv_warnings, dialect: opts[:wh_type])
+unless calc_sql_result['converted'].empty?
+  File.write(File.join(WORK, 'calc-table-sql.json'), JSON.pretty_generate(calc_sql_result))
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  conv['warnings'] = conv_warnings
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  puts "   converted #{calc_sql_result['converted'].size} distinct-values calculated table(s) to Custom SQL (calc-table-sql.json)"
+  calc_sql_result['converted'].each do |c|
+    pend = c['pending_calculated_columns'].map { |x| x['name'] }
+    warn "   ⚠ calculated table #{c['table']}: calculated column(s) #{pend.join(', ')} were not carried over; re-author them" unless pend.empty?
+  end
 end
 
 # Fail closed on calculated tables that only look converted. A CALENDAR spine
@@ -737,8 +1164,19 @@ unless calc_table_issues.empty?
   warn "   \u26A0 calculated-table completeness override accepted: #{override_reason}"
   calc_table_issues.each { |issue| warn "      - #{issue}" }
 end
-puts "   #{conv_stats['elements'] || (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }.size} element(s), " \
-     "#{conv_stats['columns']} column(s), #{conv_stats['metrics']} metric(s); #{conv_warnings.size} converter warning(s)"
+_conv_els = (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }
+if dropped_views.to_a.empty? && !dm_resolver_changed
+  _n_els = conv_stats['elements']
+  _n_cols = conv_stats['columns']
+  _n_mets = conv_stats['metrics']
+else
+  # Views were dropped / the resolver changed the model after conversion: the converter's stats are stale.
+  _n_els = _conv_els.size
+  _n_cols = _conv_els.sum { |e| (e['columns'] || []).size }
+  _n_mets = _conv_els.sum { |e| (e['metrics'] || []).size }
+end
+puts "   #{_n_els || _conv_els.size} element(s), " \
+     "#{_n_cols} column(s), #{_n_mets} metric(s); #{conv_warnings.size} converter warning(s)"
 # Vendor-neutral CDW join-cost advisory (informational only; never gates). See refs/modeling-strategy.md.
 ModelingAdvisory.print_if_relevant(conv_stats['relationships']) if defined?(ModelingAdvisory)
 
@@ -921,6 +1359,10 @@ reuse_dm_id = opts[:reuse_dm]
 if reuse_dm_id
   puts
   puts "── Phase 2.9 · DM-reuse (explicit --reuse-dm #{reuse_dm_id}) ──"
+  if scoped_tmsl_path
+    model_scope['reuse_bypassed'] = reuse_dm_id
+    write_model_scope.call
+  end
 elsif !opts[:no_reuse]
   puts
   puts '── Phase 2.9 · DM-reuse scan ──'
@@ -930,7 +1372,7 @@ elsif !opts[:no_reuse]
     # Signature is parsed from the TMSL/model.bim (warehouse FQNs from the M
     # partition expressions). Best-effort — tolerate a non-zero exit.
     _so, _ss = Open3.capture2e(*PY_ARGV, File.join(HERE, 'pbi-dm-signature.py'),
-                               '--bim', opts[:tmsl], '--out', sig_path)
+                               '--bim', scoped_tmsl_path || opts[:tmsl], '--out', sig_path)
     _so.each_line { |l| puts "   #{l.rstrip}" } unless _so.strip.empty?
     if File.exist?(sig_path)
       # find-or-pick-dm.rb exits non-zero when no candidate qualifies; that is
@@ -940,7 +1382,19 @@ elsif !opts[:no_reuse]
                       '--auto-pick', '--auto-pick-threshold', '0.5')
     end
     match = (File.exist?(match_path) ? JSON.parse(File.read(match_path)) : {}) || {}
-    if match['auto_picked'] && match['recommended_dm_id']
+    scope_guard_refused = false
+    if scoped_tmsl_path && match['auto_picked'] && match['recommended_dm_id']
+      cand = (match['candidates'] || []).find { |c| c['dm_id'] == match['recommended_dm_id'] }
+      baseline = (dm_model['pages'] || []).flat_map { |pg| pg['elements'] || [] }.size
+      model_scope['auto_pick_baseline'] = baseline
+      write_model_scope.call
+      if cand && !PbiModelScope.auto_pick_allowed?(cand, baseline)
+        puts "   candidate #{cand['dm_name']} [#{cand['dm_id']}] has #{cand['raw_element_count']} elements - " \
+             "larger than this report needs (#{baseline}); building a new scoped DM"
+        scope_guard_refused = true
+      end
+    end
+    if match['auto_picked'] && match['recommended_dm_id'] && !scope_guard_refused
       reuse_dm_id = match['recommended_dm_id']
       puts "   DM-REUSE (auto): #{match['rationale']}"
       puts "   ⚠ #{match['warning']}" if match['warning']
@@ -992,6 +1446,45 @@ if reuse_dm_id
     File.write(File.join(WORK, 'dm-readback.json'), JSON.pretty_generate(dm_rb))
     n_el = dm_rb['pages'].flat_map { |p| p['elements'] || [] }.size
     puts "   REUSING dataModelId = #{dm_id} (#{n_el} element(s)) — convert + POST skipped"
+    if opts[:page_facts] && integrate_page_facts_dm!(opts, dm_spec, check: true) == :changed
+      # The reused DM lacks (or has stale) page-fact elements. Changing a shared, existing data model
+      # is the user's call: say so and stop unless --page-facts-update-dm was given.
+      unless opts[:page_facts_update_dm]
+        puts
+        puts '==================== OPEN QUESTIONS ===================='
+        puts "   [required] page_facts_reused_dm: the reused data model #{dm_id} does not carry the page facts in"
+        puts "              #{opts[:page_facts]}. Rerun with --page-facts-update-dm to PUT them into it, or with"
+        puts '              --no-reuse to build a new data model that includes them.'
+        exit 10
+      end
+      abort 'FATAL: --page-facts-update-dm needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
+      integrate_page_facts_dm!(opts, dm_spec)
+      if opts[:stop_before_post]
+        puts "   page facts: would PUT them into reused data model #{dm_id} (--stop-before-post: not written)"
+        raise StopBeforePostPageFacts
+      end
+      _put_rb = File.join(WORK, 'dm-readback.json')
+      run!(['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'datamodel', '--spec', dm_spec,
+            '--out', _put_rb, '--workdir', WORK, '--update-id', dm_id], env: ENV.to_h)
+      dm_rb = JSON.parse(File.read(_put_rb))
+      dm_model = JSON.parse(File.read(dm_spec))
+      puts "   page facts: PUT into reused data model #{dm_id}"
+    end
+    if opts[:stop_before_post]
+      # --stop-before-post means NOTHING is created in Sigma on ANY path: the reuse path would go
+      # on to build and POST the workbook in Phase 4. A draft-only page-fact run stops here too.
+      scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
+      puts
+      puts "STOP BEFORE POST: would reuse existing data model #{dm_id} (spec read back -> #{dm_spec})"
+      puts '   no Sigma objects were created; rerun without --stop-before-post to build the workbook on it'
+      exit 0
+    end
+  rescue StopBeforePostPageFacts
+    scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
+    puts
+    puts "STOP BEFORE POST: would reuse existing data model #{dm_id} with the page facts added (spec -> #{dm_spec})"
+    puts '   no Sigma objects were created or changed; rerun without --stop-before-post to PUT and build the workbook'
+    exit 0
   rescue StandardError => e
     puts "   [warn] could not read reused DM #{reuse_dm_id} (#{e.message[0, 120]}) — building a new DM instead"
     reuse_dm_id = nil
@@ -1067,7 +1560,22 @@ else
   abort 'FATAL: need --ref-dm (to harvest folderId/ownerId) or --folder plus a --ref-dm for ownerId'
 end
 run!(fixup, env: ENV.to_h)
+if opts[:page_facts]
+  abort 'FATAL: --page-facts needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
+  integrate_page_facts_dm!(opts, dm_spec)
+end
 run!(['ruby', File.join(HERE, 'validate-spec.rb'), '--type', 'datamodel', dm_spec])
+if opts[:stop_before_post]
+  scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
+  # Offline iteration mode for large models: everything up to and including the
+  # DM spec validation ran (extract, scope, convert, NativeQuery restore,
+  # name-sanitize, dm-resolver, --probe-sources). Nothing has been created in
+  # Sigma; rerun without the flag (same --out: extraction is cached) to POST.
+  puts
+  puts "STOP BEFORE POST: data model spec is ready and validated -> #{dm_spec}"
+  puts '   no Sigma objects were created; rerun without --stop-before-post to post it'
+  exit 0
+end
 dm_readback = File.join(WORK, 'dm-readback.json')
 # DM POST — captured (not run!) so an unreadable-table failure surfaces a concrete
 # GRANT action instead of an opaque 400 (customer feedback 2026-07-17).
@@ -1156,6 +1664,14 @@ end
 # ---------------------------------------------------------------------------
 # Phase 4 — Build workbook (auto master-map from converter + signals, then build+POST)
 # ---------------------------------------------------------------------------
+# Last line of defence for --stop-before-post: both DM paths above exit before reaching here, but the
+# workbook POST (and everything after it) must never run under the flag whatever path led here.
+if opts[:stop_before_post]
+  puts
+  puts 'STOP BEFORE POST: not building or posting the workbook (--stop-before-post)'
+  puts '   no Sigma objects were created by the workbook phase'
+  exit 0
+end
 hdr(4, TOTAL, 'Build workbook')
 
 # --- derive the master-map deterministically ---
@@ -1373,78 +1889,11 @@ calc_tables.each do |t|
   end
 end
 
-# Bug A (star schema): a cross-table visual binds a DIMENSION from a dim table
-# (e.g. PRODUCT_DIM.Category) AND a MEASURE from the fact (ORDER_FACT.Net Rev).
-# Those route to DIFFERENT per-table masters, but a Sigma chart element can only
-# reference columns from its OWN source master — a cross-master ref error-types.
-# The converter already builds a denormalized "<Fact> View" element that carries
-# the fact columns + every related dim column (disambiguated "Leaf (DIM)"). So
-# RE-ROUTE every field that the View also exposes onto the View master, leaving
-# the visual with a single coherent source. Match a per-table field's leaf name
-# to the View column whose Sigma display name is "Leaf" or "Leaf (anything)".
-conv_elements.each do |vcel|
-  vname = vcel['name'].to_s
-  next unless vname =~ /\sView$/                     # the denormalized join element
-  next unless masters[vname]
-  vmid  = masters[vname]['id']
-  vcols = masters[vname]['columns'] || []
-  # leaf -> View column name (prefer the bare-leaf col when present, else the
-  # first disambiguated "Leaf (DIM)" col).
-  leaf_to_view = {}
-  vcols.each do |c|
-    leaf = c['name'].to_s.sub(/\s+\([^)]*\)\s*$/, '') # strip " (DIM)" suffix
-    leaf_to_view[leaf] ||= c['name']
-    leaf_to_view[c['name']] ||= c['name']            # exact disambiguated form too
-  end
-  # the fact this View denormalizes (drop the trailing " View").
-  fact = vname.sub(/\s+View$/, '')
-  # masters whose columns the View subsumes: the fact + every dim reachable via
-  # a "(DIM)" suffix in the View's columns.
-  subsumed = [fact] + vcols.map { |c| c['name'][/\(([^)]*)\)\s*$/, 1] }.compact.uniq
-  subsumed = subsumed.map { |n| n.downcase }
-  # Register the View resolution as an ALT, not the primary (grain fix, found
-  # live during the control-targeting wave): making the View the PRIMARY routed
-  # EVERY field of the subsumed tables onto the join element, so a SINGLE-table
-  # visual (e.g. Median Salary over EMPLOYEES) silently evaluated at the JOIN
-  # grain — one row per fact/absence record, not per employee — and diverged
-  # (live: Sigma median 73,500 vs PBI 73,000). As an alt, visual_master still
-  # majority-picks the View for CROSS-table visuals (the View is the only
-  # master covering all their fields) while same-table visuals tie-break to the
-  # field's own master and keep their source grain.
-  field_map.each do |qr, fs|
-    next unless subsumed.include?(fs['master'].to_s.downcase)
-    next if fs['master'] == vname
-    old_mid = masters[fs['master']] ? masters[fs['master']]['id'] : nil
-    ref_str = fs['ref'].to_s
-    is_plain_col = ref_str =~ /\A\[[^\]]+\]\z/ # exactly one bracketed ref, no agg
-    add_alt = lambda do |ref|
-      alts = (fs['alts'] ||= [])
-      alts << { 'master' => vname, 'ref' => ref, 'agg' => fs['agg'] } unless
-        alts.any? { |a| a['master'] == vname }
-    end
-    if is_plain_col
-      # plain dimension/column ref: match its leaf to a View column.
-      leaf = qr.split('.', 2).last.to_s.sub(/\s+\([^)]*\)\s*$/, '')
-      entity = fs['master'].to_s
-      # Prefer the entity-qualified dimension; a same-named fact column or
-      # inactive role-playing dimension is not interchangeable.
-      vcol = PbiMasterKey.view_column(vcols, entity, leaf, fact)
-      next unless vcol
-      add_alt.call("[#{vmid}/#{vcol}]")
-    elsif old_mid
-      # measure/aggregation formula: every referenced fact column must exist on the
-      # View (it does — the View carries all fact columns). Swap the old master id
-      # for the View master id and remap each inner column leaf to its View name.
-      remapped = ref_str.gsub(/\[#{Regexp.escape(old_mid)}\/([^\]]+)\]/) do
-        inner = Regexp.last_match(1)
-        mapped = leaf_to_view[inner] || leaf_to_view[inner.sub(/\s+\([^)]*\)\s*$/, '')] || inner
-        "[#{vmid}/#{mapped}]"
-      end
-      # only register if we actually rewrote a ref onto the View master.
-      add_alt.call(remapped) if remapped.include?(vmid)
-    end
-  end
-end
+# Bug A (star schema): register a "<FACT> View" ALT for every field the joined View
+# element also exposes, so a cross-table visual (dim from one table + fact measure)
+# resolves on ONE master. Friendly PBI table names are mapped to the physical names the
+# View uses. See lib/pbi_view_route.rb.
+PbiViewRoute.add_view_alts!(field_map, masters, conv_elements, tables)
 
 # Bind original source column spelling, including camelCase, to the unique
 # readback-confirmed field. Do not let punctuation/case normalization pick an
@@ -1598,63 +2047,42 @@ if ti_elements.any?
   end
 end
 
-# bead anlb (continued) — CLASSIC-report queryRef normalization. The legacy
-# report.json binds measures as "Sum(Entity.Col)" / "Count(Entity.Col)" and
-# date hierarchies as "Entity.Col.Variation.Date Hierarchy.<Level>". Neither
-# key shape exists in the Entity.Field map derived above (which uses the
-# converter's Title-Case display names), so those bindings fell through to a
-# literal bracketed ref -> silent error-typed column. Resolve both shapes via
-# a case/underscore-insensitive lookup against the existing map.
-norm_key = ->(k) { k.to_s.downcase.gsub(/[^a-z0-9.]/, '') }
-fm_norm = {}
-field_map.each { |k, v| fm_norm[norm_key.call(k)] ||= v }
-agg_names = { 'sum' => 'Sum', 'avg' => 'Avg', 'average' => 'Avg', 'min' => 'Min', 'max' => 'Max',
-              'count' => 'Count', 'countnonnull' => 'Count', 'distinctcount' => 'CountDistinct' }
-all_visuals.flat_map { |v| (v['bindings'] || {}).values.flatten }.uniq.each do |r|
-  next if r.nil? || field_map.key?(r)
-  if (m = r.match(/\A([A-Za-z ]+)\((.+)\)\z/)) && agg_names[m[1].downcase.delete(' ')]
-    base = fm_norm[norm_key.call(m[2])]
-    next unless base && base['ref'].to_s =~ /\A\[[^\]]+\]\z/
-    _fn = agg_names[m[1].downcase.delete(' ')]
-    # wrap the ALTS as well, not just the primary ref — see lib/pbi_field_alts.rb
-    field_map[r] = PbiFieldAlts.wrapped_entry(base) { |ref| "#{_fn}(#{ref})" }
-  elsif (m = r.match(/\A(.+?)\.Variation\..*\.(Year|Quarter|Month|Week|Day)\z/i))
-    base = fm_norm[norm_key.call(m[1])]
-    next unless base && base['ref'].to_s =~ /\A\[[^\]]+\]\z/
-    _lvl = m[2].downcase
-    field_map[r] = PbiFieldAlts.wrapped_entry(base) { |ref| "DateTrunc(\"#{_lvl}\", #{ref})" }
-  end
-end
+# PBI-friendly-entity aliases ([bead]): "VW_SALES.Amount" is ALSO reachable
+# as "Sales.Amount", the form PBIR visuals use (1:1 physical->PBI only; role-playing
+# copies are already keyed under each PBI table). Runs BEFORE the classic normalization
+# below: "Sum(Sales.Amount)" is synthesized from its "Sales.Amount" base, which only
+# exists once the alias does — run after, a friendly-named model's every implicit
+# aggregate went unsynthesized and its chart lost the measure.
+_n_alias = PbiViewRoute.add_friendly_aliases!(field_map, physical_to_pbi)
+puts "   master-map: +#{_n_alias} PBI-friendly-entity alias(es) (physical view name -> friendly table name)" if _n_alias.positive?
 
-# PBI-friendly-entity aliases ([bead]): a key "VW_SALES.Amount" is
-# ALSO reachable as "Sales.Amount" — the form PBIR visuals actually use. This
-# is why granted dim NAME columns dropped: the DM element is named after the physical
-# view ("vw_sales") but the visual binds under the friendly entity, and field_spec's
-# normalize-fallback can't bridge a `vw_` prefix. Never overwrites an existing key; only
-# adds when the physical element maps to a DIFFERENT friendly name.
-unless physical_to_pbi.empty?
-  aliases = {}
-  field_map.each do |k, v|
-    ent, dot, leaf = k.rpartition('.')
-    next if dot.empty? || ent.empty? || leaf.empty?
-    pbis = Array(physical_to_pbi[_normt.call(ent)])
-    # With N>1 copies the physical name is AMBIGUOUS — aliasing it to one of them is how
-    # a control ended up filtering the wrong date dimension. Alias only the unambiguous
-    # 1:1 case; the N-copy case is already keyed correctly under each PBI table name.
-    next unless pbis.size == 1
-    pbi = pbis.first
-    next unless pbi && _normt.call(pbi) != _normt.call(ent)
-    ak = "#{pbi}.#{leaf}"
-    aliases[ak] = v unless field_map.key?(ak) || aliases.key?(ak)
-  end
-  field_map.merge!(aliases)
-  puts "   master-map: +#{aliases.size} PBI-friendly-entity alias(es) (physical view name -> friendly table name)" unless aliases.empty?
-end
+# bead anlb (continued) — CLASSIC-report queryRefs "Sum(Entity.Col)" and
+# "Entity.Col.Variation.Date Hierarchy.<Level>" resolve against the existing map,
+# alts wrapped too (lib/pbi_field_alts.rb).
+PbiFieldAlts.normalize_classic_refs!(field_map, all_visuals.flat_map { |v| (v['bindings'] || {}).values.flatten })
 
 master_map = { 'masters' => masters, 'fields' => field_map }
 mmap_path = File.join(WORK, 'master-map.json')
 File.write(mmap_path, JSON.pretty_generate(master_map))
 puts "   master-map: #{masters.size} master(s), #{field_map.size} field/measure ref(s) -> #{mmap_path}"
+
+pf_model_path = scoped_tmsl_path || opts[:tmsl]
+pf_dialect = PbiProbeGate.dialect_for(opts[:wh_type])
+if opts[:page_facts]
+  # page-scoped bindings: each page fact's page binds its measures + grain columns to the page fact
+  _mm_cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--master-map', mmap_path,
+             '--dm-readback', File.join(WORK, 'dm-readback.json')]
+  _mm_cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  run!(_mm_cmd)
+end
+if opts[:scaffold_page_facts]
+  # Draft page facts from each page's DAX closure (offline, seconds). Never blocks the run: the
+  # drafts go to <WORK>/page-facts-draft; complete their TODOs, prove them with check-plan.json,
+  # then rerun with --page-facts <dir>.
+  phase_mark('4a-scaffold-page-facts')
+  scaffold_page_facts!(opts, pf_model_path, signals_path, dm_spec, mmap_path, pf_dialect)
+  phase_mark('4-build-workbook')
+end
 
 wb_spec = File.join(WORK, 'workbook-spec.json')
 layout = File.join(WORK, 'layout.xml')
@@ -1665,10 +2093,12 @@ build = ['ruby', File.join(HERE, 'build-workbook-from-pbir.rb'),
          # control-targeting wave (workstream B): the TMSL relationships drive
          # slicer-control target scope; control-scope.json (intended-scope
          # contract for the control lint) lands in WORK.
-         '--model', opts[:tmsl],
+         '--model', scoped_tmsl_path || opts[:tmsl],
          '--control-scope-out', File.join(WORK, 'control-scope.json'),
          '--coverage-out', File.join(WORK, 'coverage.json'),
          '--out', wb_spec, '--layout-out', layout]
+masters_pruned_path = File.join(WORK, 'masters-pruned.json')
+build += (opts[:full_model] ? ['--no-prune-masters'] : ['--masters-pruned-out', masters_pruned_path])
 # The workbook POST requires a folderId. Use --folder if given, else inherit the
 # DM's folderId (harvested from the ref-dm at Phase 3) so both land together.
 wb_folder = opts[:folder] || (JSON.parse(File.read(dm_spec))['folderId'] rescue nil)
@@ -1682,6 +2112,24 @@ build += ['--folder-id', wb_folder] if wb_folder
 # workbook against this DM (see SKILL.md). Never worse than the proven agent path.
 begin
   build_log = run_wb!(build)
+  if opts[:page_facts]
+    # Slicers on dimensions a page fact does not carry: control-parameterized SQL behind a union gate
+    # (refs/large-pbix.md). Rewrites the spec + layout.xml in place; report in slicer-gate.json.
+    run_wb!([*PY_ARGV, File.join(HERE, 'wire-slicer-gate.py'), '--spec', wb_spec, '--page-facts', opts[:page_facts],
+             '--model', pf_model_path, '--dm-spec', dm_spec, '--master-map', mmap_path, '--connection', opts[:conn].to_s,
+             '--control-scope', File.join(WORK, 'control-scope.json'), '--layout-out', layout,
+             '--report', File.join(WORK, 'slicer-gate.json'), '--verify-out', File.join(WORK, 'slicer-gate-verify.json'),
+             '--dialect', (%w[snowflake databricks bigquery].include?(pf_dialect) ? pf_dialect : 'snowflake')])
+  end
+  if !opts[:full_model] && File.exist?(masters_pruned_path)
+    begin
+      model_scope['dropped_masters'] = JSON.parse(File.read(masters_pruned_path))
+      write_model_scope.call
+      puts "   MODEL SCOPE: pruned #{model_scope['dropped_masters'].size} unread Data-page master(s)" unless model_scope['dropped_masters'].empty?
+    rescue StandardError => e
+      warn "   [warn] could not merge #{masters_pruned_path}: #{e.message}"
+    end
+  end
   # Validate the WORKBOOK spec before POST — previously only the DM spec was
   # validated, so workbook-shape defects (source-less "[]" elements, dangling
   # grouping refs, missing kind) went straight to the API. The DM readback gives
@@ -2103,7 +2551,7 @@ else
   probe_out = File.join(WORK, 'probe-controls')
   probe     = File.join(HERE, 'probe-controls.rb')
   has_creds = begin
-    !ENV['SIGMA_BASE_URL'].to_s.empty? && !Sigma.auth_token.to_s.empty?
+    !Sigma.base_url.to_s.empty? && !Sigma.auth_token.to_s.empty?
   rescue Sigma::Error
     false
   end

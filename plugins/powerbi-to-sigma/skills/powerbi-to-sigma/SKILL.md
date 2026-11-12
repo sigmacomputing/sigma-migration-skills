@@ -54,7 +54,8 @@ directories is also registered in CI, so a new suite cannot be added and silentl
 >   resolvable standalone model), and Power BI **blocks export-to-`.pbix`** for
 >   live-connected reports, so device-auth can't download it. The COMPLETE model is
 >   in the author's local `.pbix`. The orchestrator DETECTS this (Fabric-path TMSL
->   shows DirectQuery/`entity`/remote-dataset references) and STOPS with an OPEN
+>   shows `entity` proxy partitions or M/`expressionSource` references to a remote
+  Power BI / AS dataset — plain DirectQuery to a warehouse does NOT trip it) and STOPS with an OPEN
 >   QUESTION (exit 10) asking for the local `.pbix` — do **not** silently build a DM
 >   from the incomplete model. Ask the user for the file and re-run with `--pbix`
 >   (offline tell in a `.pbix`: its `Connections` member's `RemoteArtifacts`). Only
@@ -95,6 +96,13 @@ directories is also registered in CI, so a new suite cannot be added and silentl
 > - Small/older models (e.g. running on Haiku): if the report is large or complex,
 >   say so and confirm scope with the user before building — don't silently
 >   degrade to a partial shell.
+
+## Large reports (many pages / NativeQuery import models / slicer-heavy)
+Read `refs/large-pbix.md` first: run with `--probe-sources` (pre-POST warehouse gate; stops on a bound column missing from
+the SQL output) and rerun in the same `--out` (Phase 0/1 extraction is cached). Classify each page: single-fact pages bind
+on the joined View; multi-fact / as-of / bucketed pages get one page-fact SQL element verified by an independent oracle
+(`scripts/sigma-sql-probe.py`, `scripts/parity-from-oracle.py`). `--scaffold-page-facts` drafts them (brief, SQL, oracle,
+check plan); fill the TODOs, then rerun with `--page-facts <dir>` to add them to the DM, bind their pages and gate their slicers.
 
 ## Preflight the workbook spec before POST (mandatory)
 
@@ -232,6 +240,7 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
 - **Known gap `j89`**: the Snowflake `Snowflake.Databases(...) + Navigation` M pattern isn't parsed → pass `database`/`schema` explicitly until fixed.
 - **Non-warehouse sources (Fabric Dataflow / Lakehouse / OneLake / Dataverse / file)**: when a table's M source is a `PowerPlatform.Dataflows` / `Lakehouse.Contents` / `CommonDataService` / `Excel.Workbook`-style connector, the data is NOT in a warehouse Sigma can query and the dataflow's transform logic is NOT in the semantic model (so it can't be translated). The converter flags each such table with a `⛔` warning + a placeholder path and reports `stats.nonWarehouseSourcedTables`; `migrate-powerbi.rb` surfaces a **`non_warehouse_source` decision** at the checkpoint. **Handoff:** run the **`powerbi-import-to-snowflake`** skill to land the data (it works for Import-mode models — the dataflow already materialized the rows), then re-run **Phase 3 Build** with `convert-model.rb --table-map <manifest.json>` — the loader reads the landing manifest directly (no manual map) and repoints the elements. The `powerbi-assessment` readout flags these tables up front under "Data-source patterns".
 - **DAX gaps → gap-scout**: for measures the converter buckets `b` (restructure) or `c` (no-equivalent) — `RANKX`, `ALLEXCEPT`, `SUMMARIZE`, `USERELATIONSHIP`, `PATH*` — spawn the **gap-scout** sub-agent (`scripts/gap-scout.md`): it proposes a Sigma translation, validates it against the live API (`scripts/scout-validate.py`), and persists the rule to `~/.powerbi-to-sigma/learned-rules.yaml` (loaded by `scripts/learned-rules.py`) so future conversions auto-apply it. Time-intelligence (YTD/SPLY) is usually translatable — see `refs/measure-patterns.md`, not the scout.
+- **Model scoping (default ON)**: the DM is scoped to what the report needs, not the whole semantic model (`scripts/lib/pbi_model_scope.rb`). Kept tables carry a reason tag: `report` (a visual/filter reads it), `measure:<name>`, `calc:<table>.<column>`, `calc-table:<name>`, `calc-group:<table>`, `join-path` (relationship bridge between kept tables), `rls:<role>`. Dropped tables, measures, calculated columns, converter Views and unread Data-page masters are listed in the console `MODEL SCOPE` block and in `<WORK>/model-scope.json` (audit trail). Views are kept per report page: a View for table X stays when some page's entity set (every visual binding plus page, report and visual filter targets; a measure contributes its home table and every table its DAX references) contains X and at least one other table X points to through relationships (directed reach, so a slicer on a dimension keeps the fact's View), when a measures-only table on the page has measures that touch X, when another element sources the View, or when it hosts relocated columns/metrics; an unresolved entity keeps all Views. If scoping resolves nothing (empty report) it falls back to the full model and says why. `--full-model` restores the old whole-model behavior.
 
 ## Phase 3.5 — Reuse an existing DM? (avoid sprawl — the reuse-first DM gate every converter runs before building)
 Before posting a NEW data model, check whether an existing Sigma DM already
@@ -247,6 +256,7 @@ high AND there's no tie, `--auto-pick` recommends reuse (sets `auto_picked:true`
 — WARN about inherited columns/RLS/metrics); on a tie it falls back to ASK. To
 reuse: skip Phase 4, point the workbook masters at the matched `recommended_dm_id`
 + its element ids (describe it), and continue at Phase 5. Otherwise post new.
+**Size guard:** with scoping, `--auto-pick` reuses a candidate only when its element count is ≤ THIS run's converted element count (after View filtering) + 2, recorded as `auto_pick_baseline` in `model-scope.json`. A larger candidate prints a notice and a new scoped DM is built (no ASK; the stale full-model DM is not silently reused). An explicit `--reuse-dm <id>` always wins over the guard.
 
 ## Phase 4 — Post the data model
 The converter output (`sigmaDataModel`) needs 3 fixups before `POST /v2/dataModels/spec` (gap `tkd`):
@@ -284,7 +294,7 @@ Then: `tableau-to-sigma/scripts/post-and-readback.rb --type datamodel`. See `ref
   existing data-model/server ids and control variable names are not rewritten.
   KPI values retain the equivalent inline aggregate required by preflight; supported
   chart consumers can continue using governed `[Metrics/<metric name>]` references.
-- **Data page**: one hidden `table` master per DM element used (`source: {kind:data-model, dataModelId, elementId}`, columns `[ElementName/Col]`).
+- **Data page**: one hidden `table` master per DM element used (`source: {kind:data-model, dataModelId, elementId}`, columns `[ElementName/Col]`); masters are created only for elements something reads — `build-workbook-from-pbir.rb --no-prune-masters` keeps them all, `--masters-pruned-out` records the dropped ones.
 - **Chart elements** source from a master (`source:{kind:table, elementId:<master>}`), columns `[dim, meas]`:
   - bar/line: `xAxis:{columnId}`, `yAxis:{columnIds:[...]}`
   - pie/donut: `color:{id}`, `value:{id}`
