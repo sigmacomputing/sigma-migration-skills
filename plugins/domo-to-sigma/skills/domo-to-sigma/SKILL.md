@@ -575,7 +575,9 @@ page to PNG and compare it **side-by-side against the Domo full-page PDF**
 source-fidelity → structural → design-quality rubrics, fix the spec, re-render,
 and loop until the render passes. Declare done on a *clean render*, never on HTTP 200.
 In the orchestrated path, fulfill `visual-grade-request.json` with a fresh
-context-free grader per `refs/blind-grader-brief.md`; exit 20 means WAITING for
+context-free grader per `refs/blind-grader-brief.md` (business-user standard;
+platform differences from `refs/sigma-platform-differences.json` are recorded, not
+scored; the grade is score-based, `blind-grade/v2`); exit 20 means WAITING for
 that evidence, not a failed migration and not permission to waive the gate.
 
 Plus the Domo-specific gate from `refs/card-to-element.md`:

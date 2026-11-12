@@ -27,6 +27,7 @@ require 'yaml'
 require 'date'
 require 'optparse'
 $LOAD_PATH.unshift File.expand_path('lib', __dir__)
+require 'sigma_rest'
 require 'code_rep'
 # Ruby 2.6 floor (macOS system ruby): this file uses Enumerable#tally (2.7+).
 # Polyfilled rather than rewritten -- see shared/lib/ruby_compat.rb.
@@ -40,18 +41,40 @@ OptionParser.new do |p|
 end.parse!
 %i[wb layout].each { |k| abort("missing --#{k}") unless opts[k] }
 
-BASE = ENV.fetch('SIGMA_BASE_URL')
-TOK  = ENV.fetch('SIGMA_API_TOKEN')
+# Host and token come from the shared client: SIGMA_BASE_URL / SIGMA_API_TOKEN
+# when exported, else a signed-in Sigma CLI profile (or browser login / client
+# credentials) through the token provider.
+def sigma_base
+  @sigma_base ||= Sigma.base_url
+rescue Sigma::Error => e
+  abort "put-layout: #{e.message}"
+end
 
 def http(method, path, body = nil)
-  uri = URI("#{BASE}#{path}")
-  req = case method
-        when :get then Net::HTTP::Get.new(uri)
-        when :put then r = Net::HTTP::Put.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
-        end
-  req['Authorization'] = "Bearer #{TOK}"
-  req['Accept']        = 'application/json'
-  Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |h| h.request(req) }
+  attempts = 0
+  loop do
+    attempts += 1
+    uri = URI("#{sigma_base}#{path}")
+    req = case method
+          when :get then Net::HTTP::Get.new(uri)
+          when :put then r = Net::HTTP::Put.new(uri); r.body = body; r['Content-Type'] = 'application/json'; r
+          end
+    req['Authorization'] = "Bearer #{Sigma.auth_token}"
+    req['Accept']        = 'application/json'
+    res = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') { |h| h.request(req) }
+    if res.code.to_i == 401 && attempts == 1
+      warn '  [auth] Sigma token expired mid-run, refreshing and retrying...'
+      refreshed = begin
+        Sigma.refresh_token!
+        true
+      rescue StandardError => e
+        warn "  [auth] token refresh failed: #{e.message.lines.first.to_s.strip}"
+        false
+      end
+      next if refreshed
+    end
+    return res
+  end
 end
 
 xml = File.read(opts[:layout], encoding: 'UTF-8')

@@ -918,8 +918,9 @@ def phase_record_visual_check!(opts)
   render_path = File.join(OUT, 'sigma-render.png')
   grade_path = File.expand_path(opts[:blind_grade] || DomoVisualHandoff::GRADE_BASENAME, OUT)
   source_path = opts[:source_dashboard_png]
-  rubric_path = File.expand_path('../refs/layout-visual-qa.md', __dir__)
+  rubric_path = File.expand_path('../refs/fidelity-rubric.md', __dir__)
   brief_path = File.expand_path('../refs/blind-grader-brief.md', __dir__)
+  catalog_path = DomoVisualHandoff.default_catalog_path
 
   validation = DomoVisualHandoff.validate_grade(grade_path, workdir: OUT) if File.file?(grade_path)
   invalid_reason = validation && validation['errors'].any? ? validation['errors'].join('; ') : nil
@@ -932,7 +933,8 @@ def phase_record_visual_check!(opts)
       rubric_path: rubric_path,
       brief_path: brief_path,
       grade_path: grade_path,
-      reason: invalid_reason
+      reason: invalid_reason,
+      catalog_path: catalog_path
     )
 
     if opts[:visual_grader] && source_path
