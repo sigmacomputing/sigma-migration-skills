@@ -1,7 +1,7 @@
 # AGENTS.md — sigma-migration-skills
 
 Migration skills for moving BI tools (**Tableau, Power BI, Qlik, ThoughtSpot,
-QuickSight, Looker, Cognos, MicroStrategy, Sisense, GoodData, Domo, Hex**) to
+QuickSight, Looker, Cognos, MicroStrategy, Sisense, GoodData, Domo, Hex, Solver**) to
 **Sigma**: per-tool *converters* (source → Sigma data model + workbook, with
 warehouse parity verification) and read-only *assessments* (tenant inventory →
 migration-readiness readout + shortlist).
@@ -71,6 +71,8 @@ Maturity labels (`gold` / `live` / `foundation` / `scaffold`) are defined in
 | Scope/assess a Spotfire instance | `spotfire-assessment` | foundation | `plugins/spotfire-to-sigma/skills/spotfire-assessment/` |
 | Convert an Omni model + dashboards → Sigma | `omni-to-sigma` | foundation | `plugins/omni-to-sigma/skills/omni-to-sigma/` |
 | Scope/assess an Omni instance | `omni-assessment` | foundation | `plugins/omni-to-sigma/skills/omni-assessment/` |
+| Rebuild a Solver (Solver Global / BI360) report → Sigma (from its Live Reporting download) | `solver-to-sigma` | scaffold | `plugins/solver-to-sigma/skills/solver-to-sigma/` |
+| Scope/assess a Solver report estate (from Live Reporting downloads) | `solver-assessment` | scaffold | `plugins/solver-to-sigma/skills/solver-assessment/` |
 
 Assessments are read-only (never write to the source or post to Sigma); run one
 to pick what to convert, then hand off to the matching converter.

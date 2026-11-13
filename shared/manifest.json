@@ -78,7 +78,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-to-sigma/scripts/lib/sigma_rest.py",
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/lib/sigma_rest.py",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/lib/sigma_rest.py",
-        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/lib/sigma_rest.py"
+        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/lib/sigma_rest.py",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/lib/sigma_rest.py"
       ]
     },
     {
@@ -107,7 +108,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-to-sigma/scripts/lib/sigma_rest.rb",
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/lib/sigma_rest.rb",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/lib/sigma_rest.rb",
-        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/lib/sigma_rest.rb"
+        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/lib/sigma_rest.rb",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/lib/sigma_rest.rb"
       ]
     },
     {
@@ -521,7 +523,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-to-sigma/scripts/escalate-gap.py",
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/escalate-gap.py",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/escalate-gap.py",
-        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/escalate-gap.py"
+        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/escalate-gap.py",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/escalate-gap.py"
       ]
     },
     {
@@ -561,7 +564,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-to-sigma/scripts/sigma-export-png.py",
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/sigma-export-png.py",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/sigma-export-png.py",
-        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/sigma-export-png.py"
+        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/sigma-export-png.py",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/sigma-export-png.py"
       ]
     },
     {
@@ -583,7 +587,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-to-sigma/scripts/find-or-pick-dm.rb",
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/find-or-pick-dm.rb",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/find-or-pick-dm.rb",
-        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/find-or-pick-dm.rb"
+        "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/find-or-pick-dm.rb",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/find-or-pick-dm.rb"
       ]
     },
     {
@@ -685,7 +690,8 @@
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/get-token.sh",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/get-token.sh",
         "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/get-token.sh",
-        "plugins/sigma-authoring/skills/sigma-api/scripts/get-token.sh"
+        "plugins/sigma-authoring/skills/sigma-api/scripts/get-token.sh",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/get-token.sh"
       ]
     },
     {
@@ -711,7 +717,8 @@
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/get_token.py",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/get_token.py",
         "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/get_token.py",
-        "plugins/sigma-authoring/skills/sigma-api/scripts/get_token.py"
+        "plugins/sigma-authoring/skills/sigma-api/scripts/get_token.py",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/get_token.py"
       ]
     },
     {
@@ -743,7 +750,8 @@
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/browser-login.sh",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/browser-login.sh",
         "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/browser-login.sh",
-        "plugins/sigma-authoring/skills/sigma-api/scripts/browser-login.sh"
+        "plugins/sigma-authoring/skills/sigma-api/scripts/browser-login.sh",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/browser-login.sh"
       ]
     },
     {
@@ -769,7 +777,8 @@
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/refresh-token.sh",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/refresh-token.sh",
         "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/refresh-token.sh",
-        "plugins/sigma-authoring/skills/sigma-api/scripts/refresh-token.sh"
+        "plugins/sigma-authoring/skills/sigma-api/scripts/refresh-token.sh",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/refresh-token.sh"
       ]
     },
     {
@@ -795,7 +804,8 @@
         "plugins/metabase-to-sigma/skills/metabase-to-sigma/scripts/lib/browser-login-platform.sh",
         "plugins/spotfire-to-sigma/skills/spotfire-to-sigma/scripts/lib/browser-login-platform.sh",
         "plugins/omni-to-sigma/skills/omni-to-sigma/scripts/lib/browser-login-platform.sh",
-        "plugins/sigma-authoring/skills/sigma-api/scripts/lib/browser-login-platform.sh"
+        "plugins/sigma-authoring/skills/sigma-api/scripts/lib/browser-login-platform.sh",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/scripts/lib/browser-login-platform.sh"
       ]
     },
     {
@@ -880,7 +890,8 @@
         "plugins/streamlit-to-sigma/skills/streamlit-assessment/scripts/dup-dashboards.py",
         "plugins/metabase-to-sigma/skills/metabase-assessment/scripts/dup-dashboards.py",
         "plugins/spotfire-to-sigma/skills/spotfire-assessment/scripts/dup-dashboards.py",
-        "plugins/omni-to-sigma/skills/omni-assessment/scripts/dup-dashboards.py"
+        "plugins/omni-to-sigma/skills/omni-assessment/scripts/dup-dashboards.py",
+        "plugins/solver-to-sigma/skills/solver-assessment/scripts/dup-dashboards.py"
       ]
     },
     {
@@ -897,7 +908,8 @@
         "plugins/sisense-to-sigma/skills/sisense-to-sigma/refs/layout-visual-qa.md",
         "plugins/tableau-to-sigma/skills/tableau-to-sigma/refs/layout-visual-qa.md",
         "plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/refs/layout-visual-qa.md",
-        "plugins/metabase-to-sigma/skills/metabase-to-sigma/refs/layout-visual-qa.md"
+        "plugins/metabase-to-sigma/skills/metabase-to-sigma/refs/layout-visual-qa.md",
+        "plugins/solver-to-sigma/skills/solver-to-sigma/refs/layout-visual-qa.md"
       ]
     },
     {

@@ -1,0 +1,919 @@
+Period.PeriodId,d_Scenario.Code,d_Account.Code,d_Account.Description,d_dim0.Code,d_dim1.UDF001,GL_F_Trans.Value1
+202501,ACT,4100,Product revenue,L01,,-40535.2
+202501,ACT,4200,Service revenue,L01,,-55264.09
+202501,ACT,5100,Cost of goods,L01,,17685.08
+202501,ACT,6100,Salaries,L01,Field Operations,12008.69
+202501,ACT,6200,Rent,L01,Facilities,7648.34
+202501,ACT,6900,Intercompany charges,L01,Shared Services,10836.5
+202501,BUD,4100,Product revenue,L01,,-35791.68
+202501,BUD,4200,Service revenue,L01,,-68016.85
+202501,BUD,5100,Cost of goods,L01,,18636.63
+202501,BUD,6100,Salaries,L01,Field Operations,6983.11
+202501,BUD,6200,Rent,L01,Facilities,9668.52
+202501,BUD,6900,Intercompany charges,L01,Shared Services,7267.65
+202501,ACT,4100,Product revenue,L02,,-51547.17
+202501,ACT,4200,Service revenue,L02,,-31267.24
+202501,ACT,5100,Cost of goods,L02,,16281.26
+202501,ACT,6100,Salaries,L02,Field Operations,6224.57
+202501,ACT,6200,Rent,L02,Facilities,11589.98
+202501,ACT,6900,Intercompany charges,L02,Shared Services,13155.19
+202501,BUD,4100,Product revenue,L02,,-63519.74
+202501,BUD,4200,Service revenue,L02,,-47062.83
+202501,BUD,5100,Cost of goods,L02,,25910.9
+202501,BUD,6100,Salaries,L02,Field Operations,13864.83
+202501,BUD,6200,Rent,L02,Facilities,5548.12
+202501,BUD,6900,Intercompany charges,L02,Shared Services,11003.56
+202501,ACT,4100,Product revenue,L03,,-72443.08
+202501,ACT,4200,Service revenue,L03,,-50640.9
+202501,ACT,5100,Cost of goods,L03,,16123.49
+202501,ACT,6100,Salaries,L03,Field Operations,5890.59
+202501,ACT,6200,Rent,L03,Facilities,12139.11
+202501,ACT,6900,Intercompany charges,L03,Shared Services,11064.65
+202501,BUD,4100,Product revenue,L03,,-62887.14
+202501,BUD,4200,Service revenue,L03,,-38549.71
+202501,BUD,5100,Cost of goods,L03,,12013.42
+202501,BUD,6100,Salaries,L03,Field Operations,11332.82
+202501,BUD,6200,Rent,L03,Facilities,10437.16
+202501,BUD,6900,Intercompany charges,L03,Shared Services,12448.36
+202502,ACT,4100,Product revenue,L01,,-50696.02
+202502,ACT,4200,Service revenue,L01,,-41497.28
+202502,ACT,5100,Cost of goods,L01,,14759.48
+202502,ACT,6100,Salaries,L01,Field Operations,13475.28
+202502,ACT,6200,Rent,L01,Facilities,6562.15
+202502,ACT,6900,Intercompany charges,L01,Shared Services,13587.56
+202502,BUD,4100,Product revenue,L01,,-36228.99
+202502,BUD,4200,Service revenue,L01,,-56855.55
+202502,BUD,5100,Cost of goods,L01,,21690.13
+202502,BUD,6100,Salaries,L01,Field Operations,9530.23
+202502,BUD,6200,Rent,L01,Facilities,13510.34
+202502,BUD,6900,Intercompany charges,L01,Shared Services,5779.2
+202502,ADJ,4100,Product revenue,L01,,-3714.8
+202502,ADJ,4200,Service revenue,L01,,-6979.23
+202502,ADJ,5100,Cost of goods,L01,,2249.82
+202502,ADJ,6100,Salaries,L01,Field Operations,1044.28
+202502,ADJ,6200,Rent,L01,Facilities,918.91
+202502,ADJ,6900,Intercompany charges,L01,Shared Services,962.49
+202502,ACT,4100,Product revenue,L02,,-41778.38
+202502,ACT,4200,Service revenue,L02,,-63907.26
+202502,ACT,5100,Cost of goods,L02,,19380.4
+202502,ACT,6100,Salaries,L02,Field Operations,6955.1
+202502,ACT,6200,Rent,L02,Facilities,10163.31
+202502,ACT,6900,Intercompany charges,L02,Shared Services,11799.62
+202502,BUD,4100,Product revenue,L02,,-33887.04
+202502,BUD,4200,Service revenue,L02,,-63703.68
+202502,BUD,5100,Cost of goods,L02,,26300.69
+202502,BUD,6100,Salaries,L02,Field Operations,7638.14
+202502,BUD,6200,Rent,L02,Facilities,12217.26
+202502,BUD,6900,Intercompany charges,L02,Shared Services,9461.16
+202502,ACT,4100,Product revenue,L03,,-31625.47
+202502,ACT,4200,Service revenue,L03,,-41228.77
+202502,ACT,5100,Cost of goods,L03,,26616.08
+202502,ACT,6100,Salaries,L03,Field Operations,14013.39
+202502,ACT,6200,Rent,L03,Facilities,10140.36
+202502,ACT,6900,Intercompany charges,L03,Shared Services,13012.66
+202502,BUD,4100,Product revenue,L03,,-74613.93
+202502,BUD,4200,Service revenue,L03,,-57801.44
+202502,BUD,5100,Cost of goods,L03,,25609.03
+202502,BUD,6100,Salaries,L03,Field Operations,9185.88
+202502,BUD,6200,Rent,L03,Facilities,10553.63
+202502,BUD,6900,Intercompany charges,L03,Shared Services,8486.26
+202502,ADJ,4100,Product revenue,L03,,-5251.93
+202502,ADJ,4200,Service revenue,L03,,-3235.28
+202502,ADJ,5100,Cost of goods,L03,,2244.91
+202502,ADJ,6100,Salaries,L03,Field Operations,1302.17
+202502,ADJ,6200,Rent,L03,Facilities,972.73
+202502,ADJ,6900,Intercompany charges,L03,Shared Services,1152.49
+202503,ACT,4100,Product revenue,L01,,-30969.31
+202503,ACT,4200,Service revenue,L01,,-40699.28
+202503,ACT,5100,Cost of goods,L01,,15532.56
+202503,ACT,6100,Salaries,L01,Field Operations,7993.55
+202503,ACT,6200,Rent,L01,Facilities,8619.81
+202503,ACT,6900,Intercompany charges,L01,Shared Services,14243.2
+202503,BUD,4100,Product revenue,L01,,-56173.94
+202503,BUD,4200,Service revenue,L01,,-46032.79
+202503,BUD,5100,Cost of goods,L01,,27580.32
+202503,BUD,6100,Salaries,L01,Field Operations,10545.24
+202503,BUD,6200,Rent,L01,Facilities,13536.03
+202503,BUD,6900,Intercompany charges,L01,Shared Services,9697.28
+202503,ADJ,4100,Product revenue,L01,,-6599.73
+202503,ADJ,4200,Service revenue,L01,,-3802.0
+202503,ADJ,5100,Cost of goods,L01,,2161.81
+202503,ADJ,6100,Salaries,L01,Field Operations,1148.01
+202503,ADJ,6200,Rent,L01,Facilities,979.38
+202503,ADJ,6900,Intercompany charges,L01,Shared Services,873.92
+202503,ACT,4100,Product revenue,L02,,-52863.93
+202503,ACT,4200,Service revenue,L02,,-66637.26
+202503,ACT,5100,Cost of goods,L02,,18452.54
+202503,ACT,6100,Salaries,L02,Field Operations,12317.28
+202503,ACT,6200,Rent,L02,Facilities,14168.02
+202503,ACT,6900,Intercompany charges,L02,Shared Services,8152.92
+202503,BUD,4100,Product revenue,L02,,-76642.91
+202503,BUD,4200,Service revenue,L02,,-63449.62
+202503,BUD,5100,Cost of goods,L02,,19929.76
+202503,BUD,6100,Salaries,L02,Field Operations,12825.06
+202503,BUD,6200,Rent,L02,Facilities,8249.62
+202503,BUD,6900,Intercompany charges,L02,Shared Services,6882.56
+202503,ADJ,4100,Product revenue,L02,,-3293.34
+202503,ADJ,4200,Service revenue,L02,,-6353.86
+202503,ADJ,5100,Cost of goods,L02,,2681.15
+202503,ADJ,6100,Salaries,L02,Field Operations,780.81
+202503,ADJ,6200,Rent,L02,Facilities,1249.25
+202503,ADJ,6900,Intercompany charges,L02,Shared Services,757.95
+202503,ACT,4100,Product revenue,L03,,-65653.9
+202503,ACT,4200,Service revenue,L03,,-59435.86
+202503,ACT,5100,Cost of goods,L03,,18804.28
+202503,ACT,6100,Salaries,L03,Field Operations,7221.2
+202503,ACT,6200,Rent,L03,Facilities,7485.55
+202503,ACT,6900,Intercompany charges,L03,Shared Services,13287.31
+202503,BUD,4100,Product revenue,L03,,-50661.2
+202503,BUD,4200,Service revenue,L03,,-52882.55
+202503,BUD,5100,Cost of goods,L03,,19581.76
+202503,BUD,6100,Salaries,L03,Field Operations,5939.26
+202503,BUD,6200,Rent,L03,Facilities,14125.31
+202503,BUD,6900,Intercompany charges,L03,Shared Services,6586.39
+202504,ACT,4100,Product revenue,L01,,-30379.8
+202504,ACT,4200,Service revenue,L01,,-74083.07
+202504,ACT,5100,Cost of goods,L01,,13650.23
+202504,ACT,6100,Salaries,L01,Field Operations,12186.64
+202504,ACT,6200,Rent,L01,Facilities,5495.75
+202504,ACT,6900,Intercompany charges,L01,Shared Services,11283.85
+202504,BUD,4100,Product revenue,L01,,-52093.31
+202504,BUD,4200,Service revenue,L01,,-65985.63
+202504,BUD,5100,Cost of goods,L01,,12315.44
+202504,BUD,6100,Salaries,L01,Field Operations,10061.65
+202504,BUD,6200,Rent,L01,Facilities,10100.81
+202504,BUD,6900,Intercompany charges,L01,Shared Services,6253.73
+202504,ADJ,4100,Product revenue,L01,,-3682.98
+202504,ADJ,4200,Service revenue,L01,,-6260.58
+202504,ADJ,5100,Cost of goods,L01,,1752.12
+202504,ADJ,6100,Salaries,L01,Field Operations,1419.65
+202504,ADJ,6200,Rent,L01,Facilities,991.11
+202504,ADJ,6900,Intercompany charges,L01,Shared Services,1362.32
+202504,ACT,4100,Product revenue,L02,,-38830.92
+202504,ACT,4200,Service revenue,L02,,-35899.2
+202504,ACT,5100,Cost of goods,L02,,20369.08
+202504,ACT,6100,Salaries,L02,Field Operations,5845.84
+202504,ACT,6200,Rent,L02,Facilities,13357.48
+202504,ACT,6900,Intercompany charges,L02,Shared Services,7423.75
+202504,BUD,4100,Product revenue,L02,,-63869.21
+202504,BUD,4200,Service revenue,L02,,-65547.2
+202504,BUD,5100,Cost of goods,L02,,26595.74
+202504,BUD,6100,Salaries,L02,Field Operations,8743.34
+202504,BUD,6200,Rent,L02,Facilities,11531.09
+202504,BUD,6900,Intercompany charges,L02,Shared Services,8281.76
+202504,ACT,4100,Product revenue,L03,,-61091.04
+202504,ACT,4200,Service revenue,L03,,-40108.15
+202504,ACT,5100,Cost of goods,L03,,23022.17
+202504,ACT,6100,Salaries,L03,Field Operations,6974.65
+202504,ACT,6200,Rent,L03,Facilities,13052.48
+202504,ACT,6900,Intercompany charges,L03,Shared Services,11141.84
+202504,BUD,4100,Product revenue,L03,,-71379.15
+202504,BUD,4200,Service revenue,L03,,-77275.43
+202504,BUD,5100,Cost of goods,L03,,20118.57
+202504,BUD,6100,Salaries,L03,Field Operations,8530.43
+202504,BUD,6200,Rent,L03,Facilities,11499.63
+202504,BUD,6900,Intercompany charges,L03,Shared Services,8907.35
+202504,ADJ,4100,Product revenue,L03,,-4307.85
+202504,ADJ,4200,Service revenue,L03,,-3273.97
+202504,ADJ,5100,Cost of goods,L03,,2365.6
+202504,ADJ,6100,Salaries,L03,Field Operations,1147.69
+202504,ADJ,6200,Rent,L03,Facilities,570.29
+202504,ADJ,6900,Intercompany charges,L03,Shared Services,895.48
+202505,ACT,4100,Product revenue,L01,,-43040.6
+202505,ACT,4200,Service revenue,L01,,-78771.23
+202505,ACT,5100,Cost of goods,L01,,26842.72
+202505,ACT,6100,Salaries,L01,Field Operations,8574.09
+202505,ACT,6200,Rent,L01,Facilities,12849.79
+202505,ACT,6900,Intercompany charges,L01,Shared Services,5504.79
+202505,BUD,4100,Product revenue,L01,,-34416.89
+202505,BUD,4200,Service revenue,L01,,-64055.7
+202505,BUD,5100,Cost of goods,L01,,11601.25
+202505,BUD,6100,Salaries,L01,Field Operations,8272.05
+202505,BUD,6200,Rent,L01,Facilities,13223.34
+202505,BUD,6900,Intercompany charges,L01,Shared Services,8842.93
+202505,ADJ,4100,Product revenue,L01,,-4790.97
+202505,ADJ,4200,Service revenue,L01,,-4943.27
+202505,ADJ,5100,Cost of goods,L01,,1543.01
+202505,ADJ,6100,Salaries,L01,Field Operations,666.16
+202505,ADJ,6200,Rent,L01,Facilities,1207.57
+202505,ADJ,6900,Intercompany charges,L01,Shared Services,576.73
+202505,ACT,4100,Product revenue,L02,,-54022.97
+202505,ACT,4200,Service revenue,L02,,-59584.23
+202505,ACT,5100,Cost of goods,L02,,10950.78
+202505,ACT,6100,Salaries,L02,Field Operations,7146.85
+202505,ACT,6200,Rent,L02,Facilities,5576.82
+202505,ACT,6900,Intercompany charges,L02,Shared Services,8313.19
+202505,BUD,4100,Product revenue,L02,,-59731.39
+202505,BUD,4200,Service revenue,L02,,-38299.78
+202505,BUD,5100,Cost of goods,L02,,10908.77
+202505,BUD,6100,Salaries,L02,Field Operations,11093.02
+202505,BUD,6200,Rent,L02,Facilities,12856.53
+202505,BUD,6900,Intercompany charges,L02,Shared Services,11410.9
+202505,ACT,4100,Product revenue,L03,,-30396.16
+202505,ACT,4200,Service revenue,L03,,-51931.89
+202505,ACT,5100,Cost of goods,L03,,23507.22
+202505,ACT,6100,Salaries,L03,Field Operations,11125.03
+202505,ACT,6200,Rent,L03,Facilities,9627.32
+202505,ACT,6900,Intercompany charges,L03,Shared Services,6911.53
+202505,BUD,4100,Product revenue,L03,,-49385.87
+202505,BUD,4200,Service revenue,L03,,-44789.83
+202505,BUD,5100,Cost of goods,L03,,17802.16
+202505,BUD,6100,Salaries,L03,Field Operations,5771.12
+202505,BUD,6200,Rent,L03,Facilities,8233.93
+202505,BUD,6900,Intercompany charges,L03,Shared Services,11438.27
+202505,ADJ,4100,Product revenue,L03,,-3368.34
+202505,ADJ,4200,Service revenue,L03,,-7744.5
+202505,ADJ,5100,Cost of goods,L03,,2594.01
+202505,ADJ,6100,Salaries,L03,Field Operations,875.13
+202505,ADJ,6200,Rent,L03,Facilities,712.11
+202505,ADJ,6900,Intercompany charges,L03,Shared Services,832.27
+202506,ACT,4100,Product revenue,L01,,-61918.89
+202506,ACT,4200,Service revenue,L01,,-62544.4
+202506,ACT,5100,Cost of goods,L01,,18925.63
+202506,ACT,6100,Salaries,L01,Field Operations,5483.53
+202506,ACT,6200,Rent,L01,Facilities,5929.88
+202506,ACT,6900,Intercompany charges,L01,Shared Services,7397.15
+202506,BUD,4100,Product revenue,L01,,-69399.0
+202506,BUD,4200,Service revenue,L01,,-41306.64
+202506,BUD,5100,Cost of goods,L01,,19618.32
+202506,BUD,6100,Salaries,L01,Field Operations,6824.81
+202506,BUD,6200,Rent,L01,Facilities,8963.32
+202506,BUD,6900,Intercompany charges,L01,Shared Services,13927.28
+202506,ACT,4100,Product revenue,L02,,-52566.63
+202506,ACT,4200,Service revenue,L02,,-34384.21
+202506,ACT,5100,Cost of goods,L02,,20203.48
+202506,ACT,6100,Salaries,L02,Field Operations,8843.92
+202506,ACT,6200,Rent,L02,Facilities,12585.2
+202506,ACT,6900,Intercompany charges,L02,Shared Services,7578.76
+202506,BUD,4100,Product revenue,L02,,-70696.06
+202506,BUD,4200,Service revenue,L02,,-47338.25
+202506,BUD,5100,Cost of goods,L02,,19068.92
+202506,BUD,6100,Salaries,L02,Field Operations,5520.79
+202506,BUD,6200,Rent,L02,Facilities,7812.71
+202506,BUD,6900,Intercompany charges,L02,Shared Services,7474.75
+202506,ACT,4100,Product revenue,L03,,-57220.48
+202506,ACT,4200,Service revenue,L03,,-43204.43
+202506,ACT,5100,Cost of goods,L03,,11816.1
+202506,ACT,6100,Salaries,L03,Field Operations,5457.94
+202506,ACT,6200,Rent,L03,Facilities,6966.3
+202506,ACT,6900,Intercompany charges,L03,Shared Services,6169.09
+202506,BUD,4100,Product revenue,L03,,-70778.11
+202506,BUD,4200,Service revenue,L03,,-49972.24
+202506,BUD,5100,Cost of goods,L03,,19063.66
+202506,BUD,6100,Salaries,L03,Field Operations,10314.4
+202506,BUD,6200,Rent,L03,Facilities,8374.78
+202506,BUD,6900,Intercompany charges,L03,Shared Services,12309.06
+202507,ACT,4100,Product revenue,L01,,-73262.7
+202507,ACT,4200,Service revenue,L01,,-57365.15
+202507,ACT,5100,Cost of goods,L01,,19007.99
+202507,ACT,6100,Salaries,L01,Field Operations,13287.28
+202507,ACT,6200,Rent,L01,Facilities,9732.73
+202507,ACT,6900,Intercompany charges,L01,Shared Services,10822.11
+202507,BUD,4100,Product revenue,L01,,-38729.09
+202507,BUD,4200,Service revenue,L01,,-59797.48
+202507,BUD,5100,Cost of goods,L01,,16530.64
+202507,BUD,6100,Salaries,L01,Field Operations,13525.25
+202507,BUD,6200,Rent,L01,Facilities,8990.26
+202507,BUD,6900,Intercompany charges,L01,Shared Services,8819.63
+202507,ACT,4100,Product revenue,L02,,-36203.72
+202507,ACT,4200,Service revenue,L02,,-49500.17
+202507,ACT,5100,Cost of goods,L02,,15181.69
+202507,ACT,6100,Salaries,L02,Field Operations,9376.12
+202507,ACT,6200,Rent,L02,Facilities,10018.92
+202507,ACT,6900,Intercompany charges,L02,Shared Services,12046.7
+202507,BUD,4100,Product revenue,L02,,-33118.22
+202507,BUD,4200,Service revenue,L02,,-61831.37
+202507,BUD,5100,Cost of goods,L02,,11068.15
+202507,BUD,6100,Salaries,L02,Field Operations,8770.56
+202507,BUD,6200,Rent,L02,Facilities,12119.53
+202507,BUD,6900,Intercompany charges,L02,Shared Services,13150.37
+202507,ACT,4100,Product revenue,L03,,-68968.22
+202507,ACT,4200,Service revenue,L03,,-40758.39
+202507,ACT,5100,Cost of goods,L03,,17960.43
+202507,ACT,6100,Salaries,L03,Field Operations,13500.5
+202507,ACT,6200,Rent,L03,Facilities,10537.79
+202507,ACT,6900,Intercompany charges,L03,Shared Services,6329.21
+202507,BUD,4100,Product revenue,L03,,-66517.13
+202507,BUD,4200,Service revenue,L03,,-61658.14
+202507,BUD,5100,Cost of goods,L03,,21158.72
+202507,BUD,6100,Salaries,L03,Field Operations,7618.1
+202507,BUD,6200,Rent,L03,Facilities,7379.06
+202507,BUD,6900,Intercompany charges,L03,Shared Services,10912.31
+202507,ADJ,4100,Product revenue,L03,,-3468.56
+202507,ADJ,4200,Service revenue,L03,,-6360.1
+202507,ADJ,5100,Cost of goods,L03,,1417.94
+202507,ADJ,6100,Salaries,L03,Field Operations,1156.29
+202507,ADJ,6200,Rent,L03,Facilities,1102.89
+202507,ADJ,6900,Intercompany charges,L03,Shared Services,806.24
+202508,ACT,4100,Product revenue,L01,,-68464.05
+202508,ACT,4200,Service revenue,L01,,-51512.55
+202508,ACT,5100,Cost of goods,L01,,10988.69
+202508,ACT,6100,Salaries,L01,Field Operations,11929.57
+202508,ACT,6200,Rent,L01,Facilities,12388.16
+202508,ACT,6900,Intercompany charges,L01,Shared Services,9626.19
+202508,BUD,4100,Product revenue,L01,,-49571.52
+202508,BUD,4200,Service revenue,L01,,-61282.39
+202508,BUD,5100,Cost of goods,L01,,26528.11
+202508,BUD,6100,Salaries,L01,Field Operations,9773.72
+202508,BUD,6200,Rent,L01,Facilities,5537.83
+202508,BUD,6900,Intercompany charges,L01,Shared Services,9989.1
+202508,ACT,4100,Product revenue,L02,,-32553.03
+202508,ACT,4200,Service revenue,L02,,-79198.01
+202508,ACT,5100,Cost of goods,L02,,22387.72
+202508,ACT,6100,Salaries,L02,Field Operations,12775.45
+202508,ACT,6200,Rent,L02,Facilities,11349.78
+202508,ACT,6900,Intercompany charges,L02,Shared Services,10054.69
+202508,BUD,4100,Product revenue,L02,,-37650.44
+202508,BUD,4200,Service revenue,L02,,-47299.83
+202508,BUD,5100,Cost of goods,L02,,18907.61
+202508,BUD,6100,Salaries,L02,Field Operations,10830.46
+202508,BUD,6200,Rent,L02,Facilities,6784.2
+202508,BUD,6900,Intercompany charges,L02,Shared Services,9713.58
+202508,ACT,4100,Product revenue,L03,,-42154.05
+202508,ACT,4200,Service revenue,L03,,-75972.59
+202508,ACT,5100,Cost of goods,L03,,12944.93
+202508,ACT,6100,Salaries,L03,Field Operations,6388.06
+202508,ACT,6200,Rent,L03,Facilities,5642.01
+202508,ACT,6900,Intercompany charges,L03,Shared Services,6198.67
+202508,BUD,4100,Product revenue,L03,,-71819.88
+202508,BUD,4200,Service revenue,L03,,-76854.89
+202508,BUD,5100,Cost of goods,L03,,27232.63
+202508,BUD,6100,Salaries,L03,Field Operations,8522.45
+202508,BUD,6200,Rent,L03,Facilities,13609.01
+202508,BUD,6900,Intercompany charges,L03,Shared Services,7379.03
+202508,ADJ,4100,Product revenue,L03,,-4178.52
+202508,ADJ,4200,Service revenue,L03,,-6255.14
+202508,ADJ,5100,Cost of goods,L03,,1212.3
+202508,ADJ,6100,Salaries,L03,Field Operations,660.02
+202508,ADJ,6200,Rent,L03,Facilities,699.17
+202508,ADJ,6900,Intercompany charges,L03,Shared Services,1024.24
+202509,ACT,4100,Product revenue,L01,,-50519.55
+202509,ACT,4200,Service revenue,L01,,-73673.0
+202509,ACT,5100,Cost of goods,L01,,24787.69
+202509,ACT,6100,Salaries,L01,Field Operations,11014.36
+202509,ACT,6200,Rent,L01,Facilities,12486.83
+202509,ACT,6900,Intercompany charges,L01,Shared Services,7304.81
+202509,BUD,4100,Product revenue,L01,,-62482.82
+202509,BUD,4200,Service revenue,L01,,-69782.9
+202509,BUD,5100,Cost of goods,L01,,12475.23
+202509,BUD,6100,Salaries,L01,Field Operations,11170.19
+202509,BUD,6200,Rent,L01,Facilities,6349.69
+202509,BUD,6900,Intercompany charges,L01,Shared Services,12749.64
+202509,ACT,4100,Product revenue,L02,,-68934.88
+202509,ACT,4200,Service revenue,L02,,-43114.45
+202509,ACT,5100,Cost of goods,L02,,18074.84
+202509,ACT,6100,Salaries,L02,Field Operations,5536.86
+202509,ACT,6200,Rent,L02,Facilities,9106.8
+202509,ACT,6900,Intercompany charges,L02,Shared Services,11075.75
+202509,BUD,4100,Product revenue,L02,,-63333.54
+202509,BUD,4200,Service revenue,L02,,-33846.98
+202509,BUD,5100,Cost of goods,L02,,18206.77
+202509,BUD,6100,Salaries,L02,Field Operations,12715.76
+202509,BUD,6200,Rent,L02,Facilities,11557.87
+202509,BUD,6900,Intercompany charges,L02,Shared Services,11164.94
+202509,ACT,4100,Product revenue,L03,,-58924.3
+202509,ACT,4200,Service revenue,L03,,-70857.33
+202509,ACT,5100,Cost of goods,L03,,26967.39
+202509,ACT,6100,Salaries,L03,Field Operations,6170.0
+202509,ACT,6200,Rent,L03,Facilities,10760.8
+202509,ACT,6900,Intercompany charges,L03,Shared Services,6748.03
+202509,BUD,4100,Product revenue,L03,,-48270.39
+202509,BUD,4200,Service revenue,L03,,-57625.58
+202509,BUD,5100,Cost of goods,L03,,19541.18
+202509,BUD,6100,Salaries,L03,Field Operations,13295.04
+202509,BUD,6200,Rent,L03,Facilities,9917.64
+202509,BUD,6900,Intercompany charges,L03,Shared Services,11243.43
+202510,ACT,4100,Product revenue,L01,,-64533.55
+202510,ACT,4200,Service revenue,L01,,-73761.92
+202510,ACT,5100,Cost of goods,L01,,17834.62
+202510,ACT,6100,Salaries,L01,Field Operations,8238.99
+202510,ACT,6200,Rent,L01,Facilities,7339.93
+202510,ACT,6900,Intercompany charges,L01,Shared Services,6755.19
+202510,BUD,4100,Product revenue,L01,,-64967.45
+202510,BUD,4200,Service revenue,L01,,-48179.56
+202510,BUD,5100,Cost of goods,L01,,27054.06
+202510,BUD,6100,Salaries,L01,Field Operations,13977.89
+202510,BUD,6200,Rent,L01,Facilities,8117.87
+202510,BUD,6900,Intercompany charges,L01,Shared Services,13271.69
+202510,ADJ,4100,Product revenue,L01,,-7582.71
+202510,ADJ,4200,Service revenue,L01,,-7576.42
+202510,ADJ,5100,Cost of goods,L01,,1672.84
+202510,ADJ,6100,Salaries,L01,Field Operations,566.96
+202510,ADJ,6200,Rent,L01,Facilities,821.55
+202510,ADJ,6900,Intercompany charges,L01,Shared Services,1127.51
+202510,ACT,4100,Product revenue,L02,,-63953.64
+202510,ACT,4200,Service revenue,L02,,-41954.58
+202510,ACT,5100,Cost of goods,L02,,15361.6
+202510,ACT,6100,Salaries,L02,Field Operations,8421.59
+202510,ACT,6200,Rent,L02,Facilities,12462.66
+202510,ACT,6900,Intercompany charges,L02,Shared Services,8839.5
+202510,BUD,4100,Product revenue,L02,,-49645.32
+202510,BUD,4200,Service revenue,L02,,-44680.22
+202510,BUD,5100,Cost of goods,L02,,14149.23
+202510,BUD,6100,Salaries,L02,Field Operations,12249.86
+202510,BUD,6200,Rent,L02,Facilities,11615.39
+202510,BUD,6900,Intercompany charges,L02,Shared Services,9406.41
+202510,ACT,4100,Product revenue,L03,,-66901.97
+202510,ACT,4200,Service revenue,L03,,-61041.04
+202510,ACT,5100,Cost of goods,L03,,16061.19
+202510,ACT,6100,Salaries,L03,Field Operations,6061.07
+202510,ACT,6200,Rent,L03,Facilities,11299.28
+202510,ACT,6900,Intercompany charges,L03,Shared Services,9834.4
+202510,BUD,4100,Product revenue,L03,,-45231.04
+202510,BUD,4200,Service revenue,L03,,-49886.96
+202510,BUD,5100,Cost of goods,L03,,19957.61
+202510,BUD,6100,Salaries,L03,Field Operations,6780.82
+202510,BUD,6200,Rent,L03,Facilities,12323.34
+202510,BUD,6900,Intercompany charges,L03,Shared Services,10597.08
+202511,ACT,4100,Product revenue,L01,,-48500.5
+202511,ACT,4200,Service revenue,L01,,-73678.98
+202511,ACT,5100,Cost of goods,L01,,12374.84
+202511,ACT,6100,Salaries,L01,Field Operations,7394.04
+202511,ACT,6200,Rent,L01,Facilities,13496.21
+202511,ACT,6900,Intercompany charges,L01,Shared Services,14193.53
+202511,BUD,4100,Product revenue,L01,,-73978.16
+202511,BUD,4200,Service revenue,L01,,-50052.13
+202511,BUD,5100,Cost of goods,L01,,20536.41
+202511,BUD,6100,Salaries,L01,Field Operations,12358.88
+202511,BUD,6200,Rent,L01,Facilities,6843.16
+202511,BUD,6900,Intercompany charges,L01,Shared Services,12860.63
+202511,ACT,4100,Product revenue,L02,,-37912.16
+202511,ACT,4200,Service revenue,L02,,-61549.82
+202511,ACT,5100,Cost of goods,L02,,24944.99
+202511,ACT,6100,Salaries,L02,Field Operations,14329.9
+202511,ACT,6200,Rent,L02,Facilities,14025.9
+202511,ACT,6900,Intercompany charges,L02,Shared Services,14239.59
+202511,BUD,4100,Product revenue,L02,,-47948.09
+202511,BUD,4200,Service revenue,L02,,-32639.51
+202511,BUD,5100,Cost of goods,L02,,25447.44
+202511,BUD,6100,Salaries,L02,Field Operations,11443.86
+202511,BUD,6200,Rent,L02,Facilities,6272.54
+202511,BUD,6900,Intercompany charges,L02,Shared Services,14142.46
+202511,ADJ,4100,Product revenue,L02,,-3116.51
+202511,ADJ,4200,Service revenue,L02,,-5770.39
+202511,ADJ,5100,Cost of goods,L02,,2479.83
+202511,ADJ,6100,Salaries,L02,Field Operations,1217.26
+202511,ADJ,6200,Rent,L02,Facilities,1280.8
+202511,ADJ,6900,Intercompany charges,L02,Shared Services,1297.14
+202511,ACT,4100,Product revenue,L03,,-74689.91
+202511,ACT,4200,Service revenue,L03,,-37994.47
+202511,ACT,5100,Cost of goods,L03,,18823.78
+202511,ACT,6100,Salaries,L03,Field Operations,9983.43
+202511,ACT,6200,Rent,L03,Facilities,12700.91
+202511,ACT,6900,Intercompany charges,L03,Shared Services,8880.92
+202511,BUD,4100,Product revenue,L03,,-68957.44
+202511,BUD,4200,Service revenue,L03,,-76115.55
+202511,BUD,5100,Cost of goods,L03,,14460.32
+202511,BUD,6100,Salaries,L03,Field Operations,10346.19
+202511,BUD,6200,Rent,L03,Facilities,9801.42
+202511,BUD,6900,Intercompany charges,L03,Shared Services,8334.61
+202512,ACT,4100,Product revenue,L01,,-59710.12
+202512,ACT,4200,Service revenue,L01,,-70093.69
+202512,ACT,5100,Cost of goods,L01,,18599.17
+202512,ACT,6100,Salaries,L01,Field Operations,14199.64
+202512,ACT,6200,Rent,L01,Facilities,12960.6
+202512,ACT,6900,Intercompany charges,L01,Shared Services,10811.47
+202512,BUD,4100,Product revenue,L01,,-53298.3
+202512,BUD,4200,Service revenue,L01,,-63645.28
+202512,BUD,5100,Cost of goods,L01,,25271.77
+202512,BUD,6100,Salaries,L01,Field Operations,8875.58
+202512,BUD,6200,Rent,L01,Facilities,7703.82
+202512,BUD,6900,Intercompany charges,L01,Shared Services,9649.66
+202512,ACT,4100,Product revenue,L02,,-63969.5
+202512,ACT,4200,Service revenue,L02,,-66586.4
+202512,ACT,5100,Cost of goods,L02,,16406.03
+202512,ACT,6100,Salaries,L02,Field Operations,6392.0
+202512,ACT,6200,Rent,L02,Facilities,9180.46
+202512,ACT,6900,Intercompany charges,L02,Shared Services,7632.49
+202512,BUD,4100,Product revenue,L02,,-57175.97
+202512,BUD,4200,Service revenue,L02,,-56688.53
+202512,BUD,5100,Cost of goods,L02,,21969.07
+202512,BUD,6100,Salaries,L02,Field Operations,11950.12
+202512,BUD,6200,Rent,L02,Facilities,6927.13
+202512,BUD,6900,Intercompany charges,L02,Shared Services,8309.91
+202512,ADJ,4100,Product revenue,L02,,-5948.66
+202512,ADJ,4200,Service revenue,L02,,-3424.31
+202512,ADJ,5100,Cost of goods,L02,,2004.4
+202512,ADJ,6100,Salaries,L02,Field Operations,749.75
+202512,ADJ,6200,Rent,L02,Facilities,1394.59
+202512,ADJ,6900,Intercompany charges,L02,Shared Services,1168.16
+202512,ACT,4100,Product revenue,L03,,-47708.93
+202512,ACT,4200,Service revenue,L03,,-39674.57
+202512,ACT,5100,Cost of goods,L03,,12519.13
+202512,ACT,6100,Salaries,L03,Field Operations,11690.86
+202512,ACT,6200,Rent,L03,Facilities,12135.71
+202512,ACT,6900,Intercompany charges,L03,Shared Services,8129.41
+202512,BUD,4100,Product revenue,L03,,-71832.25
+202512,BUD,4200,Service revenue,L03,,-37941.73
+202512,BUD,5100,Cost of goods,L03,,26427.1
+202512,BUD,6100,Salaries,L03,Field Operations,7309.53
+202512,BUD,6200,Rent,L03,Facilities,11750.12
+202512,BUD,6900,Intercompany charges,L03,Shared Services,11636.82
+202601,ACT,4100,Product revenue,L01,,-64116.93
+202601,ACT,4200,Service revenue,L01,,-66460.79
+202601,ACT,5100,Cost of goods,L01,,17756.07
+202601,ACT,6100,Salaries,L01,Field Operations,11538.78
+202601,ACT,6200,Rent,L01,Facilities,9113.27
+202601,ACT,6900,Intercompany charges,L01,Shared Services,7060.63
+202601,BUD,4100,Product revenue,L01,,-69364.1
+202601,BUD,4200,Service revenue,L01,,-58824.72
+202601,BUD,5100,Cost of goods,L01,,27963.35
+202601,BUD,6100,Salaries,L01,Field Operations,11982.44
+202601,BUD,6200,Rent,L01,Facilities,8624.99
+202601,BUD,6900,Intercompany charges,L01,Shared Services,13703.57
+202601,ADJ,4100,Product revenue,L01,,-6829.76
+202601,ADJ,4200,Service revenue,L01,,-4135.22
+202601,ADJ,5100,Cost of goods,L01,,1174.35
+202601,ADJ,6100,Salaries,L01,Field Operations,910.38
+202601,ADJ,6200,Rent,L01,Facilities,930.36
+202601,ADJ,6900,Intercompany charges,L01,Shared Services,1412.28
+202601,ACT,4100,Product revenue,L02,,-35723.27
+202601,ACT,4200,Service revenue,L02,,-42866.13
+202601,ACT,5100,Cost of goods,L02,,12179.33
+202601,ACT,6100,Salaries,L02,Field Operations,8069.74
+202601,ACT,6200,Rent,L02,Facilities,5512.41
+202601,ACT,6900,Intercompany charges,L02,Shared Services,14030.27
+202601,BUD,4100,Product revenue,L02,,-68803.75
+202601,BUD,4200,Service revenue,L02,,-67767.7
+202601,BUD,5100,Cost of goods,L02,,26403.94
+202601,BUD,6100,Salaries,L02,Field Operations,10374.56
+202601,BUD,6200,Rent,L02,Facilities,11770.79
+202601,BUD,6900,Intercompany charges,L02,Shared Services,9531.9
+202601,ACT,4100,Product revenue,L03,,-62428.15
+202601,ACT,4200,Service revenue,L03,,-37180.08
+202601,ACT,5100,Cost of goods,L03,,13497.66
+202601,ACT,6100,Salaries,L03,Field Operations,8529.39
+202601,ACT,6200,Rent,L03,Facilities,13712.87
+202601,ACT,6900,Intercompany charges,L03,Shared Services,9820.73
+202601,BUD,4100,Product revenue,L03,,-74079.33
+202601,BUD,4200,Service revenue,L03,,-78158.94
+202601,BUD,5100,Cost of goods,L03,,12972.81
+202601,BUD,6100,Salaries,L03,Field Operations,10415.19
+202601,BUD,6200,Rent,L03,Facilities,6054.04
+202601,BUD,6900,Intercompany charges,L03,Shared Services,7429.0
+202602,ACT,4100,Product revenue,L01,,-57865.61
+202602,ACT,4200,Service revenue,L01,,-30664.78
+202602,ACT,5100,Cost of goods,L01,,18141.64
+202602,ACT,6100,Salaries,L01,Field Operations,14388.89
+202602,ACT,6200,Rent,L01,Facilities,11531.99
+202602,ACT,6900,Intercompany charges,L01,Shared Services,11750.61
+202602,BUD,4100,Product revenue,L01,,-77448.91
+202602,BUD,4200,Service revenue,L01,,-30179.9
+202602,BUD,5100,Cost of goods,L01,,16351.75
+202602,BUD,6100,Salaries,L01,Field Operations,11437.07
+202602,BUD,6200,Rent,L01,Facilities,11358.0
+202602,BUD,6900,Intercompany charges,L01,Shared Services,12156.87
+202602,ADJ,4100,Product revenue,L01,,-6708.76
+202602,ADJ,4200,Service revenue,L01,,-4131.2
+202602,ADJ,5100,Cost of goods,L01,,2747.08
+202602,ADJ,6100,Salaries,L01,Field Operations,632.53
+202602,ADJ,6200,Rent,L01,Facilities,779.27
+202602,ADJ,6900,Intercompany charges,L01,Shared Services,749.14
+202602,ACT,4100,Product revenue,L02,,-44114.34
+202602,ACT,4200,Service revenue,L02,,-71435.6
+202602,ACT,5100,Cost of goods,L02,,28269.92
+202602,ACT,6100,Salaries,L02,Field Operations,13127.95
+202602,ACT,6200,Rent,L02,Facilities,10456.47
+202602,ACT,6900,Intercompany charges,L02,Shared Services,10541.13
+202602,BUD,4100,Product revenue,L02,,-64734.56
+202602,BUD,4200,Service revenue,L02,,-48629.16
+202602,BUD,5100,Cost of goods,L02,,21167.63
+202602,BUD,6100,Salaries,L02,Field Operations,13025.14
+202602,BUD,6200,Rent,L02,Facilities,7246.08
+202602,BUD,6900,Intercompany charges,L02,Shared Services,6727.13
+202602,ADJ,4100,Product revenue,L02,,-6729.74
+202602,ADJ,4200,Service revenue,L02,,-4664.13
+202602,ADJ,5100,Cost of goods,L02,,1744.95
+202602,ADJ,6100,Salaries,L02,Field Operations,858.59
+202602,ADJ,6200,Rent,L02,Facilities,703.16
+202602,ADJ,6900,Intercompany charges,L02,Shared Services,1062.27
+202602,ACT,4100,Product revenue,L03,,-40575.13
+202602,ACT,4200,Service revenue,L03,,-36686.79
+202602,ACT,5100,Cost of goods,L03,,12208.04
+202602,ACT,6100,Salaries,L03,Field Operations,9402.34
+202602,ACT,6200,Rent,L03,Facilities,10235.09
+202602,ACT,6900,Intercompany charges,L03,Shared Services,10282.12
+202602,BUD,4100,Product revenue,L03,,-54542.47
+202602,BUD,4200,Service revenue,L03,,-38099.31
+202602,BUD,5100,Cost of goods,L03,,17954.38
+202602,BUD,6100,Salaries,L03,Field Operations,13102.27
+202602,BUD,6200,Rent,L03,Facilities,10227.85
+202602,BUD,6900,Intercompany charges,L03,Shared Services,13493.93
+202602,ADJ,4100,Product revenue,L03,,-3709.74
+202602,ADJ,4200,Service revenue,L03,,-3900.3
+202602,ADJ,5100,Cost of goods,L03,,2646.2
+202602,ADJ,6100,Salaries,L03,Field Operations,896.83
+202602,ADJ,6200,Rent,L03,Facilities,1024.2
+202602,ADJ,6900,Intercompany charges,L03,Shared Services,667.7
+202603,ACT,4100,Product revenue,L01,,-44633.84
+202603,ACT,4200,Service revenue,L01,,-52602.43
+202603,ACT,5100,Cost of goods,L01,,10933.34
+202603,ACT,6100,Salaries,L01,Field Operations,6473.62
+202603,ACT,6200,Rent,L01,Facilities,9727.84
+202603,ACT,6900,Intercompany charges,L01,Shared Services,10655.95
+202603,BUD,4100,Product revenue,L01,,-31555.82
+202603,BUD,4200,Service revenue,L01,,-30932.11
+202603,BUD,5100,Cost of goods,L01,,11145.81
+202603,BUD,6100,Salaries,L01,Field Operations,11538.89
+202603,BUD,6200,Rent,L01,Facilities,7922.39
+202603,BUD,6900,Intercompany charges,L01,Shared Services,8806.06
+202603,ACT,4100,Product revenue,L02,,-77676.49
+202603,ACT,4200,Service revenue,L02,,-72446.51
+202603,ACT,5100,Cost of goods,L02,,14891.7
+202603,ACT,6100,Salaries,L02,Field Operations,7361.91
+202603,ACT,6200,Rent,L02,Facilities,12061.3
+202603,ACT,6900,Intercompany charges,L02,Shared Services,5617.14
+202603,BUD,4100,Product revenue,L02,,-31910.83
+202603,BUD,4200,Service revenue,L02,,-53539.2
+202603,BUD,5100,Cost of goods,L02,,27371.73
+202603,BUD,6100,Salaries,L02,Field Operations,7927.7
+202603,BUD,6200,Rent,L02,Facilities,7098.48
+202603,BUD,6900,Intercompany charges,L02,Shared Services,6238.51
+202603,ADJ,4100,Product revenue,L02,,-7336.12
+202603,ADJ,4200,Service revenue,L02,,-4754.98
+202603,ADJ,5100,Cost of goods,L02,,2383.04
+202603,ADJ,6100,Salaries,L02,Field Operations,1125.9
+202603,ADJ,6200,Rent,L02,Facilities,695.76
+202603,ADJ,6900,Intercompany charges,L02,Shared Services,1063.79
+202603,ACT,4100,Product revenue,L03,,-51757.84
+202603,ACT,4200,Service revenue,L03,,-64850.41
+202603,ACT,5100,Cost of goods,L03,,21155.88
+202603,ACT,6100,Salaries,L03,Field Operations,8255.86
+202603,ACT,6200,Rent,L03,Facilities,9244.35
+202603,ACT,6900,Intercompany charges,L03,Shared Services,8966.04
+202603,BUD,4100,Product revenue,L03,,-70311.59
+202603,BUD,4200,Service revenue,L03,,-63730.6
+202603,BUD,5100,Cost of goods,L03,,18958.85
+202603,BUD,6100,Salaries,L03,Field Operations,8306.56
+202603,BUD,6200,Rent,L03,Facilities,9145.04
+202603,BUD,6900,Intercompany charges,L03,Shared Services,11158.7
+202604,ACT,4100,Product revenue,L01,,-60509.19
+202604,ACT,4200,Service revenue,L01,,-42694.05
+202604,ACT,5100,Cost of goods,L01,,16056.73
+202604,ACT,6100,Salaries,L01,Field Operations,12672.54
+202604,ACT,6200,Rent,L01,Facilities,8772.32
+202604,ACT,6900,Intercompany charges,L01,Shared Services,11749.52
+202604,BUD,4100,Product revenue,L01,,-53539.62
+202604,BUD,4200,Service revenue,L01,,-71513.96
+202604,BUD,5100,Cost of goods,L01,,11735.54
+202604,BUD,6100,Salaries,L01,Field Operations,5681.44
+202604,BUD,6200,Rent,L01,Facilities,13365.01
+202604,BUD,6900,Intercompany charges,L01,Shared Services,10898.53
+202604,ACT,4100,Product revenue,L02,,-72158.22
+202604,ACT,4200,Service revenue,L02,,-35688.02
+202604,ACT,5100,Cost of goods,L02,,24318.62
+202604,ACT,6100,Salaries,L02,Field Operations,11662.45
+202604,ACT,6200,Rent,L02,Facilities,11610.73
+202604,ACT,6900,Intercompany charges,L02,Shared Services,7054.79
+202604,BUD,4100,Product revenue,L02,,-60255.08
+202604,BUD,4200,Service revenue,L02,,-41360.84
+202604,BUD,5100,Cost of goods,L02,,25299.4
+202604,BUD,6100,Salaries,L02,Field Operations,12030.06
+202604,BUD,6200,Rent,L02,Facilities,8754.7
+202604,BUD,6900,Intercompany charges,L02,Shared Services,10571.84
+202604,ADJ,4100,Product revenue,L02,,-7900.09
+202604,ADJ,4200,Service revenue,L02,,-4449.8
+202604,ADJ,5100,Cost of goods,L02,,2582.18
+202604,ADJ,6100,Salaries,L02,Field Operations,574.98
+202604,ADJ,6200,Rent,L02,Facilities,879.92
+202604,ADJ,6900,Intercompany charges,L02,Shared Services,887.86
+202604,ACT,4100,Product revenue,L03,,-40896.86
+202604,ACT,4200,Service revenue,L03,,-55129.6
+202604,ACT,5100,Cost of goods,L03,,11232.74
+202604,ACT,6100,Salaries,L03,Field Operations,12212.19
+202604,ACT,6200,Rent,L03,Facilities,12627.54
+202604,ACT,6900,Intercompany charges,L03,Shared Services,5660.73
+202604,BUD,4100,Product revenue,L03,,-70602.94
+202604,BUD,4200,Service revenue,L03,,-31712.49
+202604,BUD,5100,Cost of goods,L03,,20904.86
+202604,BUD,6100,Salaries,L03,Field Operations,6097.29
+202604,BUD,6200,Rent,L03,Facilities,12887.39
+202604,BUD,6900,Intercompany charges,L03,Shared Services,6518.24
+202605,ACT,4100,Product revenue,L01,,-63775.28
+202605,ACT,4200,Service revenue,L01,,-72674.75
+202605,ACT,5100,Cost of goods,L01,,18777.05
+202605,ACT,6100,Salaries,L01,Field Operations,11291.82
+202605,ACT,6200,Rent,L01,Facilities,8398.44
+202605,ACT,6900,Intercompany charges,L01,Shared Services,13313.03
+202605,BUD,4100,Product revenue,L01,,-70270.23
+202605,BUD,4200,Service revenue,L01,,-54273.72
+202605,BUD,5100,Cost of goods,L01,,16070.76
+202605,BUD,6100,Salaries,L01,Field Operations,14040.66
+202605,BUD,6200,Rent,L01,Facilities,7023.02
+202605,BUD,6900,Intercompany charges,L01,Shared Services,13303.19
+202605,ACT,4100,Product revenue,L02,,-35569.01
+202605,ACT,4200,Service revenue,L02,,-58889.98
+202605,ACT,5100,Cost of goods,L02,,12498.77
+202605,ACT,6100,Salaries,L02,Field Operations,5719.16
+202605,ACT,6200,Rent,L02,Facilities,9928.37
+202605,ACT,6900,Intercompany charges,L02,Shared Services,7508.04
+202605,BUD,4100,Product revenue,L02,,-45831.18
+202605,BUD,4200,Service revenue,L02,,-64841.31
+202605,BUD,5100,Cost of goods,L02,,16635.79
+202605,BUD,6100,Salaries,L02,Field Operations,12475.74
+202605,BUD,6200,Rent,L02,Facilities,10814.74
+202605,BUD,6900,Intercompany charges,L02,Shared Services,11435.2
+202605,ACT,4100,Product revenue,L03,,-58016.68
+202605,ACT,4200,Service revenue,L03,,-62498.11
+202605,ACT,5100,Cost of goods,L03,,28600.14
+202605,ACT,6100,Salaries,L03,Field Operations,10673.09
+202605,ACT,6200,Rent,L03,Facilities,7540.64
+202605,ACT,6900,Intercompany charges,L03,Shared Services,11875.7
+202605,BUD,4100,Product revenue,L03,,-55306.89
+202605,BUD,4200,Service revenue,L03,,-60566.89
+202605,BUD,5100,Cost of goods,L03,,14243.63
+202605,BUD,6100,Salaries,L03,Field Operations,9564.71
+202605,BUD,6200,Rent,L03,Facilities,8935.96
+202605,BUD,6900,Intercompany charges,L03,Shared Services,8872.49
+202606,ACT,4100,Product revenue,L01,,-38213.83
+202606,ACT,4200,Service revenue,L01,,-67958.67
+202606,ACT,5100,Cost of goods,L01,,22940.11
+202606,ACT,6100,Salaries,L01,Field Operations,9296.97
+202606,ACT,6200,Rent,L01,Facilities,12577.27
+202606,ACT,6900,Intercompany charges,L01,Shared Services,7271.43
+202606,BUD,4100,Product revenue,L01,,-77673.01
+202606,BUD,4200,Service revenue,L01,,-59703.27
+202606,BUD,5100,Cost of goods,L01,,14406.87
+202606,BUD,6100,Salaries,L01,Field Operations,5408.1
+202606,BUD,6200,Rent,L01,Facilities,10410.6
+202606,BUD,6900,Intercompany charges,L01,Shared Services,13237.99
+202606,ACT,4100,Product revenue,L02,,-79771.19
+202606,ACT,4200,Service revenue,L02,,-58172.99
+202606,ACT,5100,Cost of goods,L02,,19654.16
+202606,ACT,6100,Salaries,L02,Field Operations,7352.01
+202606,ACT,6200,Rent,L02,Facilities,13525.09
+202606,ACT,6900,Intercompany charges,L02,Shared Services,10293.07
+202606,BUD,4100,Product revenue,L02,,-59689.05
+202606,BUD,4200,Service revenue,L02,,-35123.44
+202606,BUD,5100,Cost of goods,L02,,27130.19
+202606,BUD,6100,Salaries,L02,Field Operations,8469.14
+202606,BUD,6200,Rent,L02,Facilities,6869.04
+202606,BUD,6900,Intercompany charges,L02,Shared Services,9154.46
+202606,ADJ,4100,Product revenue,L02,,-7348.86
+202606,ADJ,4200,Service revenue,L02,,-4243.47
+202606,ADJ,5100,Cost of goods,L02,,2250.01
+202606,ADJ,6100,Salaries,L02,Field Operations,860.89
+202606,ADJ,6200,Rent,L02,Facilities,753.95
+202606,ADJ,6900,Intercompany charges,L02,Shared Services,1315.55
+202606,ACT,4100,Product revenue,L03,,-76926.81
+202606,ACT,4200,Service revenue,L03,,-69810.55
+202606,ACT,5100,Cost of goods,L03,,23197.51
+202606,ACT,6100,Salaries,L03,Field Operations,10653.32
+202606,ACT,6200,Rent,L03,Facilities,6234.87
+202606,ACT,6900,Intercompany charges,L03,Shared Services,6634.87
+202606,BUD,4100,Product revenue,L03,,-76325.13
+202606,BUD,4200,Service revenue,L03,,-56567.28
+202606,BUD,5100,Cost of goods,L03,,22582.51
+202606,BUD,6100,Salaries,L03,Field Operations,13253.75
+202606,BUD,6200,Rent,L03,Facilities,7150.56
+202606,BUD,6900,Intercompany charges,L03,Shared Services,10483.68
+202606,ADJ,4100,Product revenue,L03,,-3405.29
+202606,ADJ,4200,Service revenue,L03,,-5602.85
+202606,ADJ,5100,Cost of goods,L03,,2375.94
+202606,ADJ,6100,Salaries,L03,Field Operations,1209.96
+202606,ADJ,6200,Rent,L03,Facilities,1243.63
+202606,ADJ,6900,Intercompany charges,L03,Shared Services,642.28
+202607,ACT,4100,Product revenue,L01,,-44107.2
+202607,ACT,4200,Service revenue,L01,,-38446.33
+202607,ACT,5100,Cost of goods,L01,,27378.11
+202607,ACT,6100,Salaries,L01,Field Operations,9927.28
+202607,ACT,6200,Rent,L01,Facilities,14192.49
+202607,ACT,6900,Intercompany charges,L01,Shared Services,13079.73
+202607,BUD,4100,Product revenue,L01,,-76853.39
+202607,BUD,4200,Service revenue,L01,,-40923.36
+202607,BUD,5100,Cost of goods,L01,,13051.18
+202607,BUD,6100,Salaries,L01,Field Operations,9558.07
+202607,BUD,6200,Rent,L01,Facilities,8282.84
+202607,BUD,6900,Intercompany charges,L01,Shared Services,11113.52
+202607,ACT,4100,Product revenue,L02,,-73149.35
+202607,ACT,4200,Service revenue,L02,,-65056.95
+202607,ACT,5100,Cost of goods,L02,,28082.75
+202607,ACT,6100,Salaries,L02,Field Operations,5578.01
+202607,ACT,6200,Rent,L02,Facilities,8442.5
+202607,ACT,6900,Intercompany charges,L02,Shared Services,10906.05
+202607,BUD,4100,Product revenue,L02,,-66955.05
+202607,BUD,4200,Service revenue,L02,,-38129.07
+202607,BUD,5100,Cost of goods,L02,,10917.68
+202607,BUD,6100,Salaries,L02,Field Operations,13108.93
+202607,BUD,6200,Rent,L02,Facilities,13301.58
+202607,BUD,6900,Intercompany charges,L02,Shared Services,11394.64
+202607,ADJ,4100,Product revenue,L02,,-3826.06
+202607,ADJ,4200,Service revenue,L02,,-3346.5
+202607,ADJ,5100,Cost of goods,L02,,1110.26
+202607,ADJ,6100,Salaries,L02,Field Operations,695.34
+202607,ADJ,6200,Rent,L02,Facilities,1099.61
+202607,ADJ,6900,Intercompany charges,L02,Shared Services,1356.36
+202607,ACT,4100,Product revenue,L03,,-59385.35
+202607,ACT,4200,Service revenue,L03,,-56018.23
+202607,ACT,5100,Cost of goods,L03,,19993.29
+202607,ACT,6100,Salaries,L03,Field Operations,8362.24
+202607,ACT,6200,Rent,L03,Facilities,6327.68
+202607,ACT,6900,Intercompany charges,L03,Shared Services,8746.97
+202607,BUD,4100,Product revenue,L03,,-73821.51
+202607,BUD,4200,Service revenue,L03,,-66854.36
+202607,BUD,5100,Cost of goods,L03,,27659.92
+202607,BUD,6100,Salaries,L03,Field Operations,12059.63
+202607,BUD,6200,Rent,L03,Facilities,8793.04
+202607,BUD,6900,Intercompany charges,L03,Shared Services,9529.49
+202608,ACT,4100,Product revenue,L01,,-49335.45
+202608,ACT,4200,Service revenue,L01,,-57894.78
+202608,ACT,5100,Cost of goods,L01,,18376.11
+202608,ACT,6100,Salaries,L01,Field Operations,13864.98
+202608,ACT,6200,Rent,L01,Facilities,10495.52
+202608,ACT,6900,Intercompany charges,L01,Shared Services,7413.98
+202608,BUD,4100,Product revenue,L01,,-35449.12
+202608,BUD,4200,Service revenue,L01,,-52827.77
+202608,BUD,5100,Cost of goods,L01,,25556.73
+202608,BUD,6100,Salaries,L01,Field Operations,9734.43
+202608,BUD,6200,Rent,L01,Facilities,7353.03
+202608,BUD,6900,Intercompany charges,L01,Shared Services,9241.78
+202608,ADJ,4100,Product revenue,L01,,-7914.09
+202608,ADJ,4200,Service revenue,L01,,-7461.18
+202608,ADJ,5100,Cost of goods,L01,,1852.61
+202608,ADJ,6100,Salaries,L01,Field Operations,635.23
+202608,ADJ,6200,Rent,L01,Facilities,945.44
+202608,ADJ,6900,Intercompany charges,L01,Shared Services,1267.13
+202608,ACT,4100,Product revenue,L02,,-44080.2
+202608,ACT,4200,Service revenue,L02,,-61119.18
+202608,ACT,5100,Cost of goods,L02,,15404.85
+202608,ACT,6100,Salaries,L02,Field Operations,13016.34
+202608,ACT,6200,Rent,L02,Facilities,14169.71
+202608,ACT,6900,Intercompany charges,L02,Shared Services,11236.5
+202608,BUD,4100,Product revenue,L02,,-46073.62
+202608,BUD,4200,Service revenue,L02,,-57431.05
+202608,BUD,5100,Cost of goods,L02,,12328.9
+202608,BUD,6100,Salaries,L02,Field Operations,8277.21
+202608,BUD,6200,Rent,L02,Facilities,13207.85
+202608,BUD,6900,Intercompany charges,L02,Shared Services,8066.19
+202608,ADJ,4100,Product revenue,L02,,-5126.92
+202608,ADJ,4200,Service revenue,L02,,-7499.43
+202608,ADJ,5100,Cost of goods,L02,,2727.61
+202608,ADJ,6100,Salaries,L02,Field Operations,1432.19
+202608,ADJ,6200,Rent,L02,Facilities,1352.94
+202608,ADJ,6900,Intercompany charges,L02,Shared Services,593.26
+202608,ACT,4100,Product revenue,L03,,-32980.16
+202608,ACT,4200,Service revenue,L03,,-74486.17
+202608,ACT,5100,Cost of goods,L03,,17049.69
+202608,ACT,6100,Salaries,L03,Field Operations,9263.43
+202608,ACT,6200,Rent,L03,Facilities,7080.02
+202608,ACT,6900,Intercompany charges,L03,Shared Services,5933.8
+202608,BUD,4100,Product revenue,L03,,-36846.08
+202608,BUD,4200,Service revenue,L03,,-66620.8
+202608,BUD,5100,Cost of goods,L03,,15376.74
+202608,BUD,6100,Salaries,L03,Field Operations,12751.0
+202608,BUD,6200,Rent,L03,Facilities,5589.01
+202608,BUD,6900,Intercompany charges,L03,Shared Services,10117.56
+202608,ADJ,4100,Product revenue,L03,,-6933.28
+202608,ADJ,4200,Service revenue,L03,,-4296.73
+202608,ADJ,5100,Cost of goods,L03,,2862.45
+202608,ADJ,6100,Salaries,L03,Field Operations,656.93
+202608,ADJ,6200,Rent,L03,Facilities,1404.17
+202608,ADJ,6900,Intercompany charges,L03,Shared Services,585.82
+202609,ACT,4100,Product revenue,L01,,-62325.53
+202609,ACT,4200,Service revenue,L01,,-34021.59
+202609,ACT,5100,Cost of goods,L01,,18164.4
+202609,ACT,6100,Salaries,L01,Field Operations,5524.62
+202609,ACT,6200,Rent,L01,Facilities,13458.75
+202609,ACT,6900,Intercompany charges,L01,Shared Services,5799.42
+202609,BUD,4100,Product revenue,L01,,-36895.98
+202609,BUD,4200,Service revenue,L01,,-59536.84
+202609,BUD,5100,Cost of goods,L01,,22488.92
+202609,BUD,6100,Salaries,L01,Field Operations,9542.46
+202609,BUD,6200,Rent,L01,Facilities,6610.09
+202609,BUD,6900,Intercompany charges,L01,Shared Services,13911.85
+202609,ADJ,4100,Product revenue,L01,,-3660.77
+202609,ADJ,4200,Service revenue,L01,,-7484.16
+202609,ADJ,5100,Cost of goods,L01,,2531.33
+202609,ADJ,6100,Salaries,L01,Field Operations,791.37
+202609,ADJ,6200,Rent,L01,Facilities,806.81
+202609,ADJ,6900,Intercompany charges,L01,Shared Services,704.08
+202609,ACT,4100,Product revenue,L02,,-56969.23
+202609,ACT,4200,Service revenue,L02,,-63134.65
+202609,ACT,5100,Cost of goods,L02,,27532.81
+202609,ACT,6100,Salaries,L02,Field Operations,11127.17
+202609,ACT,6200,Rent,L02,Facilities,9682.13
+202609,ACT,6900,Intercompany charges,L02,Shared Services,13699.54
+202609,BUD,4100,Product revenue,L02,,-76191.76
+202609,BUD,4200,Service revenue,L02,,-70692.29
+202609,BUD,5100,Cost of goods,L02,,22304.46
+202609,BUD,6100,Salaries,L02,Field Operations,10141.64
+202609,BUD,6200,Rent,L02,Facilities,7072.99
+202609,BUD,6900,Intercompany charges,L02,Shared Services,11856.12
+202609,ADJ,4100,Product revenue,L02,,-6355.68
+202609,ADJ,4200,Service revenue,L02,,-4334.27
+202609,ADJ,5100,Cost of goods,L02,,1102.31
+202609,ADJ,6100,Salaries,L02,Field Operations,888.6
+202609,ADJ,6200,Rent,L02,Facilities,604.78
+202609,ADJ,6900,Intercompany charges,L02,Shared Services,603.0
+202609,ACT,4100,Product revenue,L03,,-49157.82
+202609,ACT,4200,Service revenue,L03,,-63228.44
+202609,ACT,5100,Cost of goods,L03,,16869.84
+202609,ACT,6100,Salaries,L03,Field Operations,7352.85
+202609,ACT,6200,Rent,L03,Facilities,7829.57
+202609,ACT,6900,Intercompany charges,L03,Shared Services,8351.35
+202609,BUD,4100,Product revenue,L03,,-43817.9
+202609,BUD,4200,Service revenue,L03,,-72041.09
+202609,BUD,5100,Cost of goods,L03,,25411.46
+202609,BUD,6100,Salaries,L03,Field Operations,10281.82
+202609,BUD,6200,Rent,L03,Facilities,7449.49
+202609,BUD,6900,Intercompany charges,L03,Shared Services,6958.74

@@ -979,6 +979,8 @@ jobs:
             plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_workbook.py
             plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_advanced_patterns.py
             plugins/streamlit-to-sigma/skills/streamlit-to-sigma/tests/test_safety_gates.py
+            # solver-to-sigma (stdlib only; synthetic fixtures)
+            plugins/solver-to-sigma/skills/solver-to-sigma/tests/test_solver.py
           )
           fail=0
           for t in "${tests[@]}"; do
