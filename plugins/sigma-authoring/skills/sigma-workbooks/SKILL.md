@@ -490,7 +490,7 @@ The column name in the formula doesn't match what the warehouse actually has. Re
 
 ### `Column "[Element/col]" does not exist` in compiled SQL
 
-A workbook column references a source column that no longer exists — typically the data-model column was dropped or renamed after the workbook was built. The write succeeds and the element renders empty; `scripts/verify-workbook.sh` fails on it, and `POST /v2/workbooks/spec/verify` reports `Dependency not found`. Re-read the data model's elements (`reference/workflows/discover.md`) and point the workbook column at a column that exists, or restore the data-model column.
+A workbook column references a source column that no longer exists — typically the data-model column was dropped or renamed after the workbook was built. The write succeeds and the element renders empty; `scripts/verify-workbook.sh` fails on it, and a `POST /v2/workbooks` call with `dryRun: true` reports `Dependency not found`. Re-read the data model's elements (`reference/workflows/discover.md`) and point the workbook column at a column that exists, or restore the data-model column.
 
 ### `jq` or `yq` not installed
 
