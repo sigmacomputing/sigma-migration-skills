@@ -692,6 +692,175 @@ evidence_case('migration-report-evidence-no-render-hash',
      check_named(result, 'render-health')['message'] =~ /no healthy render evidence/)
 end
 
+# Report clock + materialization freshness (powerbi-to-sigma 1.15.0 writes both
+# into parity-final.json from phase6-parity-pbi.rb --finalize and
+# parity-from-oracle.py). Absent or null blocks render nothing; CLOCK-SKEW and
+# STALE-MATERIALIZATION are non-pass parity statuses the parity check names.
+def clock_case(prefix, parity_extra)
+  Dir.mktmpdir(prefix) do |dir|
+    write_json(File.join(dir, 'inventory.json'),
+               'objects' => [{ 'type' => 'dashboard', 'id' => 'd1', 'name' => 'Sales', 'status' => 'migrated' }])
+    write_health_artifacts(dir)
+    write_json(File.join(dir, 'parity-final.json'),
+               { 'status' => 'PASS', 'charts_pass' => 2, 'charts_total' => 2, 'waivers' => [],
+                 'visual_checked' => true, 'visual_verdict' => 'pass' }.merge(parity_extra.call(dir)))
+    _o, _e, status = run_builder(dir)
+    result = JSON.parse(File.read(File.join(dir, 'migration-result.json')))
+    yield result, File.read(File.join(dir, 'MIGRATION_REPORT.md')), status
+  end
+end
+
+CLOCK_OK = {
+  'report_timezone' => 'America/New_York', 'report_timezone_source' => 'flag',
+  'sigma_clock' => 'America/New_York', 'oracle_clock' => 'America/New_York', 'oracle_kind' => 'warehouse-sql',
+  'report_day' => '2026-11-16', 'expected_as_of' => '2026-11-16T15:00:00Z', 'actual_as_of' => '2026-11-16T15:05:00Z',
+  'unpinned_sites' => 0, 'today_relative_charts' => ['Orders Today', 'Revenue MTD'], 'clock_skew' => []
+}.freeze
+SKEW_REASON = 'today is evaluated on two clocks: Sigma=America/New_York, oracle=UTC (powerbi-service), report=America/New_York'
+
+clock_case('clock-absent', ->(_dir) { {} }) do |result, md, _status|
+  ok('no clock or freshness block: no report_clock / materialization_freshness keys',
+     !result.key?('report_clock') && !result.key?('materialization_freshness'))
+  ok('no clock or freshness block: no markdown sections',
+     !md.include?('## Report clock') && !md.include?('## Materialization freshness'))
+end
+
+clock_case('clock-null', ->(_dir) { { 'report_clock' => nil, 'materialization_freshness' => nil, 'charts_clock_skew' => 0 } }) do |result, md, _status|
+  ok('null clock and freshness blocks render nothing',
+     !result.key?('report_clock') && !result.key?('materialization_freshness') &&
+       !md.include?('## Report clock') && !md.include?('## Materialization freshness'))
+  ok('null clock and freshness blocks keep GREEN', result['verdict'] == 'GREEN')
+end
+
+clock_case('clock-pass', lambda do |dir|
+  { 'report_clock' => CLOCK_OK.merge('record' => File.join(dir, 'report-clock.json')),
+    'materialization_freshness' => { 'status' => 'FRESH', 'checked_at' => '2026-11-16T14:58:00Z',
+                                     'path' => File.join(dir, 'materialization-freshness.json'),
+                                     'stale' => [], 'unknown' => [] } }
+end) do |result, md, status|
+  rc = result['report_clock'] || {}
+  mf = result['materialization_freshness'] || {}
+  ok('passing clock + FRESH materializations stay GREEN', result['verdict'] == 'GREEN' && status.exitstatus.zero?)
+  ok('report_clock carries timezone, source and today-relative charts',
+     rc['report_timezone'] == 'America/New_York' && rc['report_timezone_source'] == 'flag' &&
+       rc['today_relative_charts'] == ['Orders Today', 'Revenue MTD'] && rc['today_relative_chart_count'] == 2 &&
+       rc['clock_skew'] == [] && rc['report_day'] == '2026-11-16')
+  ok('report_clock record path is workdir-relative', rc['record'] == 'report-clock.json')
+  ok('materialization_freshness carries status and a workdir-relative path',
+     mf['status'] == 'FRESH' && mf['checked_at'] == '2026-11-16T14:58:00Z' &&
+       mf['path'] == 'materialization-freshness.json' && mf['stale'] == [] && mf['unknown'] == [])
+  ok('markdown renders the report clock',
+     md.include?('## Report clock') && md.include?('Report timezone: **America/New_York** (source: flag)') &&
+       md.include?('Today-relative charts: 2'))
+  ok('markdown renders the materialization freshness status',
+     md.include?('## Materialization freshness') && md.include?('Status: **FRESH** (checked at 2026-11-16T14:58:00Z)'))
+  ok('markdown has no CLOCK-SKEW line when no chart is skewed', !md.include?('CLOCK-SKEW'))
+end
+
+clock_case('clock-skew', lambda do |_dir|
+  { 'status' => 'CLOCK-SKEW', 'charts_pass' => 1, 'charts_clock_skew' => 1,
+    'report_clock' => CLOCK_OK.merge('oracle_clock' => 'UTC', 'oracle_kind' => 'powerbi-service', 'report_day' => nil,
+                                     'clock_skew' => [{ 'chart' => 'Orders Today', 'reason' => SKEW_REASON }]) }
+end) do |result, md, status|
+  parity = check_named(result, 'parity')
+  ok('CLOCK-SKEW parity is RED exit 1', result['verdict'] == 'RED' && status.exitstatus == 1 && parity['status'] == 'FAIL')
+  ok('CLOCK-SKEW parity message names the status, the chart and its reason',
+     parity['message'].start_with?('CLOCK-SKEW: ') && parity['message'].include?('Orders Today') &&
+       parity['message'].include?(SKEW_REASON))
+  ok('CLOCK-SKEW parity message is not the generic status line', !parity['message'].include?('parity status is'))
+  ok('CLOCK-SKEW keeps the chart count mismatch', parity['message'].include?('charts_pass 1 != charts_total 2'))
+  ok('report_clock carries the skewed chart', result.dig('report_clock', 'clock_skew') ==
+                                                [{ 'chart' => 'Orders Today', 'reason' => SKEW_REASON }])
+  ok('markdown lists the CLOCK-SKEW chart with its reason',
+     md.include?("- CLOCK-SKEW: **Orders Today** — #{SKEW_REASON}"))
+end
+
+# parity-from-oracle.py (page facts): no per-chart flags, so unpinned clock
+# sites refuse the whole run with an empty clock_skew list.
+clock_case('clock-skew-unpinned', lambda do |_dir|
+  { 'status' => 'CLOCK-SKEW',
+    'report_clock' => { 'report_timezone' => 'UTC', 'report_timezone_source' => 'default', 'unpinned_sites' => 3,
+                        'today_relative_charts' => [], 'clock_skew' => [] } }
+end) do |result, md, _status|
+  parity = check_named(result, 'parity')
+  ok('page-fact CLOCK-SKEW names the unpinned clock sites',
+     parity['status'] == 'FAIL' && parity['message'].start_with?('CLOCK-SKEW: ') &&
+       parity['message'].include?('3 clock site(s) off the report clock (UTC)'))
+  ok('page-fact report_clock has a zero today-relative count', result.dig('report_clock', 'today_relative_chart_count') == 0)
+  ok('markdown lists the unpinned clock sites', md.include?('Clock sites off the report clock: 3'))
+end
+
+clock_case('clock-skew-plus-divergent', lambda do |_dir|
+  { 'status' => 'FAIL', 'charts_pass' => 0,
+    'report_clock' => CLOCK_OK.merge('clock_skew' => [{ 'chart' => 'Orders Today', 'reason' => SKEW_REASON }]) }
+end) do |result, _md, _status|
+  parity = check_named(result, 'parity')
+  ok('a FAIL run with a skewed chart names CLOCK-SKEW too',
+     parity['message'].include?('parity status is fail') && parity['message'].include?('CLOCK-SKEW: ') &&
+       parity['message'].include?('Orders Today'))
+end
+
+clock_case('clock-skew-on-pass', lambda do |_dir|
+  { 'report_clock' => CLOCK_OK.merge('clock_skew' => [{ 'chart' => 'Orders Today', 'reason' => SKEW_REASON }]) }
+end) do |result, _md, _status|
+  ok('a recorded CLOCK-SKEW chart is never a parity pass',
+     check_named(result, 'parity')['status'] == 'FAIL' && result['verdict'] == 'RED')
+end
+
+clock_case('mat-stale', lambda do |dir|
+  { 'status' => 'STALE-MATERIALIZATION',
+    'materialization_freshness' => { 'status' => 'STALE', 'checked_at' => '2026-11-16T14:58:00Z',
+                                     'path' => File.join(dir, 'materialization-freshness.json'),
+                                     'stale' => ['Orders Fact'], 'unknown' => ['Region View'] } }
+end) do |result, md, status|
+  parity = check_named(result, 'parity')
+  ok('STALE-MATERIALIZATION parity is RED exit 1', result['verdict'] == 'RED' && status.exitstatus == 1)
+  ok('STALE-MATERIALIZATION parity message names the status and the elements',
+     parity['message'].start_with?('STALE-MATERIALIZATION: ') &&
+       parity['message'].include?('materialization freshness is STALE') &&
+       parity['message'].include?('Orders Fact') && parity['message'].include?('Region View'))
+  ok('STALE-MATERIALIZATION message is not the generic status line', !parity['message'].include?('parity status is'))
+  ok('materialization_freshness lists stale and unknown elements',
+     result.dig('materialization_freshness', 'stale') == ['Orders Fact'] &&
+       result.dig('materialization_freshness', 'unknown') == ['Region View'])
+  ok('markdown lists stale and unknown elements',
+     md.include?('Status: **STALE**') && md.include?('- Stale: Orders Fact') && md.include?('- Unknown: Region View'))
+end
+
+clock_case('mat-not-checked', lambda do |_dir|
+  { 'status' => 'STALE-MATERIALIZATION',
+    'materialization_freshness' => { 'status' => 'NOT-CHECKED', 'path' => 'materialization-freshness.json',
+                                     'scheduled' => %w[Orders Customers] } }
+end) do |result, md, _status|
+  parity = check_named(result, 'parity')
+  ok('NOT-CHECKED names the never-checked schedules',
+     parity['message'].start_with?('STALE-MATERIALIZATION: ') &&
+       parity['message'].include?('2 materialization schedule(s) never checked: Orders, Customers'))
+  ok('NOT-CHECKED keeps a relative path as written', result.dig('materialization_freshness', 'path') == 'materialization-freshness.json')
+  ok('markdown lists the never-checked schedules', md.include?('- Scheduled, never checked: Orders, Customers'))
+end
+
+clock_case('mat-fresh-but-late', lambda do |_dir|
+  { 'status' => 'STALE-MATERIALIZATION',
+    'materialization_freshness' => { 'status' => 'FRESH', 'checked_at' => '2026-11-16T09:00:00Z',
+                                     'stale' => [], 'unknown' => [] } }
+end) do |result, _md, _status|
+  ok('a refused FRESH check names the contemporaneity window',
+     check_named(result, 'parity')['message'].include?(
+       'the FRESH check at 2026-11-16T09:00:00Z was not contemporaneous with the oracle and the Sigma actuals'))
+end
+
+clock_case('mat-unknown-accepted', lambda do |_dir|
+  { 'materialization_freshness' => { 'status' => 'UNKNOWN', 'checked_at' => '2026-11-16T14:58:00Z',
+                                     'stale' => [], 'unknown' => ['Region View'],
+                                     'accepted_unknown' => ['Region View'] } }
+end) do |result, md, _status|
+  ok('accepted UNKNOWN materializations keep parity PASS', check_named(result, 'parity')['status'] == 'PASS')
+  ok('accepted UNKNOWN elements are carried', result.dig('materialization_freshness', 'accepted_unknown') == ['Region View'])
+  ok('markdown names the accepted UNKNOWN elements',
+     md.include?('- Unknown (accepted with --allow-unknown): Region View'))
+end
+
 builder_source = File.read(BUILDER)
 ok('report outputs use binary writes so --check is byte-stable on Windows',
    builder_source.include?('File.binwrite(temporary, content)') &&

@@ -750,6 +750,8 @@ jobs:
             shared/lib/test_composition.rb
             shared/lib/test_composition_lint.rb
             shared/lib/tests/test_code_rep.rb
+            shared/lib/tests/test_preflight_flat_elements.rb
+            shared/lib/tests/test_preflight_column_refs.rb
             shared/lib/test_shared_script_closure.rb
             shared/lib/test_sigma_rest_auth.rb
             shared/lib/test_tableau_rest_auth.rb
