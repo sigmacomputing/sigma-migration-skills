@@ -1,0 +1,225 @@
+{
+  "workbook": {
+    "name": "Location P&L summary",
+    "folderId": "id0001",
+    "document": {
+      "schemaVersion": 1,
+      "kind": "workbook",
+      "pages": [
+        {
+          "id": "id0002",
+          "name": "Summary"
+        }
+      ],
+      "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-summary\">\n  <Element elementId=\"page-summary-title\" gridColumn=\"1 / 25\" gridRow=\"1 / 3\"/>\n  <Element elementId=\"page-summary-ctl-period\" gridColumn=\"1 / 7\" gridRow=\"3 / 5\"/>\n  <Element elementId=\"page-summary-ctl-actualscenario\" gridColumn=\"7 / 13\" gridRow=\"3 / 5\"/>\n  <Element elementId=\"page-summary-ctl-budgetscenario\" gridColumn=\"13 / 19\" gridRow=\"3 / 5\"/>\n  <Element elementId=\"page-summary-ctl-location\" gridColumn=\"19 / 25\" gridRow=\"3 / 5\"/>\n  <Element elementId=\"page-summary-report\" gridColumn=\"1 / 25\" gridRow=\"5 / 15\"/>\n  <Element elementId=\"page-summary-detail-14\" gridColumn=\"1 / 25\" gridRow=\"15 / 25\"/>\n</Page>",
+      "elements": [
+        {
+          "id": "id0003",
+          "kind": "text",
+          "body": "# Location P&L summary (synthetic)\n\nSummary (rebuilt from Solver; see the parity report before use)."
+        },
+        {
+          "id": "id0004",
+          "kind": "control",
+          "controlId": "Period",
+          "name": "Period",
+          "controlType": "number",
+          "parameters": [
+            {
+              "kind": "data-model",
+              "dataModelId": "id0005",
+              "controlId": "Period"
+            }
+          ],
+          "mode": "=",
+          "includeNulls": "when-no-value-is-selected",
+          "value": 202609
+        },
+        {
+          "id": "id0006",
+          "kind": "control",
+          "controlId": "ActualScenario",
+          "name": "Actual Scenario",
+          "controlType": "text",
+          "parameters": [
+            {
+              "kind": "data-model",
+              "dataModelId": "id0005",
+              "controlId": "ActualScenario"
+            }
+          ],
+          "mode": "equals",
+          "case": "insensitive",
+          "includeNulls": "when-no-value-is-selected",
+          "showOperators": false,
+          "value": "ACT"
+        },
+        {
+          "id": "id0007",
+          "kind": "control",
+          "controlId": "BudgetScenario",
+          "name": "Budget Scenario",
+          "controlType": "text",
+          "parameters": [
+            {
+              "kind": "data-model",
+              "dataModelId": "id0005",
+              "controlId": "BudgetScenario"
+            }
+          ],
+          "mode": "equals",
+          "case": "insensitive",
+          "includeNulls": "when-no-value-is-selected",
+          "showOperators": false,
+          "value": "BUD,ADJ"
+        },
+        {
+          "id": "id0008",
+          "kind": "control",
+          "controlId": "Location",
+          "name": "Location",
+          "controlType": "text",
+          "parameters": [
+            {
+              "kind": "data-model",
+              "dataModelId": "id0005",
+              "controlId": "Location"
+            }
+          ],
+          "mode": "equals",
+          "case": "insensitive",
+          "includeNulls": "when-no-value-is-selected",
+          "showOperators": false,
+          "value": "*"
+        },
+        {
+          "id": "id0009",
+          "kind": "table",
+          "name": "Summary",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0005",
+            "elementId": "id0010"
+          },
+          "columns": [
+            {
+              "id": "id0011",
+              "name": "Row",
+              "formula": "[Summary lines/Row]",
+              "hidden": true
+            },
+            {
+              "id": "id0012",
+              "name": "Line",
+              "formula": "[Summary lines/Line]"
+            },
+            {
+              "id": "id0013",
+              "name": "Actual",
+              "formula": "[Summary lines/Actual]",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0014",
+              "name": "Budget",
+              "formula": "[Summary lines/Budget]",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0015",
+              "name": "Variance",
+              "formula": "[Summary lines/Variance]",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0016",
+              "name": "YTD Actual",
+              "formula": "[Summary lines/YTD Actual]",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0017",
+              "name": "Variance %",
+              "formula": "[Summary lines/Variance %]",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "order": [
+            "id0011",
+            "id0012",
+            "id0013",
+            "id0014",
+            "id0015",
+            "id0016",
+            "id0017"
+          ],
+          "sort": [
+            {
+              "columnId": "id0011",
+              "direction": "ascending"
+            }
+          ]
+        },
+        {
+          "id": "id0018",
+          "kind": "table",
+          "name": "Revenue by account (row 14)",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "id0005",
+            "elementId": "id0019"
+          },
+          "columns": [
+            {
+              "id": "id0020",
+              "name": "Line",
+              "formula": "[Summary detail row 14/Line]"
+            },
+            {
+              "id": "id0021",
+              "name": "Code",
+              "formula": "[Summary detail row 14/Code]"
+            },
+            {
+              "id": "id0022",
+              "name": "Actual",
+              "formula": "[Summary detail row 14/Actual]"
+            },
+            {
+              "id": "id0023",
+              "name": "Budget",
+              "formula": "[Summary detail row 14/Budget]"
+            }
+          ],
+          "order": [
+            "id0020",
+            "id0021",
+            "id0022",
+            "id0023"
+          ]
+        }
+      ]
+    }
+  },
+  "stats": {
+    "pages": 1,
+    "tables": 2,
+    "controls": 4
+  },
+  "warnings": []
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "solver-to-sigma",
+  "displayName": "Solver → Sigma",
+  "version": "0.1.0",
+  "description": "Migrate Solver (Solver Global, formerly BI360) reports to Sigma from their Live Reporting downloads: definition extraction, compilation of filters, period functions and formulas into a Sigma data model and workbook, and parity against an executed run, plus a read-only estate assessment. Bundles solver-to-sigma + solver-assessment.",
+  "author": {
+    "name": "Sigma Computing"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "solver",
+    "solver-global",
+    "bi360",
+    "sigma",
+    "migration",
+    "financial-reporting",
+    "converter"
+  ],
+  "skills": "./skills/"
+}
