@@ -6,6 +6,12 @@
 #
 #   ruby scripts/migrate-omni.rb --document <doc-id> --connection-id <id> \
 #     --folder-id <id> [--topic <topic>] [--model-dir <dir>] [--export <path>] [--workdir DIR]
+#
+# Reuse check (C3): every run rescans Sigma for an existing data model covering this model. When one is found the
+# run STOPS (reuse-check) unless you choose
+#   --reuse-dm <id>   build the workbook on that DM (nothing is POSTed or PUT to it; it is read back by name)
+#   --new-dm [REASON] create a new DM anyway (recorded as a waiver in the verdict)
+# A previous run's dm-mode.json / dm-match.json is never reused as the answer.
 
 require 'optparse'
 require 'json'
@@ -32,6 +38,61 @@ def fail_phase!(phase, msg)
   raise MigrationFailed, "#{phase}: #{msg}"
 end
 
+OFFRAMP_ORIGIN = 'omni-new-dm'
+
+# Replace this origin's offramps.jsonl records with `records` (an empty list just clears them), so a re-run never
+# accumulates stale waivers and a later --reuse-dm / no-match run clears an earlier --new-dm waiver.
+def replace_offramps(workdir, origin, records)
+  path = File.join(workdir, 'offramps.jsonl')
+  keep = if File.file?(path)
+           File.readlines(path, encoding: 'UTF-8').reject do |l|
+             (JSON.parse(l) rescue {})['origin'] == origin
+           end
+         else
+           []
+         end
+  return if keep.empty? && records.empty? && !File.file?(path)
+  File.write(path, keep.map { |l| l.end_with?("\n") ? l : "#{l}\n" }.join + records.map { |r| "#{JSON.generate(r)}\n" }.join)
+end
+
+# Data-model reuse check. Returns the dm-mode.json hash ({"mode":"create"} or {"mode":"reuse","dataModelId":...}).
+# find-or-pick-dm.rb exits 0 with a recommendation and 1 with none, always writing dm-match.json first; any other
+# outcome (no fresh file) is a failed scan and stops the run. A recommended/auto-picked match STOPS the run: the
+# operator chooses --reuse-dm <id> or --new-dm (never a silent POST of a duplicate DM, never a silent reuse).
+def reuse_check!(opts)
+  FileUtils.rm_f('dm-mode.json') # a stale mode must never authorize a post after this check stops or fails
+  if opts[:reuse_dm]
+    warn "reuse-check: --reuse-dm #{opts[:reuse_dm]}: nothing is written to that data model; it is read back by name."
+    replace_offramps(Dir.pwd, OFFRAMP_ORIGIN, [])
+    return { 'mode' => 'reuse', 'dataModelId' => opts[:reuse_dm], 'chosen_by' => '--reuse-dm' }
+  end
+  FileUtils.rm_f('dm-match.json') # a stale answer must never stand in for a failed scan
+  _ok, code = run_script!('find-or-pick-dm.rb', '--workbook-signature', 'omni-signature.json', '--auto-pick', '--refresh',
+                          '--out', 'dm-match.json')
+  match = File.file?('dm-match.json') ? (JSON.parse(File.read('dm-match.json', encoding: 'UTF-8')) rescue nil) : nil
+  unless match.is_a?(Hash) && [0, 1].include?(code)
+    fail_phase!('reuse-check', "find-or-pick-dm.rb exit #{code} without a result file (scan failed; check Sigma credentials)")
+  end
+  rec = match['recommended_dm_id'].to_s
+  if rec.empty?
+    warn "reuse-check: no reusable data model (#{match['rationale']}); creating a new one"
+    replace_offramps(Dir.pwd, OFFRAMP_ORIGIN, [])
+    return { 'mode' => 'create' }
+  end
+  name = Array(match['candidates']).find { |c| c['dm_id'] == rec }&.fetch('dm_name', nil)
+  if opts[:new_dm]
+    reason = opts[:new_dm].is_a?(String) && !opts[:new_dm].empty? ? opts[:new_dm] : 'operator chose a new data model over the reuse candidate'
+    replace_offramps(Dir.pwd, OFFRAMP_ORIGIN,
+                     [{ 'kind' => 'skip-flag-waived', 'origin' => OFFRAMP_ORIGIN,
+                        'detail' => "--new-dm: data-model reuse declined (candidate #{rec}#{name ? " #{name.inspect}" : ''})",
+                        'reason' => reason }])
+    return { 'mode' => 'create', 'declined_reuse' => rec }
+  end
+  fail_phase!('reuse-check', "data model #{rec}#{name ? " (#{name.inspect})" : ''} already covers this model (#{match['rationale']}). " \
+                             "Re-run with --reuse-dm #{rec} to build the workbook on it (nothing is posted to the data model), or " \
+                             '--new-dm [REASON] to create a new one anyway (recorded as a waiver in the verdict).')
+end
+
 def run_script!(name, *args, env: {})
   # Runs a fixed phase script from this directory as an argv list (no shell);
   # the script name comes from the PHASES table, not from user input.
@@ -53,7 +114,11 @@ if __FILE__ == $PROGRAM_NAME
     o.on('--connection-id ID') { |v| opts[:connection_id] = v }
     o.on('--folder-id ID')     { |v| opts[:folder_id] = v }
     o.on('--workdir DIR')      { |v| opts[:workdir] = v }
+    o.on('--reuse-dm ID')      { |v| opts[:reuse_dm] = v }
+    o.on('--new-dm [REASON]')  { |v| opts[:new_dm] = v || true }
   end.parse!(ARGV)
+
+  abort 'pass at most one of --reuse-dm and --new-dm' if opts[:reuse_dm] && opts[:new_dm]
 
   { connection_id: '--connection-id', folder_id: '--folder-id' }.each do |k, flag|
     abort "missing #{flag}" if opts[k].to_s.empty?
@@ -104,13 +169,10 @@ if __FILE__ == $PROGRAM_NAME
       dm_env = JSON.parse(File.read('dm-envelope.json', encoding: 'UTF-8'))
       File.write('dm-spec.json', JSON.pretty_generate(dm_env['sigmaDataModel']) + "\n")
 
-      unless File.file?('dm-mode.json')
-        ok, code = run_script!('find-or-pick-dm.rb', '--signature', 'omni-signature.json', '--out', 'dm-mode.json')
-        fail_phase!('reuse-check', "exit #{code}") unless ok
-      end
+      File.write('dm-mode.json', JSON.pretty_generate(reuse_check!(opts)) + "\n")
 
       ok, code = run_script!('post-omni-dm.rb', '--spec', 'dm-spec.json', '--mode', 'dm-mode.json', '--out', 'dm-elements.json')
-      fail_phase!('post-dm', "exit #{code}") unless ok
+      fail_phase!('post-dm', "exit #{code} (readback gate)") unless ok
 
       ok, code = run_script!('build-omni-workbook.rb',
                               '--export', export_path,
