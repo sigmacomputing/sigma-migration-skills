@@ -14,6 +14,8 @@
 #       → renders raw detail rows (the 9.6M-row / $0 / duplicate-dim enterprise bug).
 #   T2  a `groupings.calculations` column that is a PASSTHROUGH of an aggregate
 #       (re-aggregates to "multiple values"); calc cols must be Sum(...)/etc.
+#       EXEMPT: a governed data-model metric reference `[Metrics/<name>]` —
+#       an aggregate by definition, deliberately emitted by converter builders.
 #   C1  a `control` missing id / controlId / controlType.
 #   C2  any control nesting its value fields under a bogus `value` OBJECT
 #       (control fields are FLAT top-level) → the opaque `Invalid kind: control`.
@@ -44,6 +46,17 @@
 #   N1  an element or column whose `name` is empty/whitespace-only — breaks
 #       parity header matching and blank-renders axes (title hiding belongs on
 #       the element, not the name).
+#   R1  an element filter whose columnId is not declared on its target element.
+#   R2  an element whose groupings / sort / pivot shelves reference a column id
+#       that is not declared in the element's OWN `columns[]`:
+#       groupings[].groupBy[], groupings[].calculations[],
+#       groupings[].sort[].columnId, the element-level sort[].columnId, and
+#       pivot rowsBy[]/columnsBy[] .columnId and .sort.by (`"row-count"` is a
+#       legal sort.by). Sigma 400s the whole POST ("elements[N].groupings[0].
+#       sort[0].columnId: references column '<id>' which is not declared in
+#       columns.") — e.g. a builder that prunes a dimension from columns and
+#       groupBy but leaves the grouping sort pointing at it (powerbi-to-sigma
+#       1.15.1).
 #
 # WARN-level (printed, never fail the lint — `lint_warnings(spec)`):
 #   P1  a `conditionalFormats` entry with includeValues:false — silently
@@ -69,6 +82,9 @@ require_relative 'code_rep'
 
 AGG = /\A\s*(Sum|Avg|Count|CountDistinct|CountIf|SumIf|Min|Max|Median|Percentile|StdDev|Variance|VariancePop|GrandTotal)\s*\(/i
 PLAIN_REF = /\A\s*\[[^\]]+\]\s*\z/   # a bare column reference, e.g. [Table/Region]
+# A governed data-model metric reference, e.g. [Metrics/Shipment Count]. It is an
+# aggregate by definition, so as a grouped calculation it is NOT a passthrough (T2).
+METRIC_REF = /\A\s*\[Metrics\//
 LISTY = %w[list segmented hierarchy].freeze
 # C6/C7/C8: controlType shape rules — mirror Sigma's server-side validation (workbook dry run)
 # OFFLINE, so the control-grammar 400s (each of which otherwise costs a full
@@ -181,6 +197,59 @@ ISO_UTC_DATETIME = /\A\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\
 # builder's own SORT_ORD ordering columns are exactly this shape and I1
 # flagged them as false positives twice in the field).
 BARE_PREDICATE = /\b(If)\s*\(\s*(\[[^\]]+\])\s*[,)]/i
+# R2: the one non-column value a pivot shelf's `sort.by` may carry.
+PIVOT_SORT_BY_ROW_COUNT = 'row-count'
+
+# [[element, json_path]] in document order, where json_path is the element's
+# location in the spec as Sigma's validator names it (`elements[N]`). Mirrors
+# Sigma::CodeRep.workbook_elements, including its transitional read of legacy
+# page-nested elements (`pages[P].elements[N]`).
+def element_paths(spec)
+  doc = Sigma::CodeRep.document(spec)
+  if doc['elements'].is_a?(Array)
+    return doc['elements'].each_with_index.map { |el, i| [el, "elements[#{i}]"] }.select { |el, _| el.is_a?(Hash) }
+  end
+
+  Array(doc['pages']).each_with_index.flat_map do |page, p|
+    next [] unless page.is_a?(Hash)
+
+    Array(page['elements']).each_with_index.map { |el, i| [el, "pages[#{p}].elements[#{i}]"] }
+                           .select { |el, _| el.is_a?(Hash) }
+  end
+end
+
+# R2: [[json_path, column_id]] for every column reference on `el`'s grouping,
+# sort, and pivot shelves. Shapes that are not the documented ones (a non-Hash
+# sort entry, a missing columnId) are skipped — this rule checks references,
+# not grammar.
+def element_column_refs(el, path)
+  refs = []
+  Array(el['groupings']).each_with_index do |g, gi|
+    next unless g.is_a?(Hash)
+
+    %w[groupBy calculations].each do |key|
+      Array(g[key]).each_with_index do |cid, i|
+        refs << ["#{path}.groupings[#{gi}].#{key}[#{i}]", cid] if cid.is_a?(String)
+      end
+    end
+    Array(g['sort']).each_with_index do |s, si|
+      refs << ["#{path}.groupings[#{gi}].sort[#{si}].columnId", s['columnId']] if s.is_a?(Hash) && s['columnId'].is_a?(String)
+    end
+  end
+  Array(el['sort']).each_with_index do |s, si|
+    refs << ["#{path}.sort[#{si}].columnId", s['columnId']] if s.is_a?(Hash) && s['columnId'].is_a?(String)
+  end
+  %w[rowsBy columnsBy].each do |shelf|
+    Array(el[shelf]).each_with_index do |item, i|
+      next unless item.is_a?(Hash)
+
+      refs << ["#{path}.#{shelf}[#{i}].columnId", item['columnId']] if item['columnId'].is_a?(String)
+      by = item['sort'].is_a?(Hash) ? item['sort']['by'] : nil
+      refs << ["#{path}.#{shelf}[#{i}].sort.by", by] if by.is_a?(String) && by != PIVOT_SORT_BY_ROW_COUNT
+    end
+  end
+  refs
+end
 
 def lint(spec)
   spec = Sigma::CodeRep.document(spec)
@@ -238,7 +307,7 @@ def lint(spec)
           (g['calculations'] || []).each do |cid|
             f = (cols_by_id[cid] || {})['formula'].to_s
             # a calc that is a plain ref to another column whose own formula is an aggregate
-            if f =~ PLAIN_REF
+            if f =~ PLAIN_REF && f !~ METRIC_REF
               # can't always resolve cross-element; flag bare passthroughs that look like measures
               errs << "T2 table '#{name}': grouping calculation '#{cid}' is a passthrough (`#{f}`) — a grouped calculation must be an aggregate expression (Sum([...]) etc.), not a passthrough of an already-aggregated column (renders 'multiple values')." if cols_by_id[cid] && (cols_by_id[cid]['name'].to_s =~ /total|sum|count|avg|revenue|profit|tcv|amount/i)
             end
@@ -360,6 +429,19 @@ def lint(spec)
           end
         end
       end
+  end
+
+  # R2: grouping / sort / pivot-shelf column ids must be declared in the
+  # element's OWN columns[] — a same-id column on another element does not
+  # count. Worded like Sigma's own 400 so the message maps 1:1 to the POST.
+  element_paths(spec).each do |el, path|
+    declared = Array(el['columns']).select { |c| c.is_a?(Hash) }.map { |c| c['id'] }
+    element_column_refs(el, path).each do |ref_path, cid|
+      next if declared.include?(cid)
+
+      errs << "R2 #{ref_path}: references column '#{cid}' which is not declared in columns. " \
+              "(#{el['kind']} '#{el['name'] || el['id'] || '(unnamed)'}' — drop the reference or declare the column)"
+    end
   end
   errs
 end

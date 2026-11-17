@@ -117,6 +117,35 @@ Blank-risk artifacts must explicitly be clear; when none exists, healthy render
 evidence or the parity visual pass covers the check. Any explicit render
 failure, blank/high-risk result, or indeterminate health artifact is RED.
 
+### Report clock and materialization freshness
+
+`parity-final.json` may carry two optional blocks (powerbi-to-sigma 1.15.0+,
+written by `phase6-parity-pbi.rb --finalize` and `parity-from-oracle.py`; see
+that skill's `refs/report-clock.md`):
+
+- `report_clock`: the one IANA timezone the build and the oracle use for
+  `TODAY()`/`NOW()`. Keys: `report_timezone`, `report_timezone_source`,
+  `sigma_clock`, `oracle_clock`, `oracle_kind`, `report_day`, `expected_as_of`,
+  `actual_as_of`, `unpinned_sites`, `record`, `today_relative_charts[]`, and
+  `clock_skew[{chart, reason}]`.
+- `materialization_freshness`: the pre-parity freshness check. Keys: `status`
+  (`FRESH`, `NONE`, `STALE`, `UNKNOWN`, `UNREADABLE` or `NOT-CHECKED`),
+  `checked_at`, `path`, `stale[]`, `unknown[]`, plus `accepted_unknown[]`
+  (only after `--allow-unknown`) and `scheduled[]` (only for `NOT-CHECKED`).
+
+A missing or `null` block renders nothing. The two refusal statuses,
+`CLOCK-SKEW` and `STALE-MATERIALIZATION`, are not parity passes. The parity
+check names them with what was recorded:
+
+- the skewed charts and their reasons, or, on the page-fact path, the number of
+  clock sites off the report clock;
+- the stale or unknown elements, the schedules that were never checked, or a
+  passing check that was not taken close enough to the oracle and the Sigma
+  actuals.
+
+A chart listed in `clock_skew` was never compared, so the parity check fails
+whatever the overall status says.
+
 The builder also checks internal counts it can verify without guessing,
 including inventory totals/status counts and degradation-ledger class counts.
 Declared counts that disagree with their detail records are RED.
@@ -130,8 +159,8 @@ Declared counts that disagree with their detail records are RED.
   is `approximated`, `needs-review`, or `skipped`, or a waiver/degradation is
   recorded.
 - **RED**: any source object is omitted or contradictory, an artifact report is
-  inconsistent, parity fails or is absent, or render/blank-risk evidence fails
-  or is absent.
+  inconsistent, parity fails or is absent (including `CLOCK-SKEW` and
+  `STALE-MATERIALIZATION`), or render/blank-risk evidence fails or is absent.
 
 `needs-review` and `skipped` are terminal accounting states, so a YELLOW report
 can still exit 0. They are not silently treated as successful migration.
@@ -168,6 +197,18 @@ Each canonical source object includes `key`, `type`, `id`, `name`, `status`,
 and `status_sources`. Each check includes `name`, `status` (`PASS` or `FAIL`),
 and `message`. Artifact paths are relative to the workdir where possible.
 
+Two more top-level keys appear only when `parity-final.json` records the
+matching block:
+
+- `report_clock`: the recorded keys listed above, plus
+  `today_relative_chart_count` and `source_artifact: "parity-final.json"`.
+- `materialization_freshness`: `status`, `checked_at`, `path`, `stale`,
+  `unknown`, `accepted_unknown` and `scheduled` when recorded, and
+  `source_artifact`.
+
+Recorded absolute paths (`record`, `path`) are made workdir-relative. Relative
+paths are kept as written.
+
 The output has no wall-clock timestamp by default. If `SOURCE_DATE_EPOCH` is
 set, the builder adds `generated_at` as the corresponding UTC ISO-8601 value.
 The same inputs and environment therefore produce byte-identical JSON and
@@ -178,5 +219,10 @@ Markdown.
 `MIGRATION_REPORT.md` is rendered from the same in-memory document as the JSON.
 Its verdict, total/accounted count, per-status counts, checks, canonical source
 objects, artifacts, degradations, and waivers agree with
-`migration-result.json`. `--check` regenerates both representations and catches
+`migration-result.json`. When recorded, a `## Report clock` section follows the
+checks. It gives the timezone and its source, the today-relative chart count,
+the Sigma and oracle clocks, any clock sites off the report clock, and one line
+per `CLOCK-SKEW` chart with its reason. A `## Materialization freshness`
+section gives the status, when it was checked, and the stale, unknown (or
+accepted-unknown) and never-checked elements. `--check` regenerates both representations and catches
 stale or manually edited output without changing either file.

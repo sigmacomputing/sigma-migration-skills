@@ -31,4 +31,31 @@ class TestPreflightFlatElements < Minitest::Test
 
     refute lint(spec).any? { |message| message.start_with?('C6 ') }
   end
+
+  def t2_spec(calc_formula)
+    {
+      'pages' => [{ 'id' => 'p1', 'name' => 'P1' }],
+      'elements' => [{
+        'id' => 't1', 'kind' => 'table', 'name' => 'Weekly Shipments',
+        'columns' => [
+          { 'id' => 'd', 'name' => 'Region', 'formula' => '[Some Table/Region]' },
+          { 'id' => 'm', 'name' => 'Shipment Count', 'formula' => calc_formula }
+        ],
+        'groupings' => [{ 'groupBy' => ['d'], 'calculations' => ['m'] }]
+      }],
+      'layout' => '<Page id="p1"><Element elementId="t1"/></Page>'
+    }
+  end
+
+  def test_t2_exempts_data_model_metric_reference
+    refute lint(t2_spec('[Metrics/Shipment Count]')).any? { |message| message.start_with?('T2 ') }
+  end
+
+  def test_t2_still_flags_bare_measure_passthrough
+    assert lint(t2_spec('[Some Table/Shipment Count]')).any? { |message| message.start_with?('T2 ') }
+  end
+
+  def test_t2_allows_aggregate_expression
+    refute lint(t2_spec('CountDistinct([Some Table/Shipment Id])')).any? { |message| message.start_with?('T2 ') }
+  end
 end
