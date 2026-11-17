@@ -1,0 +1,23 @@
+{
+ "connectionId": "<connection-id>",
+ "fiscal_year_start_month": 1,
+ "facts": {
+  "GL_F_Trans": {
+   "from": "DEMO_DB.FINANCE.GL_FACT f LEFT JOIN DEMO_DB.FINANCE.DEPARTMENTS d ON d.DEPT_ID = f.DEPT_ID",
+   "values": {
+    "Value1": "f.AMOUNT"
+   },
+   "period": {
+    "expr": "f.PERIOD_ID",
+    "format": "yyyymm"
+   }
+  }
+ },
+ "attributes": {
+  "d_Account.Code": "f.ACCOUNT_CODE",
+  "d_Account.Description": "f.ACCOUNT_NAME",
+  "d_Scenario.Code": "f.SCENARIO",
+  "d_dim0.Code": "f.LOCATION_CODE",
+  "d_dim1.UDF001": "d.DEPT_GROUP"
+ }
+}

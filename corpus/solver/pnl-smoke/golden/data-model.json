@@ -1,0 +1,166 @@
+{
+  "sigmaDataModel": {
+    "name": "Location P&L summary - Data",
+    "folderId": "id0001",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0002",
+        "name": "Solver report",
+        "elements": [
+          {
+            "id": "id0003",
+            "kind": "table",
+            "name": "Summary lines",
+            "source": {
+              "kind": "sql",
+              "connectionId": "<connection-id>",
+              "statement": "WITH A1 AS (SELECT SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B001, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B002, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN ((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) - MOD(MOD((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1), 12) + 1 - 1 + 12, 12)) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B003, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '5000' AND '5999' AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B004, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '5000' AND '5999' AND (TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B005, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN ((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) - MOD(MOD((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1), 12) + 1 - 1 + 12, 12)) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '5000' AND '5999' AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B006, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '6000' AND '6999' AND (NOT UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) IN ('6900'))) AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B007, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '6000' AND '6999' AND (NOT UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) IN ('6900'))) AND (TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B008, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN ((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) - MOD(MOD((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1), 12) + 1 - 1 + 12, 12)) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '6000' AND '6999' AND (NOT UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) IN ('6900'))) AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS B009, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) AND CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(d.DEPT_GROUP), ''))), 'FIELD') THEN f.AMOUNT END) AS B010, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) AND CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(d.DEPT_GROUP), ''))), 'FIELD') THEN f.AMOUNT END) AS B011, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN ((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) - MOD(MOD((FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1), 12) + 1 - 1 + 12, 12)) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) AND CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(d.DEPT_GROUP), ''))), 'FIELD') THEN f.AMOUNT END) AS B012 FROM DEMO_DB.FINANCE.GL_FACT f LEFT JOIN DEMO_DB.FINANCE.DEPARTMENTS d ON d.DEPT_ID = f.DEPT_ID)\nSELECT 6 AS ROW_NUM, 'Revenue' AS LINE, (-COALESCE(B001, 0)) AS C_D, (-COALESCE(B002, 0)) AS C_E, ((-COALESCE(B001, 0)) - (-COALESCE(B002, 0))) AS C_F, (-COALESCE(B003, 0)) AS C_G, COALESCE((((-COALESCE(B001, 0)) - (-COALESCE(B002, 0))) / NULLIF((-COALESCE(B002, 0)), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 7 AS ROW_NUM, 'Cost of sales' AS LINE, COALESCE(B004, 0) AS C_D, COALESCE(B005, 0) AS C_E, (COALESCE(B004, 0) - COALESCE(B005, 0)) AS C_F, COALESCE(B006, 0) AS C_G, COALESCE(((COALESCE(B004, 0) - COALESCE(B005, 0)) / NULLIF(COALESCE(B005, 0), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 8 AS ROW_NUM, 'Gross margin' AS LINE, ((-COALESCE(B001, 0)) - COALESCE(B004, 0)) AS C_D, ((-COALESCE(B002, 0)) - COALESCE(B005, 0)) AS C_E, (((-COALESCE(B001, 0)) - COALESCE(B004, 0)) - ((-COALESCE(B002, 0)) - COALESCE(B005, 0))) AS C_F, ((-COALESCE(B003, 0)) - COALESCE(B006, 0)) AS C_G, COALESCE(((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) - ((-COALESCE(B002, 0)) - COALESCE(B005, 0))) / NULLIF(((-COALESCE(B002, 0)) - COALESCE(B005, 0)), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 9 AS ROW_NUM, 'Gross margin %' AS LINE, COALESCE((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) / NULLIF((-COALESCE(B001, 0)), 0)), 0) AS C_D, COALESCE((((-COALESCE(B002, 0)) - COALESCE(B005, 0)) / NULLIF((-COALESCE(B002, 0)), 0)), 0) AS C_E, (COALESCE((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) / NULLIF((-COALESCE(B001, 0)), 0)), 0) - COALESCE((((-COALESCE(B002, 0)) - COALESCE(B005, 0)) / NULLIF((-COALESCE(B002, 0)), 0)), 0)) AS C_F, COALESCE((((-COALESCE(B003, 0)) - COALESCE(B006, 0)) / NULLIF((-COALESCE(B003, 0)), 0)), 0) AS C_G, COALESCE(((COALESCE((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) / NULLIF((-COALESCE(B001, 0)), 0)), 0) - COALESCE((((-COALESCE(B002, 0)) - COALESCE(B005, 0)) / NULLIF((-COALESCE(B002, 0)), 0)), 0)) / NULLIF(COALESCE((((-COALESCE(B002, 0)) - COALESCE(B005, 0)) / NULLIF((-COALESCE(B002, 0)), 0)), 0), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 10 AS ROW_NUM, 'Operating expenses' AS LINE, COALESCE(B007, 0) AS C_D, COALESCE(B008, 0) AS C_E, (COALESCE(B007, 0) - COALESCE(B008, 0)) AS C_F, COALESCE(B009, 0) AS C_G, COALESCE(((COALESCE(B007, 0) - COALESCE(B008, 0)) / NULLIF(COALESCE(B008, 0), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 11 AS ROW_NUM, 'EBITDA' AS LINE, (((-COALESCE(B001, 0)) - COALESCE(B004, 0)) - COALESCE(B007, 0)) AS C_D, (((-COALESCE(B002, 0)) - COALESCE(B005, 0)) - COALESCE(B008, 0)) AS C_E, ((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) - COALESCE(B007, 0)) - (((-COALESCE(B002, 0)) - COALESCE(B005, 0)) - COALESCE(B008, 0))) AS C_F, (((-COALESCE(B003, 0)) - COALESCE(B006, 0)) - COALESCE(B009, 0)) AS C_G, COALESCE((((((-COALESCE(B001, 0)) - COALESCE(B004, 0)) - COALESCE(B007, 0)) - (((-COALESCE(B002, 0)) - COALESCE(B005, 0)) - COALESCE(B008, 0))) / NULLIF((((-COALESCE(B002, 0)) - COALESCE(B005, 0)) - COALESCE(B008, 0)), 0)), 0) AS C_H FROM A1\nUNION ALL\nSELECT 12 AS ROW_NUM, 'Field payroll' AS LINE, COALESCE((COALESCE(B010, 0) * 1), 0) AS C_D, COALESCE((COALESCE(B011, 0) * 1), 0) AS C_E, (COALESCE((COALESCE(B010, 0) * 1), 0) - COALESCE((COALESCE(B011, 0) * 1), 0)) AS C_F, COALESCE((COALESCE(B012, 0) * 1), 0) AS C_G, COALESCE(((COALESCE((COALESCE(B010, 0) * 1), 0) - COALESCE((COALESCE(B011, 0) * 1), 0)) / NULLIF(COALESCE((COALESCE(B011, 0) * 1), 0), 0)), 0) AS C_H FROM A1"
+            },
+            "columns": [
+              {
+                "id": "id0004",
+                "name": "Row",
+                "formula": "[Custom SQL/ROW_NUM]"
+              },
+              {
+                "id": "id0005",
+                "name": "Line",
+                "formula": "[Custom SQL/LINE]"
+              },
+              {
+                "id": "id0006",
+                "name": "Actual",
+                "formula": "[Custom SQL/C_D]"
+              },
+              {
+                "id": "id0007",
+                "name": "Budget",
+                "formula": "[Custom SQL/C_E]"
+              },
+              {
+                "id": "id0008",
+                "name": "Variance",
+                "formula": "[Custom SQL/C_F]"
+              },
+              {
+                "id": "id0009",
+                "name": "YTD Actual",
+                "formula": "[Custom SQL/C_G]"
+              },
+              {
+                "id": "id0010",
+                "name": "Variance %",
+                "formula": "[Custom SQL/C_H]"
+              }
+            ],
+            "order": [
+              "id0004",
+              "id0005",
+              "id0006",
+              "id0007",
+              "id0008",
+              "id0009",
+              "id0010"
+            ]
+          },
+          {
+            "id": "id0011",
+            "kind": "table",
+            "name": "Summary detail row 14",
+            "source": {
+              "kind": "sql",
+              "connectionId": "<connection-id>",
+              "statement": "SELECT G2 AS C_B, G1 AS C_C, (-COALESCE(D001, 0)) AS C_D, (-COALESCE(D002, 0)) AS C_E FROM (SELECT f.ACCOUNT_CODE AS G1, f.ACCOUNT_NAME AS G2, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{ActualScenario}}, 'ACT')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{ActualScenario}}, 'ACT')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS D001, SUM(CASE WHEN ((FLOOR((f.PERIOD_ID) / 100) * 12 + MOD((f.PERIOD_ID), 100) - 1) BETWEEN (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1) AND (FLOOR((COALESCE({{Period}}, 202609)) / 100) * 12 + MOD((COALESCE({{Period}}, 202609)), 100) - 1)) AND UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.SCENARIO), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{BudgetScenario}}, 'BUD,ADJ')), '\\\\s*,\\\\s*', ',')), ','))) AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) THEN f.AMOUNT END) AS D002 FROM DEMO_DB.FINANCE.GL_FACT f LEFT JOIN DEMO_DB.FINANCE.DEPARTMENTS d ON d.DEPT_ID = f.DEPT_ID WHERE UPPER(TRIM(COALESCE(TO_VARCHAR(f.ACCOUNT_CODE), ''))) BETWEEN '4000' AND '4999' AND (TRIM(COALESCE({{Location}}, '*')) = '*' OR ARRAY_CONTAINS(UPPER(TRIM(COALESCE(TO_VARCHAR(f.LOCATION_CODE), '')))::VARIANT, SPLIT(UPPER(REGEXP_REPLACE(TRIM(COALESCE({{Location}}, '*')), '\\\\s*,\\\\s*', ',')), ','))) GROUP BY f.ACCOUNT_CODE, f.ACCOUNT_NAME)"
+            },
+            "columns": [
+              {
+                "id": "id0012",
+                "name": "Line",
+                "formula": "[Custom SQL/C_B]"
+              },
+              {
+                "id": "id0013",
+                "name": "Code",
+                "formula": "[Custom SQL/C_C]"
+              },
+              {
+                "id": "id0014",
+                "name": "Actual",
+                "formula": "[Custom SQL/C_D]"
+              },
+              {
+                "id": "id0015",
+                "name": "Budget",
+                "formula": "[Custom SQL/C_E]"
+              }
+            ],
+            "order": [
+              "id0012",
+              "id0013",
+              "id0014",
+              "id0015"
+            ]
+          },
+          {
+            "id": "id0016",
+            "kind": "control",
+            "controlId": "Period",
+            "name": "Period",
+            "controlType": "number",
+            "mode": "=",
+            "includeNulls": "when-no-value-is-selected",
+            "value": 202609
+          },
+          {
+            "id": "id0017",
+            "kind": "control",
+            "controlId": "ActualScenario",
+            "name": "Actual Scenario",
+            "controlType": "text",
+            "mode": "equals",
+            "case": "insensitive",
+            "includeNulls": "when-no-value-is-selected",
+            "showOperators": false,
+            "value": "ACT"
+          },
+          {
+            "id": "id0018",
+            "kind": "control",
+            "controlId": "BudgetScenario",
+            "name": "Budget Scenario",
+            "controlType": "text",
+            "mode": "equals",
+            "case": "insensitive",
+            "includeNulls": "when-no-value-is-selected",
+            "showOperators": false,
+            "value": "BUD,ADJ"
+          },
+          {
+            "id": "id0019",
+            "kind": "control",
+            "controlId": "Location",
+            "name": "Location",
+            "controlType": "text",
+            "mode": "equals",
+            "case": "insensitive",
+            "includeNulls": "when-no-value-is-selected",
+            "showOperators": false,
+            "value": "*"
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "sheets": 1,
+    "elements": 2,
+    "lines": 7,
+    "bases": 12,
+    "details": 1,
+    "controls": 4,
+    "gap_cells": 0,
+    "text_cells": 0
+  },
+  "warnings": []
+}
