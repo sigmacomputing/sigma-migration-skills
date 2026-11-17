@@ -259,3 +259,21 @@ Local mapping:
 | C8 Parity hard gate | Phase 6 — `verify-omni-parity.rb` + `omni-query-oracle.rb` (`POST /api/v1/query/run`) + `assert-phase6-ran.rb` |
 | C9 Security/RLS | Security section — `detect-rls.rb` always; `apply-sigma-rls.rb` opt-in |
 | C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |
+
+## solver-to-sigma
+
+Solver reports are Excel layouts over Solver's own data warehouse, so the arc starts from the report's Live
+Reporting download (the definition is embedded in it) and a hand-written warehouse source map. Its local mapping:
+
+| Canonical | solver-to-sigma |
+|---|---|
+| C1 Assess | solver-assessment skill (`assess-solver.py` over a folder of downloads) |
+| C2 Discover | Phase 1 — extract (`solver_def.py`), source map, data-readiness pre-flight (`evaluate-solver-local.py` vs the executed run) |
+| C3 Reuse-check | Phase 1.5 — `convert-solver.py --signature-out` + `find-or-pick-dm.rb` |
+| C4 Convert | Phase 2 — `convert-solver.py` (lines over bases; one SQL element per sheet and per expanded row; parameters as DM controls) |
+| C5 Post-DM gate | Phase 3 — `post-solver.py dm` (POST + read back; refuses a read-back missing an element) |
+| C6 Build workbook | Phase 4 — `build-solver-workbook.py` from the read-back + `post-solver.py workbook` |
+| C7 Layout | Phase 5 — layout in the single create write; any later PUT re-sends it LAST |
+| C8 Parity hard gate | Phase 6 — `compare-solver-parity.py` (executed run vs the exported Sigma table) |
+| C9 Security/RLS | "Security: RLS / CLS" section (Solver security is not in the definition: ask, then port opt-in) |
+| C10 Enhance | — |

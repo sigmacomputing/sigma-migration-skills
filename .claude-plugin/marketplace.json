@@ -197,6 +197,13 @@
       "description": "Omni → Sigma. Topic YAML + dashboard export to a Sigma data model and workbook, plus a read-only assessment. Foundation — query views and custom charts are skipped, not guessed.",
       "category": "migration",
       "keywords": ["omni", "migration", "bi"]
+    },
+    {
+      "name": "solver-to-sigma",
+      "source": "./plugins/solver-to-sigma",
+      "description": "Solver (Solver Global / BI360) → Sigma. Rebuilds a report from its Live Reporting download as a Sigma data model and workbook, with parity against an executed run, plus a read-only estate assessment. Scaffold — untranslatable cells are reported, not guessed.",
+      "category": "migration",
+      "keywords": ["solver", "bi360", "migration", "financial-reporting"]
     }
   ]
 }
