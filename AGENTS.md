@@ -73,6 +73,8 @@ Maturity labels (`gold` / `live` / `foundation` / `scaffold`) are defined in
 | Scope/assess an Omni instance | `omni-assessment` | foundation | `plugins/omni-to-sigma/skills/omni-assessment/` |
 | Rebuild a Solver (Solver Global / BI360) report → Sigma (from its Live Reporting download) | `solver-to-sigma` | scaffold | `plugins/solver-to-sigma/skills/solver-to-sigma/` |
 | Scope/assess a Solver report estate (from Live Reporting downloads) | `solver-assessment` | scaffold | `plugins/solver-to-sigma/skills/solver-assessment/` |
+| Convert a Lightdash dbt semantic layer + charts/dashboards → Sigma (BigQuery-first) | `lightdash-to-sigma` | foundation | `plugins/lightdash-to-sigma/skills/lightdash-to-sigma/` |
+| Scope/assess a Lightdash instance | `lightdash-assessment` | scaffold | `plugins/lightdash-to-sigma/skills/lightdash-assessment/` |
 
 Assessments are read-only (never write to the source or post to Sigma); run one
 to pick what to convert, then hand off to the matching converter.

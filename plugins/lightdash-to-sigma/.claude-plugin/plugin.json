@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "lightdash-to-sigma",
+  "displayName": "Lightdash → Sigma",
+  "version": "0.1.2",
+  "description": "Migrate Lightdash content to Sigma — dbt semantic layer, charts and dashboards to a data model and workbook with RLS gate and parity (foundation), plus a scaffold assessment. Bundles lightdash-to-sigma + lightdash-assessment.",
+  "author": {
+    "name": "Sigma Computing"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "lightdash",
+    "sigma",
+    "migration",
+    "bi",
+    "converter"
+  ],
+  "skills": "./skills/"
+}

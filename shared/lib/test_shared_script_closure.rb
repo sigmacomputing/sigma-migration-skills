@@ -225,6 +225,14 @@ PER_TOOL_BY_DESIGN = {
     'formula-translation step at all. Sharing would mean one plugin carrying machinery the other has ' \
     'no source shape to exercise.',
   'phase6-parity.rb'  => "per-tool parity CLI (--tableau vs --workdir) and per-tool oracles",
+  'convert-dm.rb' => 'omni-to-sigma and lightdash-to-sigma each translate a different semantic layer ' \
+    '(Omni topic/view YAML vs dbt `meta:` / Lightdash compiled explores) into a Sigma DM; the parsers, ' \
+    'formula translators and field-map outputs share nothing but the CLI name',
+  'detect-rls.rb' => 'per-tool RLS scanners: each parses its own source\'s access-filter syntax ' \
+    '(Omni access_filters vs Lightdash sql_filter ${lightdash.attributes.*} / required_attributes) ' \
+    'and gates with its own exit-code contract',
+  'apply-sigma-rls.rb' => 'per-tool RLS appliers consuming their own detect-rls.rb plan shape; ' \
+    'lightdash\'s also records waived/pending RLS as offramps for the degradation ledger',
   'learned-rules.rb'  => 'gap-scout rule store is keyed to one tool\'s expression language',
   'probe_registry.rb' => 'local artifact registry binds to one tool\'s <TOOL>_TO_SIGMA_HOME dotdir (same convention as learned-rules.rb)',
   'collect-parity-actuals.rb' => 'per-tool Sigma-actuals collector, same reasoning as phase6-parity.rb. ' \

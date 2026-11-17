@@ -36,6 +36,7 @@ shared `~/.sigma-migration/env` under any agent.
 /plugin install spotfire-to-sigma@sigma-migration-skills
 /plugin install omni-to-sigma@sigma-migration-skills
 /plugin install solver-to-sigma@sigma-migration-skills
+/plugin install lightdash-to-sigma@sigma-migration-skills
 ```
 
 **Other agents (Cursor, Cortex Code, …)** — clone the repo and point your agent at the
@@ -97,6 +98,7 @@ and the skill drives discovery → translation → build → parity.
 | [`spotfire-to-sigma`](plugins/spotfire-to-sigma/) | Spotfire Analyst / Server | `spotfire-to-sigma`, `spotfire-assessment` (foundation; live-unvalidated) |
 | [`omni-to-sigma`](plugins/omni-to-sigma/) | Omni | `omni-to-sigma`, `omni-assessment` (foundation) |
 | [`solver-to-sigma`](plugins/solver-to-sigma/) | Solver (Solver Global / BI360) | `solver-to-sigma`, `solver-assessment` (scaffold) |
+| [`lightdash-to-sigma`](plugins/lightdash-to-sigma/) | Lightdash (dbt semantic layer; BigQuery-first) | `lightdash-to-sigma` (foundation; live-unvalidated), `lightdash-assessment` (scaffold) |
 | [`sigma-authoring`](plugins/sigma-authoring/) | (companion) | `sigma-workbooks`, `sigma-data-models`, … — install alongside every converter |
 
 In Claude Code, installed skills are namespaced — e.g. `/powerbi-to-sigma:powerbi-assessment`.

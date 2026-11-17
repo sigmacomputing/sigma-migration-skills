@@ -1,0 +1,38 @@
+name: Revenue by Customer Segment
+description: Total order amount per customer segment.
+tableName: orders
+metricQuery:
+  exploreName: orders
+  dimensions:
+    - customers_segment
+  metrics:
+    - orders_total_order_amount
+  filters: {}
+  sorts:
+    - fieldId: orders_total_order_amount
+      descending: true
+  limit: 500
+  tableCalculations: []
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: cartesian
+  config:
+    layout:
+      xField: customers_segment
+      yField:
+        - orders_total_order_amount
+    eChartsConfig:
+      series:
+        - type: bar
+          yAxisIndex: 0
+          encode:
+            xRef:
+              field: customers_segment
+            yRef:
+              field: orders_total_order_amount
+slug: revenue-by-segment
+spaceSlug: jaffle-shop
+version: 1
+updatedAt: '2026-11-01T12:00:00.000Z'
+downloadedAt: '2026-11-17T12:00:00.000Z'

@@ -277,3 +277,21 @@ Reporting download (the definition is embedded in it) and a hand-written warehou
 | C8 Parity hard gate | Phase 6 — `compare-solver-parity.py` (executed run vs the exported Sigma table) |
 | C9 Security/RLS | "Security: RLS / CLS" section (Solver security is not in the definition: ask, then port opt-in) |
 | C10 Enhance | — |
+
+## lightdash-to-sigma
+
+Lightdash uses "Phase" numbering (scaffolded by `tools/new-skill.rb`, then
+filled). Local mapping:
+
+| Canonical | lightdash-to-sigma |
+|---|---|
+| C1 Assess | Phase 0 — Assess (`lightdash-assessment`, scaffold) |
+| C2 Discover | Phase 1 — offline `lightdash download` + dbt project, or live `lightdash-discover.rb` (`refs/lightdash-source-contract.md`) |
+| C3 Reuse-check | Phase 1.5 — `lightdash-signature.json` + `find-or-pick-dm.rb` |
+| C4 Convert | Phase 2 — `convert-dm.rb` (dbt `meta` / compiled explore → Sigma DM + `field-map.json`) |
+| C5 Post-DM gate | Phase 3 — `post-lightdash-dm.rb` (POST `/v2/dataModels/spec` + mandatory readback) |
+| C6 Build workbook | Phase 4 — `build-lightdash-workbook.rb` + `post-lightdash-workbook.rb` (hidden master/base tables, charts, controls) |
+| C7 Layout | Phase 5 — layout XML attached as the LAST write inside `build-lightdash-workbook.rb` |
+| C8 Parity hard gate | Phase 6 — `lightdash-query-oracle.rb` + `verify-lightdash-parity.rb` + `assert-phase6-ran.rb` |
+| C9 Security/RLS | Security section — `detect-rls.rb` gate (exit 0/2/3), `apply-sigma-rls.rb` opt-in |
+| C10 Enhance | — (scripts vendored; wire flags per adoption checklist) |

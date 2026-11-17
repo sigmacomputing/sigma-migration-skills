@@ -1,0 +1,47 @@
+name: Revenue by Region and Month
+description: Table with a running-total SQL table calculation (a known gap).
+tableName: orders
+metricQuery:
+  exploreName: orders
+  dimensions:
+    - orders_order_date_month
+    - orders_region
+  metrics:
+    - orders_total_order_amount
+    - orders_completion_rate
+  filters: {}
+  sorts:
+    - fieldId: orders_order_date_month
+      descending: true
+  limit: 100
+  tableCalculations:
+    - name: running_total_amount
+      displayName: Running Total Amount
+      sql: |-
+        SUM(${orders.total_order_amount}) OVER (PARTITION BY ${orders.region} ORDER BY ${orders.order_date_month}
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+      format:
+        type: default
+        separator: default
+      type: number
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: table
+  config:
+    columns: {}
+    metricsAsRows: false
+    showColumnCalculation: false
+    conditionalFormattings: []
+tableConfig:
+  columnOrder:
+    - orders_order_date_month
+    - orders_region
+    - orders_total_order_amount
+    - orders_completion_rate
+    - running_total_amount
+slug: orders-by-region-table
+spaceSlug: jaffle-shop
+version: 1
+updatedAt: '2026-11-01T12:00:00.000Z'
+downloadedAt: '2026-11-17T12:00:00.000Z'

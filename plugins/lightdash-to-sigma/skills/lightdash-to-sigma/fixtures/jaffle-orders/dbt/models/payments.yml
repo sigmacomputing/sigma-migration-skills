@@ -1,0 +1,30 @@
+version: 2
+models:
+  - name: payments
+    description: One row per payment against an order.
+    meta:
+      label: Payments
+    columns:
+      - name: payment_id
+        meta:
+          dimension:
+            type: string
+      - name: order_id
+        meta:
+          dimension:
+            type: string
+      - name: payment_method
+        meta:
+          dimension:
+            type: string
+            label: Payment Method
+      - name: amount
+        meta:
+          dimension:
+            type: number
+            label: Payment Amount
+          metrics:
+            total_payment_amount:
+              type: sum
+              label: Total Payment Amount
+              format: '[$$]#,##0'

@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "adapter_type": "bigquery",
+    "project_name": "jaffle_shop"
+  },
+  "nodes": {
+    "model.jaffle_shop.orders": {
+      "unique_id": "model.jaffle_shop.orders",
+      "resource_type": "model",
+      "name": "orders",
+      "database": "acme-analytics",
+      "schema": "jaffle_shop",
+      "alias": "orders",
+      "relation_name": "`acme-analytics`.`jaffle_shop`.`orders`"
+    },
+    "model.jaffle_shop.customers": {
+      "unique_id": "model.jaffle_shop.customers",
+      "resource_type": "model",
+      "name": "customers",
+      "database": "acme-analytics",
+      "schema": "jaffle_shop",
+      "alias": "customers",
+      "relation_name": "`acme-analytics`.`jaffle_shop`.`customers`"
+    },
+    "model.jaffle_shop.payments": {
+      "unique_id": "model.jaffle_shop.payments",
+      "resource_type": "model",
+      "name": "payments",
+      "database": "acme-analytics",
+      "schema": "jaffle_shop",
+      "alias": "payments",
+      "relation_name": "`acme-analytics`.`jaffle_shop`.`payments`"
+    }
+  }
+}

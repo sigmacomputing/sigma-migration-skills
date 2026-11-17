@@ -1,0 +1,9 @@
+name: jaffle_shop
+version: '1.0.0'
+config-version: 2
+profile: jaffle_shop
+model-paths: ["models"]
+target-path: "target"
+models:
+  jaffle_shop:
+    +materialized: table
