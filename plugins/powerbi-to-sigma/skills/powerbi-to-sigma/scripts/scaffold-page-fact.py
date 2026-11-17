@@ -137,8 +137,9 @@ class Decomposer:
     AGG_OUTER = {"SUM": "SUM", "COUNT": "SUM", "MIN": "MIN", "MAX": "MAX"}
     SIGMA_AGG = {"SUM": "Sum", "COUNT": "Sum", "MIN": "Min", "MAX": "Max"}
 
-    def __init__(self, model, grain, dialect, guarded=None):
+    def __init__(self, model, grain, dialect, guarded=None, shape="views"):
         self.model = model
+        self.shape = shape
         self.grain = set(grain)
         # columns whose filter a CALCULATE must not replace: grouping columns of the page, plus slicer and
         # report/page filter columns (their filters are applied at the fact rows, for every component)
@@ -272,7 +273,14 @@ class Decomposer:
         if kind == "number":
             return n[1]
         if kind == "binary":
-            return "(%s %s %s)" % (self.row_expr(n[2], fact), n[1], self.row_expr(n[3], fact))
+            a, b = self.row_expr(n[2], fact), self.row_expr(n[3], fact)
+            if self.shape == "pbi" and n[1] in "+-":
+                # R50: DAX reads BLANK as 0 in + and -; a bare SQL operand makes the whole row NULL. (views: unchanged)
+                if n[2][0] != "number":
+                    a = "COALESCE(%s, 0)" % a
+                if n[3][0] != "number":
+                    b = "COALESCE(%s, 0)" % b
+            return "(%s %s %s)" % (a, n[1], b)
         if kind == "ref":
             ref = self.model.column(n[1] or fact, n[2])
             if not ref or ref[0] != fact:
@@ -421,10 +429,10 @@ def fill(template, aliases, src):
     return re.sub(r"\{T:([^|{}]+)\|([^{}]+)\}", rep, template)
 
 
-def build_page_fact(model, src, inv, cls, grain_fields, dialect, ctx_filters=(), guards=None, ctx_notes=()):
+def build_page_fact(model, src, inv, cls, grain_fields, dialect, ctx_filters=(), guards=None, ctx_notes=(), shape="views"):
     """ctx_filters: report/page list filters, applied at every fact they reach. guards: {field: why}
     columns (slicers, filters) a CALCULATE may not override without becoming a TODO."""
-    dec = Decomposer(model, grain_fields, dialect, guards)
+    dec = Decomposer(model, grain_fields, dialect, guards, shape)
     measures, todo = {}, []
     for m in inv["measures"]:
         name = m["name"]
@@ -496,7 +504,21 @@ def build_page_fact(model, src, inv, cls, grain_fields, dialect, ctx_filters=(),
         sel, gby = [], []
         for g in grain:
             if g["field"][0] in aliases:
-                expr = fill("{T:%s|%s}" % g["field"], aliases, src)
+                try:
+                    expr = fill("{T:%s|%s}" % g["field"], aliases, src)
+                except Unsupported as e:
+                    if shape != "pbi":
+                        raise  # views shape: unchanged (a hard failure, as before)
+                    # a grouping column with no warehouse column (a DAX calculated column): left for the agent, never dropped
+                    dax = (model.tables.get(g["field"][0]) or {}).get("columns") or []
+                    dax = next((c.get("expression") for c in dax if c.get("name") == g["field"][1] and c.get("expression")), None)
+                    sel.append("NULL AS %s" % quote_ident(g["out"]))
+                    ctx = "grouping column %s[%s]: %s; write it over the warehouse columns" % (g["field"] + (e,))
+                    if dax:
+                        ctx += " (DAX: %s)" % " ".join(str(dax).split())
+                    if ctx not in context_todo:
+                        context_todo.append(ctx)
+                    continue
                 sel.append("%s AS %s" % (expr, quote_ident(g["out"])))
                 gby.append(expr)
             else:
@@ -908,7 +930,37 @@ def strip_header(sql):
     return "\n".join(line for line in sql.split("\n") if not line.startswith("-- "))
 
 
-def brief(model, inv, cls, pf, oracle_notes, slicer_paths):
+def relationship_paths(model, inv, pf):
+    """--shape pbi: for every measure, the join its aggregate takes to each grouping table (per USERELATIONSHIP set), so a
+    visual with two paths to one table (an order-date and a ship-date measure on one Date axis) is written as ONE summary."""
+    name_out = {c["name"]: c["out"] for c in pf["columns"] if c.get("out")}
+    grain_tables = []
+    for g in pf["grain"]:
+        if g["field"][0] not in grain_tables:
+            grain_tables.append(g["field"][0])
+    groups = {}
+    for c in pf["components"]:
+        groups.setdefault((c["fact"], tuple(c["act"])), set()).add(c["out"])
+    lines = []
+    for (fact, act), outs in sorted(groups.items(), key=lambda kv: (kv[0][0], len(kv[0][1]), repr(kv[0][1]))):
+        names = []
+        for m in inv["measures"]:
+            ref = (pf["fields"].get(m["query_ref"]) or {}).get("ref", "")
+            used = {name_out[x] for x in re.findall(r"\{C:([^{}]+)\}", ref) if x in name_out}
+            if used & outs and not m["name"].startswith("__implicit__") and m["name"] not in names:
+                names.append(m["name"])
+        graph = FilterGraph(model, list(act))
+        for t in grain_tables:
+            if t == fact:
+                continue
+            p, info = graph.best_path(t, fact)
+            how = describe_path(p, graph.activated) if p is not None else (info.get("reason") or "no path")
+            lines.append("- **%s**: %s grouped by %s%s: %s" % (", ".join(names) or "(components)", fact, t,
+                                                      " (USERELATIONSHIP)" if act else " (active relationship)", how))
+    return lines
+
+
+def brief(model, inv, cls, pf, oracle_notes, slicer_paths, shape="views"):
     L = ["# Page %r" % inv["title"], "",
          "Classification: **%s**%s" % (cls["classification"], (" (" + "; ".join(cls["reasons"]) + ")") if cls["reasons"] else ""),
          "Facts scanned: %s" % (", ".join(cls["facts"]) or "(none)"), ""]
@@ -948,6 +1000,13 @@ def brief(model, inv, cls, pf, oracle_notes, slicer_paths):
                                                      ("chose the higher-weight path over %s" % "; ".join(n.get("chosen_over", [])))))
         for m in pf["missing_sources"]:
             L.append("- missing source: %s" % m)
+    if shape == "pbi" and pf:
+        rp = relationship_paths(model, inv, pf)
+        if rp:
+            L += ["", "## Relationship paths",
+                  "Sigma reads one path per element, so a measure that reaches a table through a different relationship is "
+                  "a separate aggregate in the summary, joined on its own key and grouped on the shared grain columns. Write "
+                  "ONE summary with every measure below on the same grain:"] + rp
     if oracle_notes:
         L += ["", "## Oracle gaps (compile these by hand)"]
         for n in oracle_notes:
@@ -962,6 +1021,35 @@ def brief(model, inv, cls, pf, oracle_notes, slicer_paths):
           "binds these visuals to it, and wires the slicers listed above through `wire-slicer-gate.py`.",
           "4. Export the page's elements to exports/<element id>.csv and run `parity-from-oracle.py --spec parity-plan.json`."]
     return "\n".join(L) + "\n"
+
+
+def describe_summary(pfj, inv, pf):
+    """--shape pbi: name the page fact '<page> \u2013 summary' and describe it and its columns.
+    A column feeds every measure whose field ref uses it ({C:<column>}); grain columns name their source."""
+    feeds = {}
+    # implicit (drag-a-column) aggregates are not named Power BI measures: leave them out of the prose
+    named = [m for m in inv["measures"] if not m["name"].startswith("__implicit__")]
+    for m in named:
+        spec = pf["fields"].get(m["query_ref"])
+        if spec:
+            for col in re.findall(r"\{C:([^{}]+)\}", spec["ref"]):
+                if m["name"] not in feeds.setdefault(col, []):
+                    feeds[col].append(m["name"])
+    names = []
+    for m in named:
+        if m["query_ref"] in pf["fields"] and m["name"] not in names:
+            names.append(m["name"])
+    grain = ["%s[%s]" % g["field"] for g in pf["grain"]]
+    pfj["name"] = "%s \u2013 summary" % inv["title"]
+    pfj["description"] = "Reproduces Power BI measures: %s. Grain: %s." % (
+        ", ".join(names) or "(none)", ", ".join(grain) or "(none: one row)")
+    for c in pfj["columns"]:
+        if c["role"] == "grain":
+            t, _, col = c["field"].partition(".")
+            c["description"] = "Grain: %s[%s]" % (t, col)
+        elif feeds.get(c["name"]):
+            c["measure"] = ", ".join(feeds[c["name"]])
+            c["description"] = "Feeds %s" % c["measure"]
 
 
 def write_json(path, obj):
@@ -983,12 +1071,16 @@ def main(argv=None):
     ap.add_argument("--grain", action="append", default=[], help='"<page>|<Table>.<Column>" extra grain column')
     ap.add_argument("--scenario", action="append", default=[], help='"<Table>.<Column>=<v>[|<v>]" filtered oracle')
     ap.add_argument("--dialect", default="snowflake", choices=["snowflake", "databricks", "bigquery"])
+    ap.add_argument("--shape", default="views", choices=["views", "pbi"],
+                    help="views (default): '<page> Page Fact' as today. pbi: a plainly named, described "
+                         "'<page> \u2013 summary' table (page-fact.json gains description and per-column description/measure)")
     a = ap.parse_args(argv)
     t0 = time.time()
     try:
         model = Model(load_json(a.model))
         signals = load_json(a.signals)
-        src = SourceIndex(model, load_json(a.dm_spec), load_json(a.master_map) if a.master_map else None)
+        src = SourceIndex(model, load_json(a.dm_spec), load_json(a.master_map) if a.master_map else None,
+                          follow_children=(a.shape == "pbi"))
     except (OSError, ValueError) as e:
         print("scaffold-page-fact: %s" % e, file=sys.stderr)
         return 2
@@ -1030,7 +1122,7 @@ def main(argv=None):
                 guards.setdefault(tuple(f["field"]), "the column of a %s filter" % f["scope"])
             vnotes = [n for v in inv["visuals"] for n in visual_filters(model, v)[1]]
             pf = build_page_fact(model, src, inv, cls, grain, a.dialect, ctx, guards,
-                                 ["%s (not applied by the page fact)" % n for n in ctx_notes + vnotes])
+                                 ["%s (not applied by the page fact)" % n for n in ctx_notes + vnotes], a.shape)
             hooks = sorted({(c["fact"], c["act"]) for c in pf["components"]}, key=repr) or [(f, ()) for f in cls["facts"]]
             slicer_paths = []
             for s in inv["slicers"]:
@@ -1062,6 +1154,8 @@ def main(argv=None):
                                 "blank_policy": s["blank_policy"], "in_grain": s["in_grain"],
                                 "column_type": s["column_type"], "saved_selection": s.get("saved_selection")}
                                for s in slicer_paths]}
+            if a.shape == "pbi":
+                describe_summary(pfj, inv, pf)
             with open(os.path.join(d, "page-fact.sql"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(pf["sql"] + "\n")
             write_json(os.path.join(d, "page-fact.json"), pfj)
@@ -1084,7 +1178,7 @@ def main(argv=None):
             write_json(os.path.join(d, "check-plan.json"), check_plan)
             write_json(os.path.join(d, "parity-plan.json"), parity_plan)
             with open(os.path.join(d, "closure.md"), "w", encoding="utf-8", newline="\n") as f:
-                f.write(brief(model, inv, cls, pf, onotes, slicer_paths))
+                f.write(brief(model, inv, cls, pf, onotes, slicer_paths, a.shape))
             entry.update(dir=os.path.relpath(d, a.out_dir), components=len(pf["components"]), todo=len(pf["todo"]),
                          oracle_queries=len(oq), check_queries=len(cq),
                          gated_slicers=[s["title"] for s in slicer_paths if not s["in_grain"]],

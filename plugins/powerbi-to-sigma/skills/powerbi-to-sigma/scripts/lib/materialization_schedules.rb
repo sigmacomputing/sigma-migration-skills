@@ -97,4 +97,88 @@ module MaterializationSchedules
       action
     end
   end
+
+  # Elements a schedule run should cover. Default mode: Custom SQL elements only (`all-sql` or no list;
+  # an explicit list names Custom SQL elements). With `targets` (pbi model shape, R21) the default is those
+  # element names (summaries, flattened children, Custom SQL fact sources) and an explicit list may name any
+  # element kind. `all-sql` still means every Custom SQL element. Returns [[[spec, server], ...], [error action, ...]].
+  def select_elements(spec_elements, paired, selectors:, targets: nil)
+    all = []
+    spec_elements.each_with_index do |element, index|
+      server = paired[index]
+      next unless server
+      all << [element, { 'id' => server['id'], 'name' => server['name'] || element['name'] || element['id'] }]
+    end
+    sql = all.select { |element, _| element.dig('source', 'kind') == 'sql' }
+    pool = targets ? all : sql
+    selected =
+      if selectors.empty?
+        targets ? all.select { |element, _| targets.include?(element['name'].to_s) } : sql
+      elsif selectors == ['all-sql']
+        sql
+      else
+        pool.select { |element, server| selectors.include?(element['name'].to_s) || selectors.include?(server['name'].to_s) }
+      end
+    missing = selectors.reject do |selector|
+      selector == 'all-sql' || pool.any? { |element, server| selector == element['name'].to_s || selector == server['name'].to_s }
+    end
+    actions = missing.map do |selector|
+      {
+        'elementName' => selector,
+        'status' => 'error',
+        'error' => "requested materialization element was not found among #{targets ? 'data model' : 'Custom SQL'} elements",
+        'remediation' => targets ? 'use an exact element name or all-sql' : 'use an exact Custom SQL element name or all-sql'
+      }
+    end
+    [selected, actions]
+  end
+
+  # Materialize one element now (P10): POST :materialize {sheetId}, then poll the materialization until it is
+  # ready, skipped (a warehouse-table element has nothing to build) or failed. A schedule's own first run holds
+  # the data model busy, so HTTP 409 "already in progress" is retried (one probe run waited about 707 s) until
+  # `cap_seconds`. Returns {'status' => ready|skipped|failed|timeout|error, 'states' => [...], 'seconds' => n}.
+  # `sheet_id` is the schedule entry's sheetId (defaults to the element id); `sleep` is a callable taking seconds.
+  def run_now(data_model_id:, element_id:, request: method(:default_request), sleep: Kernel.method(:sleep),
+              cap_seconds: 1200, poll_seconds: 10, sheet_id: nil)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    waited = 0.0
+    states = []
+    elapsed = lambda do
+      [Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, waited].max
+    end
+    pause = lambda do
+      sleep.call(poll_seconds)
+      waited += poll_seconds
+    end
+    result = lambda do |status, extra = {}|
+      { 'status' => status, 'states' => states, 'seconds' => elapsed.call.round(1) }.merge(extra)
+    end
+    mid = nil
+    loop do
+      begin
+        response = request.call(:post, "/v2/dataModels/#{data_model_id}:materialize", { 'sheetId' => sheet_id || element_id })
+        mid = response.is_a?(Hash) ? response['materializationId'] : nil
+        return result.call('error', 'error' => 'materialize returned no materializationId') if mid.to_s.empty?
+        break
+      rescue StandardError => e
+        return result.call('error', 'error' => e.message.to_s[0, 300]) unless e.message.to_s =~ /(?:->|status|HTTP|code)\s*:?\s*409\b/i
+        states << 'conflict' unless states.last == 'conflict'
+        return result.call('timeout', 'error' => "materialize still answering 409 after #{cap_seconds}s") if elapsed.call >= cap_seconds
+        pause.call
+      end
+    end
+    loop do
+      begin
+        body = request.call(:get, "/v2/dataModels/#{data_model_id}/materializations/#{mid}", nil)
+      rescue StandardError => e
+        return result.call('error', 'error' => e.message.to_s[0, 300])
+      end
+      state = (body.is_a?(Hash) ? (body['status'] || body['state']) : nil).to_s.downcase
+      states << state unless state.empty? || states.last == state
+      return result.call(state, 'materializationId' => mid) if %w[ready skipped].include?(state)
+      return result.call('failed', 'materializationId' => mid, 'error' => body['error'].to_s[0, 300]) if state =~ /fail|error|cancel/
+      return result.call('timeout', 'materializationId' => mid, 'error' => "not ready after #{cap_seconds}s") if elapsed.call >= cap_seconds
+      pause.call
+    end
+  end
 end

@@ -1,0 +1,140 @@
+{
+  "name": "Retail Sales Model (RLS)",
+  "compatibilityLevel": 1567,
+  "model": {
+    "culture": "en-US",
+    "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "sourceQueryCulture": "en-US",
+    "tables": [
+      {
+        "name": "Store",
+        "columns": [
+          {
+            "name": "StoreKey",
+            "dataType": "int64",
+            "sourceColumn": "STORE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Store Name",
+            "dataType": "string",
+            "sourceColumn": "STORE_NAME",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Store Region",
+            "dataType": "string",
+            "sourceColumn": "STORE_REGION",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Channel",
+            "dataType": "string",
+            "sourceColumn": "CHANNEL",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Store",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_STORE\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ],
+        "measures": [
+          {
+            "name": "Store Count",
+            "expression": "COUNTROWS(Store)",
+            "formatString": "#,0",
+            "displayFolder": "Counts"
+          }
+        ]
+      },
+      {
+        "name": "Customer",
+        "columns": [
+          {
+            "name": "CustomerKey",
+            "dataType": "int64",
+            "sourceColumn": "CUSTOMER_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Segment",
+            "dataType": "string",
+            "sourceColumn": "SEGMENT",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Customer Region",
+            "dataType": "string",
+            "sourceColumn": "CUSTOMER_REGION",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Loyalty Member",
+            "dataType": "boolean",
+            "sourceColumn": "LOYALTY_MEMBER",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Customer",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_CUSTOMER\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ],
+        "measures": [
+          {
+            "name": "Customer Count",
+            "expression": "COUNTROWS(Customer)",
+            "formatString": "#,0",
+            "displayFolder": "Counts"
+          }
+        ]
+      }
+    ],
+    "relationships": [],
+    "annotations": [
+      {
+        "name": "PBI_QueryOrder",
+        "value": "[\"Store\", \"Customer\"]"
+      }
+    ],
+    "roles": [
+      {
+        "name": "West Stores",
+        "modelPermission": "read",
+        "tablePermissions": [
+          {
+            "name": "Store",
+            "filterExpression": "[Store Region] = \"West\""
+          }
+        ]
+      }
+    ]
+  }
+}

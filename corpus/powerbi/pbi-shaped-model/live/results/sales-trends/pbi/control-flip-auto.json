@@ -1,0 +1,33 @@
+[
+ {
+  "control": "YearFilter",
+  "result": "SKIP",
+  "note": "column \"Year\" not in export of el-rsales410e43 \u2014 pass --value"
+ },
+ {
+  "control": "YearFilter",
+  "result": "SKIP",
+  "note": "controlType=\"synced\" has no auto flip value \u2014 pass --value (date-range controls require the \"min:<YYYY-MM-DD>,max:<YYYY-MM-DD>\" encoding; a bare/ISO/dotted range is accepted and then ignored, which reads as a false \"inert\" FAIL)"
+ },
+ {
+  "control": "CustomerRegionFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "East",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "StoreRegionFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "South",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "SegmentFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "Consumer",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ }
+]

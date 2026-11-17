@@ -1,0 +1,37 @@
+[
+ {
+  "control": "YearFilter",
+  "result": "PASS",
+  "element": "el-rsales410e43",
+  "value": "2025",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "YearFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "2025",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "CustomerRegionFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "East",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "StoreRegionFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "South",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "SegmentFilter",
+  "result": "PASS",
+  "element": "el-ror280e2556",
+  "value": "Consumer",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ }
+]

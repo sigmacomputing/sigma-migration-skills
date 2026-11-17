@@ -226,6 +226,7 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
 > real converter output). If the MCP tool is unavailable, STOP and gate — don't fabricate.
 
 - DAX measures → Sigma metrics. ~70% mechanical; see `refs/dax-to-sigma-coverage.md` and `fixtures/MANIFEST.md` (test oracle: 145 DAX expressions bucketed a/b/c).
+- **Report clock — one clock for "today" (`--report-timezone <IANA>`, default `UTC` = the Power BI service clock).** Sigma `Today()`/`Now()` follow the Sigma account time zone and warehouse `CURRENT_DATE` follows the session time zone, so a migrated `TODAY()` measure and a `{ TODAY() }` table can name different days for hours around midnight. The build pins every Sigma `Today()`/`Now()` and SQL `CURRENT_DATE`/`CURRENT_TIMESTAMP` in the data model and workbook to the report zone and records it in `<WORK>/report-clock.json` (a reused data model is recorded, never rewritten). Details, expressions and verified clocks: `refs/report-clock.md`.
 - **DAX calculated retail calendars:** explicit
   `ADDCOLUMNS(CALENDAR(DATE(...),DATE(...)),...)` tables synthesize a SQL date
   spine; complex event columns become Sigma calculated columns. Covered:
@@ -406,9 +407,19 @@ A workbook that POSTs 200 and passes numeric parity can still be visually broken
     is local, pass `--source-timezone <IANA>` (for example,
     `America/New_York`) to `phase6-parity-pbi.rb --finalize`; parity converts
     timezone-bearing export values to the report's local day before comparing.
+    **Today-relative measures:** pass `--report-clock <WORK>/report-clock.json` to `build-oracle-sql.rb` (it then covers
+    `DATESINPERIOD`/`DATESBETWEEN`/`DATEDIFF` on `TODAY()` with the same timezone-explicit "today"; never a bare
+    `CURRENT_DATE`) and `--oracle-sql chart-oracle-sql.json` to `--local-sql`. `--finalize` classifies a today-relative chart
+    `CLOCK-SKEW` (refused at any hour) unless Sigma, the oracle and the report share one clock and both sides ran on one
+    report day (`refs/report-clock.md`).
     `build-oracle-sql.rb` covers SUM/AVG/MIN/MAX/COUNT/DISTINCTCOUNT/COUNTROWS + DIVIDE with an optional GROUP BY; anything else (RANKX/CALCULATE/time-intel) is flagged `supported:false` → use the online path or waive it. **Pass an explicit `column_map`** when columns are renamed/auto-named (`Table.PromoteHeaders` → C1/C2, see `pbi-dm-signature.py`); without one it falls back to a NAME→UPPER_SNAKE heuristic and warns.
   - **Online DAX (high-fidelity / import-only models):** PBI `POST /v1.0/myorg/groups/{ws}/datasets/{id}/executeQueries` (DAX) via `--emit-dax`, vs the same Sigma aggregation. DAX-only; breaks under service-principal if RLS; needs the workspace/dataset (auto-wired from `freshness.json`).
     - **XMLA fallback (when `executeQueries` REST is blocked but the model is on capacity):** run the same measure through the Power BI Modeling MCP — `dax_query_operations Execute` on an `Initial Catalog`-bound connection — and diff against the Sigma actuals identically. Recipe in `refs/pbi-modeling-mcp.md`. This also catches **silently mis-modeled source measures** (e.g. time-intel over an inactive date relationship returns a flat total in Power BI) that a SQL oracle wouldn't flag.
+- **Materialization freshness (pre-parity):** a materialized element serves its last run, so after an upstream change
+  Sigma shows old data. `ruby scripts/check-materialization-freshness.rb --data-model <dm> --workdir <WORK> --wait 900`
+  compares each element's `t_mat` table `LAST_ALTERED` with its upstream tables (the job API is not trusted);
+  `--finalize` returns `STALE-MATERIALIZATION` until it is FRESH. Wait for materializations by polling run status or the
+  wall clock, never one long sleep, because host sleep stretches it.
 - **Finalize (both paths):** `ruby scripts/phase6-parity-pbi.rb --finalize --plan plan.json --actuals parity-actuals.json --out-dir <dir>` → writes `parity-final.json` (`source` records which oracle was used).
 - **Existing repaired/hand-authored workbook:** when a builder gap required a
   manual workbook-spec edit, do not fabricate `phase6-success.json`. Keep
@@ -503,8 +514,9 @@ The conversion is script-driven (mirrors `tableau-to-sigma/scripts/`). `scripts/
 | `sigma-export-png.py` | 5e/5f compare | Renders a built Sigma page to PNG (`--workbook <id> --page <pageId> --out … --w 1600`) for the source-vs-target compare AND the Phase 5f Visual QA read (checked against `refs/layout-visual-qa.md`). |
 | `assert-visual-compare.rb` | 5e gate | HARD GATE: blocks Phase 6 unless visual-compare.json has a PASS/ACCEPTED verdict (with explained deltas) for every content page. |
 | `convert-model.rb` | 2–3 convert/post | MODE A prints the exact `convert_powerbi_to_sigma` MCP call for a `model.bim`; MODE B takes the converter output and applies the 3 fixups (schemaVersion + folderId/ownerId via a ref-DM harvest + base-element names) → postable DM spec. |
-| `build-workbook-from-pbir.rb` | 4 build | `signals.json` + a `master-map.json` → full workbook spec + 24-col layout XML. Applies the measure-translation patterns in `refs/measure-patterns.md`; **line charts default to a single series** (`[bead]`) unless PBI bound a Series/Legend role. **Carries the PBI visual sort** (`f972` — PBIR `query.sortDefinition` / classic `prototypeQuery.OrderBy` → chart `xAxis.sort`/`color.sort`; grouped table → `groupings[0].sort` — element-level sort is rejected on grouped tables). Analog of `build-charts-from-signals.rb`. **Writes `coverage.json`** (`--coverage-out`): every dropped/degraded/approximated component aggregated (Phase 5c) — nothing silently dropped. |
+| `build-workbook-from-pbir.rb` | 4 build | `signals.json` + a `master-map.json` → full workbook spec + 24-col layout XML. Applies the measure-translation patterns in `refs/measure-patterns.md`; **line charts default to a single series** (`[bead]`) unless PBI bound a Series/Legend role. **Carries the PBI visual sort** (`f972` — PBIR `query.sortDefinition` / classic `prototypeQuery.OrderBy` → chart `xAxis.sort`/`color.sort`; grouped table → `groupings[0].sort` — element-level sort is rejected on grouped tables). A sort whose column is later dropped (unreachable/unmapped field, cross-master) is removed with it and recorded in coverage; `validate-spec.rb` rejects any grouping/sort/shelf id not declared in the element's `columns`. Analog of `build-charts-from-signals.rb`. **Writes `coverage.json`** (`--coverage-out`): every dropped/degraded/approximated component aggregated (Phase 5c) — nothing silently dropped. |
 | `phase6-parity-pbi.rb` | 7 parity | executeQueries(DAX) adapter: `--emit-dax` runs the PBI side and writes the parity plan's `expected` rows; `--finalize` injects Sigma actuals and runs the shared `verify-parity.rb`. The PBI analog of Tableau's view-CSV parity adapter. |
+| `check-materialization-freshness.rb` | 6 pre-parity | Materialized DM elements vs their upstream warehouse tables (`t_mat` vs upstream `LAST_ALTERED`, report-day aging for clock-reading elements) → `materialization-freshness.json`; `--wait` polls on a wall-clock deadline, `--rematerialize` refreshes stale elements. `phase6-parity-pbi.rb --finalize` refuses until FRESH (`refs/report-clock.md`). |
 | `enhance-scan.rb` | E scan (opt-in) | **Phase E — SCAN (read-only).** Source signals + built spec + live exports → `enhancements.json` (`candidates`, `app_options`, `signals`, descoped notes). |
 | `enhance-select.rb` | E select (opt-in) | **Phase E — SELECT.** Design-interview answer → `enhance-selection.json` / `--print-accept` list for apply. No Sigma writes. |
 | `enhance-app-plan.rb` | E plan (opt-in) | **Phase E — APP PLAN.** Archetype option + architecture choices → `app-plan.json` (validate with `schemas/app-plan.schema.json`). No Sigma writes. |
@@ -517,6 +529,15 @@ The agent authors one PBI-specific artifact: `master-map.json` (maps each PBI En
 **Validated unattended end-to-end 2026-05-31** against the KitchenSink (PBI report/model pair on the demo warehouse): `run.sh` drove extract → convert (MCP gate) → post-DM (26 cols, 0 errors) → build → post-WB → **layout** into a throwaway DM + workbook in the demo Sigma org. `assert-phase6-ran.rb` passed all 4 gates: **0 `error` columns** (34 live cols), grouped `Department Summary` table (6 depts, real ranked rows), **single-series** YTD line (2025 Jul–Dec = `3536,7412,10932,14700,18080,21844`, parity-exact vs PBI), pivot with `rowsBy`/`values`, and a 12-element grid layout that **survived the final write** (no single-column wipe). Throwaway items deleted after.
 
 > **Phase 5 time-intelligence tradeoff (`[bead]`):** the builder emits PBI line charts as a **single series** (`xAxis`=month, `yAxis`=`CumulativeSum(Sum(...))`, **no `color` block**). A continuous `CumulativeSum` reproduces a within-year YTD exactly (2025 matched PBI to the unit) but does NOT reset at the Jan year boundary. For a true `TOTALYTD` per-year-reset on one line, precompute a year-partitioned YTD in a hidden grouped level table and plot it with `Max()` (recipe in `refs/measure-patterns.md §4`). Never reproduce the reset by adding `color:{by:category,column:year}` — that renders TWO lines, diverging from PBI's one.
+
+## Power BI-shaped mode (opt-in, `--model-shape pbi`)
+Builds a data model that reads like the Power BI model (Power BI names, one element per table, no `<X> View`
+copies) and a workbook that reads the data model directly (no Data page). The default shape's data model and workbook
+specs are unchanged, except DATATABLE calculated tables (fixed in both shapes); views runs also write `pbi-map.*` and
+`limits.md`. Measures are classed A/B/C/D; time intelligence is built where Sigma can express it exactly (as-of,
+rolling, date-field, `USERELATIONSHIP` and `CALCULATE`-override cases it cannot prove go to class D); slicers are carried
+or go to one live element. Row-, column- or table-level security is refused (exit 10). No `--probe-sources` means no key check (`limits.md` says so).
+Rules, flags, fallbacks and limits: [`refs/pbi-shaped-model.md`](refs/pbi-shaped-model.md).
 
 ## Reuse, don't reinvent (and packaging)
 These vendor-agnostic Sigma-side scripts are reused: `get-token.sh`, `lib/sigma_rest.rb`, `post-and-readback.rb`, `put-layout.rb`, `find-or-pick-dm.rb`, `validate-spec.rb`, `verify-parity.rb`, `cleanup-orphan-workbooks.rb`. In the repo they are **symlinks** into `tableau-to-sigma/scripts/` (DRY), but symlinks break when the skill is downloaded standalone — so always ship via **`./package.sh`**, which dereferences every symlink into a real file and vendors the out-of-tree reference docs into `refs/vendored/`. The result (`dist/powerbi-to-sigma/`) is fully self-contained: 0 symlinks, the whole pipeline runs from inside the bundle. The shared core is being extracted to `sigma-conversion-core` (`[bead]`); until then, package before distributing.

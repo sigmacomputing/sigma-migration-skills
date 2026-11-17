@@ -1,0 +1,110 @@
+{
+ "pbi": {
+  "dm_elements": 11,
+  "sql_elements": 3,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 9,
+  "hidden_or_unread": 0,
+  "clicks_to_source": 1,
+  "clicks_to_source_max": 1,
+  "clicks_by_visual": {
+   "Vendor and Product: on hand, open POs, sales R28, cover": 1,
+   "Products by cover bucket": 1,
+   "On Hand (Latest)": 1,
+   "Open PO Units": 1
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 17.0
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 88.1
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 2.0
+    },
+    {
+     "phase": "5-layout",
+     "seconds": 18.5
+    },
+    {
+     "phase": "6-parity",
+     "seconds": 27.0
+    }
+   ],
+   "totalSeconds": 152.9
+  },
+  "parity": "PASS"
+ },
+ "views": {
+  "dm_elements": 14,
+  "sql_elements": 1,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 10,
+  "hidden_or_unread": 4,
+  "clicks_to_source": 2,
+  "clicks_to_source_max": 2,
+  "clicks_by_visual": {
+   "0D8A70": 1,
+   "2BD5B0": 2,
+   "B58809": 2,
+   "55611B": 2
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 42.5
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 0.0
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 3.7
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 1.9
+    },
+    {
+     "phase": "5-layout",
+     "seconds": 18.2
+    },
+    {
+     "phase": "6-parity",
+     "seconds": 15.0
+    }
+   ],
+   "totalSeconds": 81.5
+  },
+  "parity": null
+ }
+}

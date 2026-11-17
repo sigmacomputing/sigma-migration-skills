@@ -1,0 +1,36 @@
+{
+ "workbook_id": null,
+ "ran_at": "2026-11-16T23:26:52Z",
+ "source": "warehouse-sql-oracle",
+ "mode": "strict",
+ "source_timezone": null,
+ "charts_total": 6,
+ "charts_pass": 4,
+ "charts_fail": 2,
+ "charts_stale_explained": 0,
+ "charts_verified": 4,
+ "pass_names": [
+  "Sales Amount (2)",
+  "Sales Amount",
+  "Sales Amount vs prior year by month",
+  "Store Region: R28 and sales"
+ ],
+ "stale_explained_names": [],
+ "fail_names": [
+  "Quarter: sales, QTD, YoY",
+  "Sales Amount and prior year by year"
+ ],
+ "classifications": {
+  "Quarter: sales, QTD, YoY": "DIVERGENT",
+  "Sales Amount (2)": "MATCH",
+  "Sales Amount": "MATCH",
+  "Sales Amount and prior year by year": "DIVERGENT",
+  "Sales Amount vs prior year by month": "MATCH",
+  "Store Region: R28 and sales": "MATCH"
+ },
+ "charts_clock_skew": 0,
+ "report_clock": null,
+ "materialization_freshness": null,
+ "freshness": null,
+ "status": "FAIL"
+}

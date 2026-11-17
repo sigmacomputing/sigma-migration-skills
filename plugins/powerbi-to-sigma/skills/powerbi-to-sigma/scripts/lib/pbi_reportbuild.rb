@@ -33,6 +33,31 @@ module PbiReportBuild
     SSN DOB FTE PII GMV ARR MRR ROI YOY MOM QOQ AOV LTV CAC NPS
   ].freeze
 
+  # The console lines for a slicer whose column some masters in its relationship scope do not carry (`unwired`).
+  # `masters` is the master-map's {name => master}. A rolling-window summary has no column for a date-table slicer field
+  # (Year, Month Start, ...) but the shape pass wires the field to it after the build, through a filter column over its day
+  # column (a master with `day_column`, slicer entity in its `date_tables`), so the builder cannot say NOT wired for it: it
+  # says the wiring comes next, and the shape pass reports what it wired ("date slicer ... filters the plotted days") or why
+  # it did not ("slicer not applied"). Every other unwired master stays a NOT wired warning. Returns the lines.
+  def unwired_slicer_lines(name, leaf, unwired, masters, entity)
+    later, never = Array(unwired).partition do |m|
+      mr = (masters || {})[m] || {}
+      mr['day_column'] && Array(mr['date_tables']).any? { |t| t.to_s.casecmp(entity.to_s).zero? }
+    end
+    lines = []
+    unless never.empty?
+      lines << "[build-workbook] WARN slicer '#{name}': master(s) #{never.join(', ')} are in the " \
+               "slicer's relationship scope but carry no column matching '#{leaf}' — NOT wired. " \
+               'Charts on those masters will not respond to this control; add the related column ' \
+               'to the master (cross-element ref) to wire it.'
+    end
+    unless later.empty?
+      lines << "[build-workbook] note slicer '#{name}': master(s) #{later.join(', ')} carry no '#{leaf}' column; the shape pass " \
+               "wires it to them through a filter column over their day column (see the 'date slicer' and 'slicer not applied' lines)."
+    end
+    lines
+  end
+
   # Humanize a raw/snake/ALL-CAPS label into a Title-Cased display name, while
   # leaving an already-human label ("Total Sales", "Sales by Region") untouched
   # and preserving real acronyms ("Customer ID", "GL Balance"). Returns the

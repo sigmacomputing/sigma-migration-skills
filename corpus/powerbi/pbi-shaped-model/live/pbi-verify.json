@@ -1,0 +1,1073 @@
+{
+  "generated": "2026-11-16",
+  "schema": "ZZ_CLAUDE_PBI_SHAPED",
+  "rendering": "not performed: the export API is disabled on this trial capacity and a browser cannot be used; formatting problems a DAX query cannot see are not covered",
+  "tolerance_relative": 1e-06,
+  "models": {
+    "retail-sales-model": {
+      "displayName": "Retail Sales Model",
+      "refresh": {
+        "status": "Completed",
+        "type": "ViaApi",
+        "durationSeconds": 45.0,
+        "ok": true
+      },
+      "measures": {
+        "checked": 17,
+        "nonblank": 17,
+        "results": [
+          {
+            "measure": "Sales Amount",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Units",
+            "table": "Sales",
+            "value": 10415026,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Cost",
+            "table": "Sales",
+            "value": 290430324.4499999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Gross Margin",
+            "table": "Sales",
+            "value": 142650902.16649997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "GM %",
+            "table": "Sales",
+            "value": 0.32938602137289036,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Orders",
+            "table": "Sales",
+            "value": 991457,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Avg Price",
+            "table": "Sales",
+            "value": 41.5823471411881,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "List Value",
+            "table": "Sales",
+            "value": 509519612.7099997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Private Label Sales",
+            "table": "Sales",
+            "value": 104593627.85050006,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales by Ship Date",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD",
+            "table": "Sales",
+            "value": 61222690.32249999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales QTD",
+            "table": "Sales",
+            "value": 31193905.870999992,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales MTD",
+            "table": "Sales",
+            "value": 10421825.828500003,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales PY",
+            "table": "Sales",
+            "value": 310362446.18749976,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YoY %",
+            "table": "Sales",
+            "value": 0.39540473384096775,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales R28",
+            "table": "Sales",
+            "value": 9771841.739999998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD (As Of)",
+            "table": "Sales",
+            "value": 56026527.602,
+            "error": null,
+            "ok": true
+          }
+        ]
+      },
+      "visuals": {
+        "checked": 28,
+        "ok": 28,
+        "results": {
+          "Retail Sales / Overview / OvAvgPrice": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 1.1
+          },
+          "Retail Sales / Overview / OvBrandMatrix": {
+            "rows": 8,
+            "nonblank_by_measure": [
+              8,
+              8,
+              8,
+              8
+            ],
+            "ok": true,
+            "type": "pivotTable",
+            "seconds": 0.9
+          },
+          "Retail Sales / Overview / OvByCategory": {
+            "rows": 12,
+            "nonblank_by_measure": [
+              12
+            ],
+            "ok": true,
+            "type": "clusteredBarChart",
+            "seconds": 1.0
+          },
+          "Retail Sales / Overview / OvByMonth": {
+            "rows": 42,
+            "nonblank_by_measure": [
+              42,
+              42
+            ],
+            "ok": true,
+            "type": "lineChart",
+            "seconds": 0.9
+          },
+          "Retail Sales / Overview / OvGmPct": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Retail Sales / Overview / OvMargin": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Retail Sales / Overview / OvOrders": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Retail Sales / Overview / OvSales": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 1.2
+          },
+          "Retail Sales / Overview / OvUnits": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Retail Sales / Shipping / ShByChannel": {
+            "rows": 3,
+            "nonblank_by_measure": [
+              3,
+              3,
+              3
+            ],
+            "ok": true,
+            "type": "tableEx",
+            "seconds": 0.7
+          },
+          "Retail Sales / Shipping / ShByMonth": {
+            "rows": 42,
+            "nonblank_by_measure": [
+              42,
+              42
+            ],
+            "ok": true,
+            "type": "lineChart",
+            "seconds": 0.8
+          },
+          "Retail Sales / Shipping / ShByRegion": {
+            "rows": 4,
+            "nonblank_by_measure": [
+              4
+            ],
+            "ok": true,
+            "type": "clusteredColumnChart",
+            "seconds": 1.0
+          },
+          "Retail Sales / Shipping / ShOrderDate": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Retail Sales / Shipping / ShShipDate": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Retail Sales / Slicers / SlBrand": {
+            "rows": 8,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 1.0
+          },
+          "Retail Sales / Slicers / SlByBrand": {
+            "rows": 8,
+            "nonblank_by_measure": [
+              8,
+              8
+            ],
+            "ok": true,
+            "type": "tableEx",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlByStoreRegion": {
+            "rows": 4,
+            "nonblank_by_measure": [
+              4
+            ],
+            "ok": true,
+            "type": "clusteredBarChart",
+            "seconds": 0.9
+          },
+          "Retail Sales / Slicers / SlCategory": {
+            "rows": 12,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.9
+          },
+          "Retail Sales / Slicers / SlChannel": {
+            "rows": 3,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          },
+          "Retail Sales / Slicers / SlCustomerRegion": {
+            "rows": 5,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlLoyalty": {
+            "rows": 3,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlPrivateLabel": {
+            "rows": 2,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          },
+          "Retail Sales / Slicers / SlSales": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlSegment": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          },
+          "Retail Sales / Slicers / SlSize": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlStoreRegion": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Retail Sales / Slicers / SlUnits": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.9
+          },
+          "Retail Sales / Slicers / SlYear": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          }
+        }
+      },
+      "warehouse_truth": [
+        {
+          "measure": "Sales Amount",
+          "power_bi": 433081226.6164998,
+          "warehouse": 433081226.6165,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Units",
+          "power_bi": 10415026.0,
+          "warehouse": 10415026.0,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales by Ship Date",
+          "grain": "month",
+          "months_compared": 42,
+          "months_mismatched": 0,
+          "first_bad": [],
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales YTD (As Of)",
+          "power_bi": 56026527.602,
+          "warehouse": 56026527.602,
+          "error": null,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    "retail-sales-trends-model": {
+      "displayName": "Retail Sales Trends Model",
+      "refresh": {
+        "status": "Completed",
+        "type": "ViaApi",
+        "durationSeconds": 47.0,
+        "ok": true
+      },
+      "measures": {
+        "checked": 17,
+        "nonblank": 17,
+        "results": [
+          {
+            "measure": "Sales Amount",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Units",
+            "table": "Sales",
+            "value": 10415026,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Cost",
+            "table": "Sales",
+            "value": 290430324.4499999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Gross Margin",
+            "table": "Sales",
+            "value": 142650902.16649997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "GM %",
+            "table": "Sales",
+            "value": 0.32938602137289036,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Orders",
+            "table": "Sales",
+            "value": 991457,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Avg Price",
+            "table": "Sales",
+            "value": 41.5823471411881,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "List Value",
+            "table": "Sales",
+            "value": 509519612.7099997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Private Label Sales",
+            "table": "Sales",
+            "value": 104593627.85050006,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales by Ship Date",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD",
+            "table": "Sales",
+            "value": 61222690.32249999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales QTD",
+            "table": "Sales",
+            "value": 31193905.870999992,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales MTD",
+            "table": "Sales",
+            "value": 10421825.828500003,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales PY",
+            "table": "Sales",
+            "value": 310362446.18749976,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YoY %",
+            "table": "Sales",
+            "value": 0.39540473384096775,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales R28",
+            "table": "Sales",
+            "value": 9771841.739999998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD (As Of)",
+            "table": "Sales",
+            "value": 56026527.602,
+            "error": null,
+            "ok": true
+          }
+        ]
+      },
+      "visuals": {
+        "checked": 21,
+        "ok": 21,
+        "results": {
+          "Sales Trends / Trends / TrAsOf": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Sales Trends / Trends / TrByYear": {
+            "rows": 4,
+            "nonblank_by_measure": [
+              4,
+              3
+            ],
+            "ok": true,
+            "type": "clusteredColumnChart",
+            "seconds": 0.7
+          },
+          "Sales Trends / Trends / TrMtd": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.9
+          },
+          "Sales Trends / Trends / TrPy": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.9
+          },
+          "Sales Trends / Trends / TrQtd": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.9
+          },
+          "Sales Trends / Trends / TrQuarter": {
+            "rows": 14,
+            "nonblank_by_measure": [
+              14,
+              14,
+              10
+            ],
+            "ok": true,
+            "type": "tableEx",
+            "seconds": 0.9
+          },
+          "Sales Trends / Trends / TrSales": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 2.0
+          },
+          "Sales Trends / Trends / TrVsPy": {
+            "rows": 42,
+            "nonblank_by_measure": [
+              42,
+              30
+            ],
+            "ok": true,
+            "type": "lineChart",
+            "seconds": 0.7
+          },
+          "Sales Trends / Trends / TrYear": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 1.0
+          },
+          "Sales Trends / Trends / TrYoy": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.8
+          },
+          "Sales Trends / Trends / TrYtd": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.9
+          },
+          "Sales Trends / Trends / TrYtdLine": {
+            "rows": 42,
+            "nonblank_by_measure": [
+              42,
+              42
+            ],
+            "ok": true,
+            "type": "lineChart",
+            "seconds": 0.8
+          },
+          "Sales Trends / Rolling / RoByCustRegion": {
+            "rows": 6,
+            "nonblank_by_measure": [
+              6
+            ],
+            "ok": true,
+            "type": "clusteredColumnChart",
+            "seconds": 0.9
+          },
+          "Sales Trends / Rolling / RoByDay": {
+            "rows": 1277,
+            "nonblank_by_measure": [
+              1277
+            ],
+            "ok": true,
+            "type": "lineChart",
+            "seconds": 1.0
+          },
+          "Sales Trends / Rolling / RoByStore": {
+            "rows": 4,
+            "nonblank_by_measure": [
+              4,
+              4
+            ],
+            "ok": true,
+            "type": "tableEx",
+            "seconds": 1.8
+          },
+          "Sales Trends / Rolling / RoCustomerRegion": {
+            "rows": 5,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Sales Trends / Rolling / RoR28": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Sales Trends / Rolling / RoSales": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Sales Trends / Rolling / RoSegment": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 1.0
+          },
+          "Sales Trends / Rolling / RoStoreRegion": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          },
+          "Sales Trends / Rolling / RoYear": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          }
+        }
+      },
+      "warehouse_truth": [
+        {
+          "measure": "Sales Amount",
+          "power_bi": 433081226.6164998,
+          "warehouse": 433081226.6165,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Units",
+          "power_bi": 10415026.0,
+          "warehouse": 10415026.0,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales by Ship Date",
+          "grain": "month",
+          "months_compared": 42,
+          "months_mismatched": 0,
+          "first_bad": [],
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales YTD (As Of)",
+          "power_bi": 56026527.602,
+          "warehouse": 56026527.602,
+          "error": null,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    "retail-inventory-model": {
+      "displayName": "Retail Inventory Model",
+      "refresh": {
+        "status": "Completed",
+        "type": "ViaApi",
+        "durationSeconds": 43.0,
+        "ok": true
+      },
+      "measures": {
+        "checked": 22,
+        "nonblank": 22,
+        "results": [
+          {
+            "measure": "Sales Amount",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Units",
+            "table": "Sales",
+            "value": 10415026,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Cost",
+            "table": "Sales",
+            "value": 290430324.4499999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Gross Margin",
+            "table": "Sales",
+            "value": 142650902.16649997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "GM %",
+            "table": "Sales",
+            "value": 0.32938602137289036,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Orders",
+            "table": "Sales",
+            "value": 991457,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Avg Price",
+            "table": "Sales",
+            "value": 41.5823471411881,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "List Value",
+            "table": "Sales",
+            "value": 509519612.7099997,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Private Label Sales",
+            "table": "Sales",
+            "value": 104593627.85050008,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales by Ship Date",
+            "table": "Sales",
+            "value": 433081226.6164998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD",
+            "table": "Sales",
+            "value": 61222690.32249999,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales QTD",
+            "table": "Sales",
+            "value": 31193905.870999992,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales MTD",
+            "table": "Sales",
+            "value": 10421825.8285,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales PY",
+            "table": "Sales",
+            "value": 310362446.18749976,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YoY %",
+            "table": "Sales",
+            "value": 0.39540473384096775,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales R28",
+            "table": "Sales",
+            "value": 9771841.739999998,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales YTD (As Of)",
+            "table": "Sales",
+            "value": 56026527.602,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "On Hand (Latest)",
+            "table": "Inventory",
+            "value": 403678,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Open PO Units",
+            "table": "Inventory",
+            "value": 1500554,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Sales R28 Units",
+            "table": "Inventory",
+            "value": 234241,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Days of Cover",
+            "table": "Inventory",
+            "value": 48.25365328870693,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Products by Cover Bucket",
+            "table": "Inventory",
+            "value": 400,
+            "error": null,
+            "ok": true
+          }
+        ]
+      },
+      "visuals": {
+        "checked": 7,
+        "ok": 7,
+        "results": {
+          "Inventory and Purchasing / Cover / CvBrand": {
+            "rows": 8,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.7
+          },
+          "Inventory and Purchasing / Cover / CvBuckets": {
+            "rows": 3,
+            "nonblank_by_measure": [
+              3
+            ],
+            "ok": true,
+            "type": "clusteredBarChart",
+            "seconds": 0.7
+          },
+          "Inventory and Purchasing / Cover / CvMatrix": {
+            "rows": 400,
+            "nonblank_by_measure": [
+              400,
+              400,
+              400,
+              400
+            ],
+            "ok": true,
+            "type": "pivotTable",
+            "seconds": 1.2
+          },
+          "Inventory and Purchasing / Cover / CvOnHand": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Inventory and Purchasing / Cover / CvOpenPo": {
+            "rows": 1,
+            "nonblank_by_measure": [
+              1
+            ],
+            "ok": true,
+            "type": "card",
+            "seconds": 0.7
+          },
+          "Inventory and Purchasing / Cover / CvStoreRegion": {
+            "rows": 4,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          },
+          "Inventory and Purchasing / Cover / CvVendorCountry": {
+            "rows": 6,
+            "ok": true,
+            "type": "slicer",
+            "seconds": 0.8
+          }
+        }
+      },
+      "warehouse_truth": [
+        {
+          "measure": "Sales Amount",
+          "power_bi": 433081226.6164998,
+          "warehouse": 433081226.6165,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Units",
+          "power_bi": 10415026.0,
+          "warehouse": 10415026.0,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales by Ship Date",
+          "grain": "month",
+          "months_compared": 42,
+          "months_mismatched": 0,
+          "first_bad": [],
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Sales YTD (As Of)",
+          "power_bi": 56026527.602,
+          "warehouse": 56026527.602,
+          "error": null,
+          "ok": true
+        },
+        {
+          "measure": "Open PO Units",
+          "power_bi": 1500554.0,
+          "warehouse": 1500554.0,
+          "error": null,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    "retail-sales-model-rls": {
+      "displayName": "Retail Sales Model (RLS)",
+      "refresh": {
+        "status": "Completed",
+        "type": "ViaApi",
+        "durationSeconds": 11.0,
+        "ok": true
+      },
+      "measures": {
+        "checked": 2,
+        "nonblank": 2,
+        "results": [
+          {
+            "measure": "Store Count",
+            "table": "Store",
+            "value": 40,
+            "error": null,
+            "ok": true
+          },
+          {
+            "measure": "Customer Count",
+            "table": "Customer",
+            "value": 20000,
+            "error": null,
+            "ok": true
+          }
+        ]
+      },
+      "visuals": {
+        "checked": 0,
+        "ok": 0,
+        "results": {}
+      },
+      "warehouse_truth": [],
+      "ok": true
+    }
+  },
+  "all_ok": true
+}

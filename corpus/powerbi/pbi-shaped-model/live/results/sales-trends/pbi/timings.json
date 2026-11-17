@@ -1,0 +1,37 @@
+{
+ "phases": [
+  {
+   "phase": "1-discover-extract",
+   "seconds": 0.1
+  },
+  {
+   "phase": "2-convert",
+   "seconds": 0.0
+  },
+  {
+   "phase": "2a-probe-sources",
+   "seconds": 0.0
+  },
+  {
+   "phase": "2-convert-fixers",
+   "seconds": 67.5
+  },
+  {
+   "phase": "3-build-data-model",
+   "seconds": 97.4
+  },
+  {
+   "phase": "4-build-workbook",
+   "seconds": 2.9
+  },
+  {
+   "phase": "5-layout",
+   "seconds": 22.3
+  },
+  {
+   "phase": "6-parity",
+   "seconds": 36.5
+  }
+ ],
+ "totalSeconds": 226.7
+}

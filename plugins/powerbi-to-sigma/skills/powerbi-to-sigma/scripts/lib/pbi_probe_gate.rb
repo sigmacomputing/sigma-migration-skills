@@ -71,8 +71,9 @@ module PbiProbeGate
   # The argv for the probe script (the caller prepends the python launcher). With
   # probe_results the captured results are replayed and nothing touches the warehouse.
   def command(script, dm_path:, tmsl_path:, out_path:, state_path:, connection:, folder:, dialect:,
-              probe_results: nil, cache_max_age_hours: nil)
+              probe_results: nil, cache_max_age_hours: nil, skip_literal_rows: false)
     argv = [script, '--dm', dm_path, '--tmsl', tmsl_path, '--out', out_path, '--dialect', dialect]
+    argv << '--skip-literal-rows' if skip_literal_rows # pbi shape only: a statement with no FROM cannot be probed (HTTP 500, ~35 s)
     if probe_results
       argv + ['--probe-results', probe_results]
     else

@@ -20,6 +20,7 @@ require 'tmpdir'
 require 'fileutils'
 require 'rbconfig'
 require_relative 'lib/pbi_reportbuild'
+require_relative 'lib/pbi_report_clock'
 
 FAILS = []
 def check(cond, msg)
@@ -58,7 +59,7 @@ BUNDLE = JSON.generate('report.json' => JSON.generate('sections' => [{ 'name' =>
 
 def page_fact(todo: false)
   pf = { 'version' => 1, 'page' => 'Sales Page', 'page_id' => 'S1', 'name' => 'Sales Page Page Fact',
-         'sql' => "WITH s AS (SELECT ORDER_ID, AMOUNT FROM SALES.ORDERS)\nSELECT SUM(f.AMOUNT) AS \"SUM_AMOUNT\" FROM s f WHERE 1 = 1\n" \
+         'sql' => "WITH s AS (SELECT ORDER_ID, AMOUNT FROM SALES.ORDERS)\nSELECT SUM(f.AMOUNT) AS \"SUM_AMOUNT\" FROM s f WHERE CURRENT_DATE = CURRENT_DATE\n" \
                   '  /*@slicers fact="Orders" alias="f"*/',
          'columns' => [{ 'name' => 'Sum Amount', 'out' => 'SUM_AMOUNT', 'role' => 'component', 'fact' => 'Orders', 'aggregate' => 'SUM' }],
          'fields' => { 'Orders.Total Amount' => { 'ref' => 'Sum({C:Sum Amount})' } }, 'dims' => {}, 'facts' => ['Orders'],
@@ -84,7 +85,16 @@ Dir.mktmpdir('pbi-page-facts-orch') do |dir|
       def request(req)
         File.open(ENV.fetch('FAKE_SIGMA_LOG'), 'a') { |f| f.flock(File::LOCK_EX); f.puts("#{req.method} #{req.path}") }
         body = if req.path =~ %r{/v2/dataModels/[^/]+/spec}
-                 JSON.generate(SPEC)
+                 spec = JSON.parse(JSON.generate(SPEC))
+                 if ENV['FAKE_REUSED_PAGE_FACT'] && !ENV['FAKE_REUSED_PAGE_FACT'].empty?
+                   fact = JSON.parse(File.read(ENV['FAKE_REUSED_PAGE_FACT']))
+                   spec['pages'][0]['elements'] << {
+                     'id' => 'pf-current', 'name' => fact['name'], 'kind' => 'table',
+                     'source' => { 'kind' => 'sql', 'connectionId' => ENV.fetch('FAKE_CONNECTION'), 'statement' => fact['sql'] },
+                     'columns' => fact['columns'].map { |c| { 'id' => "pf-#{c['out']}", 'name' => c['name'], 'formula' => "[Custom SQL/#{c['out']}]" } }
+                   }
+                 end
+                 JSON.generate(spec)
                elsif req.path =~ %r{\A/v2/dataModels\?}
                  JSON.generate('entries' => [], 'nextPage' => nil)
                elsif req.path.start_with?('/v2/whoami')
@@ -105,21 +115,26 @@ Dir.mktmpdir('pbi-page-facts-orch') do |dir|
       end
     end
   RUBY
-  env = { 'RUBYOPT' => "-r#{stub}", 'FAKE_SIGMA_LOG' => log, 'HOME' => dir, 'SIGMA_API_TOKEN' => 'tok',
+  env = { 'RUBYOPT' => "-r#{stub}", 'FAKE_SIGMA_LOG' => log, 'FAKE_CONNECTION' => CONN, 'HOME' => dir, 'SIGMA_API_TOKEN' => 'tok',
           'SIGMA_BASE_URL' => 'https://api.sigmacomputing.com', 'SIGMA_ALLOW_INSECURE_BASE_URL' => '' }
   File.write(File.join(dir, 'model.bim'), JSON.pretty_generate(MODEL))
   File.write(File.join(dir, 'bundle.json'), BUNDLE)
   pfd = File.join(dir, 'page-facts', 'sales-page')
   FileUtils.mkdir_p(pfd)
   File.write(File.join(pfd, 'page-fact.json'), JSON.pretty_generate(page_fact))
+  pinned_fact = page_fact
+  pinned_fact['sql'] = PbiReportClock.pin_sql(pinned_fact['sql'], 'UTC', 'snowflake')
+  pinned_fact_path = File.join(dir, 'pinned-page-fact.json')
+  File.write(pinned_fact_path, JSON.pretty_generate(pinned_fact))
   todo_dir = File.join(dir, 'page-facts-todo', 'sales-page')
   FileUtils.mkdir_p(todo_dir)
   File.write(File.join(todo_dir, 'page-fact.json'), JSON.pretty_generate(page_fact(todo: true)))
   run = lambda do |work, *extra|
     File.delete(log) if File.exist?(log)
+    run_env = env.merge('FAKE_REUSED_PAGE_FACT' => (work == 'w5' ? pinned_fact_path : ''))
     # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
     # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
-    Open3.capture2e(env, RbConfig.ruby, MIGRATE, '--tmsl', File.join(dir, 'model.bim'), '--pbir', File.join(dir, 'bundle.json'),
+    Open3.capture2e(run_env, RbConfig.ruby, MIGRATE, '--tmsl', File.join(dir, 'model.bim'), '--pbir', File.join(dir, 'bundle.json'),
                     '--out', File.join(dir, work), '--connection', CONN, '--database', 'DB', '--schema', 'SALES',
                     '--folder', 'f1', '--yes', '--stop-before-post', *extra)
   end
@@ -159,8 +174,18 @@ Dir.mktmpdir('pbi-page-facts-orch') do |dir|
         "--page-facts-update-dm with --stop-before-post reports the PUT (exit #{st.exitstatus})#{st.exitstatus.zero? ? '' : "\n#{out.lines.last(12).join}"}")
   check(writes.call.empty?, "--stop-before-post still writes nothing (got #{writes.call.inspect})")
   rspec = File.exist?(File.join(dir, 'w4', 'dm-spec.json')) ? JSON.parse(File.read(File.join(dir, 'w4', 'dm-spec.json'))) : {}
-  check((rspec['pages'] || []).flat_map { |p| p['elements'] || [] }.any? { |e| e['name'] == 'Sales Page Page Fact' },
+  reused_fact = (rspec['pages'] || []).flat_map { |p| p['elements'] || [] }.find { |e| e['name'] == 'Sales Page Page Fact' }
+  check(reused_fact,
         'the reused spec on disk carries the page fact it would PUT')
+  check(reused_fact && reused_fact.dig('source', 'statement').include?('CONVERT_TIMEZONE'),
+        'a reused-DM page fact is pinned to the report clock before PUT')
+
+  puts "\n4. DM reuse: an already pinned page fact is current"
+  out, st = run.call('w5', '--reuse-dm', 'dm-fake-1', '--page-facts', File.join(dir, 'page-facts'))
+  check(st.exitstatus.zero? && out.include?('already current (report-clock pinned)'),
+        "the pinned page fact does not request another update (exit #{st.exitstatus})")
+  check(!out.include?('page_facts_reused_dm'), 'no OPEN QUESTION is raised for the pinned equivalent')
+  check(writes.call.empty?, "the current reused DM is not written (got #{writes.call.inspect})")
 end
 
 puts

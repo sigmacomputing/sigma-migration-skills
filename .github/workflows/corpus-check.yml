@@ -660,6 +660,12 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-build-parity-plan.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-phase6-parity-pbi.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-element-match.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-shaped-model.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-measure-class.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-time-intel-gen.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-direct-map.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-direct-sources.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-slicer-carry.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-native-query.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-parse.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-sql.rb
@@ -672,8 +678,11 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-convert-model-reprefix.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-warehouse-column-refs.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-materialization-schedules.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-materialization-freshness.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-report-clock.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-timeintel-route.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-drop-unresolved-columns.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-dangling-sort-prune.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-table-map-manifest.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-scout-ledger-integrity.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-trellis-emit.rb
@@ -686,6 +695,8 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-reportbuild-emit.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-slicer-heavy-build.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-page-facts-orchestrator.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-shaped-orchestrator.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-shaped-report.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-builder-followups.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-b.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-review-fixes-f.rb
@@ -805,6 +816,18 @@ jobs:
           for t in "${tests[@]}"; do
             echo "::group::$t"
             if ruby "$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
+            echo "::endgroup::"
+          done
+          exit $fail
+      - name: Run the pbi-shaped corpus tooling tests (python stdlib, creds-free)
+        # probes/, src/ and tools/ of corpus/powerbi/pbi-shaped-model carry their own unittest files; none touches a
+        # network or a tenant (the probes themselves are live-only and are not run here).
+        run: |
+          set -uo pipefail
+          fail=0
+          for t in probes/test_probe_lib.py src/test_build_reports.py tools/test_verify_pbi.py; do
+            echo "::group::$t"
+            if python3 "corpus/powerbi/pbi-shaped-model/$t"; then echo "OK $t"; else echo "::error file=$t::test failed"; fail=1; fi
             echo "::endgroup::"
           done
           exit $fail

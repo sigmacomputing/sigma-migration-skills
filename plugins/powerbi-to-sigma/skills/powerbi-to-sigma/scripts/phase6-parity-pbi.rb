@@ -47,6 +47,7 @@ require 'open3'
 require 'time'
 require_relative 'lib/py_resolve' # real-Python resolver (Windows Store-stub safe)
 require_relative 'lib/pbi_stale_parity'
+require_relative 'lib/pbi_report_clock'
 
 opts = { extract: false, tol: 0.02 }
 OptionParser.new do |p|
@@ -73,7 +74,21 @@ OptionParser.new do |p|
   # chart MATCH / STALE-EXPLAINED / DIVERGENT. STALE is reported honestly but
   # stays non-GREEN until the source model refreshes and strict parity can run.
   p.on('--freshness PATH')      { |v| opts[:fresh] = v }
+  # One clock for "today" (lib/pbi_report_clock.rb). A today-relative chart is
+  # compared only when Sigma, the oracle and the report name the same day.
+  p.on('--oracle-sql PATH', 'with --local-sql: build-oracle-sql.rb output (carries the oracle clock + today_relative flags)') { |v| opts[:oracle_sql] = v }
+  p.on('--expected-as-of ISO', 'when the oracle ran (default: --expected file mtime / now)') { |v| opts[:expected_as_of] = v }
+  p.on('--actuals-as-of ISO', 'with --finalize: when the Sigma actuals were collected (default: --actuals file mtime)') { |v| opts[:actuals_as_of] = v }
+  p.on('--report-clock PATH', 'with --finalize: report-clock.json (default: <workdir>/report-clock.json)') { |v| opts[:report_clock] = v }
+  p.on('--workdir DIR', 'with --finalize: migration workdir holding report-clock.json, dm-spec.json, workbook-spec.json, ' \
+                        'materialization-*.json (default: --out-dir)') { |v| opts[:workdir] = v }
+  p.on('--materialization-freshness PATH', 'with --finalize: check-materialization-freshness.rb output ' \
+                                           '(default: <workdir>/materialization-freshness.json)') { |v| opts[:mat_fresh] = v }
 end.parse!
+
+def iso_mtime(path)
+  File.exist?(path.to_s) ? File.mtime(path).utc.iso8601 : nil
+end
 
 FRESH = if opts[:fresh] && File.exist?(opts[:fresh])
           (JSON.parse(File.read(opts[:fresh])) rescue {})
@@ -167,11 +182,23 @@ if opts[:local_sql]
   # exact same plan the DAX path produces so --finalize is unchanged.
   %i[expected wb out].each { |k| abort("missing --#{k}") unless opts[k] }
   expected = JSON.parse(File.read(opts[:expected]))
+  oracle = opts[:oracle_sql] ? JSON.parse(File.read(opts[:oracle_sql])) : {}
+  descriptors = oracle['_charts'] || {}
   charts = expected.keys.map do |name|
-    { 'chart' => name, 'expected' => expected[name], 'workbook_id' => opts[:wb] }
+    c = { 'chart' => name, 'expected' => expected[name], 'workbook_id' => opts[:wb] }
+    d = descriptors[name] || {}
+    c['today_relative'] = true if d['today_relative']
+    refs = PbiReportClock.session_clock_refs(d['sql'])
+    # A statement on the bare warehouse session clock names whatever day the
+    # session's TIMEZONE says — not the report clock.
+    c['oracle_clock'] = { 'kind' => 'warehouse-session', 'timezone' => nil, 'refs' => refs } if refs.any?
+    c
   end
   abort("--expected #{opts[:expected]} has no charts") if charts.empty?
-  plan = { 'extract' => opts[:extract], 'source' => 'warehouse-sql-oracle', 'charts' => charts }
+  plan = { 'extract' => opts[:extract], 'source' => 'warehouse-sql-oracle', 'charts' => charts,
+           'oracle_clock' => oracle['_clock'] || { 'kind' => 'warehouse-sql', 'timezone' => nil },
+           'expected_as_of' => opts[:expected_as_of] || oracle.dig('_clock', 'as_of') ||
+                               iso_mtime(opts[:expected]) || Time.now.utc.iso8601 }
   File.write(opts[:out], JSON.pretty_generate(plan))
   warn "[phase6-pbi] wrote plan with WAREHOUSE-SQL `expected` rows (offline oracle, no Power BI) -> #{opts[:out]}"
   freshness_banner
@@ -220,9 +247,15 @@ if opts[:emit]
       warn "  [DAX ERROR] #{name}: #{exp['error']}"
       exp = []
     end
-    { 'chart' => name, 'expected' => exp, 'workbook_id' => opts[:wb] }
+    c = { 'chart' => name, 'expected' => exp, 'workbook_id' => opts[:wb] }
+    spec = chart_dax[name] || {}
+    c['today_relative'] = true if spec['today_relative'] || PbiReportClock.today_relative_dax?(spec['dax'])
+    c
   end
-  plan = { 'extract' => opts[:extract], 'source' => 'powerbi-executequeries', 'charts' => charts }
+  # executeQueries runs in the Power BI service, which evaluates TODAY()/NOW() in UTC.
+  plan = { 'extract' => opts[:extract], 'source' => 'powerbi-executequeries', 'charts' => charts,
+           'oracle_clock' => { 'kind' => 'powerbi-service', 'timezone' => 'UTC' },
+           'expected_as_of' => opts[:expected_as_of] || Time.now.utc.iso8601 }
   File.write(opts[:out], JSON.pretty_generate(plan))
   warn "[phase6-pbi] wrote plan with PBI `expected` rows -> #{opts[:out]}"
   freshness_banner # bead fmte — staleness leads, before any side-by-side
@@ -241,6 +274,7 @@ end
 
 if opts[:finalize]
   %i[plan actuals outdir].each { |k| abort("missing --#{k}") unless opts[k] }
+  plan_mtime = iso_mtime(opts[:plan])
   plan = JSON.parse(File.read(opts[:plan]))
   actuals = JSON.parse(File.read(opts[:actuals]))
   plan['charts'].each do |c|
@@ -292,6 +326,156 @@ if opts[:finalize]
           end
     [name, cls]
   end.to_h
+  # ---- one clock for "today" (lib/pbi_report_clock.rb) -------------------
+  # A today-relative chart is only comparable when Sigma, the oracle and the
+  # report evaluate "today" on the same clock AND on the same report day. Values
+  # that agree outside the disagreement band prove nothing, so a clock mismatch
+  # is refused at ANY hour (CLOCK-SKEW), not just in the band.
+  # The migration workdir holds report-clock.json, the built specs and the
+  # materialization records. --out-dir is often a sub-directory of it, so when
+  # --workdir is not given look in --out-dir, beside the plan, and one level up.
+  markers = %w[report-clock.json materialization-actions.json materialization-freshness.json dm-spec.json
+               workbook-spec.json wb-readback.json dm-readback.json]
+  workdir = opts[:workdir] ||
+            [opts[:outdir], File.dirname(File.expand_path(opts[:plan])), File.dirname(File.expand_path(opts[:outdir]))]
+            .uniq.find { |d| markers.any? { |m| File.exist?(File.join(d, m)) } } ||
+            opts[:outdir]
+  if opts[:workdir].nil? && markers.none? { |m| File.exist?(File.join(workdir, m)) }
+    warn "[phase6-pbi] note: no migration workdir found beside --out-dir/--plan (no report-clock.json, specs or " \
+         'materialization records): the clock and materialization gates only see the plan — pass --workdir <WORK>'
+  end
+  clock_path = opts[:report_clock] ||
+               [File.join(workdir, 'report-clock.json'), File.join(File.dirname(opts[:plan]), 'report-clock.json')]
+               .find { |p| File.exist?(p) }
+  clock_rec = clock_path && File.exist?(clock_path) ? (JSON.parse(File.read(clock_path)) rescue nil) : nil
+  spec_docs = { 'data_model' => %w[dm-spec.json dm-readback.json], 'workbook' => %w[workbook-spec.json wb-readback.json] }
+              .transform_values do |names|
+                names.map { |n| File.join(workdir, n) }.select { |p| File.exist?(p) }
+                     .map { |p| JSON.parse(File.read(p)) rescue nil }.compact
+              end
+  if clock_rec
+    spec_docs.each do |section, docs|
+      next if docs.empty?
+
+      sites = docs.flat_map do |d|
+        PbiReportClock.scan(d, report_timezone: clock_rec['report_timezone'], dialect: clock_rec['dialect'])
+      end.uniq
+      clock_rec[section] = (clock_rec[section] || {}).merge('unpinned' => sites)
+    end
+  end
+  metric_formulas = {}
+  spec_docs['data_model'].each do |doc|
+    PbiReportClock.each_element(doc) do |el|
+      Array(el['metrics']).each { |m| metric_formulas[m['name']] = m['formula'].to_s if m.is_a?(Hash) && m['name'] }
+    end
+  end
+  # a metric reads the clock directly or through [Metrics/<other>] (fixed point)
+  clock_metrics = metric_formulas.select { |_n, f| PbiReportClock.today_relative_formula?(f) }.keys.to_h { |n| [n, true] }
+  loop do
+    grown = metric_formulas.reject { |n, _| clock_metrics[n] }
+                           .select { |_n, f| f.scan(/\[Metrics\/([^\]]+)\]/).flatten.any? { |r| clock_metrics[r] } }.keys
+    break if grown.empty?
+
+    grown.each { |n| clock_metrics[n] = true }
+  end
+  wb_today = {}
+  spec_docs['workbook'].each do |doc|
+    PbiReportClock.each_element(doc) do |el|
+      PbiReportClock.walk_formulas(el, '') do |holder, key, _path|
+        f = holder[key]
+        hit = PbiReportClock.today_relative_formula?(f) ||
+              f.scan(/\[Metrics\/([^\]]+)\]/).flatten.any? { |n| clock_metrics[n] }
+        wb_today[el['name']] = true if hit
+      end
+    end
+  end
+  actual_as_of = opts[:actuals_as_of] || iso_mtime(opts[:actuals])
+  expected_as_of = plan['expected_as_of'] || plan_mtime
+  today_charts = []
+  skew = []
+  verdicts = []
+  plan['charts'].each do |c|
+    name = c['chart']
+    next unless c['today_relative'] || wb_today[name]
+
+    today_charts << name
+    v = PbiReportClock.parity_verdict(clock: clock_rec, oracle_clock: c['oracle_clock'] || plan['oracle_clock'],
+                                      expected_as_of: c['expected_as_of'] || expected_as_of, actual_as_of: actual_as_of)
+    verdicts << v
+    next if v['ok']
+
+    classes[name] = 'CLOCK-SKEW'
+    skew << { 'chart' => name, 'reason' => v['reason'] }
+  end
+  passed -= skew.map { |s| s['chart'] }
+  if today_charts.any?
+    puts
+    puts "report clock: #{clock_rec ? clock_rec['report_timezone'] : 'UNKNOWN (no report-clock.json)'}; " \
+         "#{today_charts.size} today-relative chart(s); oracle as of #{expected_as_of || '?'}, Sigma actuals as of #{actual_as_of || '?'}"
+    skew.each { |s| puts "  CLOCK-SKEW      #{s['chart']}: #{s['reason']}" }
+  end
+  first_v = verdicts.find { |v| !v['ok'] } || verdicts.first || {}
+  report_clock = (clock_rec.nil? && today_charts.empty?) ? nil : {
+    'report_timezone' => clock_rec && clock_rec['report_timezone'],
+    'report_timezone_source' => clock_rec && clock_rec['report_timezone_source'],
+    'record' => clock_path && File.exist?(clock_path) ? clock_path : nil,
+    'sigma_clock' => first_v['sigma_clock'], 'oracle_clock' => first_v['oracle_clock'],
+    'oracle_kind' => first_v['oracle_kind'], 'report_day' => first_v['report_day'],
+    'expected_as_of' => expected_as_of, 'actual_as_of' => actual_as_of,
+    'unpinned_sites' => clock_rec ? (Array(clock_rec.dig('data_model', 'unpinned')) + Array(clock_rec.dig('workbook', 'unpinned'))).size : nil,
+    'today_relative_charts' => today_charts, 'clock_skew' => skew
+  }
+
+  # ---- materialization freshness (pre-parity gate) -------------------------
+  # A materialized element serves its last run; parity against a LIVE oracle is
+  # meaningless once an upstream table changed after that run.
+  mat_actions_path = File.join(workdir, 'materialization-actions.json')
+  mat_actions = File.exist?(mat_actions_path) ? (JSON.parse(File.read(mat_actions_path)) rescue []) : []
+  scheduled = Array(mat_actions).select { |a| a.is_a?(Hash) && %w[created updated unchanged].include?(a['status']) }
+  mat_path = opts[:mat_fresh] || File.join(workdir, 'materialization-freshness.json')
+  mat = File.exist?(mat_path) ? (JSON.parse(File.read(mat_path)) rescue { 'status' => 'UNREADABLE' }) : nil
+  mat_refuse = nil
+  mat_block = nil
+  if mat
+    names = ->(st) { Array(mat['elements']).select { |e| e['status'] == st }.map { |e| e['elementName'] || e['elementId'] } }
+    mat_block = { 'status' => mat['status'], 'checked_at' => mat['checked_at'], 'path' => mat_path,
+                  'stale' => names.call('STALE'), 'unknown' => names.call('UNKNOWN') }
+    # UNKNOWN (an upstream view, an unresolvable source) passes only when the check
+    # was run with --allow-unknown, and the accepted elements are recorded.
+    accepted_unknown = mat['status'] == 'UNKNOWN' && mat['allow_unknown'] == true
+    if accepted_unknown
+      mat_block['accepted_unknown'] = mat_block['unknown']
+      puts
+      puts "materialization freshness UNKNOWN accepted (--allow-unknown): #{mat_block['unknown'].join(', ')}"
+    end
+    unless %w[FRESH NONE].include?(mat['status']) || accepted_unknown
+      mat_refuse = "materialization freshness is #{mat['status']} (#{(mat_block['stale'] + mat_block['unknown']).join(', ')}): " \
+                   'Sigma serves a materialization older than its upstream tables — re-materialize and wait ' \
+                   '(check-materialization-freshness.rb --rematerialize --wait 900), then rerun the oracle and parity'
+    end
+    # The check must be contemporaneous with BOTH sides (two-sided, 2 h); NONE
+    # (no schedules) has nothing to age.
+    if mat_refuse.nil? && mat['status'] != 'NONE' && mat['checked_at']
+      checked = PbiReportClock.parse_instant(mat['checked_at'])
+      far = [['the oracle', expected_as_of], ['the Sigma actuals', actual_as_of]].find do |_label, at|
+        at && (PbiReportClock.parse_instant(at) - checked).abs > 7200
+      end
+      if far
+        mat_refuse = "materialization freshness was checked at #{mat['checked_at']}, more than 2h from #{far[0]} " \
+                     "(#{far[1]}); rerun check-materialization-freshness.rb right before the oracle and the actuals"
+      end
+    end
+  elsif scheduled.any?
+    mat_block = { 'status' => 'NOT-CHECKED', 'path' => mat_path, 'scheduled' => scheduled.map { |a| a['elementName'] } }
+    mat_refuse = "#{scheduled.size} materialization schedule(s) exist but freshness was never checked: run " \
+                 "ruby scripts/check-materialization-freshness.rb --data-model <dmId> --workdir #{workdir} --wait 900 " \
+                 'before parity (never trust a fixed sleep — poll until each run lands)'
+  end
+  if mat_refuse
+    puts
+    puts "STALE-MATERIALIZATION: #{mat_refuse}"
+  end
+
   stale_expl = classes.values.count('STALE-EXPLAINED')
   divergent  = classes.values.count('DIVERGENT')
   if FRESH.any? || stale_expl.positive?
@@ -305,8 +489,12 @@ if opts[:finalize]
   end
 
   status =
-    if total.positive? && passed.size == total
+    if mat_refuse
+      'STALE-MATERIALIZATION'
+    elsif total.positive? && passed.size == total
       'PASS'
+    elsif divergent.zero? && skew.any?
+      'CLOCK-SKEW'
     elsif total.positive? && divergent.zero? && (passed.size + stale_expl) == total
       'STALE'
     else
@@ -325,6 +513,9 @@ if opts[:finalize]
     'stale_explained_names' => classes.select { |_name, cls| cls == 'STALE-EXPLAINED' }.keys,
     'fail_names' => classes.select { |_name, cls| cls == 'DIVERGENT' }.keys,
     'classifications' => classes,
+    'charts_clock_skew' => skew.size,
+    'report_clock' => report_clock,
+    'materialization_freshness' => mat_block,
     'freshness' => FRESH.empty? ? nil : {
       'lastSuccessfulRefresh' => FRESH.dig('lastSuccessfulRefresh', 'endTime'),
       'staleDays' => FRESH['staleDays'], 'credsSuspect' => FRESH['credsSuspect'],

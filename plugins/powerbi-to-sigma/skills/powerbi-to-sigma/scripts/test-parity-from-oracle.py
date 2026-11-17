@@ -31,7 +31,8 @@ par = load("parity_from_oracle", "parity-from-oracle.py")
 
 PBI_FINAL_KEYS = ["workbook_id", "ran_at", "source", "mode", "source_timezone", "charts_total", "charts_pass",
                   "charts_fail", "charts_stale_explained", "charts_verified", "pass_names",
-                  "stale_explained_names", "fail_names", "classifications", "freshness", "status"]
+                  "stale_explained_names", "fail_names", "classifications", "charts_clock_skew",
+                  "report_clock", "materialization_freshness", "freshness", "status"]
 
 
 def csv_text(header, rows):
@@ -294,6 +295,34 @@ class RunTests(unittest.TestCase):
         self.assertEqual("warehouse-sql-oracle", fin["source"])
         self.assertIsNone(fin["freshness"])
         self.assertRegex(fin["ran_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def _one_chart(self):
+        exp = self.w("a.csv", csv_text(["Region", "Net"], [["East", "100"]]))
+        orc = self.w("a.json", json.dumps([{"REGION": "East", "NET": 100}]))
+        rc = par.main(["--out-dir", self.d, "--workbook-id", "wb-1", "--name", "Chart A", "--export", exp,
+                       "--oracle", orc, "--keys", "Region=REGION", "--measures", "Net=NET"])
+        with open(os.path.join(self.d, "parity-final.json")) as fh:
+            return rc, json.load(fh)
+
+    def test_materialization_gate_refuses_until_fresh(self):
+        self.w("materialization-actions.json", json.dumps([{"elementName": "Feed", "status": "created"}]))
+        rc, fin = self._one_chart()
+        self.assertEqual((2, "STALE-MATERIALIZATION"), (rc, fin["status"]))
+        self.assertEqual("NOT-CHECKED", fin["materialization_freshness"]["status"])
+        self.w("materialization-freshness.json", json.dumps({"status": "STALE", "elements": [{"elementName": "Feed", "status": "STALE"}]}))
+        rc, fin = self._one_chart()
+        self.assertEqual((2, "STALE-MATERIALIZATION"), (rc, fin["status"]))
+        self.w("materialization-freshness.json", json.dumps({"status": "FRESH", "elements": []}))
+        rc, fin = self._one_chart()
+        self.assertEqual((0, "PASS"), (rc, fin["status"]))
+
+    def test_unpinned_report_clock_refuses(self):
+        self.w("report-clock.json", json.dumps({"report_timezone": "America/New_York",
+                                                "data_model": {"unpinned": [{"element": "ORDERS", "clock": "Today"}]},
+                                                "workbook": {"unpinned": []}}))
+        rc, fin = self._one_chart()
+        self.assertEqual((2, "CLOCK-SKEW"), (rc, fin["status"]))
+        self.assertEqual(1, fin["report_clock"]["unpinned_sites"])
 
     @unittest.skipUnless(shutil.which("ruby"), "ruby not installed")
     def test_same_keys_and_types_as_the_ruby_finalize(self):

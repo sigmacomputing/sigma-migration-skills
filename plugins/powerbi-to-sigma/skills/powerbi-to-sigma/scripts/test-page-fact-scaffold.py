@@ -179,6 +179,8 @@ class Decomposition(unittest.TestCase):
              {"name": "East Then Keep West", "expression": 'CALCULATE([West Keep], D[Name] = "east")'},
              {"name": "Both", "expression": 'CALCULATE([Total], D[Name] = "a", D[Name] = "b")'},
              {"name": "Gap", "expression": "[Total] - [Line]"},
+             {"name": "Open Units", "expression": "SUMX(F, F[V] - F[K])"},
+             {"name": "Open Mixed", "expression": "SUMX(F, (F[V] + 2) * F[K])"},
              {"name": "Bad Ur", "expression": "CALCULATE([Total], USERELATIONSHIP(F[Flag], D[Name]))"},
              {"name": "Noted", "expression": "CALCULATE([Total], Notes[N] = 1)"}]},
         {"name": "Notes", "columns": [{"name": "N", "dataType": "int64"}]},
@@ -249,6 +251,19 @@ class Decomposition(unittest.TestCase):
         self.assertTrue(sig.startswith("If(IsNull(Sum({C:Sum V})) and IsNull("), sig)
         self.assertIn("Coalesce(Sum({C:Sum V}), 0) - Coalesce(", sig)
         self.assertIn("ELSE COALESCE(", sql)
+
+    def test_pbi_shape_drafts_row_plus_minus_blank_as_zero(self):
+        """Task 21w: DAX + and - read BLANK as 0 (R50); SUMX(F, F[V] - F[K]) drafted `V - K` was NULL on a blank operand."""
+        pbi = scaffold.Decomposer(self.m, [], "snowflake", shape="pbi")
+        pbi.measure("Open Units")
+        row = next(iter(pbi.components.values()))["row"]
+        self.assertEqual("(COALESCE({T:F|V}, 0) - COALESCE({T:F|K}, 0))", row)
+        pbi.measure("Open Mixed")
+        rows = [c["row"] for c in pbi.components.values()]
+        self.assertIn("((COALESCE({T:F|V}, 0) + 2) * {T:F|K})", rows)  # a literal stays bare, * is not coalesced
+        views = scaffold.Decomposer(self.m, [], "snowflake")
+        views.measure("Open Units")
+        self.assertEqual("({T:F|V} - {T:F|K})", next(iter(views.components.values()))["row"])  # views drafts unchanged
 
     def test_unresolved_userelationship_and_not_prefix(self):
         with self.assertRaisesRegex(pc.Unsupported, "names no relationship"):
@@ -477,6 +492,171 @@ class ParityJsonExport(unittest.TestCase):
             self.assertEqual(parity.main(["--spec", plan, "--out-dir", d]), 0)
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+integrate = load("integrate_page_fact", "integrate-page-fact.py")
+
+
+class ShapePbi(unittest.TestCase):
+    """--shape pbi: a plainly named, described summary table; --shape views (default) is unchanged."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def run_scaffold(self, out, *extra):
+        rc = scaffold.main(["--model", os.path.join(FIX, "model.bim"), "--signals", os.path.join(FIX, "signals.json"),
+                            "--dm-spec", os.path.join(FIX, "dm-spec.json"), "--master-map", os.path.join(FIX, "master-map.json"),
+                            "--out-dir", out, "--all-pages"] + list(extra))
+        self.assertEqual(rc, 0)
+
+    def test_shape_pbi_names_and_describes_summary(self):
+        out = os.path.join(self.d, "pbi")
+        self.run_scaffold(out, "--shape", "pbi")
+        pf = jload(os.path.join(out, "sales-overview", "page-fact.json"))
+        self.assertEqual(pf["name"], pf["page"] + " \u2013 summary")
+        self.assertRegex(pf["description"], r"^Reproduces Power BI measures: .+\. Grain: .+\.$")
+        measures = [m for m in pf["description"].split("measures: ")[1].split(". Grain:")[0].split(", ")]
+        self.assertTrue(measures)
+        for c in pf["columns"]:
+            if c["role"] == "grain":
+                t, _, col = c["field"].partition(".")
+                self.assertEqual(c["description"], "Grain: %s[%s]" % (t, col))
+            else:
+                self.assertTrue(c["description"].startswith("Feeds "), c)
+                self.assertEqual(c["description"], "Feeds " + c["measure"])
+                for m in c["measure"].split(", "):
+                    self.assertIn(m, measures)
+                    self.assertFalse(m.startswith("__implicit__"))
+        comps = [c for c in pf["columns"] if c["role"] == "component"]
+        self.assertTrue(comps)
+        # every measure column named by a field ref carries that measure
+        for qr, spec in pf["fields"].items():
+            import re
+            for col in re.findall(r"\{C:([^{}]+)\}", spec["ref"]):
+                c = next(x for x in pf["columns"] if x["name"] == col)
+                self.assertIn("Feeds ", c["description"])
+
+    def test_integrate_pbi_element_and_direct_master(self):
+        out = os.path.join(self.d, "pbi")
+        self.run_scaffold(out, "--shape", "pbi")
+        pf = jload(os.path.join(out, "sales-overview", "page-fact.json"))
+        dm = os.path.join(self.d, "dm.json")
+        mm = os.path.join(self.d, "mm.json")
+        shutil.copy(os.path.join(FIX, "dm-spec.json"), dm)
+        shutil.copy(os.path.join(FIX, "master-map.json"), mm)
+        pfp = os.path.join(out, "sales-overview", "page-fact.json")
+        self.assertEqual(integrate.main([pfp, "--dm-spec", dm, "--connection", "c0", "--master-map", mm,
+                                         "--shape", "pbi", "--allow-todo"]), 0)
+        el = next(e for p in jload(dm)["pages"] for e in p["elements"] if e["name"] == pf["name"])
+        self.assertEqual(el["description"], pf["description"])
+        self.assertEqual([c.get("description") for c in el["columns"]], [c["description"] for c in pf["columns"]])
+        m = jload(mm)["masters"][pf["name"]]
+        self.assertIs(m["direct"], True)
+        self.assertEqual(m["element_name"], pf["name"])
+        for k in ("id", "element_id", "data_model", "columns"):
+            self.assertIn(k, m)
+        self.assertIn(pf["page"], jload(mm)["page_fields"])
+
+    def test_shape_views_output_unchanged(self):
+        a, b = os.path.join(self.d, "a"), os.path.join(self.d, "b")
+        self.run_scaffold(a)
+        self.run_scaffold(b, "--shape", "views")
+        for root, _, files in os.walk(a):
+            for f in files:
+                pa = os.path.join(root, f)
+                self.assertEqual(read(pa), read(os.path.join(b, os.path.relpath(pa, a))), pa)
+        pf = jload(os.path.join(a, "sales-overview", "page-fact.json"))
+        self.assertEqual(pf["name"], pf["page"] + " Page Fact")
+        self.assertNotIn("description", pf)
+        self.assertTrue(all("description" not in c and "measure" not in c for c in pf["columns"]))
+        # the pinned corpus goldens are the byte-level proof (checks.sh); spot-check the SQL here
+        g = os.path.join(HERE, "..", "..", "..", "..", "..", "corpus", "powerbi", "page-facts-multipage", "golden",
+                         "page-facts", "sales-overview", "page-fact.sql")
+        if os.path.exists(g):
+            self.assertEqual(read(os.path.join(a, "sales-overview", "page-fact.sql")), read(g))
+
+
+class ScaffoldFallbackGate(unittest.TestCase):
+    def test_calculated_grain_hard_fails_in_views_and_drafts_a_todo_in_pbi(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        model = fixture("model.bim")
+        for t in model["model"]["tables"]:
+            if t["name"] == "Store":
+                for c in t["columns"]:
+                    if c["name"] == "Region":
+                        c["type"] = "calculated"
+                        c["expression"] = "UPPER([Store Name])"
+        mp = os.path.join(d, "model.bim")
+        jdump(model, mp)
+
+        def run(shape):
+            return scaffold.main(["--model", mp, "--signals", os.path.join(FIX, "signals.json"),
+                                  "--dm-spec", os.path.join(FIX, "dm-spec.json"), "--master-map", os.path.join(FIX, "master-map.json"),
+                                  "--out-dir", os.path.join(d, shape), "--page", "Sales Overview", "--shape", shape])
+        with self.assertRaises(pc.Unsupported):
+            run("views")
+        self.assertEqual(run("pbi"), 0)
+        pf = jload(os.path.join(d, "pbi", "sales-overview", "page-fact.json"))
+        self.assertTrue(any("grouping column" in str(t.get("reason")) for t in pf["todo"]))
+
+
+class ChildSourceChain(unittest.TestCase):
+    """--shape pbi: a data-model child {kind: table, elementId} resolves to its root's SQL / warehouse path / columns."""
+
+    def test_follow_children_reaches_the_root_warehouse_path(self):
+        model = pc.Model(fixture("model.bim"))
+        dm = fixture("dm-spec.json")
+        els = dm["pages"][0]["elements"]
+        base = next(e for e in els if e["name"] == "Sales")
+        base["name"] = "Sales (source)"
+        base["source"] = {"kind": "warehouse-table", "path": ["DB", "SCH", "FACT_SALES"]}
+        base["columns"] = [{"id": "inode-x/SALE_ID", "formula": "[FACT_SALES/Sale Id]", "name": "Sale Id"}]
+        els.append({"id": "dm-sales-child", "name": "Sales", "source": {"kind": "table", "elementId": base["id"]}, "columns": []})
+        plain = pc.SourceIndex(model, dm)
+        with self.assertRaises(pc.Unsupported):
+            plain.from_sql("Sales")
+        follow = pc.SourceIndex(model, dm, follow_children=True)
+        self.assertEqual(follow.from_sql("Sales"), "DB.SCH.FACT_SALES")
+        self.assertEqual(follow.outputs("Sales"), ["SALE_ID"])
+
+
+class LivePageFactSourceIndex(unittest.TestCase):
+    """m14: pbi-live-page-fact.py builds its SourceIndex like the pbi scaffold does (follow_children=True), so a
+    data-model child element resolves to its root's warehouse path."""
+
+    def test_live_page_fact_follows_children(self):
+        live = load("pbi_live_page_fact", "pbi-live-page-fact.py")
+        seen = {}
+
+        class Stop(Exception):
+            pass
+
+        def recorder(model, dm, mm, **kw):
+            seen.update(kw)
+            raise Stop()
+
+        d = tempfile.mkdtemp()
+        try:
+            paths = {}
+            for name, doc in (("spec", {"elements": [], "pages": []}), ("model", fixture("model.bim")),
+                              ("dm-spec", fixture("dm-spec.json")), ("master-map", fixture("master-map.json"))):
+                paths[name] = os.path.join(d, name + ".json")
+                jdump(doc, paths[name])
+            real = live.SourceIndex
+            live.SourceIndex = recorder
+            try:
+                with self.assertRaises(Stop):
+                    live.main(["--spec", paths["spec"], "--page-facts", d, "--model", paths["model"], "--dm-spec", paths["dm-spec"],
+                               "--master-map", paths["master-map"], "--out", os.path.join(d, "out.json")])
+            finally:
+                live.SourceIndex = real
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        self.assertIs(seen.get("follow_children"), True)
 
 
 if __name__ == "__main__":

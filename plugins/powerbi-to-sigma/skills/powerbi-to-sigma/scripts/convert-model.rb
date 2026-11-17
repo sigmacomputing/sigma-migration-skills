@@ -52,6 +52,7 @@ OptionParser.new do |p|
   p.on('--owner-id ID')         { |v| opts[:owner] = v }
   p.on('--name NAME')           { |v| opts[:name] = v }
   p.on('--out PATH')            { |v| opts[:out] = v }
+  p.on('--model-shape SHAPE', %w[pbi views], 'pbi (the orchestrator passes it only in --model-shape pbi mode): Fixup 3b rewrites an unknown base-column prefix to the physical table name; views (default) keeps the element name') { |v| opts[:model_shape] = v }
   p.on('--restructure-map PATH','Optional JSON: measure name -> {generator, args} overrides for (b)-bucket DAX') { |v| opts[:rmap] = v }
   p.on('--table-map PATH','Optional JSON: model table -> actual warehouse table name; repoints sources + base column refs (use when the customer landed import-mode data under different table names)') { |v| opts[:tmap] = v }
   p.on('--restructure-from-bim PATH','model.bim to scan for (b)-bucket DAX measures to auto-emit as elements') { |v| opts[:rbim] = v }
@@ -166,18 +167,27 @@ reprefixed = 0
     next unless (el['source'] || {})['kind'] == 'warehouse-table'
     name = el['name'].to_s
     next if name.empty?
+    # views shape (default): the rewrite target is the element name, exactly as it always was. The Power BI-shaped
+    # mode (--model-shape pbi, passed only by the orchestrator in that mode) names the element after the Power BI
+    # table while a base column's prefix stays the warehouse table's physical name (the path tail; live-proven),
+    # so there the rewrite target is the path tail and a prefix already equal to it is left alone.
+    own = name
+    if opts[:model_shape] == 'pbi'
+      tail = el['source']['path'].is_a?(Array) ? el['source']['path'].last.to_s : ''
+      own = tail unless tail.empty?
+    end
     (el['columns'] || []).each do |c|
       f = c['formula']
       next unless f.is_a?(String)
       m = f.match(%r{\A\[([^\]/]+)/([^\]/]+)\]\z}) # exactly [Prefix/Leaf], a single slash
       next unless m
       pfx = m[1]
-      next if pfx == name # already references its own element
+      next if pfx == own || pfx == name # already references its own element
       # Sigma element references are literal. Treating spaces/underscores or
       # case as equivalent makes `[Cost Center/X]` look valid when the actual
       # element is `COST_CENTER`, leaving a dependency-not-found formula.
       next if known_names.include?(pfx) # exact valid ref to a known element
-      c['formula'] = "[#{name}/#{m[2]}]"
+      c['formula'] = "[#{own}/#{m[2]}]"
       reprefixed += 1
     end
   end

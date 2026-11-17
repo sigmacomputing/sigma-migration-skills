@@ -1,0 +1,175 @@
+{
+ "version": 1,
+ "page": "Trends",
+ "page_id": "TrendsPage",
+ "name": "Trends – summary",
+ "columns": [
+  {
+   "name": "Month Start",
+   "out": "G_MONTH_START",
+   "role": "grain",
+   "field": "Date.Month Start",
+   "description": "Grain: Date[Month Start]"
+  },
+  {
+   "name": "Year",
+   "out": "G_YEAR",
+   "role": "grain",
+   "field": "Date.Year",
+   "description": "Grain: Date[Year]"
+  },
+  {
+   "name": "Quarter",
+   "out": "G_QUARTER",
+   "role": "grain",
+   "field": "Date.Quarter",
+   "description": "Grain: Date[Quarter]"
+  },
+  {
+   "name": "Year Quarter",
+   "out": "YEAR_QUARTER",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales QTD",
+   "description": "Helper: Year * 10 + Quarter; a formula counts its distinct values to tell a quarter-level group from a larger one"
+  },
+  {
+   "name": "Sales Amount",
+   "out": "SALES",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales Amount",
+   "description": "Feeds Sales Amount (and Sales MTD per month)"
+  },
+  {
+   "name": "Sales PY",
+   "out": "SALES_PY",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales PY",
+   "description": "Feeds Sales PY and Sales YoY %: sales of the same month one year earlier"
+  },
+  {
+   "name": "YTD at Month",
+   "out": "YTD_M",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales YTD",
+   "description": "Feeds Sales YTD: running total within the year, per month"
+  },
+  {
+   "name": "YTD at Year End",
+   "out": "YTD_YEAR_END",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales YTD",
+   "description": "Feeds Sales YTD: the value on each year's last month"
+  },
+  {
+   "name": "YTD at Latest Month",
+   "out": "YTD_LATEST",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales YTD",
+   "description": "Feeds Sales YTD with no date axis: the value on the latest month"
+  },
+  {
+   "name": "QTD at Month",
+   "out": "QTD_M",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales QTD",
+   "description": "Feeds Sales QTD: running total within the quarter, per month"
+  },
+  {
+   "name": "QTD at Quarter End",
+   "out": "QTD_QUARTER_END",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales QTD",
+   "description": "Feeds Sales QTD: the value on each quarter's last month"
+  },
+  {
+   "name": "QTD at Latest Month",
+   "out": "QTD_LATEST",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales QTD",
+   "description": "Feeds Sales QTD with no date axis: the value on the latest month"
+  },
+  {
+   "name": "MTD at Latest Month",
+   "out": "MTD_LATEST",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales MTD",
+   "description": "Feeds Sales MTD with no date axis: the latest month's sales"
+  },
+  {
+   "name": "As Of YTD",
+   "out": "AS_OF_YTD",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales YTD (As Of)",
+   "description": "Feeds Sales YTD (As Of): sales from January 1 of the As Of year through the As Of date, constant on every row"
+  }
+ ],
+ "fields": {
+  "Sales.Sales Amount": {
+   "ref": "Sum({C:Sales Amount})"
+  },
+  "Sales.Sales PY": {
+   "ref": "Sum({C:Sales PY})"
+  },
+  "Sales.Sales YoY %": {
+   "ref": "If(Coalesce(Sum({C:Sales PY}), 0) = 0, Null, (Sum({C:Sales Amount}) - Sum({C:Sales PY})) / Sum({C:Sales PY}))"
+  },
+  "Sales.Sales YTD": {
+   "ref": "If(CountDistinct({C:Month Start}) = 1, Sum({C:YTD at Month}), If(CountDistinct({C:Year}) = 1, Sum({C:YTD at Year End}), Sum({C:YTD at Latest Month})))"
+  },
+  "Sales.Sales QTD": {
+   "ref": "If(CountDistinct({C:Month Start}) = 1, Sum({C:QTD at Month}), If(CountDistinct({C:Year Quarter}) = 1, Sum({C:QTD at Quarter End}), Sum({C:QTD at Latest Month})))"
+  },
+  "Sales.Sales MTD": {
+   "ref": "If(CountDistinct({C:Month Start}) = 1, Sum({C:Sales Amount}), Sum({C:MTD at Latest Month}))"
+  },
+  "Sales.Sales YTD (As Of)": {
+   "ref": "Max({C:As Of YTD})"
+  }
+ },
+ "dims": {
+  "Date.Month Start": "Month Start",
+  "Date.Year": "Year",
+  "Date.Quarter": "Quarter"
+ },
+ "facts": [
+  "Sales",
+  "As Of"
+ ],
+ "todo": [],
+ "slicers": [
+  {
+   "element_id": "el-tryear87b3ec",
+   "visual_id": "TrYear",
+   "title": "Year",
+   "field": "Date.Year",
+   "query_ref": "Date.Year",
+   "blank_policy": "row",
+   "in_grain": true,
+   "column_type": "int64",
+   "saved_selection": null
+  }
+ ],
+ "description": "Reproduces Power BI measures: Sales Amount, Sales YTD, Sales QTD, Sales MTD, Sales PY, Sales YoY %, Sales YTD (As Of). One row per month (Month Start, Year, Quarter); each measure's formula reads the column that matches the visual's date grain."
+}

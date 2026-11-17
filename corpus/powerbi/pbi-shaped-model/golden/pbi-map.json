@@ -1,0 +1,1087 @@
+{
+  "tables": [
+    {
+      "pbi": "Date",
+      "sigma": {
+        "kind": "table",
+        "name": "Date",
+        "id": "AAAAAAAAAB"
+      },
+      "homes": [
+        "Date"
+      ],
+      "reason": "carried as data model element 'Date'"
+    },
+    {
+      "pbi": "As Of",
+      "sigma": {
+        "kind": "table",
+        "name": "As Of",
+        "id": "AAAAAAAAAJ"
+      },
+      "homes": [
+        "As Of"
+      ],
+      "reason": "carried as data model element 'As Of'"
+    },
+    {
+      "pbi": "Category",
+      "sigma": {
+        "kind": "table",
+        "name": "Category",
+        "id": "AAAAAAAAAL"
+      },
+      "homes": [
+        "Category"
+      ],
+      "reason": "carried as data model element 'Category'"
+    },
+    {
+      "pbi": "Vendor",
+      "sigma": null,
+      "homes": [
+
+      ],
+      "reason": "not used by the report: scoped out of the model (no visual, slicer or measure reads it)"
+    },
+    {
+      "pbi": "Product",
+      "sigma": {
+        "kind": "table",
+        "name": "Product",
+        "id": "AAAAAAAAAS"
+      },
+      "homes": [
+        "Product"
+      ],
+      "reason": "carried as data model element 'Product'"
+    },
+    {
+      "pbi": "SKU",
+      "sigma": {
+        "kind": "table",
+        "name": "SKU",
+        "id": "AAAAAAAAAa"
+      },
+      "homes": [
+        "SKU"
+      ],
+      "reason": "carried as data model element 'SKU'"
+    },
+    {
+      "pbi": "Customer",
+      "sigma": {
+        "kind": "table",
+        "name": "Customer",
+        "id": "AAAAAAAAAe"
+      },
+      "homes": [
+        "Customer"
+      ],
+      "reason": "carried as data model element 'Customer'"
+    },
+    {
+      "pbi": "Store",
+      "sigma": {
+        "kind": "table",
+        "name": "Store",
+        "id": "AAAAAAAAAj"
+      },
+      "homes": [
+        "Store"
+      ],
+      "reason": "carried as data model element 'Store'"
+    },
+    {
+      "pbi": "Sales",
+      "sigma": {
+        "kind": "table",
+        "name": "Sales",
+        "id": "AAAAAAAAAos0"
+      },
+      "homes": [
+        "Sales",
+        "Sales (source)"
+      ],
+      "reason": "carried as data model element 'Sales'"
+    }
+  ],
+  "relationships": [
+    {
+      "pbi": "Sales -> Date (Sales_OrderDate)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Date",
+        "id": "AAAAAAAAAos0r0"
+      },
+      "homes": [
+        "Sales.Date"
+      ],
+      "reason": "carried as a relationship on 'Sales'"
+    },
+    {
+      "pbi": "Sales -> Date (Sales_ShipDate) [inactive]",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Date (ShipDateKey)",
+        "id": "AAAAAAAAAos0r1"
+      },
+      "homes": [
+        "Sales.Date (ShipDateKey)"
+      ],
+      "reason": "carried as a relationship on 'Sales'"
+    },
+    {
+      "pbi": "Sales -> SKU (Sales_SKU)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "SKU",
+        "id": "AAAAAAAAAos0r2"
+      },
+      "homes": [
+        "Sales.SKU"
+      ],
+      "reason": "carried as a relationship on 'Sales'"
+    },
+    {
+      "pbi": "Sales -> Customer (Sales_Customer)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Customer",
+        "id": "AAAAAAAAAos0r3"
+      },
+      "homes": [
+        "Sales.Customer"
+      ],
+      "reason": "carried as a relationship on 'Sales'"
+    },
+    {
+      "pbi": "Sales -> Store (Sales_Store)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Store",
+        "id": "AAAAAAAAAos0r4"
+      },
+      "homes": [
+        "Sales.Store"
+      ],
+      "reason": "carried as a relationship on 'Sales'"
+    },
+    {
+      "pbi": "SKU -> Product (SKU_Product)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Product",
+        "id": "AAAAAAAABJ"
+      },
+      "homes": [
+        "SKU.Product"
+      ],
+      "reason": "carried as a relationship on 'SKU'"
+    },
+    {
+      "pbi": "Product -> Category (Product_Category)",
+      "sigma": {
+        "kind": "relationship",
+        "name": "Category",
+        "id": "AAAAAAAABK"
+      },
+      "homes": [
+        "Product.Category"
+      ],
+      "reason": "carried as a relationship on 'Product'"
+    },
+    {
+      "pbi": "Product -> Vendor (Product_Vendor)",
+      "sigma": null,
+      "homes": [
+
+      ],
+      "reason": "not carried: table 'Vendor' is scoped out of the model (the report does not use it)"
+    }
+  ],
+  "measures": [
+    {
+      "pbi": "Sales.Sales Amount",
+      "sigma": {
+        "kind": "metric",
+        "name": "Sales Amount",
+        "id": "AAAAAAAAA0"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Sales Amount' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Units",
+      "sigma": {
+        "kind": "metric",
+        "name": "Units",
+        "id": "AAAAAAAAA1"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Units' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Gross Margin",
+      "sigma": {
+        "kind": "metric",
+        "name": "Gross Margin",
+        "id": "AAAAAAAAA3"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Gross Margin' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.GM %",
+      "sigma": {
+        "kind": "metric",
+        "name": "GM %",
+        "id": "AAAAAAAAA4"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'GM %' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Orders",
+      "sigma": {
+        "kind": "metric",
+        "name": "Orders",
+        "id": "AAAAAAAAA5"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Orders' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Avg Price",
+      "sigma": {
+        "kind": "metric",
+        "name": "Avg Price",
+        "id": "AAAAAAAAA6"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Avg Price' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Cost",
+      "sigma": {
+        "kind": "metric",
+        "name": "Cost",
+        "id": "AAAAAAAAA2"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class A (aggregates and arithmetic over Sales columns only): data model metric 'Cost' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.List Value",
+      "sigma": {
+        "kind": "metric",
+        "name": "List Value",
+        "id": "AAAAAAAAAom0"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class B (reads Product[List Price] through SKU > Product): data model metric 'List Value' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Private Label Sales",
+      "sigma": {
+        "kind": "metric",
+        "name": "Private Label Sales",
+        "id": "AAAAAAAAAom1"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class B (reads Product[Private Label] through SKU > Product): data model metric 'Private Label Sales' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Sales by Ship Date",
+      "sigma": {
+        "kind": "metric",
+        "name": "Sales by Ship Date",
+        "id": "AAAAAAAAAom2"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class B (uses inactive relationship Date (ShipDateKey)): data model metric 'Sales by Ship Date' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Sales YTD",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales YTD",
+        "id": "AAAAAAAAAos0g0c9"
+      },
+      "homes": [
+        "Sales by month"
+      ],
+      "reason": "class C (ytd time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales YTD' on 'Sales by month'"
+    },
+    {
+      "pbi": "Sales.Sales QTD",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales QTD",
+        "id": "AAAAAAAAAos0g3c7"
+      },
+      "homes": [
+        "Sales by quarter (quarter reset)"
+      ],
+      "reason": "class C (qtd time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales QTD' on 'Sales by quarter (quarter reset)'"
+    },
+    {
+      "pbi": "Sales.Sales MTD",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales MTD",
+        "id": "AAAAAAAAAos0g1c8"
+      },
+      "homes": [
+        "Sales by month (month reset)"
+      ],
+      "reason": "class C (mtd time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales MTD' on 'Sales by month (month reset)'"
+    },
+    {
+      "pbi": "Sales.Sales PY",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales PY",
+        "id": "AAAAAAAAAos0g0c10"
+      },
+      "homes": [
+        "Sales by month",
+        "Sales by quarter"
+      ],
+      "reason": "class C (py time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales PY' on 'Sales by month'"
+    },
+    {
+      "pbi": "Sales.Sales YoY %",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales YoY % (numerator)",
+        "id": "AAAAAAAAAos0g2c8"
+      },
+      "homes": [
+        "Sales by quarter"
+      ],
+      "reason": "class C (py time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales YoY % (numerator)' on 'Sales by quarter'"
+    },
+    {
+      "pbi": "Sales.Sales YTD (As Of)",
+      "sigma": {
+        "kind": "metric",
+        "name": "Sales YTD (As Of)",
+        "id": "AAAAAAAAAos0m0"
+      },
+      "homes": [
+        "Sales"
+      ],
+      "reason": "class C (ytd time intelligence (as_of anchor) over [Sales Amount]): data model metric 'Sales YTD (As Of)' on 'Sales'"
+    },
+    {
+      "pbi": "Sales.Sales R28",
+      "sigma": {
+        "kind": "column",
+        "name": "Sales R28",
+        "id": "AAAAAAAAAos0r5c1"
+      },
+      "homes": [
+        "Sales – rolling 28 days by day"
+      ],
+      "reason": "class C (rolling time intelligence (axis anchor) over [Sales Amount]): built as column 'Sales R28' on 'Sales – rolling 28 days by day'"
+    }
+  ],
+  "visuals": [
+    {
+      "pbi": "Overview: Sales Amount",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales Amount",
+        "id": "el-vsalesb8849a"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Units",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Units",
+        "id": "el-vunits236825"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Gross Margin",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Gross Margin",
+        "id": "el-margin1d8aa0"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: GM %",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "GM %",
+        "id": "el-vgmpct0ce9cc"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Orders",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Orders",
+        "id": "el-ordersb10052"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Avg Price",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Avg Price",
+        "id": "el-gpricecdc992"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as kpi-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Sales Amount by Category",
+      "sigma": {
+        "kind": "bar-chart",
+        "name": "Sales Amount by Category",
+        "id": "el-tegory713e3a"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as bar-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Sales Amount and Gross Margin by Month",
+      "sigma": {
+        "kind": "line-chart",
+        "name": "Sales Amount and Gross Margin by Month",
+        "id": "el-ymonthc2f545"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as line-chart on page 'Overview', reading 'Sales'"
+    },
+    {
+      "pbi": "Overview: Brand: sales, list value, private label",
+      "sigma": {
+        "kind": "pivot-table",
+        "name": "Brand: sales, list value, private label",
+        "id": "el-matrixc06b17"
+      },
+      "homes": [
+        "Sales",
+        "Overview"
+      ],
+      "reason": "built as pivot-table on page 'Overview', reading 'Sales'; degraded: sort field 'Product.Brand' is not among the built columns — sort skipped"
+    },
+    {
+      "pbi": "Shipping: Sales by Ship Date",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales by Ship Date",
+        "id": "el-ipdate737981"
+      },
+      "homes": [
+        "Sales",
+        "Shipping"
+      ],
+      "reason": "built as kpi-chart on page 'Shipping', reading 'Sales'"
+    },
+    {
+      "pbi": "Shipping: Sales Amount",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales Amount (2)",
+        "id": "el-erdate734ae4"
+      },
+      "homes": [
+        "Sales",
+        "Shipping"
+      ],
+      "reason": "built as kpi-chart on page 'Shipping', reading 'Sales'"
+    },
+    {
+      "pbi": "Shipping: Sales by ship month and order month",
+      "sigma": null,
+      "homes": [
+
+      ],
+      "reason": "dropped: class D visual held back (not built): needs two relationship paths to Date: the active relationship, Date (ShipDateKey); Sigma reads one path per element"
+    },
+    {
+      "pbi": "Shipping: Sales by Ship Date by Store Region",
+      "sigma": {
+        "kind": "bar-chart",
+        "name": "Sales by Ship Date by Store Region",
+        "id": "el-region9782a5"
+      },
+      "homes": [
+        "Sales",
+        "Shipping"
+      ],
+      "reason": "built as bar-chart on page 'Shipping', reading 'Sales'"
+    },
+    {
+      "pbi": "Shipping: Channel: ship date vs order date",
+      "sigma": {
+        "kind": "table",
+        "name": "Channel: ship date vs order date",
+        "id": "el-hannel9e4093"
+      },
+      "homes": [
+        "Sales",
+        "Shipping"
+      ],
+      "reason": "built as table on page 'Shipping', reading 'Sales'"
+    },
+    {
+      "pbi": "Slicers: Sales Amount",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales Amount (3)",
+        "id": "el-lsalesb4fb3d"
+      },
+      "homes": [
+        "Sales",
+        "Slicers"
+      ],
+      "reason": "built as kpi-chart on page 'Slicers', reading 'Sales'"
+    },
+    {
+      "pbi": "Slicers: Units",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Units (2)",
+        "id": "el-lunitsddabd7"
+      },
+      "homes": [
+        "Sales",
+        "Slicers"
+      ],
+      "reason": "built as kpi-chart on page 'Slicers', reading 'Sales'"
+    },
+    {
+      "pbi": "Slicers: Sales Amount by Store Region",
+      "sigma": {
+        "kind": "bar-chart",
+        "name": "Sales Amount by Store Region",
+        "id": "el-region3f2c8c"
+      },
+      "homes": [
+        "Sales",
+        "Slicers"
+      ],
+      "reason": "built as bar-chart on page 'Slicers', reading 'Sales'"
+    },
+    {
+      "pbi": "Slicers: Brand: sales and units",
+      "sigma": {
+        "kind": "table",
+        "name": "Brand: sales and units",
+        "id": "el-ybrand7aad79"
+      },
+      "homes": [
+        "Sales",
+        "Slicers"
+      ],
+      "reason": "built as table on page 'Slicers', reading 'Sales'"
+    },
+    {
+      "pbi": "Trends: Sales Amount",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales Amount (4)",
+        "id": "el-rsales410e43"
+      },
+      "homes": [
+        "Sales",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales'"
+    },
+    {
+      "pbi": "Trends: Sales YTD",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales YTD",
+        "id": "el-trytdacadff"
+      },
+      "homes": [
+        "Sales by month",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales by month'"
+    },
+    {
+      "pbi": "Trends: Sales QTD",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales QTD",
+        "id": "el-trqtde40222"
+      },
+      "homes": [
+        "Sales by quarter (quarter reset)",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales by quarter (quarter reset)'"
+    },
+    {
+      "pbi": "Trends: Sales MTD",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales MTD",
+        "id": "el-trmtde80a66"
+      },
+      "homes": [
+        "Sales by month (month reset)",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales by month (month reset)'"
+    },
+    {
+      "pbi": "Trends: Sales PY",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales PY",
+        "id": "el-trpy6671ca"
+      },
+      "homes": [
+        "Sales by month",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales by month'"
+    },
+    {
+      "pbi": "Trends: Sales YoY %",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales YoY %",
+        "id": "el-tryoyb1807e"
+      },
+      "homes": [
+        "Sales by quarter",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales by quarter'"
+    },
+    {
+      "pbi": "Trends: Sales YTD (As Of)",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales YTD (As Of)",
+        "id": "el-trasoff4d515"
+      },
+      "homes": [
+        "Sales",
+        "Trends"
+      ],
+      "reason": "built as kpi-chart on page 'Trends', reading 'Sales'"
+    },
+    {
+      "pbi": "Trends: Sales Amount vs prior year by month",
+      "sigma": {
+        "kind": "line-chart",
+        "name": "Sales Amount vs prior year by month",
+        "id": "el-trvspy88c088"
+      },
+      "homes": [
+        "Sales by month",
+        "Trends"
+      ],
+      "reason": "built as line-chart on page 'Trends', reading 'Sales by month'"
+    },
+    {
+      "pbi": "Trends: Sales YTD and YTD (As Of) by month",
+      "sigma": null,
+      "homes": [
+
+      ],
+      "reason": "dropped: class D visual held back (not built): Sales YTD (As Of) is an as-of measure, which Power BI holds flat across the Date table (its CALCULATE filter replaces the Date filter), and this visual binds Date.Month Start; Sigma would plot one value per group; held back (class D)"
+    },
+    {
+      "pbi": "Trends: Sales Amount and prior year by year",
+      "sigma": {
+        "kind": "bar-chart",
+        "name": "Sales Amount and prior year by year",
+        "id": "el-byyear72abe1"
+      },
+      "homes": [
+        "Sales by month",
+        "Trends"
+      ],
+      "reason": "built as bar-chart on page 'Trends', reading 'Sales by month'"
+    },
+    {
+      "pbi": "Trends: Quarter: sales, QTD, YoY",
+      "sigma": {
+        "kind": "table",
+        "name": "Quarter: sales, QTD, YoY",
+        "id": "el-uarter3b53a7"
+      },
+      "homes": [
+        "Sales by quarter (quarter reset)",
+        "Trends"
+      ],
+      "reason": "built as table on page 'Trends', reading 'Sales by quarter (quarter reset)'; degraded: field(s) Sales.Sales YoY % not reachable on master 'Sales by quarter (quarter reset)' — dropped; dropped: field(s) Sales YoY % could not be resolved to a master column — dropped (would have shipped as a type=error column)"
+    },
+    {
+      "pbi": "Rolling: Sales R28",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales R28",
+        "id": "el-ror280e2556"
+      },
+      "homes": [
+        "Sales – rolling 28 days by day",
+        "Rolling"
+      ],
+      "reason": "built as kpi-chart on page 'Rolling', reading 'Sales – rolling 28 days by day'"
+    },
+    {
+      "pbi": "Rolling: Sales Amount",
+      "sigma": {
+        "kind": "kpi-chart",
+        "name": "Sales Amount (5)",
+        "id": "el-osalesf26886"
+      },
+      "homes": [
+        "Sales",
+        "Rolling"
+      ],
+      "reason": "built as kpi-chart on page 'Rolling', reading 'Sales'"
+    },
+    {
+      "pbi": "Rolling: Sales R28 by day",
+      "sigma": {
+        "kind": "line-chart",
+        "name": "Sales R28 by day",
+        "id": "el-obyday8b80a3"
+      },
+      "homes": [
+        "Sales – rolling 28 days by day",
+        "Rolling"
+      ],
+      "reason": "built as line-chart on page 'Rolling', reading 'Sales – rolling 28 days by day'"
+    },
+    {
+      "pbi": "Rolling: Store Region: R28 and sales",
+      "sigma": {
+        "kind": "table",
+        "name": "Store Region: R28 and sales",
+        "id": "el-ystorefe33b6"
+      },
+      "homes": [
+        "Sales",
+        "Rolling"
+      ],
+      "reason": "built as table on page 'Rolling', reading 'Sales'; degraded: field(s) Sales.Sales R28 not reachable on master 'Sales' — dropped; dropped: field(s) Sales R28 could not be resolved to a master column — dropped (would have shipped as a type=error column)"
+    },
+    {
+      "pbi": "Rolling: Sales R28 by Customer Region",
+      "sigma": {
+        "kind": "bar-chart",
+        "name": "Sales R28 by Customer Region",
+        "id": "el-region8f0ed1"
+      },
+      "homes": [
+        "Sales – rolling 28 days by day",
+        "Rolling"
+      ],
+      "reason": "built as bar-chart on page 'Rolling', reading 'Sales – rolling 28 days by day'"
+    }
+  ],
+  "slicers": [
+    {
+      "pbi": "Slicers: Category Name",
+      "sigma": {
+        "kind": "control",
+        "name": "Category Name",
+        "id": "el-tegory259550"
+      },
+      "homes": [
+        "Category",
+        "Product",
+        "SKU",
+        "Sales"
+      ],
+      "reason": "control wired to 4 element(s); the report filter Category.Category Name exclude [\"Discontinued\"] is not applied to Category itself, so this slicer still lists the excluded members"
+    },
+    {
+      "pbi": "Slicers: Brand",
+      "sigma": {
+        "kind": "control",
+        "name": "Brand",
+        "id": "el-lbrandef2bca"
+      },
+      "homes": [
+        "Product",
+        "SKU",
+        "Sales"
+      ],
+      "reason": "control wired to 3 element(s)"
+    },
+    {
+      "pbi": "Slicers: Private Label",
+      "sigma": {
+        "kind": "control",
+        "name": "Private Label",
+        "id": "el-elabel5dc4c3"
+      },
+      "homes": [
+        "Product",
+        "SKU",
+        "Sales"
+      ],
+      "reason": "control wired to 3 element(s)"
+    },
+    {
+      "pbi": "Slicers: Customer Region",
+      "sigma": {
+        "kind": "control",
+        "name": "Customer Region",
+        "id": "el-region04368c"
+      },
+      "homes": [
+        "Customer",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    },
+    {
+      "pbi": "Slicers: Segment",
+      "sigma": {
+        "kind": "control",
+        "name": "Segment",
+        "id": "el-egment8c6242"
+      },
+      "homes": [
+        "Customer",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    },
+    {
+      "pbi": "Slicers: Loyalty Member",
+      "sigma": {
+        "kind": "control",
+        "name": "Loyalty Member",
+        "id": "el-oyalty2c24f9"
+      },
+      "homes": [
+        "Customer",
+        "Sales"
+      ],
+      "reason": "control wired to 2 element(s)"
+    },
+    {
+      "pbi": "Slicers: Store Region",
+      "sigma": {
+        "kind": "control",
+        "name": "Store Region",
+        "id": "el-regionbb5d10"
+      },
+      "homes": [
+        "Store",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    },
+    {
+      "pbi": "Slicers: Channel",
+      "sigma": {
+        "kind": "control",
+        "name": "Channel",
+        "id": "el-hannel638e21"
+      },
+      "homes": [
+        "Store",
+        "Sales"
+      ],
+      "reason": "control wired to 2 element(s)"
+    },
+    {
+      "pbi": "Slicers: Year",
+      "sigma": {
+        "kind": "control",
+        "name": "Year",
+        "id": "el-slyear2de98c"
+      },
+      "homes": [
+        "Date",
+        "Sales",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 6 element(s)"
+    },
+    {
+      "pbi": "Slicers: Size",
+      "sigma": {
+        "kind": "control",
+        "name": "Size",
+        "id": "el-slsize767ce6"
+      },
+      "homes": [
+        "SKU",
+        "Sales"
+      ],
+      "reason": "control wired to 2 element(s)"
+    },
+    {
+      "pbi": "Trends: Year",
+      "sigma": {
+        "kind": "control",
+        "name": "Year",
+        "id": "el-tryear87b3ec"
+      },
+      "homes": [
+        "Date",
+        "Sales",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 6 element(s)"
+    },
+    {
+      "pbi": "Rolling: Year",
+      "sigma": {
+        "kind": "control",
+        "name": "",
+        "id": "el-royear82b578"
+      },
+      "homes": [
+        "Date",
+        "Sales",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 6 element(s)"
+    },
+    {
+      "pbi": "Rolling: Customer Region",
+      "sigma": {
+        "kind": "control",
+        "name": "Customer Region",
+        "id": "el-region5984d7"
+      },
+      "homes": [
+        "Customer",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    },
+    {
+      "pbi": "Rolling: Store Region",
+      "sigma": {
+        "kind": "control",
+        "name": "Store Region",
+        "id": "el-region82ac56"
+      },
+      "homes": [
+        "Store",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    },
+    {
+      "pbi": "Rolling: Segment",
+      "sigma": {
+        "kind": "control",
+        "name": "Segment",
+        "id": "el-egmenta16dc4"
+      },
+      "homes": [
+        "Customer",
+        "Sales",
+        "Sales – rolling 28 days by day",
+        "Sales by quarter (quarter reset)",
+        "Sales by quarter",
+        "Sales by month (month reset)",
+        "Sales by month"
+      ],
+      "reason": "control wired to 7 element(s)"
+    }
+  ]
+}

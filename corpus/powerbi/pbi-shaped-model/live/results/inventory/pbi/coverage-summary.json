@@ -1,0 +1,10 @@
+{
+ "sourceVisuals": 7,
+ "builtElements": 7,
+ "sourceBindings": 13,
+ "resolvedBindings": 13,
+ "dropped": 1,
+ "degraded": 1,
+ "approximated": 2,
+ "recoverable": 2
+}

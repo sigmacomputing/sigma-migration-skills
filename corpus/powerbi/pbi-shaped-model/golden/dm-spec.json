@@ -1,0 +1,1374 @@
+{
+  "name": "model DM (from Power BI)",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "id0001",
+      "name": "Sales",
+      "elements": [
+        {
+          "id": "id0002",
+          "kind": "table",
+          "name": "Date",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_DATE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0003/DATE_KEY",
+              "formula": "[DIM_DATE/Date Key]",
+              "name": "DateKey"
+            },
+            {
+              "id": "inode-NORM0004/CAL_DATE",
+              "formula": "[DIM_DATE/Cal Date]",
+              "name": "Date"
+            },
+            {
+              "id": "inode-NORM0005/YEAR_NUM",
+              "formula": "[DIM_DATE/Year Num]",
+              "name": "Year"
+            },
+            {
+              "id": "inode-NORM0006/QUARTER_NUM",
+              "formula": "[DIM_DATE/Quarter Num]",
+              "name": "Quarter"
+            },
+            {
+              "id": "inode-NORM0007/MONTH_NUM",
+              "formula": "[DIM_DATE/Month Num]",
+              "name": "Month Number"
+            },
+            {
+              "id": "inode-NORM0008/MONTH_NAME",
+              "formula": "[DIM_DATE/Month Name]",
+              "name": "Month Name"
+            },
+            {
+              "id": "id0009",
+              "formula": "MakeDate(Year([Date]), Month([Date]), 1)",
+              "name": "Month Start"
+            }
+          ],
+          "order": [
+            "inode-NORM0003/DATE_KEY",
+            "inode-NORM0004/CAL_DATE",
+            "inode-NORM0005/YEAR_NUM",
+            "inode-NORM0006/QUARTER_NUM",
+            "inode-NORM0007/MONTH_NUM",
+            "inode-NORM0008/MONTH_NAME",
+            "id0009"
+          ]
+        },
+        {
+          "id": "id0010",
+          "kind": "table",
+          "name": "Category",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_CATEGORY"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0011/CATEGORY_KEY",
+              "formula": "[DIM_CATEGORY/Category Key]",
+              "name": "CategoryKey"
+            },
+            {
+              "id": "inode-NORM0012/CATEGORY_NAME",
+              "formula": "[DIM_CATEGORY/Category Name]",
+              "name": "Category Name"
+            }
+          ],
+          "order": [
+            "inode-NORM0011/CATEGORY_KEY",
+            "inode-NORM0012/CATEGORY_NAME"
+          ]
+        },
+        {
+          "id": "id0013",
+          "kind": "table",
+          "name": "Product",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_PRODUCT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0014/PRODUCT_KEY",
+              "formula": "[DIM_PRODUCT/Product Key]",
+              "name": "ProductKey"
+            },
+            {
+              "id": "inode-NORM0015/PRODUCT_NAME",
+              "formula": "[DIM_PRODUCT/Product Name]",
+              "name": "Product Name"
+            },
+            {
+              "id": "inode-NORM0016/BRAND",
+              "formula": "[DIM_PRODUCT/Brand]",
+              "name": "Brand"
+            },
+            {
+              "id": "inode-NORM0017/CATEGORY_KEY",
+              "formula": "[DIM_PRODUCT/Category Key]",
+              "name": "CategoryKey"
+            },
+            {
+              "id": "inode-NORM0018/VENDOR_KEY",
+              "formula": "[DIM_PRODUCT/Vendor Key]",
+              "name": "VendorKey"
+            },
+            {
+              "id": "inode-NORM0019/LIST_PRICE",
+              "formula": "[DIM_PRODUCT/List Price]",
+              "name": "List Price"
+            },
+            {
+              "id": "inode-NORM0020/IS_PRIVATE_LABEL",
+              "formula": "[DIM_PRODUCT/Is Private Label]",
+              "name": "Private Label"
+            }
+          ],
+          "order": [
+            "inode-NORM0014/PRODUCT_KEY",
+            "inode-NORM0015/PRODUCT_NAME",
+            "inode-NORM0016/BRAND",
+            "inode-NORM0017/CATEGORY_KEY",
+            "inode-NORM0018/VENDOR_KEY",
+            "inode-NORM0019/LIST_PRICE",
+            "inode-NORM0020/IS_PRIVATE_LABEL"
+          ],
+          "relationships": [
+            {
+              "id": "id0021",
+              "targetElementId": "id0010",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0017/CATEGORY_KEY",
+                  "targetColumnId": "inode-NORM0011/CATEGORY_KEY"
+                }
+              ],
+              "name": "Category"
+            }
+          ]
+        },
+        {
+          "id": "id0022",
+          "kind": "table",
+          "name": "SKU",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_SKU"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0023/SKU_KEY",
+              "formula": "[DIM_SKU/Sku Key]",
+              "name": "SkuKey"
+            },
+            {
+              "id": "inode-NORM0024/PRODUCT_KEY",
+              "formula": "[DIM_SKU/Product Key]",
+              "name": "ProductKey"
+            },
+            {
+              "id": "inode-NORM0025/SIZE",
+              "formula": "[DIM_SKU/Size]",
+              "name": "Size"
+            }
+          ],
+          "order": [
+            "inode-NORM0023/SKU_KEY",
+            "inode-NORM0024/PRODUCT_KEY",
+            "inode-NORM0025/SIZE"
+          ],
+          "relationships": [
+            {
+              "id": "id0026",
+              "targetElementId": "id0013",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0024/PRODUCT_KEY",
+                  "targetColumnId": "inode-NORM0014/PRODUCT_KEY"
+                }
+              ],
+              "name": "Product"
+            }
+          ]
+        },
+        {
+          "id": "id0027",
+          "kind": "table",
+          "name": "Customer",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_CUSTOMER"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0028/CUSTOMER_KEY",
+              "formula": "[DIM_CUSTOMER/Customer Key]",
+              "name": "CustomerKey"
+            },
+            {
+              "id": "inode-NORM0029/SEGMENT",
+              "formula": "[DIM_CUSTOMER/Segment]",
+              "name": "Segment"
+            },
+            {
+              "id": "inode-NORM0030/CUSTOMER_REGION",
+              "formula": "[DIM_CUSTOMER/Customer Region]",
+              "name": "Customer Region"
+            },
+            {
+              "id": "inode-NORM0031/LOYALTY_MEMBER",
+              "formula": "[DIM_CUSTOMER/Loyalty Member]",
+              "name": "Loyalty Member"
+            }
+          ],
+          "order": [
+            "inode-NORM0028/CUSTOMER_KEY",
+            "inode-NORM0029/SEGMENT",
+            "inode-NORM0030/CUSTOMER_REGION",
+            "inode-NORM0031/LOYALTY_MEMBER"
+          ]
+        },
+        {
+          "id": "id0032",
+          "kind": "table",
+          "name": "Store",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_STORE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0033/STORE_KEY",
+              "formula": "[DIM_STORE/Store Key]",
+              "name": "StoreKey"
+            },
+            {
+              "id": "inode-NORM0034/STORE_NAME",
+              "formula": "[DIM_STORE/Store Name]",
+              "name": "Store Name"
+            },
+            {
+              "id": "inode-NORM0035/STORE_REGION",
+              "formula": "[DIM_STORE/Store Region]",
+              "name": "Store Region"
+            },
+            {
+              "id": "inode-NORM0036/CHANNEL",
+              "formula": "[DIM_STORE/Channel]",
+              "name": "Channel"
+            }
+          ],
+          "order": [
+            "inode-NORM0033/STORE_KEY",
+            "inode-NORM0034/STORE_NAME",
+            "inode-NORM0035/STORE_REGION",
+            "inode-NORM0036/CHANNEL"
+          ]
+        },
+        {
+          "id": "id0037",
+          "kind": "table",
+          "name": "Sales (source)",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "FACT_SALES"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0038/SALES_LINE_KEY",
+              "formula": "[FACT_SALES/Sales Line Key]",
+              "name": "SalesLineKey"
+            },
+            {
+              "id": "inode-NORM0039/ORDER_NUMBER",
+              "formula": "[FACT_SALES/Order Number]",
+              "name": "Order Number"
+            },
+            {
+              "id": "inode-NORM0040/ORDER_DATE_KEY",
+              "formula": "[FACT_SALES/Order Date Key]",
+              "name": "OrderDateKey"
+            },
+            {
+              "id": "inode-NORM0041/SHIP_DATE_KEY",
+              "formula": "[FACT_SALES/Ship Date Key]",
+              "name": "ShipDateKey"
+            },
+            {
+              "id": "inode-NORM0042/SKU_KEY",
+              "formula": "[FACT_SALES/Sku Key]",
+              "name": "SkuKey"
+            },
+            {
+              "id": "inode-NORM0043/CUSTOMER_KEY",
+              "formula": "[FACT_SALES/Customer Key]",
+              "name": "CustomerKey"
+            },
+            {
+              "id": "inode-NORM0044/STORE_KEY",
+              "formula": "[FACT_SALES/Store Key]",
+              "name": "StoreKey"
+            },
+            {
+              "id": "inode-NORM0045/QUANTITY",
+              "formula": "[FACT_SALES/Quantity]",
+              "name": "Quantity"
+            },
+            {
+              "id": "inode-NORM0046/UNIT_PRICE",
+              "formula": "[FACT_SALES/Unit Price]",
+              "name": "Unit Price"
+            },
+            {
+              "id": "inode-NORM0047/DISCOUNT",
+              "formula": "[FACT_SALES/Discount]",
+              "name": "Discount"
+            },
+            {
+              "id": "inode-NORM0048/UNIT_COST",
+              "formula": "[FACT_SALES/Unit Cost]",
+              "name": "Unit Cost"
+            }
+          ],
+          "order": [
+            "inode-NORM0038/SALES_LINE_KEY",
+            "inode-NORM0039/ORDER_NUMBER",
+            "inode-NORM0040/ORDER_DATE_KEY",
+            "inode-NORM0041/SHIP_DATE_KEY",
+            "inode-NORM0042/SKU_KEY",
+            "inode-NORM0043/CUSTOMER_KEY",
+            "inode-NORM0044/STORE_KEY",
+            "inode-NORM0045/QUANTITY",
+            "inode-NORM0046/UNIT_PRICE",
+            "inode-NORM0047/DISCOUNT",
+            "inode-NORM0048/UNIT_COST"
+          ],
+          "relationships": [
+            {
+              "id": "id0049",
+              "targetElementId": "id0002",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0040/ORDER_DATE_KEY",
+                  "targetColumnId": "inode-NORM0003/DATE_KEY"
+                }
+              ],
+              "name": "Date"
+            },
+            {
+              "id": "id0050",
+              "targetElementId": "id0002",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0041/SHIP_DATE_KEY",
+                  "targetColumnId": "inode-NORM0003/DATE_KEY"
+                }
+              ],
+              "name": "Date (ShipDateKey)"
+            },
+            {
+              "id": "id0051",
+              "targetElementId": "id0022",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0042/SKU_KEY",
+                  "targetColumnId": "inode-NORM0023/SKU_KEY"
+                }
+              ],
+              "name": "SKU"
+            },
+            {
+              "id": "id0052",
+              "targetElementId": "id0027",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0043/CUSTOMER_KEY",
+                  "targetColumnId": "inode-NORM0028/CUSTOMER_KEY"
+                }
+              ],
+              "name": "Customer"
+            },
+            {
+              "id": "id0053",
+              "targetElementId": "id0032",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-NORM0044/STORE_KEY",
+                  "targetColumnId": "inode-NORM0033/STORE_KEY"
+                }
+              ],
+              "name": "Store"
+            }
+          ],
+          "description": "Source of the Power BI table Sales; charts read Sales."
+        },
+        {
+          "id": "id0054",
+          "kind": "table",
+          "name": "Sales",
+          "source": {
+            "kind": "table",
+            "elementId": "id0037"
+          },
+          "columns": [
+            {
+              "id": "id0055",
+              "name": "SalesLineKey",
+              "formula": "[Sales (source)/SalesLineKey]"
+            },
+            {
+              "id": "id0056",
+              "name": "Order Number",
+              "formula": "[Sales (source)/Order Number]"
+            },
+            {
+              "id": "id0057",
+              "name": "OrderDateKey",
+              "formula": "[Sales (source)/OrderDateKey]"
+            },
+            {
+              "id": "id0058",
+              "name": "ShipDateKey",
+              "formula": "[Sales (source)/ShipDateKey]"
+            },
+            {
+              "id": "id0059",
+              "name": "SkuKey",
+              "formula": "[Sales (source)/SkuKey]"
+            },
+            {
+              "id": "id0060",
+              "name": "CustomerKey",
+              "formula": "[Sales (source)/CustomerKey]"
+            },
+            {
+              "id": "id0061",
+              "name": "StoreKey",
+              "formula": "[Sales (source)/StoreKey]"
+            },
+            {
+              "id": "id0062",
+              "name": "Quantity",
+              "formula": "[Sales (source)/Quantity]"
+            },
+            {
+              "id": "id0063",
+              "name": "Unit Price",
+              "formula": "[Sales (source)/Unit Price]"
+            },
+            {
+              "id": "id0064",
+              "name": "Discount",
+              "formula": "[Sales (source)/Discount]"
+            },
+            {
+              "id": "id0065",
+              "name": "Unit Cost",
+              "formula": "[Sales (source)/Unit Cost]"
+            },
+            {
+              "id": "id0066",
+              "name": "ProductKey (SKU)",
+              "formula": "Lookup([SKU/ProductKey], [SkuKey], [SKU/SkuKey])"
+            },
+            {
+              "id": "id0067",
+              "name": "List Price (Product)",
+              "formula": "Lookup([Product/List Price], [ProductKey (SKU)], [Product/ProductKey])"
+            },
+            {
+              "id": "id0068",
+              "name": "Private Label (Product)",
+              "formula": "Lookup([Product/Private Label], [ProductKey (SKU)], [Product/ProductKey])"
+            },
+            {
+              "id": "id0069",
+              "name": "CategoryKey (Product)",
+              "formula": "Lookup([Product/CategoryKey], [ProductKey (SKU)], [Product/ProductKey])"
+            },
+            {
+              "id": "id0070",
+              "name": "Category Name (Category)",
+              "formula": "Lookup([Category/Category Name], [CategoryKey (Product)], [Category/CategoryKey])"
+            },
+            {
+              "id": "id0071",
+              "name": "Date (Date)",
+              "formula": "Lookup([Date/Date], [OrderDateKey], [Date/DateKey])"
+            },
+            {
+              "id": "id0072",
+              "name": "One",
+              "formula": "1"
+            },
+            {
+              "id": "id0073",
+              "name": "As Of Date",
+              "formula": "Lookup([As Of/As Of Date], [One], [As Of/One])"
+            }
+          ],
+          "order": [
+            "id0055",
+            "id0056",
+            "id0057",
+            "id0058",
+            "id0059",
+            "id0060",
+            "id0061",
+            "id0062",
+            "id0063",
+            "id0064",
+            "id0065",
+            "id0066",
+            "id0067",
+            "id0068",
+            "id0069",
+            "id0070",
+            "id0071",
+            "id0072",
+            "id0073"
+          ],
+          "relationships": [
+            {
+              "id": "id0074",
+              "name": "Date",
+              "targetElementId": "id0002",
+              "keys": [
+                {
+                  "sourceColumnId": "id0057",
+                  "targetColumnId": "inode-NORM0003/DATE_KEY"
+                }
+              ]
+            },
+            {
+              "id": "id0075",
+              "name": "Date (ShipDateKey)",
+              "targetElementId": "id0002",
+              "keys": [
+                {
+                  "sourceColumnId": "id0058",
+                  "targetColumnId": "inode-NORM0003/DATE_KEY"
+                }
+              ]
+            },
+            {
+              "id": "id0076",
+              "name": "SKU",
+              "targetElementId": "id0022",
+              "keys": [
+                {
+                  "sourceColumnId": "id0059",
+                  "targetColumnId": "inode-NORM0023/SKU_KEY"
+                }
+              ]
+            },
+            {
+              "id": "id0077",
+              "name": "Customer",
+              "targetElementId": "id0027",
+              "keys": [
+                {
+                  "sourceColumnId": "id0060",
+                  "targetColumnId": "inode-NORM0028/CUSTOMER_KEY"
+                }
+              ]
+            },
+            {
+              "id": "id0078",
+              "name": "Store",
+              "targetElementId": "id0032",
+              "keys": [
+                {
+                  "sourceColumnId": "id0061",
+                  "targetColumnId": "inode-NORM0033/STORE_KEY"
+                }
+              ]
+            }
+          ],
+          "metrics": [
+            {
+              "id": "id0079",
+              "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))",
+              "name": "Sales Amount",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0080",
+              "formula": "Sum([Quantity])",
+              "name": "Units",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0081",
+              "formula": "Sum([Quantity] * [Unit Cost])",
+              "name": "Cost",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0082",
+              "formula": "If(IsNull([Metrics/Sales Amount]) and IsNull([Metrics/Cost]), Null, Coalesce([Metrics/Sales Amount], 0) - Coalesce([Metrics/Cost], 0))",
+              "name": "Gross Margin",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0083",
+              "formula": "([Metrics/Gross Margin]) / NullIf(([Metrics/Sales Amount]), 0)",
+              "name": "GM %",
+              "format": {
+                "kind": "number",
+                "formatString": ",.1%"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0084",
+              "formula": "CountDistinct([Order Number])",
+              "name": "Orders",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0085",
+              "formula": "([Metrics/Sales Amount]) / NullIf(([Metrics/Units]), 0)",
+              "name": "Avg Price",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI display folder: Sales"
+            },
+            {
+              "id": "id0086",
+              "name": "List Value",
+              "formula": "Sum([Quantity] * [List Price (Product)])",
+              "description": "Power BI display folder: Product"
+            },
+            {
+              "id": "id0087",
+              "name": "Private Label Sales",
+              "formula": "SumIf(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)), [Private Label (Product)] = True)",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI's CALCULATE filter on Private Label overrides slicers on that column; in Sigma a slicer on Private Label still applies. Power BI display folder: Product"
+            },
+            {
+              "id": "id0088",
+              "name": "Sales by Ship Date",
+              "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              },
+              "description": "Power BI display folder: Shipping"
+            },
+            {
+              "id": "id0089",
+              "name": "Sales YTD (As Of)",
+              "formula": "SumIf(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)), [Date (Date)] >= DateTrunc(\"year\", [As Of Date]) and [Date (Date)] <= [As Of Date])",
+              "description": "Reproduces Power BI measure Sales[Sales YTD (As Of)]: YTD anchored on As Of[As Of Date]. Power BI display folder: Time",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "filters": [
+            {
+              "id": "id0090",
+              "columnId": "id0070",
+              "kind": "text-match",
+              "mode": "does-not-equal",
+              "value": "Discontinued",
+              "case": "insensitive",
+              "includeNulls": "always"
+            }
+          ],
+          "description": "Power BI table Sales, with the metrics. Related values come in through Lookup(): ProductKey (SKU), List Price (Product), Private Label (Product), CategoryKey (Product), Category Name (Category), Date (Date), As Of Date."
+        },
+        {
+          "id": "id0091",
+          "kind": "table",
+          "name": "Sales – rolling 28 days by day",
+          "description": "Generated for Power BI measures: Sales[Sales R28]. One row per calendar day of Date (a dense spine), each window summing the trailing 28 days from the start of the history. Sigma's MovingSum counts rows, not days, so it is not used. Segment, Store Region, Customer Region carried: one window per value. Read a window at the latest day in scope (Sum(If([Day] = Max([Day]), [col], Null))).",
+          "source": {
+            "kind": "sql",
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "statement": "WITH pbi_fact AS (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"FACT_SALES\"\n), pbi_dates AS (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_DATE\"\n), pbi_combos AS (\n  SELECT DISTINCT cd0.\"SEGMENT\" AS \"Segment\", cd1.\"STORE_REGION\" AS \"Store Region\", cd0.\"CUSTOMER_REGION\" AS \"Customer Region\"\n  FROM pbi_fact f LEFT JOIN (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_CUSTOMER\"\n) cd0 ON cd0.\"CUSTOMER_KEY\" = f.\"CUSTOMER_KEY\" LEFT JOIN (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_STORE\"\n) cd1 ON cd1.\"STORE_KEY\" = f.\"STORE_KEY\"\n), pbi_daily AS (\n  SELECT dd.\"CAL_DATE\" AS \"DAY\", cd0.\"SEGMENT\" AS \"Segment\", cd1.\"STORE_REGION\" AS \"Store Region\", cd0.\"CUSTOMER_REGION\" AS \"Customer Region\", SUM(COALESCE(f.\"QUANTITY\", 0) * COALESCE(f.\"UNIT_PRICE\", 0) * (1 - COALESCE(f.\"DISCOUNT\", 0))) AS \"SALES_R28\"\n  FROM pbi_fact f JOIN pbi_dates dd ON dd.\"DATE_KEY\" = f.\"ORDER_DATE_KEY\" LEFT JOIN (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_CUSTOMER\"\n) cd0 ON cd0.\"CUSTOMER_KEY\" = f.\"CUSTOMER_KEY\" LEFT JOIN (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_STORE\"\n) cd1 ON cd1.\"STORE_KEY\" = f.\"STORE_KEY\"\n  WHERE 1 = 1\n    AND NOT COALESCE(f.\"SKU_KEY\" IN (SELECT k1.\"SKU_KEY\" FROM (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_SKU\"\n) k1 WHERE k1.\"PRODUCT_KEY\" IN (SELECT k2.\"PRODUCT_KEY\" FROM (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_PRODUCT\"\n) k2 WHERE k2.\"CATEGORY_KEY\" IN (SELECT k3.\"CATEGORY_KEY\" FROM (\nSELECT * FROM \"SAMPLE_DB\".\"ZZ_CLAUDE_PBI_SHAPED\".\"DIM_CATEGORY\"\n) k3 WHERE LOWER(k3.\"CATEGORY_NAME\") IN ('discontinued')))), FALSE) /*@slicers fact=\"Sales\" alias=\"f\"*/\n  GROUP BY dd.\"CAL_DATE\", cd0.\"SEGMENT\", cd1.\"STORE_REGION\", cd0.\"CUSTOMER_REGION\"\n)\nSELECT spine.\"CAL_DATE\" AS \"DAY\", spine.\"Segment\" AS \"Segment\", spine.\"Store Region\" AS \"Store Region\", spine.\"Customer Region\" AS \"Customer Region\", CASE WHEN COUNT(daily.\"SALES_R28\") OVER (PARTITION BY spine.\"Segment\", spine.\"Store Region\", spine.\"Customer Region\" ORDER BY spine.\"CAL_DATE\" ROWS BETWEEN 27 PRECEDING AND CURRENT ROW) = 0 THEN NULL ELSE SUM(COALESCE(daily.\"SALES_R28\", 0)) OVER (PARTITION BY spine.\"Segment\", spine.\"Store Region\", spine.\"Customer Region\" ORDER BY spine.\"CAL_DATE\" ROWS BETWEEN 27 PRECEDING AND CURRENT ROW) END AS \"SALES_R28\"\nFROM (SELECT d.\"CAL_DATE\", c.\"Segment\", c.\"Store Region\", c.\"Customer Region\" FROM pbi_dates d CROSS JOIN pbi_combos c) spine\nLEFT JOIN pbi_daily daily ON daily.\"DAY\" = spine.\"CAL_DATE\" AND (daily.\"Segment\" = spine.\"Segment\" OR (daily.\"Segment\" IS NULL AND spine.\"Segment\" IS NULL)) AND (daily.\"Store Region\" = spine.\"Store Region\" OR (daily.\"Store Region\" IS NULL AND spine.\"Store Region\" IS NULL)) AND (daily.\"Customer Region\" = spine.\"Customer Region\" OR (daily.\"Customer Region\" IS NULL AND spine.\"Customer Region\" IS NULL))"
+          },
+          "columns": [
+            {
+              "id": "id0092",
+              "name": "Day",
+              "formula": "[Custom SQL/DAY]"
+            },
+            {
+              "id": "id0093",
+              "name": "Segment",
+              "formula": "[Custom SQL/Segment]",
+              "description": "Slicer field carried so a pick filters the pre-computed windows (one window per value)."
+            },
+            {
+              "id": "id0094",
+              "name": "Store Region",
+              "formula": "[Custom SQL/Store Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed windows (one window per value)."
+            },
+            {
+              "id": "id0095",
+              "name": "Customer Region",
+              "formula": "[Custom SQL/Customer Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed windows (one window per value)."
+            },
+            {
+              "id": "id0096",
+              "name": "Sales R28",
+              "formula": "[Custom SQL/SALES_R28]",
+              "description": "Power BI measure Sales[Sales R28]: trailing 28 calendar days ending on this day.",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "order": [
+            "id0092",
+            "id0093",
+            "id0094",
+            "id0095",
+            "id0096"
+          ]
+        },
+        {
+          "id": "id0097",
+          "kind": "table",
+          "name": "Sales by quarter (quarter reset)",
+          "description": "Generated for Power BI time-intelligence measures: Sales[Sales QTD]. One row per quarter of Sales. Segment, Store Region, Customer Region are carried as the outermost levels, so a slicer pick filters the pre-computed values. Read YTD/QTD/MTD at the latest period in scope (Sum(If([Quarter] = Max([Quarter]), [col], Null))), prior-period columns and the base with Sum().",
+          "source": {
+            "kind": "table",
+            "elementId": "id0054"
+          },
+          "columns": [
+            {
+              "id": "id0098",
+              "name": "Segment",
+              "formula": "[Sales/Customer/Segment]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0099",
+              "name": "Store Region",
+              "formula": "[Sales/Store/Store Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0100",
+              "name": "Customer Region",
+              "formula": "[Sales/Customer/Customer Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0101",
+              "name": "Quarter",
+              "formula": "DateTrunc(\"quarter\", [Sales/Date (Date)])"
+            },
+            {
+              "id": "id0102",
+              "name": "Year Number",
+              "formula": "Year([Quarter])",
+              "description": "Year() of Quarter: the integer Year number of the date table."
+            },
+            {
+              "id": "id0103",
+              "name": "Quarter Number",
+              "formula": "Quarter([Quarter])",
+              "description": "Quarter() of Quarter: the integer Quarter number of the date table."
+            },
+            {
+              "id": "id0104",
+              "name": "Sales Amount",
+              "formula": "[Metrics/Sales Amount]",
+              "description": "Power BI measure Sales[Sales Amount], read from the parent metric.",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0105",
+              "name": "Sales QTD",
+              "formula": "[Sales Amount]",
+              "description": "Power BI measure Sales[Sales QTD]. Equals Sales Amount at quarter grain (the period resets every row).",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "order": [
+            "id0098",
+            "id0099",
+            "id0100",
+            "id0101",
+            "id0102",
+            "id0103",
+            "id0104",
+            "id0105"
+          ],
+          "groupings": [
+            {
+              "id": "id0106",
+              "groupBy": [
+                "id0098"
+              ]
+            },
+            {
+              "id": "id0107",
+              "groupBy": [
+                "id0099"
+              ]
+            },
+            {
+              "id": "id0108",
+              "groupBy": [
+                "id0100"
+              ]
+            },
+            {
+              "id": "id0109",
+              "groupBy": [
+                "id0101"
+              ],
+              "calculations": [
+                "id0104",
+                "id0105",
+                "id0102",
+                "id0103"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "id0110",
+          "kind": "table",
+          "name": "Sales by quarter",
+          "description": "Generated for Power BI time-intelligence measures: Sales[Sales YoY %]. One row per quarter of Sales. Segment, Store Region, Customer Region are carried as the outermost levels, so a slicer pick filters the pre-computed values. Read YTD/QTD/MTD at the latest period in scope (Sum(If([Quarter] = Max([Quarter]), [col], Null))), prior-period columns and the base with Sum().",
+          "source": {
+            "kind": "table",
+            "elementId": "id0054"
+          },
+          "columns": [
+            {
+              "id": "id0111",
+              "name": "Segment",
+              "formula": "[Sales/Customer/Segment]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0112",
+              "name": "Store Region",
+              "formula": "[Sales/Store/Store Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0113",
+              "name": "Customer Region",
+              "formula": "[Sales/Customer/Customer Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0114",
+              "name": "Quarter",
+              "formula": "DateTrunc(\"quarter\", [Sales/Date (Date)])"
+            },
+            {
+              "id": "id0115",
+              "name": "Year Number",
+              "formula": "Year([Quarter])",
+              "description": "Year() of Quarter: the integer Year number of the date table."
+            },
+            {
+              "id": "id0116",
+              "name": "Quarter Number",
+              "formula": "Quarter([Quarter])",
+              "description": "Quarter() of Quarter: the integer Quarter number of the date table."
+            },
+            {
+              "id": "id0117",
+              "name": "Sales Amount",
+              "formula": "[Metrics/Sales Amount]",
+              "description": "Power BI measure Sales[Sales Amount], read from the parent metric.",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0118",
+              "name": "Sales PY",
+              "formula": "DateLookback([Sales Amount], [Quarter], 1, \"year\")",
+              "description": "Power BI measure Sales[Sales PY], read by Sales[Sales YoY %].",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0119",
+              "name": "Sales YoY % (numerator)",
+              "formula": "[Sales Amount] - Coalesce([Sales PY], 0)",
+              "description": "Numerator of Power BI measure Sales[Sales YoY %] (a missing prior year counts as 0); the chart sums it and divides by the denominator."
+            },
+            {
+              "id": "id0120",
+              "name": "Sales YoY % (denominator)",
+              "formula": "[Sales PY]",
+              "description": "Denominator of Power BI measure Sales[Sales YoY %]."
+            }
+          ],
+          "order": [
+            "id0111",
+            "id0112",
+            "id0113",
+            "id0114",
+            "id0115",
+            "id0116",
+            "id0117",
+            "id0118",
+            "id0119",
+            "id0120"
+          ],
+          "groupings": [
+            {
+              "id": "id0121",
+              "groupBy": [
+                "id0111"
+              ]
+            },
+            {
+              "id": "id0122",
+              "groupBy": [
+                "id0112"
+              ]
+            },
+            {
+              "id": "id0123",
+              "groupBy": [
+                "id0113"
+              ]
+            },
+            {
+              "id": "id0124",
+              "groupBy": [
+                "id0114"
+              ],
+              "calculations": [
+                "id0117",
+                "id0118",
+                "id0119",
+                "id0120",
+                "id0115",
+                "id0116"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "id0125",
+          "kind": "table",
+          "name": "Sales by month (month reset)",
+          "description": "Generated for Power BI time-intelligence measures: Sales[Sales MTD]. One row per month of Sales. Segment, Store Region, Customer Region are carried as the outermost levels, so a slicer pick filters the pre-computed values. Read YTD/QTD/MTD at the latest period in scope (Sum(If([Month] = Max([Month]), [col], Null))), prior-period columns and the base with Sum().",
+          "source": {
+            "kind": "table",
+            "elementId": "id0054"
+          },
+          "columns": [
+            {
+              "id": "id0126",
+              "name": "Segment",
+              "formula": "[Sales/Customer/Segment]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0127",
+              "name": "Store Region",
+              "formula": "[Sales/Store/Store Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0128",
+              "name": "Customer Region",
+              "formula": "[Sales/Customer/Customer Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0129",
+              "name": "Month",
+              "formula": "DateTrunc(\"month\", [Sales/Date (Date)])"
+            },
+            {
+              "id": "id0130",
+              "name": "Year Number",
+              "formula": "Year([Month])",
+              "description": "Year() of Month: the integer Year number of the date table."
+            },
+            {
+              "id": "id0131",
+              "name": "Quarter Number",
+              "formula": "Quarter([Month])",
+              "description": "Quarter() of Month: the integer Quarter number of the date table."
+            },
+            {
+              "id": "id0132",
+              "name": "Month Number",
+              "formula": "Month([Month])",
+              "description": "Month() of Month: the integer Month number of the date table."
+            },
+            {
+              "id": "id0133",
+              "name": "Sales Amount",
+              "formula": "[Metrics/Sales Amount]",
+              "description": "Power BI measure Sales[Sales Amount], read from the parent metric.",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0134",
+              "name": "Sales MTD",
+              "formula": "[Sales Amount]",
+              "description": "Power BI measure Sales[Sales MTD]. Equals Sales Amount at month grain (the period resets every row).",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "order": [
+            "id0126",
+            "id0127",
+            "id0128",
+            "id0129",
+            "id0130",
+            "id0131",
+            "id0132",
+            "id0133",
+            "id0134"
+          ],
+          "groupings": [
+            {
+              "id": "id0135",
+              "groupBy": [
+                "id0126"
+              ]
+            },
+            {
+              "id": "id0136",
+              "groupBy": [
+                "id0127"
+              ]
+            },
+            {
+              "id": "id0137",
+              "groupBy": [
+                "id0128"
+              ]
+            },
+            {
+              "id": "id0138",
+              "groupBy": [
+                "id0129"
+              ],
+              "calculations": [
+                "id0133",
+                "id0134",
+                "id0130",
+                "id0131",
+                "id0132"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "id0139",
+          "kind": "table",
+          "name": "Sales by month",
+          "description": "Generated for Power BI time-intelligence measures: Sales[Sales YTD], Sales[Sales PY]. One row per month of Sales. The year is its own outer level, so cumulative sums restart each year. Segment, Store Region, Customer Region are carried as the outermost levels, so a slicer pick filters the pre-computed values. Read YTD/QTD/MTD at the latest period in scope (Sum(If([Month] = Max([Month]), [col], Null))), prior-period columns and the base with Sum().",
+          "source": {
+            "kind": "table",
+            "elementId": "id0054"
+          },
+          "columns": [
+            {
+              "id": "id0140",
+              "name": "Segment",
+              "formula": "[Sales/Customer/Segment]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0141",
+              "name": "Store Region",
+              "formula": "[Sales/Store/Store Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0142",
+              "name": "Customer Region",
+              "formula": "[Sales/Customer/Customer Region]",
+              "description": "Slicer field carried so a pick filters the pre-computed numbers (outermost level)."
+            },
+            {
+              "id": "id0143",
+              "name": "Year",
+              "formula": "DateTrunc(\"year\", [Sales/Date (Date)])"
+            },
+            {
+              "id": "id0144",
+              "name": "Month",
+              "formula": "DateTrunc(\"month\", [Sales/Date (Date)])"
+            },
+            {
+              "id": "id0145",
+              "name": "Year Number",
+              "formula": "Year([Month])",
+              "description": "Year() of Month: the integer Year number of the date table."
+            },
+            {
+              "id": "id0146",
+              "name": "Quarter Number",
+              "formula": "Quarter([Month])",
+              "description": "Quarter() of Month: the integer Quarter number of the date table."
+            },
+            {
+              "id": "id0147",
+              "name": "Month Number",
+              "formula": "Month([Month])",
+              "description": "Month() of Month: the integer Month number of the date table."
+            },
+            {
+              "id": "id0148",
+              "name": "Sales Amount",
+              "formula": "[Metrics/Sales Amount]",
+              "description": "Power BI measure Sales[Sales Amount], read from the parent metric.",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0149",
+              "name": "Sales YTD",
+              "formula": "CumulativeSum([Sales Amount])",
+              "description": "Power BI measure Sales[Sales YTD].",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "id0150",
+              "name": "Sales PY",
+              "formula": "DateLookback([Sales Amount], [Month], 1, \"year\")",
+              "description": "Power BI measure Sales[Sales PY].",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "order": [
+            "id0140",
+            "id0141",
+            "id0142",
+            "id0143",
+            "id0144",
+            "id0145",
+            "id0146",
+            "id0147",
+            "id0148",
+            "id0149",
+            "id0150"
+          ],
+          "groupings": [
+            {
+              "id": "id0151",
+              "groupBy": [
+                "id0140"
+              ]
+            },
+            {
+              "id": "id0152",
+              "groupBy": [
+                "id0141"
+              ]
+            },
+            {
+              "id": "id0153",
+              "groupBy": [
+                "id0142"
+              ]
+            },
+            {
+              "id": "id0154",
+              "groupBy": [
+                "id0143"
+              ]
+            },
+            {
+              "id": "id0155",
+              "groupBy": [
+                "id0144"
+              ],
+              "calculations": [
+                "id0148",
+                "id0149",
+                "id0150",
+                "id0145",
+                "id0146",
+                "id0147"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "id0156",
+      "name": "Shared",
+      "elements": [
+        {
+          "id": "id0157",
+          "kind": "table",
+          "name": "As Of",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "AS_OF"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0158/AS_OF_DATE",
+              "formula": "[AS_OF/As of Date]",
+              "name": "As Of Date"
+            },
+            {
+              "id": "id0159",
+              "name": "One",
+              "formula": "1"
+            }
+          ],
+          "order": [
+            "inode-NORM0158/AS_OF_DATE",
+            "id0159"
+          ]
+        },
+        {
+          "id": "id0160",
+          "kind": "table",
+          "name": "DIM_VENDOR",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_VENDOR"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-NORM0161/VENDOR_KEY",
+              "formula": "[DIM_VENDOR/Vendor Key]",
+              "name": "Vendor Key"
+            },
+            {
+              "id": "inode-NORM0162/VENDOR_NAME",
+              "formula": "[DIM_VENDOR/Vendor Name]",
+              "name": "Vendor Name"
+            },
+            {
+              "id": "inode-NORM0163/COUNTRY",
+              "formula": "[DIM_VENDOR/Country]",
+              "name": "Country"
+            }
+          ],
+          "order": [
+            "inode-NORM0161/VENDOR_KEY",
+            "inode-NORM0162/VENDOR_NAME",
+            "inode-NORM0163/COUNTRY"
+          ],
+          "description": "Relationship Vendor from Product was not carried: key Vendor Key is duplicated (2 extra rows)."
+        }
+      ]
+    }
+  ],
+  "folderId": "id0164",
+  "ownerId": "user-1"
+}

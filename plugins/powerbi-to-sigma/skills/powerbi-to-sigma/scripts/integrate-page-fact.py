@@ -67,13 +67,20 @@ def master_id(pf):
     return "master-pf-" + short_hash(pf["name"], 8)
 
 
-def dm_element(pf, connection):
+def dm_element(pf, connection, shape="views"):
     eid = element_id(pf)
     cols = [{"id": "%s-%s" % (eid, short_hash(c["name"], 6)), "formula": "[Custom SQL/%s]" % c["out"], "name": c["name"]}
             for c in pf["columns"]]
-    return {"id": eid, "kind": "table", "name": pf["name"],
-            "source": {"kind": "sql", "connectionId": connection, "statement": pf["sql"]},
-            "columns": cols, "order": [c["id"] for c in cols]}
+    if shape == "pbi":  # the summary's column descriptions ("Feeds <measure>" / "Grain: ...") ride on the columns
+        for col, c in zip(cols, pf["columns"]):
+            if c.get("description"):
+                col["description"] = c["description"]
+    el = {"id": eid, "kind": "table", "name": pf["name"],
+          "source": {"kind": "sql", "connectionId": connection, "statement": pf["sql"]},
+          "columns": cols, "order": [c["id"] for c in cols]}
+    if shape == "pbi" and pf.get("description"):
+        el["description"] = pf["description"]
+    return el
 
 
 def spec_elements(dm):
@@ -94,18 +101,20 @@ def todo_problem(pf, allow):
     return None
 
 
-def integrate_dm(pfs, dm_path, connection, check):
+def integrate_dm(pfs, dm_path, connection, check, shape="views"):
     dm = load(dm_path)
     doc = spec_elements(dm)
     all_els = [(p, e) for p in doc["pages"] for e in p.get("elements", [])]
     changes = []
     for pf in pfs:
-        new = dm_element(pf, connection)
+        new = dm_element(pf, connection, shape)
         hit = [(p, e) for p, e in all_els if e.get("name") == pf["name"] or e.get("id") == new["id"]]
         if hit:
             p, old = hit[0]
             same = (old.get("source") or {}).get("statement") == pf["sql"] and \
-                [c.get("name") for c in old.get("columns", [])] == [c["name"] for c in new["columns"]]
+                [c.get("name") for c in old.get("columns", [])] == [c["name"] for c in new["columns"]] and \
+                (shape != "pbi" or (old.get("description"), [c.get("description") for c in old.get("columns", [])]) ==
+                 (new.get("description"), [c.get("description") for c in new["columns"]]))
             if same:
                 continue
             changes.append("replace %s (%s)" % (pf["name"], old.get("id")))
@@ -121,7 +130,7 @@ def integrate_dm(pfs, dm_path, connection, check):
     return changes
 
 
-def integrate_master_map(pfs, mm_path, readback_path, allow_todo):
+def integrate_master_map(pfs, mm_path, readback_path, allow_todo, shape="views"):
     mm = load(mm_path)
     masters = mm.setdefault("masters", {})
     page_fields = mm.setdefault("page_fields", {})
@@ -143,6 +152,8 @@ def integrate_master_map(pfs, mm_path, readback_path, allow_todo):
                  "formula": "[%s/%s]" % (pf["name"], c["name"])} for c in pf["columns"]]
         masters[pf["name"]] = {"id": mid, "element_id": (el or {}).get("id") or element_id(pf), "data_model": dm_id,
                                "columns": cols, "metrics": [], "page_fact": pf.get("page")}
+        if shape == "pbi":  # no Data-page master: the direct-source pass inlines this element by name
+            masters[pf["name"]].update(direct=True, element_name=pf["name"])
         names = {c["name"] for c in pf["columns"]}
 
         def resolve(ref):
@@ -185,6 +196,9 @@ def main(argv=None):
     ap.add_argument("--master-map")
     ap.add_argument("--dm-readback")
     ap.add_argument("--allow-todo", action="store_true")
+    ap.add_argument("--shape", default="views", choices=["views", "pbi"],
+                    help="pbi: the element takes the summary's description and column descriptions, and the master "
+                         "is marked direct (element_name = the summary name). views (default): unchanged")
     a = ap.parse_args(argv)
     if not a.dm_spec and not a.master_map:
         ap.error("give --dm-spec and/or --master-map")
@@ -201,7 +215,7 @@ def main(argv=None):
     if a.dm_spec:
         if not a.connection and not a.check:
             ap.error("--dm-spec needs --connection (the Sigma connection the page-fact SQL runs on)")
-        changes = integrate_dm(pfs, a.dm_spec, a.connection, a.check)
+        changes = integrate_dm(pfs, a.dm_spec, a.connection, a.check, a.shape)
         for c in changes:
             print("data model: %s%s" % (c, " (check only)" if a.check else ""))
         if not changes:
@@ -209,7 +223,7 @@ def main(argv=None):
         if a.check and changes:
             return 3
     if a.master_map:
-        report, errors = integrate_master_map(pfs, a.master_map, a.dm_readback, a.allow_todo)
+        report, errors = integrate_master_map(pfs, a.master_map, a.dm_readback, a.allow_todo, a.shape)
         for r in report:
             print("master-map: " + r)
         if errors:

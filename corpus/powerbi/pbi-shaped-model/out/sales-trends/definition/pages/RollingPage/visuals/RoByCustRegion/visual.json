@@ -1,0 +1,77 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "RoByCustRegion",
+  "position": {
+    "x": 640,
+    "y": 448,
+    "width": 616,
+    "height": 232,
+    "z": 1080,
+    "tabOrder": 1080
+  },
+  "visual": {
+    "visualType": "clusteredColumnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Customer"
+                    }
+                  },
+                  "Property": "Customer Region"
+                }
+              },
+              "queryRef": "Customer.Customer Region",
+              "nativeQueryRef": "Customer Region"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Sales"
+                    }
+                  },
+                  "Property": "Sales R28"
+                }
+              },
+              "queryRef": "Sales.Sales R28",
+              "nativeQueryRef": "Sales R28"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Sales R28 by Customer Region'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

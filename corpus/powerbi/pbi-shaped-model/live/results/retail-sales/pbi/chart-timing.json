@@ -1,0 +1,152 @@
+{
+ "samples_per_chart": 3,
+ "note": "Sigma element export (POST /v2/workbooks/{id}/export + download); repeats may be served from Sigma's result cache; no cache-bust applied.",
+ "charts": {
+  "Sales Amount [kpi-chart]": {
+   "samples_s": [
+    4.24,
+    4.255,
+    4.231
+   ],
+   "median_s": 4.24
+  },
+  "Units [kpi-chart]": {
+   "samples_s": [
+    4.209,
+    3.096,
+    3.047
+   ],
+   "median_s": 3.096
+  },
+  "Gross Margin [kpi-chart]": {
+   "samples_s": [
+    4.239,
+    4.251,
+    4.36
+   ],
+   "median_s": 4.251
+  },
+  "GM % [kpi-chart]": {
+   "samples_s": [
+    4.239,
+    3.124,
+    3.337
+   ],
+   "median_s": 3.337
+  },
+  "Orders [kpi-chart]": {
+   "samples_s": [
+    4.261,
+    3.018,
+    3.166
+   ],
+   "median_s": 3.166
+  },
+  "Avg Price [kpi-chart]": {
+   "samples_s": [
+    3.098,
+    4.209,
+    4.232
+   ],
+   "median_s": 4.209
+  },
+  "Sales Amount by Category [bar-chart]": {
+   "samples_s": [
+    3.046,
+    4.192,
+    3.13
+   ],
+   "median_s": 3.13
+  },
+  "Sales Amount and Gross Margin by Month [line-chart]": {
+   "samples_s": [
+    3.043,
+    2.979,
+    3.298
+   ],
+   "median_s": 3.043
+  },
+  "Brand: sales, list value, private label [pivot-table]": {
+   "samples_s": [
+    4.268,
+    3.027,
+    3.457
+   ],
+   "median_s": 3.457
+  },
+  "Sales by Ship Date [kpi-chart]": {
+   "samples_s": [
+    3.074,
+    1.816,
+    3.028
+   ],
+   "median_s": 3.028
+  },
+  "Sales Amount (2) [kpi-chart]": {
+   "samples_s": [
+    4.245,
+    2.982,
+    4.494
+   ],
+   "median_s": 4.245
+  },
+  "Sales by ship month and order month [line-chart]": {
+   "samples_s": [
+    4.241,
+    3.009,
+    2.967
+   ],
+   "median_s": 3.009
+  },
+  "Sales by Ship Date by Store Region [bar-chart]": {
+   "samples_s": [
+    4.184,
+    3.024,
+    4.168
+   ],
+   "median_s": 4.168
+  },
+  "Channel: ship date vs order date [table]": {
+   "samples_s": [
+    1.999,
+    3.041,
+    3.014
+   ],
+   "median_s": 3.014
+  },
+  "Sales Amount (3) [kpi-chart]": {
+   "samples_s": [
+    4.187,
+    4.464,
+    1.78
+   ],
+   "median_s": 4.187
+  },
+  "Units (2) [kpi-chart]": {
+   "samples_s": [
+    4.242,
+    3.426,
+    3.116
+   ],
+   "median_s": 3.426
+  },
+  "Sales Amount by Store Region [bar-chart]": {
+   "samples_s": [
+    2.988,
+    4.239,
+    3.133
+   ],
+   "median_s": 3.133
+  },
+  "Brand: sales and units [table]": {
+   "samples_s": [
+    4.351,
+    3.082,
+    1.855
+   ],
+   "median_s": 3.082
+  }
+ },
+ "median_of_chart_medians_s": 3.2515,
+ "max_chart_median_s": 4.251
+}

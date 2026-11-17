@@ -1,0 +1,999 @@
+{
+  "started_utc": "2026-11-16T16:49:36Z",
+  "KEY": {
+    "unique_key": {
+      "table": "DIM_PRODUCT",
+      "sql_template": "SELECT COUNT(*) - COUNT(DISTINCT key) AS dup FROM <target>",
+      "dup": 0,
+      "expected": 0,
+      "round_trip_s": 5.8,
+      "pass": true
+    },
+    "duplicate_key": {
+      "table": "DIM_PRODUCT_DUPKEY",
+      "sql_template": "SELECT COUNT(*) - COUNT(DISTINCT key) AS dup FROM <target>",
+      "dup": 1,
+      "expected": 1,
+      "round_trip_s": 5.3,
+      "pass": true
+    },
+    "pass": true
+  },
+  "P9": {
+    "pages_authored": {
+      "Sales": [
+        "Sales (source)",
+        "Sales",
+        "SKU",
+        "Product",
+        "Category"
+      ],
+      "Inventory": [
+        "Inventory"
+      ],
+      "Shared": [
+        "Store",
+        "Date",
+        "Customer"
+      ]
+    },
+    "cross_page_relationships": [
+      "Sales (source)->Store (Shared)",
+      "Sales (source)->Customer (Shared)",
+      "Sales (source)->Date (Shared)",
+      "Sales->Store/Customer/Date (Shared)",
+      "Inventory->Store (Shared)",
+      "Inventory->SKU (Sales page)"
+    ],
+    "readback_pages": {
+      "Sales": [
+        "Category",
+        "Product",
+        "SKU",
+        "Sales (source)",
+        "Sales"
+      ],
+      "Inventory": [
+        "Inventory"
+      ],
+      "Shared": [
+        "Store",
+        "Date",
+        "Customer"
+      ]
+    },
+    "readback_page_names_in_order": true,
+    "readback_page_membership_kept": true,
+    "readback_element_order_within_page_kept": false,
+    "readback_page_layout_kept": true,
+    "readback_relationships": {
+      "Product": [
+        [
+          "Category",
+          "e-cat"
+        ]
+      ],
+      "SKU": [
+        [
+          "Product",
+          "e-prod"
+        ]
+      ],
+      "Sales (source)": [
+        [
+          "SKU",
+          "e-sku"
+        ],
+        [
+          "Store",
+          "e-store"
+        ],
+        [
+          "Date",
+          "e-date"
+        ],
+        [
+          "Date (Ship Date Key)",
+          "e-date"
+        ],
+        [
+          "Customer",
+          "e-cust"
+        ]
+      ],
+      "Sales": [
+        [
+          "SKU",
+          "e-sku"
+        ],
+        [
+          "Store",
+          "e-store"
+        ],
+        [
+          "Customer",
+          "e-cust"
+        ],
+        [
+          "Date",
+          "e-date"
+        ],
+        [
+          "Date (Ship Date Key)",
+          "e-date"
+        ]
+      ],
+      "Inventory": [
+        [
+          "SKU",
+          "e-sku"
+        ],
+        [
+          "Store",
+          "e-store"
+        ]
+      ]
+    },
+    "chart_store_region_from_shared_page": {
+      "pass": true,
+      "rows_actual": 4,
+      "rows_truth": 4,
+      "matched": 4,
+      "null_cells_in_actual": 0
+    },
+    "chart_category_same_page_path": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "chart_customer_region_from_shared_page": {
+      "pass": true,
+      "rows_actual": 6,
+      "rows_truth": 6,
+      "matched": 6,
+      "null_cells_in_actual": 1
+    },
+    "chart_inventory_store_region": {
+      "pass": true,
+      "rows_actual": 4,
+      "rows_truth": 4,
+      "matched": 4,
+      "null_cells_in_actual": 0
+    },
+    "chart_inventory_brand_via_sales_page_sku": {
+      "pass": true,
+      "rows_actual": 8,
+      "rows_truth": 8,
+      "matched": 8,
+      "null_cells_in_actual": 0
+    },
+    "cross_page_relationships_work": true,
+    "pass": true
+  },
+  "P10": {
+    "schedule_payload": {
+      "schedule": {
+        "cronSpec": "0 6 * * *",
+        "timezone": "America/New_York"
+      }
+    },
+    "created_utc": "2026-11-16T16:51:09Z",
+    "dm_id": "<uuid-1>",
+    "schedule_posts": {
+      "warehouse_table_element": {
+        "element_id": "e-sales-src",
+        "response": {
+          "sheetId": "<sheet-1>",
+          "elementId": "e-sales-src",
+          "elementName": "Sales (source)",
+          "configuredAt": "2026-11-16T16:52:07.873Z",
+          "schedule": {
+            "cronSpec": "0 6 * * *",
+            "timezone": "America/New_York"
+          },
+          "paused": false
+        }
+      },
+      "child_element": {
+        "element_id": "e-sales",
+        "response": {
+          "sheetId": "<sheet-2>",
+          "elementId": "e-sales",
+          "elementName": "Sales",
+          "configuredAt": "2026-11-16T16:52:08.309Z",
+          "schedule": {
+            "cronSpec": "0 6 * * *",
+            "timezone": "America/New_York"
+          },
+          "paused": false
+        }
+      }
+    },
+    "schedules_readback": [
+      {
+        "sheetId": "<sheet-1>",
+        "elementId": "e-sales-src",
+        "elementName": "Sales (source)",
+        "schedule": {
+          "cronSpec": "0 6 * * *",
+          "timezone": "America/New_York"
+        },
+        "paused": false
+      },
+      {
+        "sheetId": "<sheet-2>",
+        "elementId": "e-sales",
+        "elementName": "Sales",
+        "schedule": {
+          "cronSpec": "0 6 * * *",
+          "timezone": "America/New_York"
+        },
+        "paused": false
+      }
+    ],
+    "run_listing_probe": {
+      "/v2/dataModels/{dataModelId}/materializations": {
+        "ok": false,
+        "error": ""
+      },
+      "/v2/dataModels/{dataModelId}/elements": {
+        "ok": true,
+        "keys": [
+          "entries",
+          "nextPage",
+          "total"
+        ],
+        "sample": "{\"entries\": [{\"elementId\": \"e-cat\", \"type\": \"table\", \"name\": \"Category\", \"columns\": [\"Category Key\", \"Category Name\"], \"vizualizationType\": \"levelTable\"}, {\"elementId\": \"e-cust\", \"type\": \"table\", \"name\": \"Customer\", \"columns\": [\"Customer Key\", \"Segment\", \"Customer Region\", \"Loyalty Member\"], \"vizualizationType\": \"levelTable\"}, {\"elementId\": \"e-date\", \"type\": \"table\", \"name\": \"Date\", \"columns\": [\"D"
+      }
+    },
+    "runs": {
+      "warehouse_table_element": {
+        "sheet_id": "<sheet-1>",
+        "dm_id": "<uuid-1>",
+        "schedule_created_utc": "2026-11-16T16:52:08Z",
+        "trigger_in_progress_rounds": 3,
+        "states_seen": [
+          {
+            "t_s": 36,
+            "status": "pending",
+            "raw": {
+              "materializationId": "<uuid-2>",
+              "status": "pending"
+            }
+          },
+          {
+            "t_s": 49,
+            "status": "skipped",
+            "raw": {
+              "materializationId": "<uuid-2>",
+              "status": "skipped"
+            }
+          }
+        ],
+        "last_trigger_error": "{\"requestId\":\"<uuid-3>\",\"message\":\"Materialization already in progress\",\"code\":\"conflict_request\"}",
+        "materialization_id": "<uuid-2>",
+        "materialize_response": {
+          "materializationId": "<uuid-2>"
+        },
+        "manual_trigger_accepted_after_s": 36,
+        "manual_trigger_accepted_utc": "2026-11-16T16:52:45Z",
+        "final_status": "skipped",
+        "elapsed_total_s": 82
+      },
+      "child_element": {
+        "sheet_id": "<sheet-2>",
+        "dm_id": "<uuid-1>",
+        "schedule_created_utc": "2026-11-16T16:52:08Z",
+        "trigger_in_progress_rounds": 4,
+        "states_seen": [
+          {
+            "t_s": 50,
+            "status": "pending",
+            "raw": {
+              "materializationId": "<uuid-4>",
+              "status": "pending"
+            }
+          },
+          {
+            "t_s": 60,
+            "status": "building",
+            "raw": {
+              "materializationId": "<uuid-4>",
+              "status": "building",
+              "startedAt": "2026-11-16T16:53:08.000Z"
+            }
+          },
+          {
+            "t_s": 82,
+            "status": "ready",
+            "raw": {
+              "materializationId": "<uuid-4>",
+              "status": "ready",
+              "startedAt": "2026-11-16T16:53:08.000Z",
+              "readyAt": "2026-11-16T16:53:25.000Z"
+            }
+          }
+        ],
+        "last_trigger_error": "{\"requestId\":\"<uuid-5>\",\"message\":\"Materialization already in progress\",\"code\":\"conflict_request\"}",
+        "materialization_id": "<uuid-4>",
+        "materialize_response": {
+          "materializationId": "<uuid-4>"
+        },
+        "manual_trigger_accepted_after_s": 50,
+        "manual_trigger_accepted_utc": "2026-11-16T16:52:59Z",
+        "final_status": "ready",
+        "elapsed_total_s": 82
+      }
+    },
+    "warehouse_tables_after_run": [
+      {
+        "where": "write_schema",
+        "table": "<mat-table-1>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:52:25.315000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-2>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:52:29.729000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-3>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:52:31.463000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-4>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:52:33.386000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-5>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:52:59.965000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-6>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:53:01.264000-08:00"
+      },
+      {
+        "where": "write_schema",
+        "table": "<mat-table-7>",
+        "type": "BASE TABLE",
+        "rows": 2974371.0,
+        "created": "2026-11-16T08:53:08.865000-08:00"
+      }
+    ],
+    "chart_over_materialized_child_store_region": {
+      "pass": true,
+      "rows_actual": 4,
+      "rows_truth": 4,
+      "matched": 4,
+      "null_cells_in_actual": 0
+    },
+    "chart_over_materialized_child_category": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "run_now_endpoint_exists": true,
+    "schedules_created": [
+      "child_element",
+      "warehouse_table_element"
+    ],
+    "pass": true
+  },
+  "P11": {
+    "created_utc": "2026-11-16T16:51:11Z",
+    "readback_folders": [
+      {
+        "id": "f-store",
+        "name": "Store",
+        "items": [
+          "e-flat/sr",
+          "e-flat/ch"
+        ]
+      },
+      {
+        "id": "f-product",
+        "name": "Product",
+        "items": [
+          "e-flat/pk",
+          "e-flat/ck",
+          "e-flat/br",
+          "e-flat/cn"
+        ]
+      }
+    ],
+    "folders_by_name": {
+      "Store": [
+        "Store Region",
+        "Channel"
+      ],
+      "Product": [
+        "Product Key",
+        "Category Key",
+        "Brand",
+        "Category Name"
+      ]
+    },
+    "folders_kept": true,
+    "flattened_calc_formulas": {
+      "Store Region": "Lookup([Store/Store Region], [Store Key], [Store/Store Key])",
+      "Channel": "Lookup([Store/Channel], [Store Key], [Store/Store Key])",
+      "Brand": "Lookup([Product/Brand], [Product Key], [Product/Product Key])",
+      "Category Name": "Lookup([Category/Category Name], [Category Key], [Category/Category Key])"
+    },
+    "chart_flattened_by_category": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "chart_unflattened_child_by_category": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "chart_flattened_by_channel": {
+      "pass": true,
+      "rows_actual": 3,
+      "rows_truth": 3,
+      "matched": 3,
+      "null_cells_in_actual": 0
+    },
+    "chart_flattened_revenue_column": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "flattened_equals_unflattened_rows": true,
+    "pass_live": true,
+    "materialized_flattened_run": {
+      "sheet_id": "<sheet-3>",
+      "dm_id": "<uuid-6>",
+      "schedule_created_utc": "2026-11-16T16:52:09Z",
+      "trigger_in_progress_rounds": 3,
+      "states_seen": [
+        {
+          "t_s": 39,
+          "status": "pending",
+          "raw": {
+            "materializationId": "<uuid-7>",
+            "status": "pending"
+          }
+        },
+        {
+          "t_s": 61,
+          "status": "building",
+          "raw": {
+            "materializationId": "<uuid-7>",
+            "status": "building",
+            "startedAt": "2026-11-16T16:52:59.000Z"
+          }
+        },
+        {
+          "t_s": 71,
+          "status": "ready",
+          "raw": {
+            "materializationId": "<uuid-7>",
+            "status": "ready",
+            "startedAt": "2026-11-16T16:52:59.000Z",
+            "readyAt": "2026-11-16T16:53:15.000Z"
+          }
+        }
+      ],
+      "last_trigger_error": "{\"requestId\":\"<uuid-8>\",\"message\":\"Materialization already in progress\",\"code\":\"conflict_request\"}",
+      "materialization_id": "<uuid-7>",
+      "materialize_response": {
+        "materializationId": "<uuid-7>"
+      },
+      "manual_trigger_accepted_after_s": 39,
+      "manual_trigger_accepted_utc": "2026-11-16T16:52:48Z",
+      "final_status": "ready",
+      "elapsed_total_s": 82
+    },
+    "chart_materialized_flattened_by_category": {
+      "pass": true,
+      "rows_actual": 13,
+      "rows_truth": 13,
+      "matched": 13,
+      "null_cells_in_actual": 1
+    },
+    "readback_folders_after_materialization": [
+      "Store",
+      "Product"
+    ],
+    "pass": true
+  },
+  "TIMING": {
+    "metric": "wall-clock seconds for POST /v2/workbooks/{id}/export + poll GET /v2/query/{id}/download of one chart (Sales by Category). The API exposes no in-browser page-load time, so this export round trip is the only timing measured; it includes the export queue and CSV download, not just the warehouse query.",
+    "cache_bust": "per-sample predicate `Quantity > -k` inside the measure (excludes no rows, changes the SQL text so the result cache misses); k differs per sample and per live/materialized group",
+    "variants": {
+      "child_3hop": "chart over child `Sales`, x = [Sales/SKU/Product/Category/Category Name]",
+      "flattened": "chart over `Sales (flattened)`, x = [Sales (flattened)/Category Name] (Lookup-chain calc column)"
+    },
+    "live": {
+      "child_3hop": [
+        {
+          "sample": 1,
+          "start_utc": "2026-11-16T16:51:45Z",
+          "export_round_trip_s": 5.04,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 339.0,
+            "execution_ms": 101.0,
+            "compilation_ms": 238.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        },
+        {
+          "sample": 2,
+          "start_utc": "2026-11-16T16:51:53Z",
+          "export_round_trip_s": 2.89,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 257.0,
+            "execution_ms": 76.0,
+            "compilation_ms": 181.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        },
+        {
+          "sample": 3,
+          "start_utc": "2026-11-16T16:51:59Z",
+          "export_round_trip_s": 3.1,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 309.0,
+            "execution_ms": 95.0,
+            "compilation_ms": 214.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        }
+      ],
+      "flattened": [
+        {
+          "sample": 1,
+          "start_utc": "2026-11-16T16:51:50Z",
+          "export_round_trip_s": 2.85,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 307.0,
+            "execution_ms": 90.0,
+            "compilation_ms": 217.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        },
+        {
+          "sample": 2,
+          "start_utc": "2026-11-16T16:51:56Z",
+          "export_round_trip_s": 2.88,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 163.0,
+            "execution_ms": 67.0,
+            "compilation_ms": 96.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        },
+        {
+          "sample": 3,
+          "start_utc": "2026-11-16T16:52:02Z",
+          "export_round_trip_s": 5.06,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 408.0,
+            "execution_ms": 101.0,
+            "compilation_ms": 307.0,
+            "bytes_scanned": 36095488.0,
+            "reads_materialized_table": false
+          }
+        }
+      ]
+    },
+    "schedule_posts": {
+      "child_timing_dm": {
+        "element_id": "e-sales",
+        "response": {
+          "sheetId": "<sheet-4>",
+          "elementId": "e-sales",
+          "elementName": "Sales",
+          "configuredAt": "2026-11-16T16:52:08.769Z",
+          "schedule": {
+            "cronSpec": "0 6 * * *",
+            "timezone": "America/New_York"
+          },
+          "paused": false
+        }
+      },
+      "flattened_timing_dm": {
+        "element_id": "e-flat",
+        "response": {
+          "sheetId": "<sheet-3>",
+          "elementId": "e-flat",
+          "elementName": "Sales (flattened)",
+          "configuredAt": "2026-11-16T16:52:09.153Z",
+          "schedule": {
+            "cronSpec": "0 6 * * *",
+            "timezone": "America/New_York"
+          },
+          "paused": false
+        }
+      }
+    },
+    "materialization_runs": {
+      "child_timing_dm": {
+        "sheet_id": "<sheet-4>",
+        "dm_id": "<uuid-6>",
+        "schedule_created_utc": "2026-11-16T16:52:08Z",
+        "trigger_in_progress_rounds": 3,
+        "states_seen": [
+          {
+            "t_s": 39,
+            "status": "pending",
+            "raw": {
+              "materializationId": "<uuid-9>",
+              "status": "pending"
+            }
+          },
+          {
+            "t_s": 61,
+            "status": "building",
+            "raw": {
+              "materializationId": "<uuid-9>",
+              "status": "building",
+              "startedAt": "2026-11-16T16:53:01.000Z"
+            }
+          },
+          {
+            "t_s": 71,
+            "status": "ready",
+            "raw": {
+              "materializationId": "<uuid-9>",
+              "status": "ready",
+              "startedAt": "2026-11-16T16:53:01.000Z",
+              "readyAt": "2026-11-16T16:53:17.000Z"
+            }
+          }
+        ],
+        "last_trigger_error": "{\"requestId\":\"<uuid-10>\",\"message\":\"Materialization already in progress\",\"code\":\"conflict_request\"}",
+        "materialization_id": "<uuid-9>",
+        "materialize_response": {
+          "materializationId": "<uuid-9>"
+        },
+        "manual_trigger_accepted_after_s": 38,
+        "manual_trigger_accepted_utc": "2026-11-16T16:52:47Z",
+        "final_status": "ready",
+        "elapsed_total_s": 82
+      },
+      "flattened_timing_dm": {
+        "sheet_id": "<sheet-3>",
+        "dm_id": "<uuid-6>",
+        "schedule_created_utc": "2026-11-16T16:52:09Z",
+        "trigger_in_progress_rounds": 3,
+        "states_seen": [
+          {
+            "t_s": 39,
+            "status": "pending",
+            "raw": {
+              "materializationId": "<uuid-7>",
+              "status": "pending"
+            }
+          },
+          {
+            "t_s": 61,
+            "status": "building",
+            "raw": {
+              "materializationId": "<uuid-7>",
+              "status": "building",
+              "startedAt": "2026-11-16T16:52:59.000Z"
+            }
+          },
+          {
+            "t_s": 71,
+            "status": "ready",
+            "raw": {
+              "materializationId": "<uuid-7>",
+              "status": "ready",
+              "startedAt": "2026-11-16T16:52:59.000Z",
+              "readyAt": "2026-11-16T16:53:15.000Z"
+            }
+          }
+        ],
+        "last_trigger_error": "{\"requestId\":\"<uuid-8>\",\"message\":\"Materialization already in progress\",\"code\":\"conflict_request\"}",
+        "materialization_id": "<uuid-7>",
+        "materialize_response": {
+          "materializationId": "<uuid-7>"
+        },
+        "manual_trigger_accepted_after_s": 39,
+        "manual_trigger_accepted_utc": "2026-11-16T16:52:48Z",
+        "final_status": "ready",
+        "elapsed_total_s": 82
+      }
+    },
+    "materialized": {
+      "child_3hop": [
+        {
+          "sample": 1,
+          "start_utc": "2026-11-16T16:54:07Z",
+          "export_round_trip_s": 5.12,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 951.0,
+            "execution_ms": 584.0,
+            "compilation_ms": 367.0,
+            "bytes_scanned": 84990464.0,
+            "reads_materialized_table": true
+          }
+        },
+        {
+          "sample": 2,
+          "start_utc": "2026-11-16T16:54:17Z",
+          "export_round_trip_s": 5.12,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 400.0,
+            "execution_ms": 97.0,
+            "compilation_ms": 303.0,
+            "bytes_scanned": 84990464.0,
+            "reads_materialized_table": true
+          }
+        },
+        {
+          "sample": 3,
+          "start_utc": "2026-11-16T16:54:28Z",
+          "export_round_trip_s": 2.92,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 289.0,
+            "execution_ms": 94.0,
+            "compilation_ms": 195.0,
+            "bytes_scanned": 84990464.0,
+            "reads_materialized_table": true
+          }
+        }
+      ],
+      "flattened": [
+        {
+          "sample": 1,
+          "start_utc": "2026-11-16T16:54:12Z",
+          "export_round_trip_s": 5.12,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 137.0,
+            "execution_ms": 26.0,
+            "compilation_ms": 111.0,
+            "bytes_scanned": 76940288.0,
+            "reads_materialized_table": true
+          }
+        },
+        {
+          "sample": 2,
+          "start_utc": "2026-11-16T16:54:23Z",
+          "export_round_trip_s": 5.18,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 162.0,
+            "execution_ms": 28.0,
+            "compilation_ms": 134.0,
+            "bytes_scanned": 76940288.0,
+            "reads_materialized_table": true
+          }
+        },
+        {
+          "sample": 3,
+          "start_utc": "2026-11-16T16:54:31Z",
+          "export_round_trip_s": 5.08,
+          "rows": 13,
+          "matches_sql": true,
+          "warehouse": {
+            "total_elapsed_ms": 104.0,
+            "execution_ms": 30.0,
+            "compilation_ms": 74.0,
+            "bytes_scanned": 76940288.0,
+            "reads_materialized_table": true
+          }
+        }
+      ]
+    },
+    "median_s": {
+      "child_3hop_live": 3.1,
+      "flattened_live": 2.88,
+      "child_3hop_materialized": 5.12,
+      "flattened_materialized": 5.12
+    },
+    "median_warehouse_total_elapsed_ms": {
+      "child_3hop_live": 309.0,
+      "flattened_live": 307.0,
+      "child_3hop_materialized": 400.0,
+      "flattened_materialized": 137.0
+    },
+    "median_warehouse_execution_ms": {
+      "child_3hop_live": 95.0,
+      "flattened_live": 90.0,
+      "child_3hop_materialized": 97.0,
+      "flattened_materialized": 28.0
+    },
+    "reads_materialized_table": {
+      "child_3hop_live": [
+        false,
+        false,
+        false
+      ],
+      "flattened_live": [
+        false,
+        false,
+        false
+      ],
+      "child_3hop_materialized": [
+        true,
+        true,
+        true
+      ],
+      "flattened_materialized": [
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "warehouse_tables_created_by_run_before_delete": [
+    {
+      "where": "write_schema",
+      "table": "<mat-table-1>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:25.315000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-2>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:29.729000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-3>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:31.463000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-4>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:33.386000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-5>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:59.965000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-6>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:53:01.264000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-7>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:53:08.865000-08:00"
+    }
+  ],
+  "schedule_cleanup": {
+    "<uuid-1>/e-sales-src": true,
+    "<uuid-1>/e-sales": true,
+    "<uuid-6>/e-sales": true,
+    "<uuid-6>/e-flat": true
+  },
+  "cleanup": {
+    "<uuid-11>": true,
+    "<uuid-12>": true,
+    "<uuid-1>": true,
+    "<uuid-6>": true,
+    "<uuid-13>": true,
+    "<uuid-14>": true,
+    "<uuid-15>": true,
+    "<uuid-16>": true,
+    "<uuid-17>": true
+  },
+  "cleanup_all_archived": true,
+  "objects_created": 9,
+  "warehouse_tables_after_delete": [
+    {
+      "where": "write_schema",
+      "table": "<mat-table-1>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:25.315000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-2>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:29.729000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-3>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:31.463000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-4>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:33.386000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-5>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:52:59.965000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-6>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:53:01.264000-08:00"
+    },
+    {
+      "where": "write_schema",
+      "table": "<mat-table-7>",
+      "type": "BASE TABLE",
+      "rows": 2974371.0,
+      "created": "2026-11-16T08:53:08.865000-08:00"
+    }
+  ]
+}

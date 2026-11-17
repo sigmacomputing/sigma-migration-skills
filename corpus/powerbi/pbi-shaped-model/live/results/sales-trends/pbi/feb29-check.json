@@ -1,0 +1,58 @@
+{
+ "what": "Single-day SAMEPERIODLASTYEAR vs warehouse DATEADD(YEAR,-1,day) on the Sales Trends data. The Sales Trends pbi data model has no day-level lookback (its prior-year values are month-grain), so the Sigma side is the warehouse lookback a day-grain element would use, run through the Sigma connection (SELECT only).",
+ "dax": {
+  "2024-02-29": {
+   "sales": 371160.4845,
+   "sales_py": 342563.694
+  },
+  "2025-02-28": {
+   "sales": 370382.70499999996,
+   "sales_py": 347932.97099999996
+  },
+  "2025-03-01": {
+   "sales": 325639.734,
+   "sales_py": 381770.90099999995
+  },
+  "2024-02-28": {
+   "sales": 347932.97099999996,
+   "sales_py": 342563.694
+  },
+  "2024-03-01": {
+   "sales": 381770.90099999995,
+   "sales_py": 325278.1165
+  }
+ },
+ "warehouse": [
+  {
+   "day": "2024-02-28",
+   "py_date": "2023-02-28",
+   "sales": 347932.971,
+   "py_sales": 342563.694
+  },
+  {
+   "day": "2024-02-29",
+   "py_date": "2023-02-28",
+   "sales": 371160.4845,
+   "py_sales": 342563.694
+  },
+  {
+   "day": "2024-03-01",
+   "py_date": "2023-03-01",
+   "sales": 381770.901,
+   "py_sales": 325278.1165
+  },
+  {
+   "day": "2025-02-28",
+   "py_date": "2024-02-28",
+   "sales": 370382.705,
+   "py_sales": 347932.971
+  },
+  {
+   "day": "2025-03-01",
+   "py_date": "2024-03-01",
+   "sales": 325639.734,
+   "py_sales": 381770.901
+  }
+ ],
+ "all_equal": true
+}

@@ -1,0 +1,100 @@
+{
+ "status": "FRESH",
+ "checked_at": "2026-11-17T01:02:25Z",
+ "data_model_id": "<uuid-1>",
+ "counts": {
+  "FRESH": 2
+ },
+ "elements": [
+  {
+   "elementId": "pf-37beb594a2",
+   "elementName": "Cover \u2013 summary",
+   "sheetId": "<sheet-1>",
+   "materialized_table": "<write-schema>.t_mat_<hash>",
+   "materialized_last_altered": "2026-11-17T01:02:04Z",
+   "upstream": [
+    {
+     "table": "<redacted>.DIM_DATE",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.FACT_INVENTORY",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_PRODUCT",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.FACT_PURCHASE_ORDER",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.FACT_SALES",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_SKU",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_STORE",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:31Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_VENDOR",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    }
+   ],
+   "stale_upstream": [],
+   "reasons": [],
+   "status": "FRESH"
+  },
+  {
+   "elementId": "<element-1>",
+   "elementName": "Sales \u2013 rolling 28 days by day",
+   "sheetId": "<sheet-2>",
+   "materialized_table": "<write-schema>.t_mat_<hash>",
+   "materialized_last_altered": "2026-11-17T01:01:45Z",
+   "upstream": [
+    {
+     "table": "<redacted>.FACT_SALES",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_DATE",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:30Z",
+     "newer": false
+    },
+    {
+     "table": "<redacted>.DIM_STORE",
+     "type": "BASE TABLE",
+     "last_altered": "2026-11-17T00:26:31Z",
+     "newer": false
+    }
+   ],
+   "stale_upstream": [],
+   "reasons": [],
+   "status": "FRESH"
+  }
+ ]
+}

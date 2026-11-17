@@ -238,7 +238,8 @@ elements.each do |el|
         end
       end
 
-      if f =~ /\b(Weekday|Month|Year|Quarter|Day|Hour|Minute)\s*\(/i
+      # a date function CALL: text inside [refs] is an element or column name ("Sales by month (quarter reset)"), not a call
+      if f.gsub(/\[[^\]]*\]/, '[]') =~ /\b(Weekday|Month|Year|Quarter|Day|Hour|Minute)\s*\(/i
         # A real If( call — not the tail of SumIf( / CountIf( / AvgIf(.
         if f =~ /(?<![A-Za-z0-9_])If\s*\(/ && !f.include?('IsNull(') && !f.include?('Coalesce(')
           errors << "#{name}.#{col['name']}: nested-If on date function without IsNull/Coalesce guard"
@@ -375,6 +376,36 @@ elements.each do |el|
                     "not present in this element's columns[] (dangling ref — column likely removed)"
         end
       end
+    end
+
+    # E-10: every other column id a table / pivot names — grouping keys, grouping and
+    # table sorts, pivot shelves and their sort `by` — must also be declared in the
+    # element's own columns[]. A dropped dimension whose sort survived (PBI's default
+    # table sort is the first column ascending) is a 400 on the workbook POST:
+    #   groupings[0].sort[0].columnId: references column '<id>' which is not declared in columns.
+    col_ref = ->(x) { x.is_a?(Hash) ? (x['columnId'] || x['id']) : x }
+    dangling_refs = []
+    (el['groupings'] || []).each_with_index do |grp, gi|
+      next unless grp.is_a?(Hash)
+      Array(grp['groupBy']).each_with_index { |x, i| dangling_refs << ["groupings[#{gi}].groupBy[#{i}]", col_ref.call(x)] }
+      Array(grp['sort']).each_with_index { |s, i| dangling_refs << ["groupings[#{gi}].sort[#{i}].columnId", col_ref.call(s)] }
+    end
+    if el['sort'].is_a?(Array)
+      el['sort'].each_with_index { |s, i| dangling_refs << ["sort[#{i}].columnId", col_ref.call(s)] }
+    end
+    %w[rowsBy columnsBy].each do |key|
+      next unless el[key].is_a?(Array)
+      el[key].each_with_index do |x, i|
+        next unless x.is_a?(Hash) # bare-string / malformed shelves are reported above
+        dangling_refs << ["#{key}[#{i}].columnId", x['columnId']] if x['columnId']
+        by = x.dig('sort', 'by')
+        dangling_refs << ["#{key}[#{i}].sort.by", by] if by.is_a?(String) && by != 'row-count'
+      end
+    end
+    dangling_refs.each do |path, cid|
+      next if cid.nil? || cid.to_s.empty? || valid_col_ids.include?(cid)
+      errors << "#{name}: #{path} references columnId \"#{cid}\" which is not declared in this element's " \
+                'columns[] (dangling ref — the column was removed but this reference was not; the API rejects it)'
     end
 end
 

@@ -1,0 +1,49 @@
+{
+ "generated_by": "pbi_slicer_carry",
+ "summaries": [
+  {
+   "page": "Cover",
+   "summary": "Sales \u2013 rolling 28 days by day",
+   "form": "rolling_sql",
+   "base": 1277,
+   "counts": {
+    "Store Region": 5108
+   },
+   "combined_rows": 5108,
+   "stepped_back": false,
+   "density": {},
+   "dense": null,
+   "carry": [
+    "Store Region"
+   ],
+   "live": false,
+   "live_element": null,
+   "reason": "every slicer column fits within 10x the summary's size",
+   "tradeoff": "Sales \u2013 rolling 28 days by day carries Store Region as extra columns, about 4.0x its row count; the chart sums them, so a pick filters the pre-computed numbers."
+  }
+ ],
+ "queries": {
+  "carry:Sales \u2013 rolling 28 days by day:base": "WITH pbi_summary AS (\nSELECT d.\"DAY\" AS \"DAY\", c.\"Store Region\" AS \"Store Region\" FROM (SELECT DISTINCT dd.\"CAL_DATE\" AS \"DAY\" FROM (\nSELECT * FROM <redacted>.\"DIM_DATE\"\n) dd) d CROSS JOIN (SELECT DISTINCT cd0.\"STORE_REGION\" AS \"Store Region\" FROM (\nSELECT * FROM <redacted>.\"FACT_SALES\"\n) f LEFT JOIN (\nSELECT * FROM <redacted>.\"DIM_STORE\"\n) cd0 ON cd0.\"STORE_KEY\" = f.\"STORE_KEY\") c\n)\nSELECT COUNT(*) AS N FROM (SELECT DISTINCT \"DAY\" FROM pbi_summary) pbi_n",
+  "carry:Sales \u2013 rolling 28 days by day:Store Region": "WITH pbi_summary AS (\nSELECT d.\"DAY\" AS \"DAY\", c.\"Store Region\" AS \"Store Region\" FROM (SELECT DISTINCT dd.\"CAL_DATE\" AS \"DAY\" FROM (\nSELECT * FROM <redacted>.\"DIM_DATE\"\n) dd) d CROSS JOIN (SELECT DISTINCT cd0.\"STORE_REGION\" AS \"Store Region\" FROM (\nSELECT * FROM <redacted>.\"FACT_SALES\"\n) f LEFT JOIN (\nSELECT * FROM <redacted>.\"DIM_STORE\"\n) cd0 ON cd0.\"STORE_KEY\" = f.\"STORE_KEY\") c\n)\nSELECT COUNT(*) AS N FROM (SELECT DISTINCT \"DAY\", \"Store Region\" FROM pbi_summary) pbi_n"
+ },
+ "density_results": {},
+ "applied": {
+  "Sales": {
+   "carried": [
+    "Store Region"
+   ],
+   "live": true,
+   "dense": null,
+   "fields": [
+    {
+     "field": "Store.Store Region",
+     "name": "Store Region"
+    }
+   ]
+  }
+ },
+ "notes": [
+  "Sales: slicer field Vendor.Vendor Country cannot be carried (Vendor is 3 relationships from Sales; carry needs one); needs a live summary",
+  "Sales: slicer field Product.Brand cannot be carried (Product is 2 relationships from Sales; carry needs one); needs a live summary"
+ ]
+}

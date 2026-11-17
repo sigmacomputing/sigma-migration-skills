@@ -1,0 +1,123 @@
+{
+ "pbi": {
+  "dm_elements": 7,
+  "sql_elements": 2,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 27,
+  "hidden_or_unread": 0,
+  "clicks_to_source": 1,
+  "clicks_to_source_max": 1,
+  "clicks_by_visual": {
+   "Sales Amount": 1,
+   "Sales YTD": 1,
+   "Sales QTD": 1,
+   "Sales MTD": 1,
+   "Sales PY": 1,
+   "Sales YoY %": 1,
+   "Sales YTD (As Of)": 1,
+   "Sales Amount vs prior year by month": 1,
+   "Sales YTD and YTD (As Of) by month": 1,
+   "Sales Amount and prior year by year": 1,
+   "Quarter: sales, QTD, YoY": 1,
+   "Sales R28": 1,
+   "Sales Amount (2)": 1,
+   "Sales R28 by day": 1,
+   "Store Region: R28 and sales": 1
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 67.5
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 97.4
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 2.9
+    },
+    {
+     "phase": "5-layout",
+     "seconds": 22.3
+    },
+    {
+     "phase": "6-parity",
+     "seconds": 36.5
+    }
+   ],
+   "totalSeconds": 226.7
+  },
+  "parity": "PASS"
+ },
+ "views": {
+  "dm_elements": 6,
+  "sql_elements": 0,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 18,
+  "hidden_or_unread": 4,
+  "clicks_to_source": 4,
+  "clicks_to_source_max": 4,
+  "clicks_by_visual": {
+   "Sales Amount": 4,
+   "Sales Amount vs prior year by month": 4,
+   "Sales Amount and prior year by year": 2,
+   "Quarter: sales, QTD, YoY": 2,
+   "Sales Amount (2)": 4,
+   "Store Region: R28 and sales": 4
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 0.0
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 12.5
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 8.9
+    },
+    {
+     "phase": "5-layout",
+     "seconds": 35.3
+    },
+    {
+     "phase": "6-parity",
+     "seconds": 187.6
+    }
+   ],
+   "totalSeconds": 244.5
+  },
+  "parity": "FAIL"
+ }
+}
