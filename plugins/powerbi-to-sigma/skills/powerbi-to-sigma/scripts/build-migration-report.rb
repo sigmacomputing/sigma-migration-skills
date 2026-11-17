@@ -125,6 +125,12 @@ class MigrationReport
       'polish_notes' => polish_note_entries,
       'waivers' => waiver_entries
     }
+    # Present only when parity-final.json records them (powerbi-to-sigma), so
+    # every other converter's report is byte-identical to before.
+    clock = report_clock_entry
+    @document['report_clock'] = clock if clock
+    freshness = materialization_freshness_entry
+    @document['materialization_freshness'] = freshness if freshness
     add_generated_at
     @document
   end
@@ -152,6 +158,8 @@ class MigrationReport
     doc['checks'].each do |check|
       lines << "| #{md(check['name'])} | #{check['status']} | #{md(check['message'])} |"
     end
+    append_report_clock(lines, doc['report_clock'])
+    append_materialization_freshness(lines, doc['materialization_freshness'])
     lines << ''
     lines << '## Source object accounting'
     lines << ''
@@ -611,7 +619,20 @@ class MigrationReport
     return check('parity', 'FAIL', 'parity-final.json is missing') unless doc.is_a?(Hash)
     state = normalized_state(doc)
     errors = []
-    errors << "parity status is #{state || 'not recorded'}" unless PASS_WORDS.include?(state)
+    # CLOCK-SKEW and STALE-MATERIALIZATION (powerbi-to-sigma phase-6 refusals)
+    # are named with the recorded detail, not as a generic failed status.
+    case state
+    when 'clock-skew'
+      errors << "CLOCK-SKEW: #{clock_skew_detail(doc['report_clock'])}"
+    when 'stale-materialization'
+      errors << "STALE-MATERIALIZATION: #{materialization_detail(doc['materialization_freshness'])}"
+    else
+      errors << "parity status is #{state || 'not recorded'}" unless PASS_WORDS.include?(state)
+    end
+    # A CLOCK-SKEW chart was never compared, so it is never a parity pass.
+    if state != 'clock-skew' && !clock_skew_rows(doc['report_clock']).empty?
+      errors << "CLOCK-SKEW: #{clock_skew_detail(doc['report_clock'])}"
+    end
     passed = first_numeric(doc, %w[charts_pass passed pass])
     total = first_numeric(doc, %w[charts_total total])
     errors << "charts_pass #{passed} != charts_total #{total}" if passed && total && passed != total
@@ -632,6 +653,132 @@ class MigrationReport
                       Digest::SHA256.file(verdict).hexdigest == stamp['anchors_verdict_sha256']
     "no exportable chart data; anchors oracle stands in (#{stamp['anchors_matched']}/#{stamp['anchors_checked']} " \
       "anchors matched, #{stamp['tiles_covered']}/#{stamp['tiles_displayed']} displayed tiles covered)"
+  end
+
+  # parity-final.json `report_clock` (powerbi-to-sigma: one IANA timezone for
+  # TODAY()/NOW()). nil when the parity artifact records none.
+  def report_clock_entry
+    parity = @artifact_docs[File.join(@workdir, 'parity-final.json')]
+    clock = parity.is_a?(Hash) ? parity['report_clock'] : nil
+    return nil unless clock.is_a?(Hash)
+    entry = %w[report_timezone report_timezone_source sigma_clock oracle_clock oracle_kind
+               report_day expected_as_of actual_as_of unpinned_sites].to_h { |key| [key, clock[key]] }
+    charts = string_list(clock['today_relative_charts'])
+    entry.merge('record' => artifact_ref(clock['record']),
+                'today_relative_chart_count' => charts.length,
+                'today_relative_charts' => charts,
+                'clock_skew' => clock_skew_rows(clock),
+                'source_artifact' => 'parity-final.json')
+  end
+
+  # parity-final.json `materialization_freshness` (the pre-parity gate's
+  # check-materialization-freshness.rb result). nil when none is recorded.
+  def materialization_freshness_entry
+    parity = @artifact_docs[File.join(@workdir, 'parity-final.json')]
+    mat = parity.is_a?(Hash) ? parity['materialization_freshness'] : nil
+    return nil unless mat.is_a?(Hash)
+    entry = { 'status' => mat['status'], 'checked_at' => mat['checked_at'], 'path' => artifact_ref(mat['path']),
+              'stale' => string_list(mat['stale']), 'unknown' => string_list(mat['unknown']) }
+    # Presence is meaningful: accepted_unknown only after --allow-unknown,
+    # scheduled only for NOT-CHECKED.
+    %w[accepted_unknown scheduled].each { |key| entry[key] = string_list(mat[key]) if mat.key?(key) }
+    entry.merge('source_artifact' => 'parity-final.json')
+  end
+
+  def clock_skew_rows(clock)
+    return [] unless clock.is_a?(Hash) && clock['clock_skew'].is_a?(Array)
+    clock['clock_skew'].select { |row| row.is_a?(Hash) }
+                       .map { |row| { 'chart' => row['chart'].to_s, 'reason' => row['reason'].to_s } }
+  end
+
+  def clock_skew_detail(clock)
+    return 'no report clock recorded' unless clock.is_a?(Hash)
+    rows = clock_skew_rows(clock)
+    unless rows.empty?
+      return "#{rows.length} today-relative chart(s) not compared on one clock: " +
+             rows.map { |row| "#{row['chart']} (#{row['reason']})" }.join('; ')
+    end
+    zone = clock['report_timezone'].to_s.empty? ? 'unknown' : clock['report_timezone']
+    unpinned = integer(clock['unpinned_sites']).to_i
+    return "#{unpinned} clock site(s) off the report clock (#{zone})" if unpinned.positive?
+    "no skewed chart recorded (report timezone #{zone})"
+  end
+
+  def materialization_detail(mat)
+    return 'materialization freshness was not recorded' unless mat.is_a?(Hash)
+    status = mat['status'].to_s.empty? ? 'unrecorded' : mat['status'].to_s
+    if status == 'NOT-CHECKED'
+      scheduled = string_list(mat['scheduled'])
+      return 'materialization schedules exist but freshness was never checked' if scheduled.empty?
+      return "#{scheduled.length} materialization schedule(s) never checked: #{scheduled.join(', ')}"
+    end
+    # A passing check is refused only when it was not taken close enough to
+    # both parity sides (phase6-parity-pbi.rb's two-sided 2 h window).
+    if status == 'FRESH' || (status == 'UNKNOWN' && mat.key?('accepted_unknown'))
+      at = mat['checked_at'].to_s.empty? ? '' : " at #{mat['checked_at']}"
+      return "the #{status} check#{at} was not contemporaneous with the oracle and the Sigma actuals"
+    end
+    parts = []
+    parts << "stale: #{string_list(mat['stale']).join(', ')}" unless string_list(mat['stale']).empty?
+    parts << "unknown: #{string_list(mat['unknown']).join(', ')}" unless string_list(mat['unknown']).empty?
+    "materialization freshness is #{status}#{parts.empty? ? '' : " (#{parts.join('; ')})"}"
+  end
+
+  # A producer-recorded path: workdir-relative when absolute, as written otherwise.
+  def artifact_ref(path)
+    return nil unless path.is_a?(String) && !path.strip.empty?
+    Pathname.new(path).absolute? ? display_path(path) : path
+  end
+
+  def string_list(value)
+    value.is_a?(Array) ? value.compact.map(&:to_s) : []
+  end
+
+  def append_report_clock(lines, clock)
+    return unless clock.is_a?(Hash)
+    lines << ''
+    lines << '## Report clock'
+    lines << ''
+    zone = if clock['report_timezone'].to_s.empty?
+             '**unknown** (no report clock recorded)'
+           else
+             source = clock['report_timezone_source'].to_s
+             "**#{md(clock['report_timezone'])}**#{source.empty? ? '' : " (source: #{md(source)})"}"
+           end
+    lines << "- Report timezone: #{zone}"
+    lines << "- Today-relative charts: #{clock['today_relative_chart_count']}"
+    clocks = []
+    clocks << "Sigma #{clock['sigma_clock']}" unless clock['sigma_clock'].to_s.empty?
+    unless clock['oracle_clock'].to_s.empty?
+      kind = clock['oracle_kind'].to_s
+      clocks << "oracle #{clock['oracle_clock']}#{kind.empty? ? '' : " (#{kind})"}"
+    end
+    clocks << "report day #{clock['report_day']}" unless clock['report_day'].to_s.empty?
+    lines << "- Clocks: #{md(clocks.join('; '))}" unless clocks.empty?
+    unpinned = integer(clock['unpinned_sites']).to_i
+    lines << "- Clock sites off the report clock: #{unpinned}" if unpinned.positive?
+    clock['clock_skew'].each do |row|
+      lines << "- CLOCK-SKEW: **#{md(row['chart'])}** — #{md(row['reason'])}"
+    end
+  end
+
+  def append_materialization_freshness(lines, mat)
+    return unless mat.is_a?(Hash)
+    lines << ''
+    lines << '## Materialization freshness'
+    lines << ''
+    status = mat['status'].to_s.empty? ? 'unrecorded' : mat['status'].to_s
+    checked = mat['checked_at'].to_s.empty? ? '' : " (checked at #{md(mat['checked_at'])})"
+    lines << "- Status: **#{md(status)}**#{checked}"
+    lines << "- Stale: #{md(mat['stale'].join(', '))}" unless mat['stale'].empty?
+    accepted = mat['accepted_unknown'] || []
+    if !accepted.empty?
+      lines << "- Unknown (accepted with --allow-unknown): #{md(accepted.join(', '))}"
+    elsif !mat['unknown'].empty?
+      lines << "- Unknown: #{md(mat['unknown'].join(', '))}"
+    end
+    scheduled = mat['scheduled'] || []
+    lines << "- Scheduled, never checked: #{md(scheduled.join(', '))}" unless scheduled.empty?
   end
 
   # visual-similarity.json is render evidence only through its render_health
