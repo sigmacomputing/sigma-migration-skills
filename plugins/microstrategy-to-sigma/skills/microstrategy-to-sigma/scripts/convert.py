@@ -69,6 +69,14 @@ FEATURE_CAT = _cc.load(_CAT_DIR, "workbook-feature")  # released workbook struct
 # to a Sigma table with a LOUD warning (data preserved, never silently wrong).
 CHART_KINDS = {"bar-chart", "line-chart", "area-chart", "waterfall-chart"}
 
+def _is_number(v):
+    try:
+        float(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _walk_visualizations(node):
     """Yield visualizations from a page and all nested panel stacks.
 
@@ -233,6 +241,50 @@ class Bundle:
                              for fid, f in self.facts.items()}
         self.metric_by_name = {m["information"]["name"]: mid
                                for mid, m in self.metrics.items()}
+        self._screen_derived_metrics(raw.get("unresolvedMetrics") or {})
+
+    def _screen_derived_metrics(self, unresolved):
+        """Derived metrics (report- or dossier-local, not schema objects) that
+        extract.py could not recover, or whose tokens this translator cannot
+        handle, are DROPPED with a loud warning rather than failing the whole
+        conversion. Any metric that references a dropped one is dropped too.
+        Hand-author each one in Sigma (refs/mstr-rest-api.md "Derived metrics")."""
+        self.unresolved_metrics = dict(unresolved)
+        for mid, u in unresolved.items():
+            self.warnings.append(
+                "⚠ derived metric %r (%s) skipped: its formula is not exposed by "
+                "the MicroStrategy REST API%s — hand-author it as a Sigma metric "
+                "and label it in the parity notes."
+                % (u.get("name") or mid, u.get("scope", "report"),
+                   " (MicroStrategy text: %s)" % u["formulaText"]
+                   if u.get("formulaText") else ""))
+        changed = True
+        while changed:
+            changed = False
+            for mid, m in list(self.metrics.items()):
+                refs = [t.get("target", {}).get("objectId")
+                        for t in m.get("expression", {}).get("tokens", [])
+                        if t.get("target", {}).get("subType") == "metric"]
+                missing = [r for r in refs if r not in self.metrics]
+                err = None
+                if missing:
+                    err = "references unavailable metric(s) %s" % ", ".join(
+                        (self.unresolved_metrics.get(r) or {}).get("name") or r
+                        for r in missing)
+                elif m.get("_derived"):
+                    try:
+                        self.metric_formula(mid, lambda c: f"[{c}]")
+                    except (SystemExit, KeyError, TypeError) as e:
+                        err = "untranslatable formula (%s)" % e
+                if err:
+                    name = m["information"]["name"]
+                    del self.metrics[mid]
+                    self.metric_by_name.pop(name, None)
+                    self.unresolved_metrics[mid] = {"name": name, "error": err}
+                    self.warnings.append(
+                        "⚠ derived metric %r skipped: %s — hand-author it as a "
+                        "Sigma metric and label it in the parity notes." % (name, err))
+                    changed = True
 
     # ---- joins: attribute key form mapped to BOTH fact table and lookup table
     def derive_joins(self):
@@ -341,8 +393,16 @@ class Bundle:
                     pass  # parameter block delimiters already handled
                 elif v in ("(", ")", ",", "+", "-", "*", "/"):
                     out.append(v)
-            elif ty == "identifier" or ty == "boolean":
-                pass  # parameter names/values inside <...>
+            elif ty == "identifier" or ty == "boolean" or ty == "end_of_text":
+                pass  # parameter names/values inside <...>; terminator
+            elif ty == "literal" and _is_number(v):
+                out.append(str(v))      # numeric constant (e.g. * 100)
+            else:
+                # LOUD: an unknown token used to be dropped silently, which
+                # turned "X * 100" into "X * ". _screen_derived_metrics
+                # degrades a derived metric that hits this to a warning.
+                raise SystemExit(f"unhandled token {ty!r} {v!r} in metric "
+                                 f"{m['information']['name']}")
             i += 1
         # join with spaces around operators, none around parens
         f = ""
@@ -402,6 +462,8 @@ class Bundle:
                     distinct_pending = False
                 elif v in (")", ",", "+", "-", "*", "/"):
                     out.append(v)
+            elif ty == "literal" and _is_number(v):
+                out.append(str(v))
         # NB: '<'/'>' parameter blocks skipped above
             i += 1
         sql = ""
@@ -418,8 +480,9 @@ class Bundle:
     def report_attr_units(self, report):
         units = report["dataSource"]["dataTemplate"]["units"]
         return ([u for u in units if u.get("type") == "attribute"],
-                [el for u in units if u.get("type") == "metrics"
-                 for el in u["elements"]])
+                [dict(el, name=self.metrics[el["id"]]["information"]["name"])
+                 for u in units if u.get("type") == "metrics"
+                 for el in u["elements"] if el["id"] in self.metrics])
 
     def clean_group_aliases(self, report):
         attr_units, metric_units = self.report_attr_units(report)
@@ -1576,6 +1639,8 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
             elif u.get("type") == "metrics":
                 for el in u["elements"]:
                     mid = el["id"]
+                    if mid not in b.metrics:   # unresolved derived metric: warned
+                        continue
                     mname = b.metrics[mid]["information"]["name"]
                     cid = f"c-{slug(ch_name)}-{slug(mname)}"
                     # Prefer a governed [Metrics/<name>] ref when this expanded inline
@@ -1924,7 +1989,8 @@ def build_workbook_spec(b: Bundle, args, ae_winners=None, dm_element_ids=None, d
     feature_warnings = [w for w in dict.fromkeys(list(b.warnings) + warnings)
                         if any(token in w.lower() for token in (
                             "feature ", "workbook-feature", "visualizationtype", "box_plot",
-                            "chart needs", "chart has a control"))]
+                            "chart needs", "chart has a control",
+                            "derived metric"))]
     control_scope = {"version": 1, "source": "microstrategy",
                      "sourceFilterSignals": n_signals,
                      "controls": scope_entries, "unbound": unbound,

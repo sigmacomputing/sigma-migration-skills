@@ -110,6 +110,41 @@ mechanics in; this doc is the why.
   types can't be set via REST (UI only). Chart-rich fixtures must be authored
   in the Library UI (see `../fixtures/BUILD_SPEC.md`).
 
+## Derived metrics (report- and dossier-local)
+
+A derived metric is built from other metrics *inside* a report or dossier. It
+is not a project-schema object, so `GET /api/model/metrics/{id}` 404s for it.
+Never call that endpoint for one without handling the error. Live-checked
+2026-11-16 against Strategy's public demo Library (Tutorial project, guest).
+
+- **Dossier-level** (defined in the dossier on a dataset): absent from every
+  report template. `GET /model/documents/{dossierId}` (not in the published
+  OpenAPI; static read) lists them under `datasets[].derivedMetrics[]`, keyed
+  by the dataset's report id (`information.subType: report_grid`). The
+  formula is `expression: {text, tree}` whatever `showExpressionAs` says.
+  `extract.py` turns arithmetic trees (+ - * /, unary minus, numeric
+  constants) over metric references into tokens. Functions, Case,
+  running/rank and inline aggregations (`agg_metric` targets flagged
+  `isEmbedded`, e.g. `Revenue / Sum(Revenue)`) stay unresolved with their
+  text. Auto `Row Count` (`Count("*")`) metrics are skipped. Ignore
+  `derivedAttributes`. Real sample: `../fixtures/derived-metrics/`.
+- **Report-level** (embedded in the dataset report): flagged `isEmbedded:
+  true` (`derived: true` in `/v2/reports/{id}`), either in
+  `dataSource.dataTemplate` or only in `grid.viewTemplate`. The Modeling
+  definition carries **no formula**, static or through a Modeling report
+  instance (`POST /model/reports/{id}/instances` -> 201 `{"id"}`, then GET
+  with `X-MSTR-MS-Instance`, then DELETE). `extract.py` still tries the
+  instance (privileged users may see more) and otherwise reports the metric.
+  `GET /model/metrics/{id}` rejects `X-MSTR-MS-Instance` (400).
+- **Permissions**: a user without schema read access gets **403 on every**
+  `/model/metrics/{id}`. `extract.py` aborts on that instead of treating every
+  metric as derived.
+- **Cube-derived** metrics on a Quick Cube: see `path-b-rehost.md` §3.
+
+Unresolved ones land in `bundle.unresolvedMetrics` and `convert.py`'s
+`⚠ derived metric` warnings (with the MicroStrategy text when known).
+Hand-author those as Sigma metrics and label them.
+
 ## Roadmap: the newer "Data Model" object
 
 Strategy One also ships a **newer Data Model object**
