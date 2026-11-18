@@ -1,0 +1,126 @@
+{
+ "samples_per_chart": 3,
+ "note": "Sigma element export (POST /v2/workbooks/{id}/export + download); repeats may be served from Sigma's result cache; no cache-bust applied.",
+ "charts": {
+  "Sales Amount [kpi-chart]": {
+   "samples_s": [
+    3.251,
+    3.07,
+    3.011
+   ],
+   "median_s": 3.07
+  },
+  "Units [kpi-chart]": {
+   "samples_s": [
+    3.156,
+    4.414,
+    4.295
+   ],
+   "median_s": 4.295
+  },
+  "Gross Margin [kpi-chart]": {
+   "samples_s": [
+    4.214,
+    4.345,
+    3.167
+   ],
+   "median_s": 4.214
+  },
+  "GM % [kpi-chart]": {
+   "samples_s": [
+    4.602,
+    4.278,
+    5.517
+   ],
+   "median_s": 4.602
+  },
+  "Orders [kpi-chart]": {
+   "samples_s": [
+    4.426,
+    3.174,
+    3.079
+   ],
+   "median_s": 3.174
+  },
+  "Avg Price [kpi-chart]": {
+   "samples_s": [
+    4.276,
+    3.134,
+    4.253
+   ],
+   "median_s": 4.253
+  },
+  "Sales Amount by Category [bar-chart]": {
+   "samples_s": [
+    3.28,
+    4.38,
+    4.329
+   ],
+   "median_s": 4.329
+  },
+  "Sales Amount and Gross Margin by Month [line-chart]": {
+   "samples_s": [
+    5.586,
+    3.251,
+    4.352
+   ],
+   "median_s": 4.352
+  },
+  "Sales Amount (2) [kpi-chart]": {
+   "samples_s": [
+    4.356,
+    4.297,
+    3.297
+   ],
+   "median_s": 4.297
+  },
+  "Sales by ship month and order month [line-chart]": {
+   "samples_s": [
+    3.095,
+    3.119,
+    4.461
+   ],
+   "median_s": 3.119
+  },
+  "Channel: ship date vs order date [table]": {
+   "samples_s": [
+    3.159,
+    3.148,
+    4.314
+   ],
+   "median_s": 3.159
+  },
+  "Sales Amount (3) [kpi-chart]": {
+   "samples_s": [
+    3.069,
+    4.378,
+    3.205
+   ],
+   "median_s": 3.205
+  },
+  "Units (2) [kpi-chart]": {
+   "samples_s": [
+    4.486,
+    3.158,
+    3.107
+   ],
+   "median_s": 3.158
+  },
+  "Sales Amount by Store Region [bar-chart]": {
+   "samples_s": [
+    3.102,
+    3.154,
+    3.269
+   ],
+   "median_s": 3.154
+  },
+  "Brand: sales and units [table]": {
+   "samples_s": [
+    4.412,
+    4.386,
+    4.296
+   ],
+   "median_s": 4.386
+  }
+ }
+}

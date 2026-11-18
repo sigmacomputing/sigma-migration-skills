@@ -94,6 +94,9 @@ require 'time'
 require_relative 'lib/py_resolve'
 require_relative 'lib/pbi_field_alts'
 require_relative 'lib/pbi_master_key'
+require_relative 'lib/pbi_shape_run'   # opt-in --model-shape pbi: the shaped transform driver (key check, slicer carry)
+require_relative 'lib/pbi_flip_values'  # opt-in --model-shape pbi: Phase 6b flip values read from the warehouse
+require_relative 'lib/pbi_shaped_model' # opt-in --model-shape pbi: Power BI table/column names, no View copies
 require_relative 'lib/pbi_view_route' # cross-table visuals -> joined View alts; friendly-entity aliases
 require_relative 'lib/pbi_model_scope'  # scope the DM to the tables the report uses (default; --full-model opts out)
 require_relative 'lib/offramp'
@@ -112,11 +115,14 @@ require 'coverage_gate' # workbook-build coverage.json → consolidated report +
 require 'pbi_element_match' # converter→readback element pairing (POST reorders; regression-tested)
 require 'pbi_timeintel_route' # time-intel fallback-router fact-provenance guard (regression-tested)
 require 'pbi_calc_table_sql' # DISTINCT/VALUES/SUMMARIZE calculated tables -> Custom SQL
+require 'pbi_calc_table_measures' # measures homed on a calculated table (the converter drops them)
 require 'pbi_native_query' # preserve Value.NativeQuery/Query= SQL around the pinned converter
 require 'pbi_composite' # remote-model detection; NativeQuery is warehouse SQL
+require 'pbi_external_measure' # EXTERNALMEASURE pointers into a remote model: stop, or Null gaps (issue #97)
 require 'pbi_dm_resolver' # deterministic converter-output fixer (D1-D8) -> <WORK>/dm-resolver.json
 require 'pbi_name_sanitize' # F13: "/" in column/measure names -> U+2215 before conversion
 require 'materialization_schedules' # opt-in DM element schedule lifecycle
+require 'pbi_report_clock' # one clock for "today": pin Today()/Now()/CURRENT_DATE to the report timezone
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -234,9 +240,15 @@ OptionParser.new do |o|
   o.on('--skip-control-flip [REASON]', 'waive Phase 6b (runtime control-flip proof); the reason MUST be named in your migration report') { |v| opts[:skip_control_flip] = v || true }
   # COMPOSITE guard escape hatch. The Fabric --tmsl path GATES (exit 10) when the
   # extracted model looks like a composite / live-connected-to-remote model,
-  # because getDefinition returns an INCOMPLETE model for those — the complete
-  # model lives in the local .pbix (prefer --pbix). Pass this to proceed anyway
-  # on the (known-incomplete) Fabric model.
+  # because getDefinition returns an INCOMPLETE model for those (the report-local
+  # part lives in the local .pbix: prefer --pbix). Every route also STOPS when the
+  # model's measures are EXTERNALMEASURE pointers into a remote semantic model
+  # (their DAX is in neither file) or its tables are DirectQuery proxies of one
+  # (entity partitions: their rows are in no warehouse table). Pass this to
+  # proceed anyway; the pointer measures and everything built on them or on a
+  # proxy table then ship as Null metrics and each proxy table as a zero-row
+  # Custom SQL placeholder, reported as gaps (external-measures.json + a
+  # skip-flag-waived escape in the ledger).
   o.on('--allow-incomplete-model') { opts[:allow_incomplete_model] = true }
   # Native SQL followed by Table.RenameColumns/Table.SelectRows/etc. cannot be
   # represented by preserving the SQL alone. Gate by default; this override is
@@ -272,13 +284,30 @@ OptionParser.new do |o|
   o.on('--materialization-cron CRON') { |v| opts[:materialization_cron] = v }
   o.on('--materialization-timezone TZ') { |v| opts[:materialization_timezone] = v }
   o.on('--materialization-elements LIST') { |v| opts[:materialization_elements] = v }
+  # One clock for "today" (lib/pbi_report_clock.rb). The Power BI SERVICE evaluates
+  # TODAY()/NOW() in UTC (the default); pass the zone the report's users mean by
+  # "today" (Power BI Desktop uses the author's local zone). Every migrated Sigma
+  # Today()/Now() and warehouse CURRENT_DATE/CURRENT_TIMESTAMP is pinned to it and
+  # it is recorded in <WORK>/report-clock.json for the oracle and parity.
+  o.on('--report-timezone IANA', 'report clock for TODAY()/NOW() (default UTC = the Power BI service clock)') { |v| opts[:report_timezone] = v }
+  o.on('--model-shape SHAPE', %w[pbi views], 'pbi = Sigma data model shaped like the Power BI model (opt-in); views = default') { |v| opts[:model_shape] = v }
+  o.on('--shape-probe-results FILE', 'with --model-shape pbi: replay captured key-check and slicer-carry probe results ({"<key>": <sigma-sql-probe result>}) instead of probing live') { |v| opts[:shape_probe_results] = File.expand_path(v) }
+  o.on('--allow-unverified-keys', 'with --model-shape pbi: continue when the key check cannot verify a relationship (kept unverified; recorded in pbi-shaped-model.json)') { opts[:allow_unverified_keys] = true }
+  o.on('--flatten LIST', Array, 'with --model-shape pbi: comma-separated Power BI tables to flatten') { |v| opts[:flatten] = v }
 end.parse!
 
+REPORT_TZ = opts[:report_timezone] || PbiReportClock::DEFAULT_TIMEZONE
+REPORT_TZ_SOURCE = opts[:report_timezone] ? 'flag --report-timezone' : PbiReportClock::DEFAULT_SOURCE
+abort "FATAL: --report-timezone must be an IANA name such as UTC or America/New_York (got #{REPORT_TZ.inspect})" unless PbiReportClock.valid_timezone?(REPORT_TZ)
 if opts[:materialization_timezone] && !opts[:materialization_cron]
   abort 'FATAL: --materialization-timezone requires --materialization-cron'
 end
 if (opts[:probe_results] || opts[:probe_allow_missing] || opts[:probe_concurrency] || opts[:probe_no_cache] || opts[:probe_cache_max_age_hours] || opts[:keep_probe_workbook]) && !opts[:probe_sources]
   abort 'FATAL: --probe-results / --probe-allow-missing / --probe-concurrency / --probe-no-cache / --probe-cache-max-age-hours / --keep-probe-workbook require --probe-sources'
+end
+opts[:model_shape] ||= 'views'
+if (opts[:shape_probe_results] || opts[:allow_unverified_keys]) && opts[:model_shape] != 'pbi'
+  abort 'FATAL: --shape-probe-results / --allow-unverified-keys require --model-shape pbi'
 end
 if opts[:probe_sources] && !opts[:probe_results] && !opts[:folder]
   abort 'FATAL: --probe-sources needs --folder <Sigma folder id> (the probe writes scratch objects there) ' \
@@ -378,7 +407,8 @@ run_provenance = {
   'skillPath' => File.realpath(File.expand_path('..', HERE)),
   'converter' => CONVERTER_DESC,
   'converterProvenance' => converter_prov,
-  'recordedAt' => Time.now.utc.iso8601
+  'recordedAt' => Time.now.utc.iso8601,
+  'reportTimezone' => REPORT_TZ
 }
 # Python interpreter resolution (shared by Phase 0 local extract + Phase 1).
 # bead 7o01: --python / PBI_PY, else a bootstrapped venv (<work>/.venv), else
@@ -467,6 +497,24 @@ def scaffold_page_facts!(opts, model_path, signals_path, dm_spec, mmap_path, dia
          '--dialect', (%w[snowflake databricks bigquery].include?(dialect) ? dialect : 'snowflake')]
   cmd += ['--master-map', mmap_path] if mmap_path && File.exist?(mmap_path)
   opts[:scaffold_page_facts].split(',').map(&:strip).reject(&:empty?).each { |t| cmd += ['--page', t] } if opts[:scaffold_page_facts].is_a?(String)
+  if opts[:model_shape] == 'pbi'
+    cmd += ['--shape', 'pbi']
+    if opts[:scaffold_page_facts] == true
+      # pbi shape: the default pages are the ones whose visible visuals read a class D measure
+      classes_path = File.join(WORK, 'measure-classes.json')
+      classes = File.exist?(classes_path) ? (JSON.parse(File.read(classes_path))['classes'] || {}) : {}
+      # the master-map's visual-level class D records (two relationship paths to one table) make their page a class D page too
+      mm_doc = (mmap_path && File.exist?(mmap_path) ? (JSON.parse(File.read(mmap_path)) rescue {}) : {})
+      d_pages = PbiShapeRun.class_d_pages(JSON.parse(File.read(signals_path)), classes,
+                                          Array(mm_doc['class_d_visuals']) + Array(mm_doc['conflicts']))
+      if d_pages.empty?
+        puts '   PAGE FACTS (draft): no page reads a class D measure or needs two relationship paths; nothing to draft in --model-shape pbi'
+        return
+      end
+      puts "   PAGE FACTS (draft): class D pages: #{d_pages.join(', ')}"
+      d_pages.each { |t| cmd += ['--page', t] }
+    end
+  end
   # Not a shell: an argv array that runs this plugin's scaffold-page-fact.py with the current Python; options come from this run's own flags and paths.
   # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, st = Open3.capture2e(*cmd)
@@ -482,15 +530,43 @@ end
 # Raised (and rescued in the DM-reuse block) to stop before PUTting page facts into a reused DM.
 class StopBeforePostPageFacts < StandardError; end
 
+def pinned_page_facts_current?(page_facts, dm_spec, timezone, dialect)
+  return false unless dialect
+
+  files = if File.directory?(page_facts)
+            Dir[File.join(page_facts, '*', 'page-fact.json')].sort +
+              (File.exist?(File.join(page_facts, 'page-fact.json')) ? [File.join(page_facts, 'page-fact.json')] : [])
+          else
+            [page_facts]
+          end
+  elements = []
+  PbiReportClock.each_element(JSON.parse(File.read(dm_spec))) { |el| elements << el }
+  files.any? && files.all? do |file|
+    fact = JSON.parse(File.read(file))
+    element = elements.find { |el| el['name'] == fact['name'] }
+    element &&
+      element.dig('source', 'statement') == PbiReportClock.pin_sql(fact['sql'], timezone, dialect) &&
+      Array(element['columns']).map { |column| column['name'] } == Array(fact['columns']).map { |column| column['name'] }
+  end
+rescue StandardError
+  false
+end
+
 # Page facts (--page-facts DIR): fold the completed page-fact.json files into a DM spec with
 # integrate-page-fact.py. check: true reports without writing and returns :changed / :current.
-def integrate_page_facts_dm!(opts, dm_spec, check: false)
+def integrate_page_facts_dm!(opts, dm_spec, check: false, clock_dialect: nil)
   cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--dm-spec', dm_spec]
   cmd += check ? ['--check'] : ['--connection', opts[:conn].to_s]
   cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  cmd += ['--shape', 'pbi'] if opts[:model_shape] == 'pbi' # named, described summaries; direct masters
   # Not a shell: an argv array that runs this plugin's integrate-page-fact.py with the current Python; options come from this run's own flags and paths.
   # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, st = Open3.capture2e(*cmd)
+  if check && st.exitstatus == 3 &&
+     pinned_page_facts_current?(opts[:page_facts], dm_spec, REPORT_TZ, clock_dialect)
+    puts "   data model: page fact(s) already current (report-clock pinned)"
+    return :current
+  end
   out.each_line { |l| puts "   #{l.rstrip}" } unless out.strip.empty?
   return :changed if check && st.exitstatus == 3
   abort "FATAL: page-fact integration failed (#{st.exitstatus}); nothing was posted. Fix #{opts[:page_facts]} and rerun." unless st.success?
@@ -526,7 +602,9 @@ end
 # element/table in the POST output back to its source-path schema and return a
 # concrete GRANT action so the user isn't left decoding an opaque 400. Returns nil
 # when the failure isn't an unreadable-table error.
-def explain_unreadable_tables(out, dm_spec_path, conn)
+# skip: table names reported elsewhere (DirectQuery proxy tables of a remote
+# semantic model: no GRANT can make them readable), left out of the GRANT advice.
+def explain_unreadable_tables(out, dm_spec_path, conn, skip: [])
   spec = (JSON.parse(File.read(dm_spec_path)) rescue nil)
   return nil unless spec
   els = (spec['elements'] || []) + (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
@@ -547,6 +625,9 @@ def explain_unreadable_tables(out, dm_spec_path, conn)
     sch = parts.size >= 3 ? "#{parts[0]}.#{parts[-2]}" : parts[-2]
     hits[sch] << parts[-1]
   end
+  skip_keys = skip.map { |n| PbiExternalMeasure.name_key(n) }
+  hits.each_value { |tbls| tbls.reject! { |t| skip_keys.include?(PbiExternalMeasure.name_key(t)) } }
+  hits.reject! { |_sch, tbls| tbls.empty? }
   return nil if hits.empty?
   hits.map { |sch, tbls| "   │    • #{sch}  (table(s): #{tbls.uniq.first(6).join(', ')}) — grant to connection #{conn || '<the DM connection>'}" }.join("\n")
 end
@@ -604,13 +685,18 @@ if opts[:pbix]
   puts
   puts '── Phase 0/6 · Local .pbix extract (no Fabric) ──'
   # Cheap stdlib-only probe (no pbixray): is this a composite / live-connected
-  # .pbix? If so, using the LOCAL file (which carries the complete composite
-  # model) is exactly right — note it so the choice is visible.
+  # .pbix? The local file carries the report-local model (more than a Fabric
+  # getDefinition of the bound dataset returns), but NOT the DAX of measures that
+  # live in a remote semantic model: those are EXTERNALMEASURE pointers, checked
+  # after extraction (REMOTE MEASURES, below). Note it so the choice is visible.
   comp_out, comp_st = Open3.capture2e(*PY_ARGV, File.join(HERE, 'extract-model-pbix.py'),
                                       '--pbix', opts[:pbix], '--detect-composite')
+  # The probe's tell (the Connections member's RemoteArtifacts) is also present in
+  # any .pbix downloaded from the service, so word the note to be true either way.
   if comp_st.success? && (JSON.parse(comp_out)['composite'] rescue false)
-    puts '   composite / live-connected .pbix detected — the local file carries the COMPLETE'
-    puts '   model (a Fabric getDefinition of the bound dataset would be incomplete). Using it.'
+    puts '   the .pbix references a published Power BI dataset (a composite or live-connected'
+    puts '   report, or a file downloaded from the service). Using its local model; measures that'
+    puts '   live in a remote semantic model are only EXTERNALMEASURE pointers, checked after extraction.'
   end
   model_bim = File.join(WORK, 'model.bim')
   if extract_cache['reuse']
@@ -692,6 +778,19 @@ end
 # TMSL model summary + import/DirectQuery mode.
 tmsl = JSON.parse(File.read(opts[:tmsl]))
 model = tmsl['model'] || tmsl
+
+# --model-shape pbi does not port row/column-level security yet: stop before building anything.
+if opts[:model_shape] == 'pbi'
+  secured_roles = PbiShapedModel.security_roles(tmsl)
+  unless secured_roles.empty?
+    puts
+    puts '==================== OPEN QUESTIONS ===================='
+    puts "   [required] model_shape_security: OPEN QUESTION: --model-shape pbi does not support row- or column-level security,"
+    puts "              and this model has role(s) with a table filter or column permission: #{secured_roles.join(', ')}."
+    puts '              Rerun without --model-shape pbi (the default shape ports security today). Nothing was built.'
+    exit 10
+  end
+end
 
 # Extraction notes that mean data was LOST (Enter-data cells loaded as NULL, Enter-data SQL not
 # generated for this warehouse, an assumed model culture). They live in model.bim annotations; read
@@ -825,10 +924,35 @@ if native_transform_gaps.any? && !opts[:allow_native_m_transforms]
   exit 10
 end
 
-# COMPOSITE GATE (Fabric --tmsl path only; --pbix already IS the complete local
+# REMOTE MEASURES AND TABLES (issue #97). A composite report over a published
+# Power BI semantic model keeps each remote measure as EXTERNALMEASURE("<measure>",
+# <type>, "DirectQuery to AS - <model>"): the DAX lives in the remote model, in
+# neither the .pbix nor a Fabric getDefinition. Each remote table it uses is a
+# DirectQuery proxy table (an 'entity' partition whose expressionSource is that
+# shared expression): its rows live in the remote model, so the converter's
+# --database/--schema + table-name fallback is a guess. Scanned on the model the
+# converter will see (after MODEL SCOPE), naming the remote models from the full
+# model's shared expressions. STOPS here, except on a Fabric model the composite
+# gate below stops anyway (it names them too). --allow-incomplete-model
+# continues: after conversion the pointers and everything built on them or on a
+# proxy table become Null metrics, and each proxy table a zero-row Custom SQL
+# placeholder, all reported as gaps (external-measures.json).
+ext_measures_path = File.join(WORK, 'external-measures.json')
+ext_scan = PbiExternalMeasure.scan(scoped_model || model, expressions: model['expressions'])
+FileUtils.rm_f(ext_measures_path) unless PbiExternalMeasure.any?(ext_scan) # a previous run's record is stale
+if PbiExternalMeasure.any?(ext_scan) && !opts[:allow_incomplete_model] &&
+   (opts[:pbix] || PbiComposite.incomplete_reasons(model).empty?)
+  File.write(ext_measures_path, JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked')))
+  puts
+  PbiExternalMeasure.stop_lines(ext_scan).each { |l| puts l }
+  puts "   (full list: #{ext_measures_path}). No Sigma objects were created."
+  exit 10
+end
+
+# COMPOSITE GATE (Fabric --tmsl path only: the .pbix carries the report-local
 # model). getDefinition returns an INCOMPLETE model for composite / live-
-# connected reports — the full model lives in the local .pbix. Detect it and
-# PROMPT for the .pbix instead of silently building a broken DM. --allow-
+# connected reports — the report-local part lives in the local .pbix. Detect it
+# and PROMPT for the .pbix instead of silently building a broken DM. --allow-
 # incomplete-model overrides. This is what MOTIVATES the local front door.
 unless opts[:pbix] || opts[:allow_incomplete_model]
   composite_reasons = PbiComposite.incomplete_reasons(model)
@@ -842,7 +966,18 @@ unless opts[:pbix] || opts[:allow_incomplete_model]
     puts '│  only the report-BOUND model, which is INCOMPLETE (it misses the report-local'
     puts '│  measures / calc tables, or is not resolvable standalone). Power BI also BLOCKS'
     puts '│  export-to-.pbix for live-connected reports, so device-auth cannot download it.'
-    puts '│  The COMPLETE model lives in the local .pbix on the author\'s machine.'
+    puts '│  The report-local model lives in the local .pbix on the author\'s machine.'
+    if PbiExternalMeasure.any?(ext_scan)
+      File.write(ext_measures_path, JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked')))
+      puts '│'
+      puts "│  #{ext_scan['pointers'].size} measure(s) are EXTERNALMEASURE pointers and #{ext_scan['proxy_tables'].size} table(s) " \
+           'are DirectQuery proxies of remote semantic model(s):'
+      ext_scan['remote_models'].first(6).each do |r|
+        puts "│    • #{PbiExternalMeasure.model_label(r)}: #{r['pointers'].size} pointer(s), #{r['tables'].size} table(s)"
+      end
+      ext_scan['proxy_tables'].first(6).each { |p| puts "│        table #{PbiExternalMeasure.table_label(p)}" }
+      puts '│  The .pbix carries the same pointers and proxies, not their DAX or rows: migrate those models first.'
+    end
     puts '│'
     puts '│  ACTION: ask the user for the local .pbix and re-run through the local front door:'
     puts "│      ruby scripts/migrate-powerbi.rb --pbix <that file.pbix> \\"
@@ -972,6 +1107,48 @@ conv = JSON.parse(File.read(File.join(WORK, 'conv-meta.json')))
 dm_model = conv['model']
 conv_warnings = conv['warnings'] || []
 conv_stats = conv['stats'] || {}
+# REMOTE MEASURES AND TABLES, on the converter output itself: never ship an
+# EXTERNALMEASURE pointer as a Sigma formula. A pointer the scoped TMSL scan did
+# not see (a --converter-out made from the full model) still stops the run here,
+# named from the full model. Under --allow-incomplete-model the pointers and
+# everything built on them or on a proxy table become Null metrics (like a measure
+# with no Sigma equivalent); the ones the converter dropped are added back as Null
+# metrics so their visuals still bind. Each proxy table's partition becomes a
+# zero-row typed SELECT, which the NativeQuery restore just below turns into the
+# element's Custom SQL source, so its columns still bind and no guessed
+# --database/--schema path ships (dropping the element instead would unbind every
+# field on it and the field-loss gate would ask for a rebuild that the remote
+# model makes impossible). All are reported as gaps.
+ext_dm_hits = PbiExternalMeasure.dm_pointers(dm_model)
+if !ext_dm_hits.empty? && !PbiExternalMeasure.any?(ext_scan)
+  ext_scan = PbiExternalMeasure.scan(model, proxy_model: scoped_model || model)
+end
+if !ext_dm_hits.empty? && !opts[:allow_incomplete_model]
+  File.write(ext_measures_path,
+             JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked', dm_hits: ext_dm_hits)))
+  puts
+  PbiExternalMeasure.stop_lines(ext_scan, dm_hits: ext_dm_hits).each { |l| puts l }
+  puts "   (full list: #{ext_measures_path}). No Sigma objects were created."
+  exit 10
+end
+ext_report_gaps = nil
+if PbiExternalMeasure.any?(ext_scan) || !ext_dm_hits.empty?
+  _ext_els = (dm_model['pages'] || []).flat_map { |pg| pg['elements'] || [] }
+  _ext_tables = (scoped_model || model)['tables'] || []
+  # Warehouse-path match first; a proxy or calculated table (no M path) by table order, only when it lines up.
+  _ext_home = PbiExternalMeasure.home_elements(_ext_els, _ext_tables, PbiMasterKey.table_names(_ext_els, _ext_tables))
+  ext_gaps = PbiExternalMeasure.neutralize!(dm_model, ext_scan) +
+             PbiExternalMeasure.place_missing!(dm_model, ext_scan, home: _ext_home)
+  # Rewrites the proxy tables' partitions in the in-memory model the NativeQuery restore below reads.
+  ext_table_gaps = PbiExternalMeasure.placeholder_partitions!(scoped_model || model, ext_scan, opts[:wh_type])
+  # No restructure recovers a measure whose DAX is in another model: neither the DAX gate nor the coverage gate may ask for one.
+  conv_warnings = PbiExternalMeasure.relabel_warnings(conv_warnings, ext_scan)
+  conv['warnings'] = conv_warnings
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  ext_report_gaps = ext_table_gaps + ext_gaps
+end
 native_result = PbiNativeQuery.apply!(dm_model, scoped_model || model, dialect: opts[:wh_type])
 native_blockers = native_result['blockers'].reject do |blocker|
   opts[:allow_native_m_transforms] &&
@@ -987,6 +1164,25 @@ if native_result['converted'].any?
   conv['model'] = dm_model
   File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
   puts "   restored #{native_result['converted'].size} NativeQuery source(s) as Custom SQL"
+end
+# REMOTE MEASURES AND TABLES report (--allow-incomplete-model): after the NativeQuery restore,
+# which renames each placeholder table's element, so every gap names the element as posted.
+if ext_report_gaps
+  PbiExternalMeasure.refresh_elements!(ext_report_gaps, dm_model, native_result['converted'])
+  File.write(ext_measures_path, JSON.pretty_generate(
+    PbiExternalMeasure.record(ext_scan, status: 'accepted_incomplete', gaps: ext_report_gaps, dm_hits: ext_dm_hits)
+  ))
+  ext_models = ext_scan['remote_models'].map { |r| PbiExternalMeasure.model_label(r) }
+  ext_models = ['(not named in the model: see external-measures.json)'] if ext_models.empty?
+  ext_tables_note = ext_table_gaps.empty? ? '' : " and #{ext_table_gaps.size} remote table(s) as zero-row Custom SQL placeholders"
+  warn "   \u26A0 REMOTE MEASURES AND TABLES (--allow-incomplete-model): #{ext_gaps.size} metric(s)/column(s) ship as Null gaps" \
+       "#{ext_tables_note}, not migrated (#{ext_measures_path}). Remote model(s): #{ext_models.join(', ')}"
+  ext_report_gaps.first(40).each { |g| warn "      - #{g['name']} (#{g['element']}): #{g['reason']}" }
+  warn "      … #{ext_report_gaps.size - 40} more in external-measures.json" if ext_report_gaps.size > 40
+  ext_what = ["#{ext_gaps.size} metric(s) built from EXTERNALMEASURE pointers or remote tables ship as Null"]
+  ext_what << "#{ext_table_gaps.size} remote table(s) ship as zero-row Custom SQL placeholders" unless ext_table_gaps.empty?
+  Offramp.log(WORK, kind: 'skip-flag-waived', detail: '--allow-incomplete-model',
+                    reason: "#{ext_what.join('; ')}; remote model(s): #{ext_models.join(', ')} (external-measures.json)")
 end
 
 # MODEL SCOPE: drop converter Views no visual / helper / relocated column needs.
@@ -1028,7 +1224,7 @@ if opts[:probe_sources]
       File.join(HERE, 'probe-native-sources.py'), dm_path: probe_dm_path, tmsl_path: normalized_tmsl_path,
       out_path: probe_report_path, state_path: File.join(WORK, 'native-source-probe.state.json'),
       connection: opts[:conn], folder: opts[:folder], dialect: PbiProbeGate.dialect_for(opts[:wh_type]),
-      probe_results: opts[:probe_results]
+      probe_results: opts[:probe_results], skip_literal_rows: opts[:model_shape] == 'pbi'
     ),
                    *(opts[:probe_concurrency] ? ['--probe-concurrency', opts[:probe_concurrency].to_s] : []),
                    *(opts[:probe_no_cache] ? ['--probe-no-cache'] : []),
@@ -1141,6 +1337,28 @@ unless calc_sql_result['converted'].empty?
   end
 end
 
+# Measures homed on a calculated table: the converter's calculated-table branch skips its
+# measure loop, so they were dropped with no warning naming them. Translate them with the
+# converter's own pbiDaxToSigma, carry each onto its table's element, and report (⛔/⚠,
+# naming the measure) every one that cannot be carried, so the DAX gate below asks about
+# it. Runs after the Custom SQL conversion above so the element's columns are final.
+# Record: <WORK>/calc-table-measures.json.
+calc_measure_model = scoped_model || model
+calc_measure_result = PbiCalcTableMeasures.apply!(
+  dm_model, calc_measure_model, conv_warnings,
+  PbiCalcTableMeasures.translate(calc_measure_model, CONV_MODULE, WORK)
+)
+unless calc_measure_result['attached'].empty? && calc_measure_result['reported'].empty?
+  File.write(File.join(WORK, 'calc-table-measures.json'), JSON.pretty_generate(calc_measure_result))
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  conv['warnings'] = conv_warnings
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  puts "   calculated-table measures: #{calc_measure_result['attached'].size} carried onto their table's element, " \
+       "#{calc_measure_result['reported'].size} not carried (calc-table-measures.json)"
+  calc_measure_result['reported'].each { |r| warn "   ⚠ measure #{r['measure']} (calculated table #{r['table']}) not carried; the DAX decisions list it" }
+end
+
 # Fail closed on calculated tables that only look converted. A CALENDAR spine
 # with NULL event flags is queryable and can pass shape/readback checks, but
 # every Black-Friday/Easter/etc. filter is wrong. Unlike ordinary DAX measure
@@ -1165,12 +1383,12 @@ unless calc_table_issues.empty?
   calc_table_issues.each { |issue| warn "      - #{issue}" }
 end
 _conv_els = (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }
-if dropped_views.to_a.empty? && !dm_resolver_changed
+if dropped_views.to_a.empty? && !dm_resolver_changed && calc_measure_result['attached'].empty?
   _n_els = conv_stats['elements']
   _n_cols = conv_stats['columns']
   _n_mets = conv_stats['metrics']
 else
-  # Views were dropped / the resolver changed the model after conversion: the converter's stats are stale.
+  # Views were dropped / the resolver changed the model / calculated-table measures were carried after conversion: the converter's stats are stale.
   _n_els = _conv_els.size
   _n_cols = _conv_els.sum { |e| (e['columns'] || []).size }
   _n_mets = _conv_els.sum { |e| (e['metrics'] || []).size }
@@ -1356,7 +1574,65 @@ end
 # any failure in the scan falls back to building a new DM — reuse never aborts.
 # ---------------------------------------------------------------------------
 reuse_dm_id = opts[:reuse_dm]
-if reuse_dm_id
+if opts[:model_shape] == 'pbi'
+  # --model-shape pbi (v1) always builds a new data model: reuse would keep an old, differently shaped one.
+  puts
+  puts '── Phase 2.9 · DM-reuse ──'
+  puts '   reuse not supported in --model-shape pbi (v1); building a new data model'
+  puts "   (--reuse-dm #{reuse_dm_id} ignored)" if reuse_dm_id
+  reuse_dm_id = nil
+  if scoped_tmsl_path && opts[:reuse_dm]
+    model_scope['reuse_bypassed'] = opts[:reuse_dm]
+    write_model_scope.call
+  end
+  # The shaped transform: runs after every step that renames or drops converter elements (name-sanitize,
+  # dm-resolver, calculated-table gate, NativeQuery restore, model scope, the DAX decisions checkpoint) and before
+  # convert-model.rb.
+  shape_dialect = PbiProbeGate.dialect_for(opts[:wh_type])
+  shape_probe =
+    if opts[:shape_probe_results]
+      abort "FATAL: --shape-probe-results not found: #{opts[:shape_probe_results]}" unless File.file?(opts[:shape_probe_results])
+      puts "   shape probes: replaying #{opts[:shape_probe_results]}"
+      PbiShapeRun.replay_probe(opts[:shape_probe_results])
+    elsif opts[:probe_sources] && opts[:conn] && opts[:folder]
+      puts '   shape probes: live (key check and slicer-carry counts through sigma-sql-probe.py)'
+      PbiShapeRun.live_probe(PY_ARGV, File.join(HERE, 'sigma-sql-probe.py'), connection: opts[:conn], folder: opts[:folder],
+                                                                              dialect: shape_dialect, work: WORK)
+    end
+  shape_skip = nil
+  if shape_probe.nil? && opts[:probe_sources]
+    gone = []
+    gone << '--connection' unless opts[:conn]
+    gone << '--folder' unless opts[:folder]
+    shape_skip = "key check skipped: --probe-sources was given but #{gone.join(' and ')} #{gone.size > 1 ? 'are' : 'is'} missing " \
+                 '(the live probe needs a Sigma connection and a scratch folder; --probe-results replays only the Custom SQL probe)'
+  end
+  begin
+    shape = PbiShapeRun.run!(dm_model, tmsl: { 'model' => (scoped_model || model) }, signals: signals,
+                                       native_result: native_result, dialect: shape_dialect,
+                                       flatten: opts[:flatten] || [], probe: shape_probe,
+                                       allow_unverified_keys: opts[:allow_unverified_keys], skip_reason: shape_skip)
+  rescue PbiShapeRun::ProbeFailure => e
+    puts
+    puts '==================== OPEN QUESTIONS ===================='
+    puts "   [required] shape_key_check: #{e.message}"
+    puts '   Nothing was built.'
+    exit 10
+  end
+  shaped_log = shape['log']
+  puts "   power bi shaped model: #{shaped_log['size_stats']['elements']} element(s), classes #{shaped_log['class_counts'].inspect}, " \
+       "#{Array(shaped_log['key_decisions']).size} key decision(s), #{Array(shaped_log['time_intel']).size} time-intelligence record(s)"
+  shape['notes'].each { |n| puts "   #{n}" }
+  shaped_names = JSON.parse(JSON.generate(dm_model)) # the names convert-model.rb may reset (non-friendly connections)
+  File.write(File.join(WORK, 'pbi-shaped-model.json'), JSON.pretty_generate(shaped_log))
+  File.write(File.join(WORK, 'measure-classes.json'), JSON.pretty_generate(shape['classes']))
+  File.write(File.join(WORK, 'relationship-keys.json'), JSON.pretty_generate(shape['keys']))
+  File.write(File.join(WORK, 'slicer-carry.json'), JSON.pretty_generate(shape['carry']))
+  %w[relationship-keys slicer-carry].each { |n| File.chmod(0o600, File.join(WORK, "#{n}.json")) } # warehouse results and SQL
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+elsif reuse_dm_id
   puts
   puts "── Phase 2.9 · DM-reuse (explicit --reuse-dm #{reuse_dm_id}) ──"
   if scoped_tmsl_path
@@ -1417,6 +1693,38 @@ end
 # Phase 3 — Build data model (fixups + validate + POST + readback) — OR reuse an
 # existing DM (skip the build entirely; read its spec back instead).
 # ---------------------------------------------------------------------------
+# One clock for "today": <WORK>/report-clock.json records the report timezone and
+# every clock site the build pinned (or could not pin, e.g. a reused data model).
+# build-oracle-sql.rb --report-clock and phase6-parity-pbi.rb --finalize read it.
+REPORT_CLOCK_PATH = File.join(WORK, 'report-clock.json')
+def write_report_clock!(dm_audit, dialect)
+  unpinned = Array(dm_audit && dm_audit['unpinned'])
+  org_tz = nil
+  # The Sigma account zone only matters for clock sites left unpinned (a reused
+  # data model): Sigma's bare Today()/Now() follow it. Best effort, admin-only.
+  if unpinned.any? && !CLOCK_OFFLINE
+    begin
+      require 'sigma_rest'
+      r = Sigma.request(:get, '/v2/organizations/settings/timezone')
+      org_tz = r['timezone'] if r.is_a?(Hash)
+    rescue StandardError
+      org_tz = nil
+    end
+  end
+  rec = PbiReportClock.record(timezone: REPORT_TZ, source: REPORT_TZ_SOURCE, dialect: dialect,
+                              data_model: dm_audit, sigma_org_timezone: org_tz)
+  File.write(REPORT_CLOCK_PATH, JSON.pretty_generate(rec))
+  pinned = Array(dm_audit && dm_audit['pinned']).size
+  puts "   report clock: #{REPORT_TZ} (#{REPORT_TZ_SOURCE}); data model: #{pinned} clock site(s) pinned, " \
+       "#{unpinned.size} unpinned -> #{REPORT_CLOCK_PATH}"
+  unless unpinned.empty?
+    warn "   \u26A0 #{unpinned.size} today/now site(s) in the data model are NOT on the report clock " \
+         "(#{unpinned.first(3).map { |u| "#{u['element']}: #{u['clock']}" }.join('; ')}) — today-relative parity will refuse them"
+  end
+  rec
+end
+CLOCK_OFFLINE = opts[:stop_before_post] # --stop-before-post: no Sigma reads either
+
 hdr(3, TOTAL, 'Build data model')
 
 if reuse_dm_id
@@ -1436,6 +1744,27 @@ if reuse_dm_id
     dm_spec = File.join(WORK, 'dm-spec.json')
     File.write(dm_spec, JSON.pretty_generate(spec))
     dm_model = spec                                   # conv_elements reads dm_model['pages']
+    # A reused data model is shared: leave existing elements untouched, but pin
+    # any page-fact elements this run explicitly adds or updates.
+    _reuse_clock_dialect = PbiReportClock.pin_dialect(opts[:wh_type])
+    _reuse_elements_before = {}
+    PbiReportClock.each_element(spec) { |el| _reuse_elements_before[el['id']] = JSON.generate(el) }
+    _reuse_clock_written = false
+    _pin_reused_changes = lambda do
+      doc = JSON.parse(File.read(dm_spec))
+      changed = []
+      PbiReportClock.each_element(doc) do |el|
+        changed << el if _reuse_elements_before[el['id']] != JSON.generate(el)
+      end
+      audit = PbiReportClock.apply!({ 'elements' => changed }, timezone: REPORT_TZ,
+                                    dialect: _reuse_clock_dialect, scope: 'data_model')
+      File.write(dm_spec, JSON.pretty_generate(doc)) unless audit['pinned'].empty?
+      audit['reused'] = true
+      audit['unpinned'] = PbiReportClock.scan(doc, report_timezone: REPORT_TZ, dialect: _reuse_clock_dialect)
+      dm_model = doc
+      write_report_clock!(audit, _reuse_clock_dialect)
+      _reuse_clock_written = true
+    end
     dm_rb = {
       'dataModelId' => dm_id,
       'pages' => (spec['pages'] || []).map do |p|
@@ -1446,10 +1775,12 @@ if reuse_dm_id
     File.write(File.join(WORK, 'dm-readback.json'), JSON.pretty_generate(dm_rb))
     n_el = dm_rb['pages'].flat_map { |p| p['elements'] || [] }.size
     puts "   REUSING dataModelId = #{dm_id} (#{n_el} element(s)) — convert + POST skipped"
-    if opts[:page_facts] && integrate_page_facts_dm!(opts, dm_spec, check: true) == :changed
+    if opts[:page_facts] &&
+       integrate_page_facts_dm!(opts, dm_spec, check: true, clock_dialect: _reuse_clock_dialect) == :changed
       # The reused DM lacks (or has stale) page-fact elements. Changing a shared, existing data model
       # is the user's call: say so and stop unless --page-facts-update-dm was given.
       unless opts[:page_facts_update_dm]
+        _pin_reused_changes.call
         puts
         puts '==================== OPEN QUESTIONS ===================='
         puts "   [required] page_facts_reused_dm: the reused data model #{dm_id} does not carry the page facts in"
@@ -1459,6 +1790,7 @@ if reuse_dm_id
       end
       abort 'FATAL: --page-facts-update-dm needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
       integrate_page_facts_dm!(opts, dm_spec)
+      _pin_reused_changes.call
       if opts[:stop_before_post]
         puts "   page facts: would PUT them into reused data model #{dm_id} (--stop-before-post: not written)"
         raise StopBeforePostPageFacts
@@ -1470,6 +1802,7 @@ if reuse_dm_id
       dm_model = JSON.parse(File.read(dm_spec))
       puts "   page facts: PUT into reused data model #{dm_id}"
     end
+    _pin_reused_changes.call unless _reuse_clock_written
     if opts[:stop_before_post]
       # --stop-before-post means NOTHING is created in Sigma on ANY path: the reuse path would go
       # on to build and POST the workbook in Phase 4. A draft-only page-fact run stops here too.
@@ -1537,6 +1870,7 @@ dm_spec = File.join(WORK, 'dm-spec.json')
 fixup = ['ruby', File.join(HERE, 'convert-model.rb'),
          '--converter-out', File.join(WORK, 'dm-raw.json'),
          '--out', dm_spec, '--name', WB_NAME.sub(/\(from Power BI\)\s*$/, 'DM (from Power BI)')]
+fixup += ['--model-shape', 'pbi'] if opts[:model_shape] == 'pbi' # Fixup 3b keeps the physical table prefix on renamed elements; views keeps the old target
 if opts[:folder]
   # caller gave an explicit folder; still need an owner — harvest from ref-dm if
   # present, else resolve the current user via whoami. Without this, a build-new
@@ -1560,10 +1894,30 @@ else
   abort 'FATAL: need --ref-dm (to harvest folderId/ownerId) or --folder plus a --ref-dm for ownerId'
 end
 run!(fixup, env: ENV.to_h)
+if opts[:model_shape] == 'pbi'
+  # convert-model.rb grounds warehouse names on non-friendly connections (WarehouseColumnRefs resets an element's name to
+  # the physical table name); say so, because the shaped model's Power BI element names are then not what was posted.
+  _resets = PbiShapeRun.name_resets(shaped_names, JSON.parse(File.read(dm_spec)))
+  unless _resets.empty?
+    warn "   \u26A0 #{_resets.size} element name(s) were reset to the physical table name by the connection grounding " \
+         "(non-friendly-name connection): #{_resets.first(5).map { |r| "#{r['from']} -> #{r['to']}" }.join(', ')}"
+    shaped_log['element_name_resets'] = _resets
+    File.write(File.join(WORK, 'pbi-shaped-model.json'), JSON.pretty_generate(shaped_log))
+  end
+end
 if opts[:page_facts]
   abort 'FATAL: --page-facts needs --connection (the page-fact SQL elements run on it)' unless opts[:conn]
   integrate_page_facts_dm!(opts, dm_spec)
 end
+# One clock for "today": pin the data model's Sigma Today()/Now() and SQL
+# CURRENT_DATE/CURRENT_TIMESTAMP (converter TODAY() tables, incremental-refresh
+# windows, page facts) to the report timezone before validation and POST.
+_clock_dialect = PbiReportClock.pin_dialect(opts[:wh_type]) # nil: SQL left as written, reported unpinned
+_dm_doc = JSON.parse(File.read(dm_spec))
+_clock_audit = PbiReportClock.apply!(_dm_doc, timezone: REPORT_TZ, dialect: _clock_dialect, scope: 'data_model')
+File.write(dm_spec, JSON.pretty_generate(_dm_doc)) unless _clock_audit['pinned'].empty?
+PbiReportClock.apply!(dm_model, timezone: REPORT_TZ, dialect: _clock_dialect, scope: 'data_model') # master-map metrics
+write_report_clock!(_clock_audit, _clock_dialect)
 run!(['ruby', File.join(HERE, 'validate-spec.rb'), '--type', 'datamodel', dm_spec])
 if opts[:stop_before_post]
   scaffold_page_facts!(opts, scoped_tmsl_path || opts[:tmsl], signals_path, dm_spec, nil, PbiProbeGate.dialect_for(opts[:wh_type])) if opts[:scaffold_page_facts]
@@ -1584,7 +1938,18 @@ _dm_post = ['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'datamode
 _dm_out, _dm_st = Open3.capture2e(ENV.to_h, *_dm_post)
 _dm_out.each_line { |l| puts "   #{l.rstrip}" } unless _dm_out.strip.empty?
 unless _dm_st.success?
-  hint = explain_unreadable_tables(_dm_out, dm_spec, opts[:conn])
+  # A DirectQuery proxy of a remote semantic model that still carries the converter's fallback
+  # path is unreadable because no such warehouse table exists, not for a missing GRANT: say so
+  # first (proxy tables of the full model), and keep it out of the GRANT advice.
+  _post_spec = (JSON.parse(File.read(dm_spec)) rescue {})
+  _post_els = Array(_post_spec['elements']) + Array(_post_spec['pages']).flat_map { |p| p['elements'] || [] }
+  remote_failed = PbiExternalMeasure.failure_proxies(_dm_out, _post_els,
+                                                     PbiExternalMeasure.scan(model, expressions: model['expressions']))
+  unless remote_failed.empty?
+    warn ''
+    PbiExternalMeasure.failure_lines(remote_failed).each { |l| warn l }
+  end
+  hint = explain_unreadable_tables(_dm_out, dm_spec, opts[:conn], skip: remote_failed.map { |p| p['table'] })
   if hint
     warn ''
     warn '   ┌─ UNREADABLE WAREHOUSE TABLE(S): the data-model POST failed because the'
@@ -1603,44 +1968,21 @@ end # unless reuse_dm_id (build-new path)
 # schedule calls use authoritative server element IDs. This is performance-only:
 # failures are recorded and surfaced but do not invalidate the migrated model.
 if opts[:materialization_cron]
-  spec_elements = (dm_model['pages'] || []).flat_map { |page| page['elements'] || [] }
+  # pbi shape: the posted spec file, which carries the page summaries integrate-page-fact.py wrote to it only.
+  spec_elements, pbi_targets = PbiShapeRun.materialization_inputs(
+    opts[:model_shape], dm_model, (opts[:model_shape] == 'pbi' ? JSON.parse(File.read(dm_spec)) : nil), shaped_log
+  )
   readback_elements = (dm_rb['pages'] || []).flat_map { |page| page['elements'] || [] }
   paired = PbiElementMatch.pair(spec_elements, readback_elements)
-  sql_with_readback = spec_elements.each_with_index.filter_map do |element, index|
-    next unless element.dig('source', 'kind') == 'sql'
-    server = paired[index]
-    next unless server
-    [element, { 'id' => server['id'], 'name' => server['name'] || element['name'] || element['id'] }]
-  end
-
   selectors = opts[:materialization_elements].to_s.split(',').map(&:strip).reject(&:empty?)
-  selected =
-    if selectors.empty? || selectors == ['all-sql']
-      sql_with_readback
-    else
-      sql_with_readback.select do |spec_element, server|
-        selectors.include?(spec_element['name'].to_s) || selectors.include?(server['name'].to_s)
-      end
-    end
-
-  missing = selectors.reject do |selector|
-    selector == 'all-sql' || sql_with_readback.any? do |spec_element, server|
-      selector == spec_element['name'].to_s || selector == server['name'].to_s
-    end
-  end
-  actions = missing.map do |selector|
-    {
-      'elementName' => selector,
-      'status' => 'error',
-      'error' => 'requested materialization element was not found among Custom SQL elements',
-      'remediation' => 'use an exact Custom SQL element name or all-sql'
-    }
-  end
+  # pbi model shape (R21): default targets are summaries, flattened children and Custom SQL fact sources,
+  # and an explicit --materialization-elements may name any element kind.
+  selected, actions = MaterializationSchedules.select_elements(spec_elements, paired, selectors: selectors, targets: pbi_targets)
 
   if selected.empty?
-    puts '   materialization: no matching Custom SQL elements'
+    puts "   materialization: no matching #{pbi_targets ? 'data model' : 'Custom SQL'} elements"
   else
-    puts "   materialization: reconciling #{selected.size} Custom SQL schedule(s)"
+    puts "   materialization: reconciling #{selected.size} #{pbi_targets ? 'element' : 'Custom SQL'} schedule(s)"
     actions.concat(
       MaterializationSchedules.reconcile(
         data_model_id: dm_id,
@@ -1649,6 +1991,25 @@ if opts[:materialization_cron]
         timezone: opts[:materialization_timezone]
       )
     )
+    if pbi_targets
+      # pbi shape: build now instead of waiting for the cron, so parity (materialization-freshness gate) sees
+      # fresh data. skipped = nothing to build (a warehouse-table element); failed/timeout are loud, not fatal.
+      sheet_ids = MaterializationSchedules.list(dm_id).each_with_object({}) { |e, h| h[e['elementId']] = e['sheetId'] } rescue {}
+      actions.select { |a| %w[created updated unchanged].include?(a['status']) }.each do |action|
+        sheet_id = sheet_ids[action['elementId']].to_s
+        if sheet_id.empty?
+          action['runNow'] = { 'status' => 'skipped-no-sheet-id', 'states' => [], 'seconds' => 0 }
+          warn "   [warn] materialization run-now #{action['elementName']}: no sheetId known (schedule listing failed); skipped"
+          next
+        end
+        puts "   materialization run-now: #{action['elementName']}"
+        run = MaterializationSchedules.run_now(data_model_id: dm_id, element_id: action['elementId'], sheet_id: sheet_id)
+        action['runNow'] = run
+        next if %w[ready skipped].include?(run['status'])
+        warn "   [warn] materialization run-now #{action['elementName']}: #{run['status']} #{run['error']}"
+        warn '          the schedule stays; parity waits on the freshness gate'
+      end
+    end
   end
   File.write(File.join(WORK, 'materialization-actions.json'), JSON.pretty_generate(actions))
   actions.each do |action|
@@ -1679,6 +2040,32 @@ hdr(4, TOTAL, 'Build workbook')
 # The DM readback element name is authoritative (PUT may rename); match by name.
 conv_elements = (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }
 dm_elements = dm_rb['pages'].flat_map { |p| p['elements'] || [] }
+
+if opts[:model_shape] == 'pbi'
+  # --model-shape pbi: every master is a data model element the charts read directly (no Data page). The map comes
+  # from the shaped model and the REAL readback, not from the converter-element derivation below (views mode only).
+  direct_map = PbiShapeRun.direct_master_map(dm_model, dm_rb, { 'model' => (scoped_model || model) }, shaped_log, signals, shape['carry'])
+  masters = direct_map['masters']
+  master_map = direct_map
+  mmap_path = File.join(WORK, 'master-map.json')
+  File.write(mmap_path, JSON.pretty_generate(master_map))
+  shaped_log['direct_map'] = PbiShapeRun.direct_map_log(direct_map)
+  File.write(File.join(WORK, 'pbi-shaped-model.json'), JSON.pretty_generate(shaped_log))
+  puts "   master-map (pbi): #{masters.size} direct master(s), #{direct_map['fields'].size} field/measure ref(s) -> #{mmap_path}"
+  puts "   master-map (pbi): #{direct_map['conflicts'].size} conflict(s) (class D), #{direct_map['unresolved'].size} unresolved, " \
+       "#{direct_map['class_d_fields'].size} class D measure(s)"
+  direct_map['conflicts'].first(6).each { |c| puts "     conflict: #{c['page']} / #{c['visual']}: #{c['reason']}" }
+  direct_map['carried_alts'].select { |a| a['skipped'] }.each { |a| puts "   [warn] carried column #{a['column']} of #{a['element']}: #{a['skipped']}" }
+  if !direct_map['class_d_visuals'].empty? && !opts[:page_facts]
+    puts "   [note] #{direct_map['class_d_visuals'].size} visual(s) need two relationship paths to one table (class D): HELD BACK and recorded as dropped in"
+    puts "          coverage.json (#{direct_map['class_d_visuals'].first(4).map { |c| "#{c['page']} / #{c['visual']}" }.join('; ')}). Draft the page summaries with --scaffold-page-facts."
+  end
+  if !direct_map['class_d_fields'].empty? && !opts[:page_facts]
+    puts "   [note] class D measures (#{direct_map['class_d_fields'].first(6).join(', ')}) read no summary yet: their visuals are HELD BACK and"
+    puts '          recorded as dropped in coverage.json. Draft the page summaries with --scaffold-page-facts, complete them, rerun with --page-facts <dir>.'
+  end
+end
+unless opts[:model_shape] == 'pbi' # views mode: the converter-element derivation (kept unindented; see the pbi branch above)
 
 # Display-name helper: a column formula "[Tbl/Order Id]" -> "Order Id".
 disp = lambda { |formula| formula.to_s.gsub(/^\[|\]$/, '').split('/')[-1] }
@@ -2065,6 +2452,7 @@ master_map = { 'masters' => masters, 'fields' => field_map }
 mmap_path = File.join(WORK, 'master-map.json')
 File.write(mmap_path, JSON.pretty_generate(master_map))
 puts "   master-map: #{masters.size} master(s), #{field_map.size} field/measure ref(s) -> #{mmap_path}"
+end # unless pbi
 
 pf_model_path = scoped_tmsl_path || opts[:tmsl]
 pf_dialect = PbiProbeGate.dialect_for(opts[:wh_type])
@@ -2073,6 +2461,7 @@ if opts[:page_facts]
   _mm_cmd = [*PY_ARGV, File.join(HERE, 'integrate-page-fact.py'), opts[:page_facts], '--master-map', mmap_path,
              '--dm-readback', File.join(WORK, 'dm-readback.json')]
   _mm_cmd << '--allow-todo' if opts[:allow_page_fact_todo]
+  _mm_cmd += ['--shape', 'pbi'] if opts[:model_shape] == 'pbi'
   run!(_mm_cmd)
 end
 if opts[:scaffold_page_facts]
@@ -2096,13 +2485,15 @@ build = ['ruby', File.join(HERE, 'build-workbook-from-pbir.rb'),
          '--model', scoped_tmsl_path || opts[:tmsl],
          '--control-scope-out', File.join(WORK, 'control-scope.json'),
          '--coverage-out', File.join(WORK, 'coverage.json'),
-         '--out', wb_spec, '--layout-out', layout]
+         '--out', wb_spec, '--layout-out', layout,
+         '--report-timezone', REPORT_TZ, '--report-clock', REPORT_CLOCK_PATH]
 masters_pruned_path = File.join(WORK, 'masters-pruned.json')
 build += (opts[:full_model] ? ['--no-prune-masters'] : ['--masters-pruned-out', masters_pruned_path])
 # The workbook POST requires a folderId. Use --folder if given, else inherit the
 # DM's folderId (harvested from the ref-dm at Phase 3) so both land together.
 wb_folder = opts[:folder] || (JSON.parse(File.read(dm_spec))['folderId'] rescue nil)
 build += ['--folder-id', wb_folder] if wb_folder
+build << '--direct-sources' if opts[:model_shape] == 'pbi' # charts read the data model elements; no Data page, per-visual sources
 
 # GRACEFUL AGENT-PATH FALLBACK. The DM is already posted + valid (dm_id above), so
 # if the MECHANICAL workbook layer (build / validate-spec / POST) hits a field it
@@ -2112,7 +2503,45 @@ build += ['--folder-id', wb_folder] if wb_folder
 # workbook against this DM (see SKILL.md). Never worse than the proven agent path.
 begin
   build_log = run_wb!(build)
-  if opts[:page_facts]
+  if opts[:model_shape] == 'pbi'
+    # The views-mode union recipe (wire-slicer-gate.py) is not used: carried slicers target the summaries that carry
+    # them (carried_alts!), and a page with an uncarried slicer gets ONE live element instead (R54).
+    wb_doc = JSON.parse(File.read(wb_spec))
+    scope_doc = JSON.parse(File.read(File.join(WORK, 'control-scope.json')))
+    # the map on disk: --page-facts integration added the page summaries' masters after it was built
+    slog = PbiShapeRun.apply_slicers!(wb_doc, scope_doc, dm_model, JSON.parse(File.read(dm_spec)), JSON.parse(File.read(mmap_path)), shaped_log, shape['carry'],
+                                      { 'model' => (scoped_model || model) }, PbiProbeGate.dialect_for(opts[:wh_type]),
+                                      page_fact_live: (opts[:page_facts] ? lambda do |wdoc|
+                                        # class D page summaries: live SQL per summary (one predicate per hook fact; see pbi-live-page-fact.py)
+                                        live_in = File.join(WORK, 'live-page-facts-spec.json')
+                                        live_out = File.join(WORK, 'live-page-facts.json')
+                                        File.write(live_in, JSON.generate(wdoc))
+                                        # Not a shell: an argv array that runs this plugin's pbi-live-page-fact.py; paths are this run's own.
+                                        # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
+                                        o, st = Open3.capture2e(*PY_ARGV, File.join(HERE, 'pbi-live-page-fact.py'), '--spec', live_in, '--page-facts', opts[:page_facts],
+                                                                '--model', pf_model_path, '--dm-spec', dm_spec, '--master-map', mmap_path, '--out', live_out,
+                                                                '--dialect', (%w[snowflake databricks bigquery].include?(pf_dialect) ? pf_dialect : 'snowflake'))
+                                        o.each_line { |l| puts "   #{l.rstrip}" } unless o.strip.empty?
+                                        abort "FATAL: pbi-live-page-fact.py failed (#{st.exitstatus})" unless st.success?
+                                        JSON.parse(File.read(live_out))['summaries']
+                                      end : nil))
+    if slog['changed']
+      File.binwrite(wb_spec, JSON.pretty_generate(wb_doc))
+      File.binwrite(layout, wb_doc['document']['layout'])
+      File.binwrite(File.join(WORK, 'control-scope.json'), JSON.pretty_generate(scope_doc))
+    end
+    shaped_log['slicers'] = slog
+    shaped_log['limits'] = PbiShapeRun.limits_from_coverage((JSON.parse(File.read(File.join(WORK, 'coverage.json'))) rescue {}), shaped_log['classes'])
+    shaped_log['limits'].each { |l| puts "   [limit] #{l['visual']}: dropped #{l['dropped'].join(', ')} (reads #{l['source']} only)" }
+    File.write(File.join(WORK, 'pbi-shaped-model.json'), JSON.pretty_generate(shaped_log))
+    slog['live'].each { |l| puts "   live element: #{l['element']} (page #{l['page']}; controls #{l['controls'].map { |c| c['field'] }.join(', ')})" }
+    slog['date_filters'].each { |d| puts "   date slicer #{d['field']} filters the plotted days of #{d['readers'].join(', ')} (window values stay over full history)" }
+    slog['not_applied'].each { |n| puts "   [warn] slicer not applied: #{n['page']} #{n['control'] || n['summary']}#{n['field'] ? " (#{n['field']})" : ''}: #{n['reason']}" }
+    slog['unreached'].group_by { |u| u['control'] }.each do |cid, rows|
+      puts "   [warn] slicer #{cid} (#{rows[0]['source']}) does not filter #{rows.map { |r| r['element'] }.uniq.first(4).join(', ')}: #{rows[0]['reason'].to_s[0, 110]}"
+    end
+  end
+  if opts[:page_facts] && opts[:model_shape] != 'pbi'
     # Slicers on dimensions a page fact does not carry: control-parameterized SQL behind a union gate
     # (refs/large-pbix.md). Rewrites the spec + layout.xml in place; report in slicer-gate.json.
     run_wb!([*PY_ARGV, File.join(HERE, 'wire-slicer-gate.py'), '--spec', wb_spec, '--page-facts', opts[:page_facts],
@@ -2182,6 +2611,28 @@ end
 wb_rb = JSON.parse(File.read(wb_readback))
 wb_id = wb_rb['workbookId']
 puts "   workbookId = #{wb_id}"
+
+# Report only (never changes a spec, never fails the run): where every Power BI item went in Sigma, and the limits of
+# this migration, written into WORK as pbi-map.json/.md and limits.md.
+write_shaped_report = lambda do
+  begin
+    _rep_cmd = ['ruby', File.join(HERE, 'pbi-shaped-report.rb'), '--tmsl', (scoped_tmsl_path || opts[:tmsl]), '--signals', signals_path,
+                '--dm-spec', dm_spec, '--wb-spec', wb_spec, '--out-dir', WORK]
+    if opts[:model_shape] == 'pbi'
+      _rep_cmd += ['--classes', File.join(WORK, 'measure-classes.json'), '--shaped-log', File.join(WORK, 'pbi-shaped-model.json'),
+                   '--slicer-carry', File.join(WORK, 'slicer-carry.json')]
+    end
+    _rep_out, _rep_st = Open3.capture2e(*_rep_cmd)
+    if _rep_st.success?
+      puts "   #{_rep_out.strip.lines.last.to_s.strip}"
+    else
+      puts "   [warn] pbi-shaped-report failed: #{_rep_out.strip.lines.last(3).join(' ').strip}"
+    end
+  rescue StandardError => e
+    puts "   [warn] pbi-shaped-report failed: #{e.message}"
+  end
+end
+write_shaped_report.call
 
 # Gate-state stamp (after a live post): control_flip_required=true auto-enables
 # the shared assert-phase6-ran.rb gate 7b on a STANDALONE run too, matching the
@@ -2352,6 +2803,32 @@ end
 freshness = File.exist?(fresh_path) ? (JSON.parse(File.read(fresh_path)) rescue {}) : {}
 stale_days = freshness['staleDays']
 
+# ---- materialization freshness (pre-parity gate) -----------------------------
+# Creating a schedule starts a run at once, and a materialized element serves its
+# LAST run: if an upstream table changed after it, Sigma shows old data and parity
+# against the live oracle compares two different snapshots. Wait for the runs by
+# POLLING the warehouse (t_mat LAST_ALTERED vs upstream LAST_ALTERED) against a
+# wall-clock deadline — never one long sleep (host sleep stretches it, and the
+# job API keeps reporting the first run). phase6-parity-pbi.rb --finalize refuses
+# until <WORK>/materialization-freshness.json says FRESH.
+mat_actions_path = File.join(WORK, 'materialization-actions.json')
+_mat_actions = File.exist?(mat_actions_path) ? (JSON.parse(File.read(mat_actions_path)) rescue []) : []
+if Array(_mat_actions).any? { |a| a.is_a?(Hash) && %w[created updated unchanged].include?(a['status']) }
+  puts '   materialization freshness: polling until each scheduled run lands (wall-clock deadline 900s)'
+  _mf = ['ruby', File.join(HERE, 'check-materialization-freshness.rb'), '--data-model', dm_id, '--workdir', WORK,
+         '--wait', '900']
+  _mf += ['--connection', opts[:conn]] if opts[:conn]
+  _mf += ['--folder', opts[:folder]] if opts[:folder]
+  _mf += ['--default-db', opts[:db]] if opts[:db]
+  _mf += ['--default-schema', opts[:schema]] if opts[:schema]
+  _mf_out, _mf_st = Open3.capture2e(ENV.to_h, *_mf)
+  _mf_out.each_line { |l| puts "   #{l.rstrip}" }
+  unless _mf_st.success?
+    warn "   \u26A0 materialization freshness is not FRESH: value parity (phase6-parity-pbi.rb) will refuse until it is; " \
+         'rerun check-materialization-freshness.rb --rematerialize --wait 900'
+  end
+end
+
 # bead fmte — the SOURCE-FRESHNESS banner LEADS the parity output (read this
 # before any side-by-side): a stale import snapshot / failed refresh explains
 # "Sigma shows more data" deltas up front instead of after they look wrong.
@@ -2413,6 +2890,41 @@ fresh_classes = []
 data_els = wb_pairs.select do |_el, page|
   page && (page['id'] == 'page-data' || page['name'].to_s =~ /data/i)
 end.map(&:first)
+if opts[:model_shape] == 'pbi'
+  # pbi shape: no Data page to export. Count each table at its data model source through the same probe the
+  # shape run used (sigma-sql-probe live, or the --shape-probe-results replay); a COUNT is cheap, so no row cap.
+  snaps = (freshness['snapshot'] || {}).reject { |_t, snap| snap['rows'].nil? }
+  if shape_probe.nil?
+    snaps.each_key do |table|
+      fresh_classes << ['SKIPPED', table, 'no warehouse probe for the pbi-shape freshness compare ' \
+                                          '(pass --probe-sources with --connection and --folder, or --shape-probe-results)']
+    end
+  else
+    fresh_inputs = begin
+      [JSON.parse(File.read(dm_spec)), JSON.parse(File.read(scoped_tmsl_path || opts[:tmsl]))]
+    rescue StandardError => e
+      "could not read the data model spec or TMSL for the freshness compare (#{e.class}: #{e.message[0, 80]})"
+    end
+    if fresh_inputs.is_a?(String)
+      snaps.each_key { |table| fresh_classes << ['SKIPPED', table, fresh_inputs] }
+    else
+      fq = PbiShapeRun.freshness_queries(fresh_inputs[0], fresh_inputs[1], snaps, shape_dialect)
+      fc = PbiShapeRun.freshness_counts(shape_probe, fq)
+      snaps.each do |table, snap|
+        c = fc[table] || { 'skip' => 'no freshness result' }
+        if c['skip']
+          fresh_classes << ['SKIPPED', table, c['skip']]
+        else
+          cls = PbiShapeRun.classify_freshness(table, snap, c['rows'], c['maxDates'], stale_days: stale_days,
+                                               creds_suspect: freshness['credsSuspect'], failures: freshness['failures'])
+          cls[2] = "#{cls[2]} [#{c['notes'].join('; ')}]" unless Array(c['notes']).empty?
+          fresh_classes << cls
+        end
+      end
+    end
+  end
+  puts '   (pbi shape: counts taken at each table\'s data model source, not exported from a Data page)' if snaps.any?
+else
 (freshness['snapshot'] || {}).each do |table, snap|
   pbi_rows = snap['rows']
   next if pbi_rows.nil?
@@ -2436,38 +2948,17 @@ end.map(&:first)
     fresh_classes << ['SKIPPED', table, "export failed: #{e.message[0, 80]}"]
     next
   end
-  wh_rows = rows.size
   # max-date compare: match each snapshot date col to an export key by name.
-  date_note = nil
-  newer_dates = false
+  wh_maxes = {}
   (snap['maxDates'] || {}).each do |dcol, pbi_max|
     next if pbi_max.nil?
     key = (rows.first || {}).keys.find { |k| norm.call(k) == norm.call(dcol) }
     next unless key
-    wh_max = rows.map { |r| r[key] }.compact.max
-    pd = (Date.parse(pbi_max.to_s) rescue nil)
-    wd = (Date.parse(wh_max.to_s) rescue nil)
-    next unless pd && wd
-    if wd > pd
-      newer_dates = true
-      date_note = "max(#{dcol}) warehouse=#{wd} vs PBI=#{pd}"
-    end
+    wh_maxes[dcol] = rows.map { |r| r[key] }.compact.max
   end
-  stale_or_failed = (stale_days && stale_days >= 1) || freshness['credsSuspect'] ||
-                    (freshness['failures'] || []).any?
-  if wh_rows == pbi_rows && !newer_dates
-    fresh_classes << ['MATCH', table, "rows=#{wh_rows} (warehouse == PBI snapshot)"]
-  elsif wh_rows >= pbi_rows
-    why = stale_or_failed ? 'stale/failed-refresh snapshot explains it' : 'warehouse moved since the refresh'
-    delta = wh_rows - pbi_rows
-    msg = "Sigma will show more data: warehouse rows=#{wh_rows} vs PBI snapshot=#{pbi_rows}" \
-          "#{delta.positive? ? " (+#{delta})" : ''}#{date_note ? "; #{date_note}" : ''} — #{why}"
-    fresh_classes << ['STALE-EXPLAINED', table, msg]
-  else
-    fresh_classes << ['DIVERGENT', table,
-                      "warehouse rows=#{wh_rows} < PBI snapshot=#{pbi_rows} — Sigma shows LESS data " \
-                      'than the source snapshot; check the table/path mapping']
-  end
+  fresh_classes << PbiShapeRun.classify_freshness(table, snap, rows.size, wh_maxes, stale_days: stale_days,
+                                                  creds_suspect: freshness['credsSuspect'], failures: freshness['failures'])
+end
 end
 if fresh_classes.any?
   puts '   freshness deltas (table-level, Sigma live vs PBI snapshot):'
@@ -2560,7 +3051,25 @@ else
     if n_controls == 0
       [:none, nil]
     elsif has_creds && File.exist?(probe)
-      system(RbConfig.ruby, probe, '--workbook-id', wb_id, '--out', probe_out)
+      flip_args = []
+      if opts[:model_shape] == 'pbi'
+        # pbi shape: a control's value source is a lookup column of its first target chart, which a chart export does not
+        # carry (the probe would SKIP every list control). Read the flip values from the warehouse instead (lib/pbi_flip_values.rb).
+        begin
+          _tg = PbiFlipValues.targets(JSON.parse(File.read(wb_spec)), JSON.parse(File.read(dm_spec)))
+          if shape_probe && _tg.any? { |t| !t['skip'] }
+            _fvals, _fskip = PbiFlipValues.values(_tg, shape_probe.call('flip', PbiFlipValues.queries(_tg, shape_dialect)))
+            flip_args = PbiFlipValues.args(_fvals)
+            puts "   Phase 6b (pbi): flip value read from the warehouse for #{_fvals.size} list control(s); #{_fskip.size} left to the probe"
+            _fskip.each { |cid, why| puts "     [UNVERIFIED unless the probe can pick one] #{cid}: #{why}" }
+          else
+            puts '   Phase 6b (pbi): no warehouse probe for the list-control flip values (pass --probe-sources with --connection and --folder); the probe tries its own export lookup'
+          end
+        rescue StandardError => e
+          warn "   [WARN] Phase 6b (pbi): flip values not read from the warehouse (#{e.class}: #{e.message[0, 100]})"
+        end
+      end
+      system(RbConfig.ruby, probe, '--workbook-id', wb_id, '--out', probe_out, *flip_args)
       _rc  = $?.exitstatus
       _res = (JSON.parse(File.read(File.join(probe_out, 'probe-results.json'))) rescue nil)
       FlipGate.decide(_rc, _res)
@@ -2607,6 +3116,8 @@ else
   else
     puts "   [WARN] Phase 6b: #{flip_line}"
   end
+  # pbi shape: limits.md lists every control the proof could not verify (read from probe-controls/probe-results.json)
+  write_shaped_report.call if opts[:model_shape] == 'pbi' && File.exist?(File.join(probe_out, 'probe-results.json'))
 end
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,72 @@
+[
+ {
+  "control": "CategoryNameFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "Frozen",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "BrandFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "Goldcrest",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "PrivateLabelFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "False",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "CustomerRegionFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "East",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "SegmentFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "Consumer",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "LoyaltyMemberFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "False",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "StoreRegionFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "South",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "ChannelFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "Retail",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "YearFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "2024",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ },
+ {
+  "control": "SizeFilter",
+  "result": "PASS",
+  "element": "el-lsalesb4fb3d",
+  "value": "Medium",
+  "note": "explicit --value; in-closure export differs (1 -> 1 rows)"
+ }
+]

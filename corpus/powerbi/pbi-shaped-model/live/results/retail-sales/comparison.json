@@ -1,0 +1,132 @@
+{
+ "pbi": {
+  "dm_elements": 9,
+  "sql_elements": 1,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 35,
+  "hidden_or_unread": 0,
+  "clicks_to_source": 2,
+  "clicks_to_source_max": 2,
+  "clicks_by_visual": {
+   "Sales Amount": 2,
+   "Units": 2,
+   "Gross Margin": 2,
+   "GM %": 2,
+   "Orders": 2,
+   "Avg Price": 2,
+   "Sales Amount by Category": 2,
+   "Sales Amount and Gross Margin by Month": 2,
+   "Brand: sales, list value, private label": 2,
+   "Sales by Ship Date": 1,
+   "Sales Amount (2)": 1,
+   "Sales by ship month and order month": 1,
+   "Sales by Ship Date by Store Region": 1,
+   "Channel: ship date vs order date": 1,
+   "Sales Amount (3)": 2,
+   "Units (2)": 2,
+   "Sales Amount by Store Region": 2,
+   "Brand: sales and units": 2
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 0.1
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 3.6
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 3.9
+    },
+    {
+     "phase": "5-layout",
+     "seconds": 37.4
+    },
+    {
+     "phase": "6-parity",
+     "seconds": 33.1
+    }
+   ],
+   "totalSeconds": 78.1,
+   "extractCache": "extract-cache: reused Phase 0/1 extraction (fingerprint)"
+  },
+  "parity": "PASS"
+ },
+ "views": {
+  "dm_elements": 10,
+  "sql_elements": 0,
+  "band_target": "30-40",
+  "band": "below",
+  "wb_elements": 41,
+  "hidden_or_unread": 11,
+  "clicks_to_source": 4,
+  "clicks_to_source_max": 4,
+  "clicks_by_visual": {
+   "A3C686": 1,
+   "DD3B86": 1,
+   "2BD5B0": 2,
+   "ABC3A1": 2,
+   "Sales Amount": 4,
+   "Units": 4,
+   "Gross Margin": 4,
+   "GM %": 4,
+   "Orders": 4,
+   "Avg Price": 4,
+   "Sales Amount by Category": 3,
+   "Sales Amount and Gross Margin by Month": 4,
+   "Sales Amount (2)": 4,
+   "Sales by ship month and order month": 4,
+   "Channel: ship date vs order date": 4,
+   "Sales Amount (3)": 4,
+   "Units (2)": 4,
+   "Sales Amount by Store Region": 4,
+   "Brand: sales and units": 3
+  },
+  "timing": {
+   "phases": [
+    {
+     "phase": "1-discover-extract",
+     "seconds": 0.1
+    },
+    {
+     "phase": "2-convert",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2a-probe-sources",
+     "seconds": 0.0
+    },
+    {
+     "phase": "2-convert-fixers",
+     "seconds": 0.0
+    },
+    {
+     "phase": "3-build-data-model",
+     "seconds": 3.6
+    },
+    {
+     "phase": "4-build-workbook",
+     "seconds": 0.4
+    }
+   ],
+   "totalSeconds": 4.1
+  },
+  "parity": "FAIL"
+ }
+}

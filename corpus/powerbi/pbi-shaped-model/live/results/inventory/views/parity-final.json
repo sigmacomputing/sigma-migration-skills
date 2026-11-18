@@ -1,0 +1,6 @@
+{
+ "status": "NOT_APPLICABLE",
+ "reason": "the views shape built no chart element (all 4 data visuals dropped); there is nothing to compare with the Power BI DAX oracle",
+ "charts_built": 0,
+ "source_charts": 4
+}

@@ -50,7 +50,13 @@ enum decode, `sortDefinition` read (never inferred from row order), unmapped vis
 loud `approximated`, bookmarks → per-state workbooks, visualInteractions read, geo
 `dataCategory` → map kind, Databricks lowercase casing (lanq.7), multi-schema override
 (lanq.6), cause-grouped coverage + ungranted-schema grant surfacing (Track 1),
-measure entity-alias + friendly/physical reconciliation (Track 2).
+measure entity-alias + friendly/physical reconciliation (Track 2), composite remote
+measures and proxy tables (`EXTERNALMEASURE` pointers and DirectQuery-to-AS `entity`
+partitions into a published semantic model: the `.pbix` extractor emits the proxy tables as
+`entity` partitions with their `expressionSource`, as Fabric does; STOP naming the remote
+models and tables on every route, or, under `--allow-incomplete-model`, Null-metric gaps and
+zero-row Custom SQL placeholder tables in `external-measures.json`, never a guessed
+`--database/--schema` path; `lib/pbi_external_measure.rb`, issue #97).
 
 ## Optimistic "handled" to re-audit (critic)
 - **Snowflake `[Role=…]` dropped** — can bind row-access policies; dropping silently
@@ -72,7 +78,8 @@ DAX everyday 80%: `RELATED`/`RELATEDTABLE` (esp. a calc column used as a join ke
 `COALESCE`/`IFERROR`, `PATH*` (parent-child — exercised by the ProData P&L corpus),
 `TREATAS`/`CONCATENATEX`, `CALCULATETABLE`/`SUMMARIZE`/`ADDCOLUMNS`, semi-additive +
 custom-fiscal time-intel, measure-to-measure dependency ordering. Modeling:
-`alternateOf` aggregation tables, composite/DQ-over-AS proxy tables, `DATATABLE()`
+`alternateOf` aggregation tables, calculated columns that use a composite remote measure or
+proxy table (the measures and tables themselves are handled above), `DATATABLE()`
 literals, `detailRowsDefinition`, `column.variations`/`defaultHierarchy`,
 `what-if`/dynamic-M parameters, shared M functions/`expressionSource`. Non-warehouse
 M families (Excel/CSV/SharePoint/Web/Dataflows/Dataverse/Salesforce/OData/ODBC/Kusto/

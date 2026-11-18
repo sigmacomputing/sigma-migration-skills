@@ -39,6 +39,7 @@ require 'optparse'
 require 'open3'
 require_relative 'dax-restructure-patterns'
 require_relative 'lib/warehouse_column_refs'
+require_relative 'lib/pbi_external_measure'
 
 opts = {}
 OptionParser.new do |p|
@@ -52,6 +53,7 @@ OptionParser.new do |p|
   p.on('--owner-id ID')         { |v| opts[:owner] = v }
   p.on('--name NAME')           { |v| opts[:name] = v }
   p.on('--out PATH')            { |v| opts[:out] = v }
+  p.on('--model-shape SHAPE', %w[pbi views], 'pbi (the orchestrator passes it only in --model-shape pbi mode): Fixup 3b rewrites an unknown base-column prefix to the physical table name; views (default) keeps the element name') { |v| opts[:model_shape] = v }
   p.on('--restructure-map PATH','Optional JSON: measure name -> {generator, args} overrides for (b)-bucket DAX') { |v| opts[:rmap] = v }
   p.on('--table-map PATH','Optional JSON: model table -> actual warehouse table name; repoints sources + base column refs (use when the customer landed import-mode data under different table names)') { |v| opts[:tmap] = v }
   p.on('--restructure-from-bim PATH','model.bim to scan for (b)-bucket DAX measures to auto-emit as elements') { |v| opts[:rbim] = v }
@@ -94,6 +96,20 @@ raw = JSON.parse(File.read(opts[:cvt]))
 # handle all three (and a sigmaDataModel that itself nests model).
 dm = raw['sigmaDataModel'] || raw['model'] || raw
 dm = dm['model'] if dm.is_a?(Hash) && dm['model']
+
+# A composite model's remote measures arrive as EXTERNALMEASURE(...) pointers whose DAX lives
+# in another semantic model (issue #97). migrate-powerbi.rb stops on them or, under
+# --allow-incomplete-model, turns them into Null gaps before calling this script, so a pointer
+# here means the run.sh / hand-run route: refuse rather than ship the pointer as a formula.
+ext_hits = PbiExternalMeasure.dm_pointers(dm)
+unless ext_hits.empty?
+  warn "STOP: #{ext_hits.size} formula(s) in the converter output are EXTERNALMEASURE pointers into a remote " \
+       "Power BI semantic model (their DAX is not in this model): " \
+       "#{ext_hits.first(8).map { |h| "#{h['name']} (#{h['element']})" }.join(', ')}#{ext_hits.size > 8 ? ', ...' : ''}."
+  warn '      Run scripts/migrate-powerbi.rb instead: it stops and names the remote models, or with'
+  warn '      --allow-incomplete-model ships them as Null metrics reported as gaps. No spec was written.'
+  exit 10
+end
 
 # Harvest folderId/ownerId from a reference DM unless both supplied.
 folder, owner = opts[:folder], opts[:owner]
@@ -166,18 +182,27 @@ reprefixed = 0
     next unless (el['source'] || {})['kind'] == 'warehouse-table'
     name = el['name'].to_s
     next if name.empty?
+    # views shape (default): the rewrite target is the element name, exactly as it always was. The Power BI-shaped
+    # mode (--model-shape pbi, passed only by the orchestrator in that mode) names the element after the Power BI
+    # table while a base column's prefix stays the warehouse table's physical name (the path tail; live-proven),
+    # so there the rewrite target is the path tail and a prefix already equal to it is left alone.
+    own = name
+    if opts[:model_shape] == 'pbi'
+      tail = el['source']['path'].is_a?(Array) ? el['source']['path'].last.to_s : ''
+      own = tail unless tail.empty?
+    end
     (el['columns'] || []).each do |c|
       f = c['formula']
       next unless f.is_a?(String)
       m = f.match(%r{\A\[([^\]/]+)/([^\]/]+)\]\z}) # exactly [Prefix/Leaf], a single slash
       next unless m
       pfx = m[1]
-      next if pfx == name # already references its own element
+      next if pfx == own || pfx == name # already references its own element
       # Sigma element references are literal. Treating spaces/underscores or
       # case as equivalent makes `[Cost Center/X]` look valid when the actual
       # element is `COST_CENTER`, leaving a dependency-not-found formula.
       next if known_names.include?(pfx) # exact valid ref to a known element
-      c['formula'] = "[#{name}/#{m[2]}]"
+      c['formula'] = "[#{own}/#{m[2]}]"
       reprefixed += 1
     end
   end

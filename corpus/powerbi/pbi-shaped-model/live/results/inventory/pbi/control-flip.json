@@ -1,0 +1,16 @@
+[
+ {
+  "control": "VendorCountryFilter",
+  "result": "PASS",
+  "element": "el-matrix7fb6de",
+  "value": "Canada",
+  "note": "explicit --value; in-closure export differs (400 -> 85 rows)"
+ },
+ {
+  "control": "BrandFilter",
+  "result": "PASS",
+  "element": "el-matrix7fb6de",
+  "value": "Everfield",
+  "note": "explicit --value; in-closure export differs (400 -> 50 rows)"
+ }
+]

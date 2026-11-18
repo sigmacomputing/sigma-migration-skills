@@ -1,0 +1,652 @@
+{
+  "name": "Retail Sales Model",
+  "compatibilityLevel": 1567,
+  "model": {
+    "culture": "en-US",
+    "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "sourceQueryCulture": "en-US",
+    "tables": [
+      {
+        "name": "Date",
+        "columns": [
+          {
+            "name": "DateKey",
+            "dataType": "int64",
+            "sourceColumn": "DATE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Date",
+            "dataType": "dateTime",
+            "sourceColumn": "CAL_DATE",
+            "summarizeBy": "none",
+            "formatString": "yyyy-mm-dd",
+            "isKey": true
+          },
+          {
+            "name": "Year",
+            "dataType": "int64",
+            "sourceColumn": "YEAR_NUM",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Quarter",
+            "dataType": "int64",
+            "sourceColumn": "QUARTER_NUM",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Month Number",
+            "dataType": "int64",
+            "sourceColumn": "MONTH_NUM",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Month Name",
+            "dataType": "string",
+            "sourceColumn": "MONTH_NAME",
+            "summarizeBy": "none",
+            "sortByColumn": "Month Number"
+          },
+          {
+            "type": "calculated",
+            "name": "Month Start",
+            "dataType": "dateTime",
+            "isDataTypeInferred": true,
+            "expression": "DATE(YEAR([Date]), MONTH([Date]), 1)",
+            "formatString": "yyyy-mm-dd",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Date",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_DATE\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ],
+        "dataCategory": "Time"
+      },
+      {
+        "name": "As Of",
+        "columns": [
+          {
+            "name": "As Of Date",
+            "dataType": "dateTime",
+            "sourceColumn": "AS_OF_DATE",
+            "summarizeBy": "none",
+            "formatString": "yyyy-mm-dd"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "As Of",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"AS_OF\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Category",
+        "columns": [
+          {
+            "name": "CategoryKey",
+            "dataType": "int64",
+            "sourceColumn": "CATEGORY_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Category Name",
+            "dataType": "string",
+            "sourceColumn": "CATEGORY_NAME",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Category",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_CATEGORY\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Vendor",
+        "columns": [
+          {
+            "name": "VendorKey",
+            "dataType": "int64",
+            "sourceColumn": "VENDOR_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Vendor Name",
+            "dataType": "string",
+            "sourceColumn": "VENDOR_NAME",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Vendor Country",
+            "dataType": "string",
+            "sourceColumn": "COUNTRY",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Vendor",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_VENDOR\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Product",
+        "columns": [
+          {
+            "name": "ProductKey",
+            "dataType": "int64",
+            "sourceColumn": "PRODUCT_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Product Name",
+            "dataType": "string",
+            "sourceColumn": "PRODUCT_NAME",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Brand",
+            "dataType": "string",
+            "sourceColumn": "BRAND",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "CategoryKey",
+            "dataType": "int64",
+            "sourceColumn": "CATEGORY_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "VendorKey",
+            "dataType": "int64",
+            "sourceColumn": "VENDOR_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "List Price",
+            "dataType": "double",
+            "sourceColumn": "LIST_PRICE",
+            "summarizeBy": "none",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Private Label",
+            "dataType": "boolean",
+            "sourceColumn": "IS_PRIVATE_LABEL",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Product",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_PRODUCT\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "SKU",
+        "columns": [
+          {
+            "name": "SkuKey",
+            "dataType": "int64",
+            "sourceColumn": "SKU_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "ProductKey",
+            "dataType": "int64",
+            "sourceColumn": "PRODUCT_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Size",
+            "dataType": "string",
+            "sourceColumn": "SIZE",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "SKU",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_SKU\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Customer",
+        "columns": [
+          {
+            "name": "CustomerKey",
+            "dataType": "int64",
+            "sourceColumn": "CUSTOMER_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Segment",
+            "dataType": "string",
+            "sourceColumn": "SEGMENT",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Customer Region",
+            "dataType": "string",
+            "sourceColumn": "CUSTOMER_REGION",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Loyalty Member",
+            "dataType": "boolean",
+            "sourceColumn": "LOYALTY_MEMBER",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Customer",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_CUSTOMER\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Store",
+        "columns": [
+          {
+            "name": "StoreKey",
+            "dataType": "int64",
+            "sourceColumn": "STORE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Store Name",
+            "dataType": "string",
+            "sourceColumn": "STORE_NAME",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Store Region",
+            "dataType": "string",
+            "sourceColumn": "STORE_REGION",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Channel",
+            "dataType": "string",
+            "sourceColumn": "CHANNEL",
+            "summarizeBy": "none"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Store",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"DIM_STORE\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Sales",
+        "columns": [
+          {
+            "name": "SalesLineKey",
+            "dataType": "int64",
+            "sourceColumn": "SALES_LINE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Order Number",
+            "dataType": "string",
+            "sourceColumn": "ORDER_NUMBER",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "OrderDateKey",
+            "dataType": "int64",
+            "sourceColumn": "ORDER_DATE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "ShipDateKey",
+            "dataType": "int64",
+            "sourceColumn": "SHIP_DATE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "SkuKey",
+            "dataType": "int64",
+            "sourceColumn": "SKU_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "CustomerKey",
+            "dataType": "int64",
+            "sourceColumn": "CUSTOMER_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "StoreKey",
+            "dataType": "int64",
+            "sourceColumn": "STORE_KEY",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Quantity",
+            "dataType": "int64",
+            "sourceColumn": "QUANTITY",
+            "summarizeBy": "sum",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Unit Price",
+            "dataType": "double",
+            "sourceColumn": "UNIT_PRICE",
+            "summarizeBy": "none",
+            "formatString": "#,0.00"
+          },
+          {
+            "name": "Discount",
+            "dataType": "double",
+            "sourceColumn": "DISCOUNT",
+            "summarizeBy": "none",
+            "formatString": "0.00"
+          },
+          {
+            "name": "Unit Cost",
+            "dataType": "double",
+            "sourceColumn": "UNIT_COST",
+            "summarizeBy": "none",
+            "formatString": "#,0.00"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Sales",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "  Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\", [Role = null, CreateNavigationProperties = null, ConnectionTimeout = null, CommandTimeout = null, Implementation = \"2.0\"]),",
+                "  #\"Navigation 1\" = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "  #\"Navigation 2\" = #\"Navigation 1\"{[Name = \"ZZ_CLAUDE_PBI_SHAPED\", Kind = \"Schema\"]}[Data],",
+                "  #\"Navigation 3\" = #\"Navigation 2\"{[Name = \"FACT_SALES\", Kind = \"Table\"]}[Data]",
+                "in",
+                "  #\"Navigation 3\""
+              ]
+            }
+          }
+        ],
+        "measures": [
+          {
+            "name": "Sales Amount",
+            "expression": "SUMX(Sales, Sales[Quantity] * Sales[Unit Price] * (1 - Sales[Discount]))",
+            "formatString": "#,0.00",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "Units",
+            "expression": "SUM(Sales[Quantity])",
+            "formatString": "#,0",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "Cost",
+            "expression": "SUMX(Sales, Sales[Quantity] * Sales[Unit Cost])",
+            "formatString": "#,0.00",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "Gross Margin",
+            "expression": "[Sales Amount] - [Cost]",
+            "formatString": "#,0.00",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "GM %",
+            "expression": "DIVIDE([Gross Margin], [Sales Amount])",
+            "formatString": "0.0%",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "Orders",
+            "expression": "DISTINCTCOUNT(Sales[Order Number])",
+            "formatString": "#,0",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "Avg Price",
+            "expression": "DIVIDE([Sales Amount], Sales[Units])",
+            "formatString": "#,0.00",
+            "displayFolder": "Sales"
+          },
+          {
+            "name": "List Value",
+            "expression": "SUMX(Sales, Sales[Quantity] * RELATED(Product[List Price]))",
+            "formatString": "#,0.00",
+            "displayFolder": "Product"
+          },
+          {
+            "name": "Private Label Sales",
+            "expression": "CALCULATE([Sales Amount], Product[Private Label] = TRUE())",
+            "formatString": "#,0.00",
+            "displayFolder": "Product"
+          },
+          {
+            "name": "Sales by Ship Date",
+            "expression": "CALCULATE([Sales Amount], USERELATIONSHIP(Sales[ShipDateKey], 'Date'[DateKey]))",
+            "formatString": "#,0.00",
+            "displayFolder": "Shipping"
+          },
+          {
+            "name": "Sales YTD",
+            "expression": "TOTALYTD([Sales Amount], 'Date'[Date])",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales QTD",
+            "expression": "TOTALQTD([Sales Amount], 'Date'[Date])",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales MTD",
+            "expression": "TOTALMTD([Sales Amount], 'Date'[Date])",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales PY",
+            "expression": "CALCULATE([Sales Amount], SAMEPERIODLASTYEAR('Date'[Date]))",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales YoY %",
+            "expression": "DIVIDE([Sales Amount] - [Sales PY], [Sales PY])",
+            "formatString": "0.0%",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales R28",
+            "expression": "CALCULATE([Sales Amount], DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -28, DAY))",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          },
+          {
+            "name": "Sales YTD (As Of)",
+            "expression": "VAR asof = MAX('As Of'[As Of Date]) RETURN CALCULATE([Sales Amount], DATESBETWEEN('Date'[Date], DATE(YEAR(asof), 1, 1), asof))",
+            "formatString": "#,0.00",
+            "displayFolder": "Time"
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "name": "Sales_OrderDate",
+        "fromTable": "Sales",
+        "fromColumn": "OrderDateKey",
+        "toTable": "Date",
+        "toColumn": "DateKey"
+      },
+      {
+        "name": "Sales_ShipDate",
+        "fromTable": "Sales",
+        "fromColumn": "ShipDateKey",
+        "toTable": "Date",
+        "toColumn": "DateKey",
+        "isActive": false
+      },
+      {
+        "name": "Sales_SKU",
+        "fromTable": "Sales",
+        "fromColumn": "SkuKey",
+        "toTable": "SKU",
+        "toColumn": "SkuKey"
+      },
+      {
+        "name": "Sales_Customer",
+        "fromTable": "Sales",
+        "fromColumn": "CustomerKey",
+        "toTable": "Customer",
+        "toColumn": "CustomerKey"
+      },
+      {
+        "name": "Sales_Store",
+        "fromTable": "Sales",
+        "fromColumn": "StoreKey",
+        "toTable": "Store",
+        "toColumn": "StoreKey"
+      },
+      {
+        "name": "SKU_Product",
+        "fromTable": "SKU",
+        "fromColumn": "ProductKey",
+        "toTable": "Product",
+        "toColumn": "ProductKey"
+      },
+      {
+        "name": "Product_Category",
+        "fromTable": "Product",
+        "fromColumn": "CategoryKey",
+        "toTable": "Category",
+        "toColumn": "CategoryKey"
+      },
+      {
+        "name": "Product_Vendor",
+        "fromTable": "Product",
+        "fromColumn": "VendorKey",
+        "toTable": "Vendor",
+        "toColumn": "VendorKey"
+      }
+    ],
+    "annotations": [
+      {
+        "name": "PBI_QueryOrder",
+        "value": "[\"Date\", \"As Of\", \"Category\", \"Vendor\", \"Product\", \"SKU\", \"Customer\", \"Store\", \"Sales\"]"
+      }
+    ]
+  }
+}

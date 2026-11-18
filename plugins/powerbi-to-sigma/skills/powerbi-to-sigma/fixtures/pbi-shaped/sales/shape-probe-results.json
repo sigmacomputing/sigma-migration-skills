@@ -1,0 +1,485 @@
+{
+  "Product->Category": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Product->Vendor": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 2
+      }
+    ],
+    "row_count": 1
+  },
+  "SKU->Product": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales (source)->Date": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales (source)->Date (ShipDateKey)": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales (source)->SKU": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales (source)->Customer": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales (source)->Store": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales->Date": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales->Date (ShipDateKey)": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales->SKU": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales->Customer": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "Sales->Store": {
+    "ok": true,
+    "rows": [
+      {
+        "DUP": 0
+      }
+    ],
+    "row_count": 1
+  },
+  "carry:Sales by month:base": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 36
+      }
+    ]
+  },
+  "carry:Sales by month:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by month:Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by month:Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 108
+      }
+    ]
+  },
+  "carry:Sales by month:prefix:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 144
+      }
+    ]
+  },
+  "carry:Sales by month:prefix:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 216
+      }
+    ]
+  },
+  "carry:Sales by month:density:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 72,
+        "EXPECTED": 72
+      }
+    ]
+  },
+  "carry:Sales by month:density:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 144,
+        "EXPECTED": 144
+      }
+    ]
+  },
+  "carry:Sales by month:density:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 216,
+        "EXPECTED": 216
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):base": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 36
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 108
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):prefix:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 144
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):prefix:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 216
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):density:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 72,
+        "EXPECTED": 72
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):density:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 144,
+        "EXPECTED": 144
+      }
+    ]
+  },
+  "carry:Sales by month (month reset):density:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 216,
+        "EXPECTED": 216
+      }
+    ]
+  },
+  "carry:Sales by quarter:base": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 12
+      }
+    ]
+  },
+  "carry:Sales by quarter:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter:Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter:Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 36
+      }
+    ]
+  },
+  "carry:Sales by quarter:prefix:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 48
+      }
+    ]
+  },
+  "carry:Sales by quarter:prefix:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by quarter:density:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 24,
+        "EXPECTED": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter:density:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 48,
+        "EXPECTED": 48
+      }
+    ]
+  },
+  "carry:Sales by quarter:density:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 72,
+        "EXPECTED": 72
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):base": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 12
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 36
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):prefix:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 48
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):prefix:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 72
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):density:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 24,
+        "EXPECTED": 24
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):density:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 48,
+        "EXPECTED": 48
+      }
+    ]
+  },
+  "carry:Sales by quarter (quarter reset):density:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "PRESENT": 72,
+        "EXPECTED": 72
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:base": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 1095
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:Segment": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 2190
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 2190
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 3285
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:prefix:Segment|Store Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 4380
+      }
+    ]
+  },
+  "carry:Sales – rolling 28 days by day:prefix:Segment|Store Region|Customer Region": {
+    "ok": true,
+    "rows": [
+      {
+        "N": 6570
+      }
+    ]
+  },
+  "density:Sales:month": {
+    "ok": true,
+    "rows": [
+      {
+        "EXPECTED": 36,
+        "PRESENT": 36
+      }
+    ]
+  },
+  "density:Sales:quarter": {
+    "ok": true,
+    "rows": [
+      {
+        "EXPECTED": 12,
+        "PRESENT": 12
+      }
+    ]
+  }
+}

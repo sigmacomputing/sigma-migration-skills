@@ -1,0 +1,47 @@
+[
+ {
+  "elementId": "<element-1>",
+  "elementName": "Sales \u2013 rolling 28 days by day",
+  "requestedSchedule": {
+   "cronSpec": "0 6 * * *"
+  },
+  "status": "created",
+  "schedule": {
+   "cronSpec": "0 6 * * *",
+   "timezone": "UTC"
+  },
+  "runNow": {
+   "status": "ready",
+   "states": [
+    "conflict",
+    "pending",
+    "building",
+    "ready"
+   ],
+   "seconds": 61.9,
+   "materializationId": "<uuid-1>"
+  }
+ },
+ {
+  "elementId": "pf-b04fa1d148",
+  "elementName": "Trends \u2013 summary",
+  "requestedSchedule": {
+   "cronSpec": "0 6 * * *"
+  },
+  "status": "created",
+  "schedule": {
+   "cronSpec": "0 6 * * *",
+   "timezone": "UTC"
+  },
+  "runNow": {
+   "status": "ready",
+   "states": [
+    "pending",
+    "building",
+    "ready"
+   ],
+   "seconds": 31.0,
+   "materializationId": "<uuid-2>"
+  }
+ }
+]

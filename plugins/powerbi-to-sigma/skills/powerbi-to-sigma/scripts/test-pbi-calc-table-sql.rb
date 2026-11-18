@@ -215,6 +215,76 @@ Dir.mktmpdir('pbi-calc-table-sql') do |dir|
   result = PbiCalcTableSql.apply!(dm, tmsl['model'], warnings)
   check.call(result['converted'].empty? && result['skipped'].any? { |x| x['reason'].include?('by name') } && JSON.generate([dm, warnings]) == before,
              "unmatchable column names are skipped, never paired by position (#{result['skipped'].inspect})")
+
+  puts "\n5. DATATABLE literal rows -> one Custom SQL row per DATATABLE row, every column kept"
+  dt_dax = 'DATATABLE("Bucket", STRING, "Min Days", INTEGER, "Max Days", INTEGER, "Sort", INTEGER, ' \
+           '{{"Under 7 days", 0, 7, 1}, {"7 to 14 days", 7, 14, 2}, {"It\'s ""big""", 14, 100000, 3}})'
+  dt_cols = %w[Bucket Min\ Days Max\ Days Sort].zip(%w[string int64 int64 int64]).map do |n, t|
+    { 'name' => n, 'dataType' => t, 'type' => 'calculatedTableColumn', 'sourceColumn' => "[#{n}]", 'summarizeBy' => 'none' }
+  end
+  tmsl = model(native_m(ORDERS_SQL), [calc_table('Cover Bucket', dt_dax, dt_cols)])
+  tmsl['model']['relationships'] = []
+  dm, warnings = convert(tmsl, dir)
+  check.call(DaxGate.calculated_table_issues(dm, warnings).any?, 'precondition: the pinned converter flattens the rows and the gate fires')
+  PbiNativeQuery.apply!(dm, tmsl['model'])
+  result = PbiCalcTableSql.apply!(dm, tmsl['model'], warnings)
+  el = elements(dm).find { |e| e['name'] == 'Cover Bucket' }
+  sql = el&.dig('source', 'statement').to_s
+  check.call(result['converted'].size == 1 && result['converted'][0]['function'] == 'DATATABLE', "converted as DATATABLE (#{result['skipped'].inspect})")
+  check.call(sql == %(SELECT 'Under 7 days' AS "Bucket", 0 AS "Min Days", 7 AS "Max Days", 1 AS "Sort" ) +
+                    %(UNION ALL SELECT '7 to 14 days', 7, 14, 2 UNION ALL SELECT 'It''s "big"', 14, 100000, 3),
+             "one SELECT per row, all four columns, quotes escaped (#{sql.inspect})")
+  check.call(el && el['columns'].map { |c| c['name'] } == ['Bucket', 'Min Days', 'Max Days', 'Sort'] &&
+               el['columns'].map { |c| c['formula'] } == ['[Custom SQL/Bucket]', '[Custom SQL/Min Days]', '[Custom SQL/Max Days]', '[Custom SQL/Sort]'],
+             'all four model columns are on the element')
+  check.call(el && !el.key?('ok') && el['name'] == 'Cover Bucket', 'ok:false cleared, element named after the table')
+  check.call(DaxGate.calculated_table_issues(dm, warnings).empty?, "calculated-table gate is clear (#{DaxGate.calculated_table_issues(dm, warnings).inspect})")
+  # a value the SQL cannot carry literally (a function call) is skipped and the gate still stops
+  tmsl = model(native_m(ORDERS_SQL), [calc_table('Cover Bucket', 'DATATABLE("D", DATETIME, {{DATE(2024, 1, 1)}})',
+                                                  [{ 'name' => 'D', 'dataType' => 'dateTime', 'type' => 'calculatedTableColumn', 'sourceColumn' => '[D]' }])])
+  tmsl['model']['relationships'] = []
+  dm, warnings = convert(tmsl, dir)
+  PbiNativeQuery.apply!(dm, tmsl['model'])
+  result = PbiCalcTableSql.apply!(dm, tmsl['model'], warnings)
+  check.call(result['converted'].empty? && result['skipped'].size == 1, 'a DATATABLE value that is not a literal is skipped, not guessed')
+
+  puts "\n6. DATATABLE literal fidelity: declared types, backslashes, quotes, BLANK, booleans"
+  lit = ->(dax, dialect = nil) { PbiCalcTableSql.parse_datatable(dax, dialect) }
+  dt = lit.call('DATATABLE("S", STRING, "N", INTEGER, "B", BOOLEAN, "D", DATETIME, ' \
+                '{{"a\\b", 1, TRUE, "2024-01-01"}, {"it\'s", BLANK(), FALSE, BLANK()}})')
+  check.call(dt && dt[:rows][0] == ["'a\\\\b'", '1', 'TRUE', "CAST('2024-01-01' AS TIMESTAMP)"],
+             "backslash doubled (Snowflake default), number, boolean, DATETIME cast (#{dt && dt[:rows][0].inspect})")
+  check.call(dt && dt[:rows][1] == ["'it''s'", 'NULL', 'FALSE', 'NULL'], "embedded quote doubled, BLANK() is NULL for every type (#{dt && dt[:rows][1].inspect})")
+  %w[snowflake databricks bigquery].each do |d|
+    x = lit.call('DATATABLE("S", STRING, {{"a\\b"}})', d)
+    check.call(x && x[:rows] == [["'a\\\\b'"]], "#{d}: backslash doubled")
+  end
+  x = lit.call('DATATABLE("S", STRING, {{"a\\b"}})', 'postgres')
+  check.call(x && x[:rows] == [["'a\\b'"]], 'postgres: backslash is a plain character, left as is')
+  x = lit.call('DATATABLE("D", DATETIME, {{"2024-01-01 10:30:00"}})', 'bigquery')
+  check.call(x && x[:rows] == [["CAST('2024-01-01 10:30:00' AS DATETIME)"]], 'bigquery DATETIME cell is a typed DATETIME literal')
+  x = lit.call('DATATABLE("S", STRING, "V", STRING, {{"007", 12}})')
+  check.call(x && x[:rows] == [["'007'", "'12'"]], 'a STRING column keeps numeric-looking values as strings')
+  x = lit.call('DATATABLE("N", DOUBLE, "C", CURRENCY, {{1.5, -2}})')
+  check.call(x && x[:rows] == [%w[1.5 -2]], 'DOUBLE and CURRENCY cells are numbers')
+  x = lit.call('DATATABLE("S", STRING, {{"only"}})')
+  check.call(x && x[:rows] == [["'only'"]] && x[:columns] == ['S'], 'a single row, single column')
+  check.call(lit.call('DATATABLE("N", INTEGER, {{"x"}})').nil?, 'a string in an INTEGER column is refused, not coerced')
+  check.call(lit.call('DATATABLE("D", DATETIME, {{"not a date"}})').nil?, 'a non-date string in a DATETIME column is refused')
+
+  # per-dialect quote escaping: Snowflake doubles the quote (''); Databricks/Spark and BigQuery read '' as two
+  # adjacent literals or reject it, so they take \' (backslash doubled first)
+  cell_sql = ->(cell, dialect) { (PbiCalcTableSql.parse_datatable("DATATABLE(\"S\", STRING, {{\"#{cell}\"}})", dialect) || {})[:rows]&.dig(0, 0) }
+  check.call(cell_sql.call("it's", 'snowflake') == "'it''s'", "snowflake: apostrophe doubled (#{cell_sql.call("it's", 'snowflake').inspect})")
+  check.call(cell_sql.call("it's", 'databricks') == "'it\\'s'", "databricks: apostrophe escaped as \\' (#{cell_sql.call("it's", 'databricks').inspect})")
+  check.call(cell_sql.call("it's", 'bigquery') == "'it\\'s'", "bigquery: apostrophe escaped as \\' (#{cell_sql.call("it's", 'bigquery').inspect})")
+  check.call(cell_sql.call("it's", 'mysql') == "'it\\'s'", "mysql: apostrophe escaped as \\' (#{cell_sql.call("it's", 'mysql').inspect})")
+  check.call(cell_sql.call('a\b', 'databricks') == "'a\\\\b'", "databricks: backslash doubled (#{cell_sql.call('a\b', 'databricks').inspect})")
+  check.call(cell_sql.call("it's a\\b", 'snowflake') == "'it''s a\\\\b'", "snowflake: quote and backslash (#{cell_sql.call("it's a\\b", 'snowflake').inspect})")
+  check.call(cell_sql.call("it's a\\b", 'databricks') == "'it\\'s a\\\\b'", "databricks: quote and backslash (#{cell_sql.call("it's a\\b", 'databricks').inspect})")
+  check.call(cell_sql.call("it's a\\b", 'bigquery') == "'it\\'s a\\\\b'", "bigquery: quote and backslash (#{cell_sql.call("it's a\\b", 'bigquery').inspect})")
+  check.call(cell_sql.call("it's", 'postgres') == "'it''s'", "postgres: apostrophe doubled (#{cell_sql.call("it's", 'postgres').inspect})")
+  check.call(cell_sql.call("it's", 'sqlserver') == "'it''s'", "sqlserver: apostrophe doubled (#{cell_sql.call("it's", 'sqlserver').inspect})")
 end
 
 puts

@@ -249,6 +249,24 @@ def sql_elements(dm):
     return out
 
 
+_SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", flags=re.S)
+_SQL_QUOTED_LITERAL = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+_SQL_QUOTED_NAME_A = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`[^`]*`")
+
+
+def literal_rows_sql(sql):
+    """True for a statement with no FROM outside string literals and quoted names (a DATATABLE turned into
+    SELECT ... UNION ALL rows): it reads no table, and the warehouse export of it can answer HTTP 500 (the
+    native-source probe cost ~35 s per run on it). Conservative: a FROM found under either reading (A: comments
+    removed first, then literals and quoted names; B: literals and quoted names only) makes it not literal-rows,
+    so an apostrophe inside a comment cannot hide a real FROM. Twin of PbiShapedModel.literal_sql?."""
+    s = str(sql or "")
+    no_comments = _SQL_COMMENT.sub(" ", s)
+    reading_a = _SQL_QUOTED_NAME_A.sub(" ", no_comments)
+    reading_b = _SQL_QUOTED_LITERAL.sub(" ", s)
+    return not any(re.search(r"\bFROM\b", t, flags=re.I) for t in (reading_a, reading_b))
+
+
 def statement_key(sql):
     p = _probe_module()
     return "s_" + p._sql_hash(sql)
@@ -302,7 +320,7 @@ def _patched_statement(stmt, outputs, casts_by_output, dialect):
     return f"SELECT {', '.join(sel)} FROM (\n{p.clean_statement(stmt)}\n)"
 
 
-def build_report(dm, tmsl, probe_results, dialect="snowflake", strict_case=False):
+def build_report(dm, tmsl, probe_results, dialect="snowflake", strict_case=False, skip_literal_rows=False):
     culture = model_culture(tmsl)
     p = _probe_module()
     elements = sql_elements(dm)
@@ -315,6 +333,11 @@ def build_report(dm, tmsl, probe_results, dialect="snowflake", strict_case=False
         key = statement_key(e["source"]["statement"])
         res = probe_results.get(key)
         entry = {"id": e.get("id"), "name": e.get("name"), "statement_key": key}
+        if skip_literal_rows and literal_rows_sql(e["source"]["statement"]):
+            entry.update(status="skipped-literal-rows",
+                         note="literal-rows SQL (no FROM): not probed; its [Custom SQL/X] refs are left unverified")
+            rep["elements"].append(entry)
+            continue
         if not res or not res.get("ok"):
             entry.update(status="probe-error", error=str((res or {}).get("error") or "no probe result for this statement"))
             n_probe_err += 1
@@ -397,11 +420,12 @@ def build_report(dm, tmsl, probe_results, dialect="snowflake", strict_case=False
     if elements and not types_seen:
         rep["notes"].append("warehouse types unavailable (the probe returned none); "
                             "column existence was checked but no casts were evaluated")
-    failed = [x for x in rep["elements"] if x["status"] != "ok"]
+    failed = [x for x in rep["elements"] if x["status"] not in ("ok", "skipped-literal-rows")]
     rep["summary"] = {"elements_probed": len(elements), "elements_failed": len(failed),
                       "probe_errors": n_probe_err, "bound_columns": n_bound, "missing_columns": n_missing,
                       "case_only_matches": n_case, "ambiguous_names": n_ambig, "casts": len(rep["casts"]),
-                      "type_warnings": len(rep["type_warnings"])}
+                      "type_warnings": len(rep["type_warnings"]),
+                      "skipped_literal_rows": sum(1 for x in rep["elements"] if x["status"] == "skipped-literal-rows")}
     if failed:
         rep["status"] = "FAIL"
     return rep
@@ -451,6 +475,8 @@ def main(argv=None, api=None, sleep=time.sleep):
                          "Use --probe-no-cache after a warehouse-side fix.")
     ap.add_argument("--keep-probe-workbook", action="store_true",
                     help="do not delete the scratch workbook afterwards (debugging)")
+    ap.add_argument("--skip-literal-rows", action="store_true",
+                    help="do not probe a statement with no FROM (literal rows); the pbi shape passes this")
     ap.add_argument("--strict-case", action="store_true", help="a case-only name difference counts as missing")
     ap.add_argument("--write-patched-dm", help="write a copy of the DM with the casts folded into the statements")
     a = ap.parse_args(argv)
@@ -460,7 +486,9 @@ def main(argv=None, api=None, sleep=time.sleep):
         ap.error("give --probe-results, or --connection-id and --folder-id to probe live")
 
     dm, tmsl = _read_json(a.dm), _read_json(a.tmsl)
-    queries = unique_queries(sql_elements(dm))
+    probe_elements = [e for e in sql_elements(dm)
+                      if not (a.skip_literal_rows and literal_rows_sql(e["source"]["statement"]))]
+    queries = unique_queries(probe_elements)
     if a.emit_queries:
         _write_json(a.emit_queries, queries)
     if a.probe_results:
@@ -489,7 +517,8 @@ def main(argv=None, api=None, sleep=time.sleep):
         print(f"[probe-native-sources] wrote {len(queries)} queries to {a.emit_queries}; run "
               "sigma-sql-probe.py --types on them, then re-run with --probe-results", file=sys.stderr)
         return 0
-    rep = build_report(dm, tmsl, results, dialect=a.dialect, strict_case=a.strict_case)
+    rep = build_report(dm, tmsl, results, dialect=a.dialect, strict_case=a.strict_case,
+                       skip_literal_rows=a.skip_literal_rows)
     if cache_stats is not None:
         rep["probe_cache"] = cache_stats
         print(f"[probe-native-sources] {cache_stats['cached']} cached, {cache_stats['probed']} probed", file=sys.stderr)

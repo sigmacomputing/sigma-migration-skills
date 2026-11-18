@@ -1,0 +1,57 @@
+{
+ "samples_per_chart": 3,
+ "note": "Sigma element export (POST /v2/workbooks/{id}/export + download); repeats may be served from Sigma's result cache; no cache-bust applied. The live helper table of the Rolling page is listed but excluded from the medians; Data-page master tables (views shape) were not exported.",
+ "charts": {
+  "Sales Amount [kpi-chart]": {
+   "samples_s": [
+    4.486,
+    3.1,
+    4.258
+   ],
+   "median_s": 4.258
+  },
+  "Sales Amount vs prior year by month [line-chart]": {
+   "samples_s": [
+    4.312,
+    5.382,
+    3.082
+   ],
+   "median_s": 4.312
+  },
+  "Sales Amount and prior year by year [bar-chart]": {
+   "samples_s": [
+    3.168,
+    4.259,
+    3.066
+   ],
+   "median_s": 3.168
+  },
+  "Quarter: sales, QTD, YoY [table]": {
+   "samples_s": [
+    3.023,
+    3.021,
+    3.072
+   ],
+   "median_s": 3.023
+  },
+  "Sales Amount (2) [kpi-chart]": {
+   "samples_s": [
+    5.439,
+    2.829,
+    4.203
+   ],
+   "median_s": 4.203
+  },
+  "Store Region: R28 and sales [table]": {
+   "samples_s": [
+    4.199,
+    1.85,
+    4.123
+   ],
+   "median_s": 4.123
+  }
+ },
+ "median_of_chart_medians_s": 4.163,
+ "max_chart_median_s": 4.312,
+ "chart_count": 6
+}

@@ -111,6 +111,31 @@ def _int_or_none(v):
 _REFRESH_GRANULARITY = {0: "day", 1: "month", 2: "quarter", 3: "year"}
 _REFRESH_MODE = {0: "import", 1: "hybrid"}
 
+# TOM PartitionSourceType 5 = Entity and ModeType (partition storage mode). In a
+# composite model over a published Power BI semantic model, each remote table is
+# a DirectQuery "proxy" table whose partition is an entity partition: its
+# QueryDefinition is the remote table's name and its ExpressionSourceID points at
+# the `DirectQuery to AS - <model>` shared expression.
+_PARTITION_ENTITY = 5
+_PARTITION_MODE = {0: "import", 1: "directQuery", 2: "default", 3: "push", 4: "dual", 5: "directLake"}
+_REMOTE_AS_EXPR = re.compile(r"AnalysisServices\.Database\s*\(", re.I)
+_REMOTE_AS_NAME = re.compile(r"^DirectQuery to AS\s*-", re.I)
+
+
+def _is_entity_partition(type_value):
+    n = _int_or_none(type_value)
+    if n is not None:
+        return n == _PARTITION_ENTITY
+    return _clean(type_value).strip().lower() == "entity"
+
+
+def _partition_mode(v, default="directQuery"):
+    n = _int_or_none(v)
+    if n is not None:
+        return _PARTITION_MODE.get(n, default)
+    s = _clean(v).strip()
+    return next((m for m in _PARTITION_MODE.values() if m.lower() == s.lower()), default)
+
 
 def _enum_name(v, table):
     n = _int_or_none(v)
@@ -463,11 +488,59 @@ def enter_data_partition(expr, col_types, dialect="snowflake", culture="en-US"):
     return expr[:decoded["start"]] + call + expr[decoded["end"]:], notes
 
 
+def _remote_connections(parameter_recs):
+    """Names of the shared expressions that connect to a published Power BI / AS
+    semantic model (`DirectQuery to AS - <model>` = AnalysisServices.Database(..))."""
+    out = []
+    for r in parameter_recs:
+        name, expr = _clean(r.get("ParameterName")), _clean(r.get("Expression"))
+        if name and (_REMOTE_AS_EXPR.search(expr) or _REMOTE_AS_NAME.match(name)) and name not in out:
+            out.append(name)
+    return out
+
+
+def _entity_partitions(partition_recs, parameter_recs):
+    """{table: (partition dict, [notes])} for every entity partition (a DirectQuery
+    proxy of a table in a remote semantic model), in the TMSL shape a Fabric
+    model.bim carries: {"type": "entity", "entityName", "expressionSource"}.
+    expressionSource is the record's ExpressionSource (read from the metadata
+    database; pbixray's own partitions table does not carry it) or, when that is
+    missing, the model's only remote connection. With several candidates and no
+    record of which one, it is left out and a note names the candidates."""
+    remote = _remote_connections(parameter_recs)
+    out = {}
+    for r in partition_recs:
+        tn = _clean(r.get("TableName"))
+        if not tn or tn in out or not _is_entity_partition(r.get("Type")):
+            continue
+        entity_name = _clean(r.get("QueryDefinition")).strip() or tn
+        source = {"type": "entity", "entityName": entity_name}
+        notes = []
+        expr_source = _clean(r.get("ExpressionSource")).strip()
+        if not expr_source and len(remote) == 1:
+            expr_source = remote[0]
+            notes.append(f'DirectQuery proxy of remote table "{entity_name}": the .pbix does not record its expression '
+                         f'source; bound to "{expr_source}", the only remote semantic model connection in the model')
+        elif not expr_source:
+            which = ", ".join(f'"{n}"' for n in remote) if remote else "none recorded in the model"
+            notes.append(f'DirectQuery proxy of remote table "{entity_name}": the .pbix does not record which remote '
+                         f'semantic model it reads (candidates: {which})')
+        if expr_source:
+            source["expressionSource"] = expr_source
+        schema_name = _clean(r.get("SchemaName")).strip()
+        if schema_name:
+            source["schemaName"] = schema_name
+        part = {"name": _clean(r.get("Name")).strip() or tn, "mode": _partition_mode(r.get("Mode")), "source": source}
+        out[tn] = (part, notes)
+    return out
+
+
 def assemble_tmsl(model_name, schema_recs, measure_recs, relationship_recs,
                   calc_col_recs=(), calc_table_recs=(), mquery_recs=(),
                   table_order=None, parameter_recs=(), column_recs=(),
                   hierarchy_recs=(), level_recs=(), refresh_policy_recs=(),
-                  rls_recs=(), dialect="snowflake", culture=None, culture_note=None):
+                  rls_recs=(), dialect="snowflake", culture=None, culture_note=None,
+                  partition_recs=()):
     """PURE pbixray-records -> TMSL model.bim dict.
 
     Each *_recs arg is a list of dicts (what pandas `df.to_dict("records")`
@@ -488,6 +561,9 @@ def assemble_tmsl(model_name, schema_recs, measure_recs, relationship_recs,
                            RollingWindowGranularity/Periods, IncrementalGranularity/Periods,
                            [PollingExpression], SourceExpression, [Mode]}
       rls_recs          : rls {RoleName, TableName, FilterExpression, [RoleDescription]}
+      partition_recs    : tmschema_partitions {TableName, Name, Type, Mode, QueryDefinition,
+                           [ExpressionSource], [SchemaName]}; only entity partitions
+                           (DirectQuery-to-AS proxy tables) are read from it
     `dialect` (snowflake | databricks | bigquery | ansi | unsupported) only shapes the SQL emitted for
     Enter-data tables. `culture` is the model's real culture when it could be read from the .pbix;
     None means "unknown": en-US is assumed and `culture_note` (why) is recorded as a model annotation.
@@ -563,6 +639,24 @@ def assemble_tmsl(model_name, schema_recs, measure_recs, relationship_recs,
         if is_calc_table:
             column["type"] = "calculatedTableColumn"
         t["columns"].append(column)
+
+    # DirectQuery-to-AS proxy tables. They have no VertiPaq storage, so pbixray's
+    # schema (built from column storage) does not list them or their columns:
+    # the table and its data columns come from the partition and the model's own
+    # column metadata instead.
+    entity_parts = _entity_partitions(partition_recs, parameter_recs)
+    for tn in entity_parts:
+        t = _table(tn)
+        have = {c["name"] for c in t["columns"]}
+        for meta in column_recs:
+            cn = _clean(meta.get("Name"))
+            if _clean(meta.get("TableName")) != tn or not cn or cn in have:
+                continue
+            if _int_or_none(meta.get("Type")) not in (None, 1) or cn in calc_names.get(tn, ()):
+                continue  # calculated columns arrive through dax_columns
+            t["columns"].append({"name": cn, "dataType": _tom_datatype(meta.get("DataType")) or "string",
+                                 "sourceColumn": _clean(meta.get("SourceColumn")) or cn, "summarizeBy": "none"})
+            have.add(cn)
 
     # Calculated (DAX) columns — carried through so the converter's calc-column
     # translator can see them; marked type=calculated so it does NOT treat them
@@ -662,10 +756,14 @@ def assemble_tmsl(model_name, schema_recs, measure_recs, relationship_recs,
 
     # Partitions. A DAX calculated table must win over the generic no-M fallback:
     # pbixray exposes its constructor through dax_tables, and losing that
-    # expression makes the converter invent a physical warehouse table. Regular
-    # tables retain their Power Query M (and therefore warehouse FQN); a table
-    # with an incremental-refresh policy but no M takes the policy's source;
-    # tables with none of those get an honest placeholder M partition.
+    # expression makes the converter invent a physical warehouse table. A
+    # DirectQuery-to-AS proxy table keeps its entity partition (the remote table
+    # and the shared expression naming its remote model), exactly as a Fabric
+    # model.bim has it: migrate-powerbi.rb stops on it instead of pointing it at
+    # --database/--schema + the table name. Regular tables retain their Power
+    # Query M (and therefore warehouse FQN); a table with an incremental-refresh
+    # policy but no M takes the policy's source; tables with none of those get an
+    # honest placeholder M partition.
     mq_by_table = {}
     for r in mquery_recs:
         tn = _clean(r.get("TableName"))
@@ -679,6 +777,11 @@ def assemble_tmsl(model_name, schema_recs, measure_recs, relationship_recs,
             t["partitions"].append({"name": name, "mode": "import",
                                     "source": {"type": "calculated",
                                                "expression": calc_expr}})
+        elif name in entity_parts:
+            part, why = entity_parts[name]
+            t["partitions"].append(part)
+            if why:
+                notes.setdefault(name, []).extend(why)
         elif mq:
             if name not in mq_by_table:
                 notes.setdefault(name, []).append(
@@ -907,6 +1010,61 @@ def detect_culture(pbi):
     return None, None
 
 
+# Which shared expression (remote semantic model) an entity partition reads is the
+# partition's ExpressionSourceID. pbixray's tmschema_partitions (0.15.x) does not
+# select that column and has no expressions table with IDs, so it is read from the
+# metadata database pbixray already opened. The second statement serves schemas
+# without SchemaName.
+_ENTITY_SOURCE_SQL = (
+    """SELECT t.Name AS TableName, p.Name AS Name, p.Type AS Type, p.Mode AS Mode,
+              p.QueryDefinition AS QueryDefinition, p.SchemaName AS SchemaName, e.Name AS ExpressionSource
+       FROM [Partition] p JOIN [Table] t ON t.ID = p.TableID
+       LEFT JOIN [Expression] e ON e.ID = p.ExpressionSourceID
+       WHERE p.Type = 5""",
+    """SELECT t.Name AS TableName, p.Name AS Name, p.Type AS Type, p.Mode AS Mode,
+              p.QueryDefinition AS QueryDefinition, e.Name AS ExpressionSource
+       FROM [Partition] p JOIN [Table] t ON t.ID = p.TableID
+       LEFT JOIN [Expression] e ON e.ID = p.ExpressionSourceID
+       WHERE p.Type = 5""",
+)
+
+
+def _entity_source_records(pbi):
+    """Entity partitions with their ExpressionSource name, from pbixray's metadata
+    database (PBIXRay._metadata.source._db.query: internal, not public API). Best
+    effort: any other pbixray layout or a failing query yields [] and the public
+    tmschema_partitions records are used alone."""
+    try:
+        query = pbi._metadata.source._db.query
+    except Exception:
+        return []
+    for sql in _ENTITY_SOURCE_SQL:
+        try:
+            recs = _records(query(sql))
+        except Exception:
+            continue
+        if recs:
+            return recs
+    return []
+
+
+def partition_records(pbi):
+    """tmschema_partitions, with each entity partition's ExpressionSource /
+    SchemaName merged in when the metadata database can supply them."""
+    recs = _optional_records(pbi, "tmschema_partitions")
+    extra = {}
+    for r in _entity_source_records(pbi):
+        extra.setdefault((_clean(r.get("TableName")), _clean(r.get("Name"))), r)
+    merged = []
+    for r in recs:
+        add = extra.pop((_clean(r.get("TableName")), _clean(r.get("Name"))), None)
+        if add:
+            r = dict(r)
+            r.update({k: v for k, v in add.items() if _clean(v)})
+        merged.append(r)
+    return merged + list(extra.values())
+
+
 def build_model_from_pbixray(pbi, model_name, dialect="snowflake"):
     """PBIXRay-like object (real pbixray.PBIXRay OR a mock exposing the same
     DataFrame properties) -> TMSL model.bim dict."""
@@ -933,6 +1091,7 @@ def build_model_from_pbixray(pbi, model_name, dialect="snowflake"):
         dialect=dialect,
         culture=culture,
         culture_note=culture_note,
+        partition_recs=partition_records(pbi),
     )
 
 
@@ -962,8 +1121,10 @@ LOSS_NOTE_PREFIXES = ("Enter data:", "Enter-data SQL NOT generated", "Table.From
 
 def extract_warnings(tmsl):
     """Every extraction note that means data or fidelity was lost (Enter-data cells loaded as NULL,
-    Enter-data SQL not generated, an assumed model culture), as printable lines. The same notes
-    live in the model.bim annotations, where lib/pbi_extract_notes.rb reads them on every route."""
+    Enter-data SQL not generated, an assumed model culture), and every DirectQuery-to-AS proxy table
+    (its rows live in a remote semantic model), as printable lines. The notes live in the model.bim
+    annotations, where lib/pbi_extract_notes.rb reads them on every route; the proxy tables are the
+    entity partitions, which lib/pbi_external_measure.rb reads."""
     m = tmsl.get("model", tmsl)
     out = []
     for a in m.get("annotations") or []:
@@ -974,6 +1135,12 @@ def extract_warnings(tmsl):
             v = str(a.get("value") or "")
             if str(a.get("name", "")).startswith("SigmaMigration.ExtractNote") and v.startswith(LOSS_NOTE_PREFIXES):
                 out.append(f"{t.get('name')}: {v}")
+        for p in t.get("partitions") or []:
+            src = p.get("source") or {}
+            if src.get("type") == "entity":
+                via = f'"{src["expressionSource"]}"' if src.get("expressionSource") else "a connection the .pbix does not name"
+                out.append(f'{t.get("name")}: DirectQuery proxy of remote table "{src.get("entityName")}" via {via}; '
+                           "its rows live in a remote Power BI semantic model, not in a warehouse table")
     return out
 
 

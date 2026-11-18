@@ -1,0 +1,1265 @@
+{
+  "masters": {
+    "Date": {
+      "id": "master-eb9a4bc1",
+      "element_id": "rb-AAAAAAAAAB",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Date",
+      "columns": [
+        {
+          "id": "mc-b848bdd701",
+          "name": "DateKey",
+          "formula": "[Date/DateKey]"
+        },
+        {
+          "id": "mc-30cf4bdd3d",
+          "name": "Date",
+          "formula": "[Date/Date]"
+        },
+        {
+          "id": "mc-c40fea768f",
+          "name": "Year",
+          "formula": "[Date/Year]"
+        },
+        {
+          "id": "mc-013e4ccd6d",
+          "name": "Quarter",
+          "formula": "[Date/Quarter]"
+        },
+        {
+          "id": "mc-c48ccce205",
+          "name": "Month Number",
+          "formula": "[Date/Month Number]"
+        },
+        {
+          "id": "mc-9c1e7a2523",
+          "name": "Month Name",
+          "formula": "[Date/Month Name]"
+        },
+        {
+          "id": "mc-e4d78348d3",
+          "name": "Month Start",
+          "formula": "[Date/Month Start]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Category": {
+      "id": "master-a3c686e7",
+      "element_id": "rb-AAAAAAAAAL",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Category",
+      "columns": [
+        {
+          "id": "mc-35d6be1f3f",
+          "name": "CategoryKey",
+          "formula": "[Category/CategoryKey]"
+        },
+        {
+          "id": "mc-57b49d72c7",
+          "name": "Category Name",
+          "formula": "[Category/Category Name]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Vendor": {
+      "id": "master-d96159ff",
+      "element_id": "rb-AAAAAAAAAO",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Vendor",
+      "columns": [
+        {
+          "id": "mc-feb304790a",
+          "name": "VendorKey",
+          "formula": "[Vendor/VendorKey]"
+        },
+        {
+          "id": "mc-8d99c7a844",
+          "name": "Vendor Name",
+          "formula": "[Vendor/Vendor Name]"
+        },
+        {
+          "id": "mc-89535ef1d1",
+          "name": "Vendor Country",
+          "formula": "[Vendor/Vendor Country]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Product": {
+      "id": "master-dd3b86d1",
+      "element_id": "rb-AAAAAAAAAS",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Product",
+      "columns": [
+        {
+          "id": "mc-c000511488",
+          "name": "ProductKey",
+          "formula": "[Product/ProductKey]"
+        },
+        {
+          "id": "mc-7e5f6e1833",
+          "name": "Product Name",
+          "formula": "[Product/Product Name]"
+        },
+        {
+          "id": "mc-44f9a361c8",
+          "name": "Brand",
+          "formula": "[Product/Brand]"
+        },
+        {
+          "id": "mc-f61daf563f",
+          "name": "CategoryKey",
+          "formula": "[Product/CategoryKey]"
+        },
+        {
+          "id": "mc-a43e3779cc",
+          "name": "VendorKey",
+          "formula": "[Product/VendorKey]"
+        },
+        {
+          "id": "mc-b061f1c9e3",
+          "name": "List Price",
+          "formula": "[Product/List Price]"
+        },
+        {
+          "id": "mc-9243139572",
+          "name": "Private Label",
+          "formula": "[Product/Private Label]"
+        },
+        {
+          "id": "mc-48ebbf9e57",
+          "name": "CategoryKey (Category)",
+          "formula": "[Product/Category/CategoryKey]"
+        },
+        {
+          "id": "mc-222da17d8f",
+          "name": "Category Name (Category)",
+          "formula": "[Product/Category/Category Name]"
+        },
+        {
+          "id": "mc-37a5269c03",
+          "name": "VendorKey (Vendor)",
+          "formula": "[Product/Vendor/VendorKey]"
+        },
+        {
+          "id": "mc-266638de69",
+          "name": "Vendor Name (Vendor)",
+          "formula": "[Product/Vendor/Vendor Name]"
+        },
+        {
+          "id": "mc-7ecd8d15c4",
+          "name": "Vendor Country (Vendor)",
+          "formula": "[Product/Vendor/Vendor Country]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "SKU": {
+      "id": "master-d59192b9",
+      "element_id": "rb-AAAAAAAAAa",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "SKU",
+      "columns": [
+        {
+          "id": "mc-9a1b3439b5",
+          "name": "SkuKey",
+          "formula": "[SKU/SkuKey]"
+        },
+        {
+          "id": "mc-f0ef88a430",
+          "name": "ProductKey",
+          "formula": "[SKU/ProductKey]"
+        },
+        {
+          "id": "mc-bc392b130c",
+          "name": "Size",
+          "formula": "[SKU/Size]"
+        },
+        {
+          "id": "mc-731e3fce26",
+          "name": "ProductKey (Product)",
+          "formula": "[SKU/Product/ProductKey]"
+        },
+        {
+          "id": "mc-46e43db0de",
+          "name": "Product Name (Product)",
+          "formula": "[SKU/Product/Product Name]"
+        },
+        {
+          "id": "mc-72448e1a6f",
+          "name": "Brand (Product)",
+          "formula": "[SKU/Product/Brand]"
+        },
+        {
+          "id": "mc-7e4ac8ad65",
+          "name": "CategoryKey (Product)",
+          "formula": "[SKU/Product/CategoryKey]"
+        },
+        {
+          "id": "mc-f58bd51441",
+          "name": "VendorKey (Product)",
+          "formula": "[SKU/Product/VendorKey]"
+        },
+        {
+          "id": "mc-d18b06591c",
+          "name": "List Price (Product)",
+          "formula": "[SKU/Product/List Price]"
+        },
+        {
+          "id": "mc-43772774c5",
+          "name": "Private Label (Product)",
+          "formula": "[SKU/Product/Private Label]"
+        },
+        {
+          "id": "mc-482b91c967",
+          "name": "CategoryKey (Category)",
+          "formula": "[SKU/Product/Category/CategoryKey]"
+        },
+        {
+          "id": "mc-839fdece32",
+          "name": "Category Name (Category)",
+          "formula": "[SKU/Product/Category/Category Name]"
+        },
+        {
+          "id": "mc-1208a152f2",
+          "name": "VendorKey (Vendor)",
+          "formula": "[SKU/Product/Vendor/VendorKey]"
+        },
+        {
+          "id": "mc-dc888afc49",
+          "name": "Vendor Name (Vendor)",
+          "formula": "[SKU/Product/Vendor/Vendor Name]"
+        },
+        {
+          "id": "mc-e44f830421",
+          "name": "Vendor Country (Vendor)",
+          "formula": "[SKU/Product/Vendor/Vendor Country]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Customer": {
+      "id": "master-0e85749a",
+      "element_id": "rb-AAAAAAAAAe",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Customer",
+      "columns": [
+        {
+          "id": "mc-62ea2dbd94",
+          "name": "CustomerKey",
+          "formula": "[Customer/CustomerKey]"
+        },
+        {
+          "id": "mc-ec0b3b46a6",
+          "name": "Segment",
+          "formula": "[Customer/Segment]"
+        },
+        {
+          "id": "mc-a09b14e3c9",
+          "name": "Customer Region",
+          "formula": "[Customer/Customer Region]"
+        },
+        {
+          "id": "mc-dcbc74117e",
+          "name": "Loyalty Member",
+          "formula": "[Customer/Loyalty Member]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Store": {
+      "id": "master-0d8a7046",
+      "element_id": "rb-AAAAAAAAAj",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Store",
+      "columns": [
+        {
+          "id": "mc-3d7b380ae7",
+          "name": "StoreKey",
+          "formula": "[Store/StoreKey]"
+        },
+        {
+          "id": "mc-ec78ab6033",
+          "name": "Store Name",
+          "formula": "[Store/Store Name]"
+        },
+        {
+          "id": "mc-9e8f2f5d0a",
+          "name": "Store Region",
+          "formula": "[Store/Store Region]"
+        },
+        {
+          "id": "mc-e90503fd9f",
+          "name": "Channel",
+          "formula": "[Store/Channel]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    },
+    "Sales": {
+      "id": "master-d0edfb6e",
+      "element_id": "rb-AAAAAAAAAos0",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "Sales",
+      "columns": [
+        {
+          "id": "mc-8bfb119db6",
+          "name": "SalesLineKey",
+          "formula": "[Sales/SalesLineKey]"
+        },
+        {
+          "id": "mc-33cd63e8fe",
+          "name": "Order Number",
+          "formula": "[Sales/Order Number]"
+        },
+        {
+          "id": "mc-d87c8ad9d0",
+          "name": "OrderDateKey",
+          "formula": "[Sales/OrderDateKey]"
+        },
+        {
+          "id": "mc-1c0915293c",
+          "name": "ShipDateKey",
+          "formula": "[Sales/ShipDateKey]"
+        },
+        {
+          "id": "mc-5515c6c173",
+          "name": "SkuKey",
+          "formula": "[Sales/SkuKey]"
+        },
+        {
+          "id": "mc-8b65c40944",
+          "name": "CustomerKey",
+          "formula": "[Sales/CustomerKey]"
+        },
+        {
+          "id": "mc-2e510bb478",
+          "name": "StoreKey",
+          "formula": "[Sales/StoreKey]"
+        },
+        {
+          "id": "mc-f2b1c6d80c",
+          "name": "Quantity",
+          "formula": "[Sales/Quantity]"
+        },
+        {
+          "id": "mc-380c87bf22",
+          "name": "Unit Price",
+          "formula": "[Sales/Unit Price]"
+        },
+        {
+          "id": "mc-8267d3fb3d",
+          "name": "Discount",
+          "formula": "[Sales/Discount]"
+        },
+        {
+          "id": "mc-942170ac62",
+          "name": "Unit Cost",
+          "formula": "[Sales/Unit Cost]"
+        },
+        {
+          "id": "mc-13a83fd257",
+          "name": "ProductKey (SKU)",
+          "formula": "[Sales/ProductKey (SKU)]"
+        },
+        {
+          "id": "mc-3350ea1c31",
+          "name": "List Price (Product)",
+          "formula": "[Sales/List Price (Product)]"
+        },
+        {
+          "id": "mc-9aade0291d",
+          "name": "Private Label (Product)",
+          "formula": "[Sales/Private Label (Product)]"
+        },
+        {
+          "id": "mc-a58bd8fb60",
+          "name": "CategoryKey (Product)",
+          "formula": "[Sales/CategoryKey (Product)]"
+        },
+        {
+          "id": "mc-cff117ee9b",
+          "name": "Category Name (Category)",
+          "formula": "[Sales/Category Name (Category)]"
+        },
+        {
+          "id": "mc-d4a9eeb807",
+          "name": "DateKey (Date)",
+          "formula": "[Sales/Date/DateKey]"
+        },
+        {
+          "id": "mc-b868003645",
+          "name": "Date (Date)",
+          "formula": "[Sales/Date/Date]"
+        },
+        {
+          "id": "mc-8c79b6b32e",
+          "name": "Year (Date)",
+          "formula": "[Sales/Date/Year]"
+        },
+        {
+          "id": "mc-dbb5854a63",
+          "name": "Quarter (Date)",
+          "formula": "[Sales/Date/Quarter]"
+        },
+        {
+          "id": "mc-9c8eb8223c",
+          "name": "Month Number (Date)",
+          "formula": "[Sales/Date/Month Number]"
+        },
+        {
+          "id": "mc-1d06a67697",
+          "name": "Month Name (Date)",
+          "formula": "[Sales/Date/Month Name]"
+        },
+        {
+          "id": "mc-8ded7ea075",
+          "name": "Month Start (Date)",
+          "formula": "[Sales/Date/Month Start]"
+        },
+        {
+          "id": "mc-08320ef744",
+          "name": "SkuKey (SKU)",
+          "formula": "[Sales/SKU/SkuKey]"
+        },
+        {
+          "id": "mc-c2009d95e5",
+          "name": "ProductKey (SKU) (2)",
+          "formula": "[Sales/SKU/ProductKey]"
+        },
+        {
+          "id": "mc-e30fe18706",
+          "name": "Size (SKU)",
+          "formula": "[Sales/SKU/Size]"
+        },
+        {
+          "id": "mc-04ca26361a",
+          "name": "CustomerKey (Customer)",
+          "formula": "[Sales/Customer/CustomerKey]"
+        },
+        {
+          "id": "mc-14fed79ff9",
+          "name": "Segment (Customer)",
+          "formula": "[Sales/Customer/Segment]"
+        },
+        {
+          "id": "mc-c4fca6dbee",
+          "name": "Customer Region (Customer)",
+          "formula": "[Sales/Customer/Customer Region]"
+        },
+        {
+          "id": "mc-d921d3b732",
+          "name": "Loyalty Member (Customer)",
+          "formula": "[Sales/Customer/Loyalty Member]"
+        },
+        {
+          "id": "mc-dfd62c42f0",
+          "name": "StoreKey (Store)",
+          "formula": "[Sales/Store/StoreKey]"
+        },
+        {
+          "id": "mc-a79aa5d683",
+          "name": "Store Name (Store)",
+          "formula": "[Sales/Store/Store Name]"
+        },
+        {
+          "id": "mc-4ad9ff14e5",
+          "name": "Store Region (Store)",
+          "formula": "[Sales/Store/Store Region]"
+        },
+        {
+          "id": "mc-b0c81f71e4",
+          "name": "Channel (Store)",
+          "formula": "[Sales/Store/Channel]"
+        },
+        {
+          "id": "mc-dd29cdd256",
+          "name": "DateKey (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/DateKey]"
+        },
+        {
+          "id": "mc-a779cd3b90",
+          "name": "Date (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Date]"
+        },
+        {
+          "id": "mc-edee563db3",
+          "name": "Year (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Year]"
+        },
+        {
+          "id": "mc-c44f1230db",
+          "name": "Quarter (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Quarter]"
+        },
+        {
+          "id": "mc-14b71cf17c",
+          "name": "Month Number (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Number]"
+        },
+        {
+          "id": "mc-8a487a2b94",
+          "name": "Month Name (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Name]"
+        },
+        {
+          "id": "mc-d518af1d93",
+          "name": "Month Start (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Start]"
+        },
+        {
+          "id": "mc-827336f815",
+          "name": "ProductKey (Product)",
+          "formula": "[Sales/SKU/Product/ProductKey]"
+        },
+        {
+          "id": "mc-4f064cebf2",
+          "name": "Product Name (Product)",
+          "formula": "[Sales/SKU/Product/Product Name]"
+        },
+        {
+          "id": "mc-277d6f767d",
+          "name": "Brand (Product)",
+          "formula": "[Sales/SKU/Product/Brand]"
+        },
+        {
+          "id": "mc-d0d40b1853",
+          "name": "CategoryKey (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/CategoryKey]"
+        },
+        {
+          "id": "mc-3b287551c9",
+          "name": "VendorKey (Product)",
+          "formula": "[Sales/SKU/Product/VendorKey]"
+        },
+        {
+          "id": "mc-43b6fde7ec",
+          "name": "List Price (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/List Price]"
+        },
+        {
+          "id": "mc-b14357c8c1",
+          "name": "Private Label (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/Private Label]"
+        },
+        {
+          "id": "mc-41d689493b",
+          "name": "CategoryKey (Category)",
+          "formula": "[Sales/SKU/Product/Category/CategoryKey]"
+        },
+        {
+          "id": "mc-f7c23487a7",
+          "name": "Category Name (SKU ∕ Product ∕ Category)",
+          "formula": "[Sales/SKU/Product/Category/Category Name]"
+        },
+        {
+          "id": "mc-8333f31976",
+          "name": "VendorKey (Vendor)",
+          "formula": "[Sales/SKU/Product/Vendor/VendorKey]"
+        },
+        {
+          "id": "mc-8fb26dcbb8",
+          "name": "Vendor Name (Vendor)",
+          "formula": "[Sales/SKU/Product/Vendor/Vendor Name]"
+        },
+        {
+          "id": "mc-c5f991cf49",
+          "name": "Vendor Country (Vendor)",
+          "formula": "[Sales/SKU/Product/Vendor/Vendor Country]"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "Sales Amount",
+          "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))"
+        },
+        {
+          "name": "Units",
+          "formula": "Sum([Quantity])"
+        },
+        {
+          "name": "Cost",
+          "formula": "Sum([Quantity] * [Unit Cost])"
+        },
+        {
+          "name": "Gross Margin",
+          "formula": "[Sales Amount] - [Cost]"
+        },
+        {
+          "name": "GM %",
+          "formula": "([Gross Margin]) / NullIf(([Sales Amount]), 0)"
+        },
+        {
+          "name": "Orders",
+          "formula": "CountDistinct([Order Number])"
+        },
+        {
+          "name": "Avg Price",
+          "formula": "([Sales Amount]) / NullIf(([Units]), 0)"
+        },
+        {
+          "name": "List Value",
+          "formula": "Sum([Quantity] * [List Price (Product)])"
+        },
+        {
+          "name": "Private Label Sales",
+          "formula": "SumIf(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)), [Private Label (Product)] = True)"
+        },
+        {
+          "name": "Sales by Ship Date",
+          "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))"
+        }
+      ]
+    },
+    "As Of": {
+      "id": "master-13b24eb2",
+      "element_id": "rb-AAAAAAAAAJ",
+      "data_model": "dm-sales",
+      "direct": true,
+      "element_name": "As Of",
+      "columns": [
+        {
+          "id": "mc-3663cb281a",
+          "name": "As Of Date",
+          "formula": "[As Of/As Of Date]"
+        }
+      ],
+      "metrics": [
+
+      ]
+    }
+  },
+  "fields": {
+    "Date.DateKey": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/DateKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/DateKey (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Date": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Date]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Date (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Year": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Year]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Year (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Quarter": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Quarter]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Quarter (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Number": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Number]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Number (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Name": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Name (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Start": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Start]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Start (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Category.CategoryKey": {
+      "master": "Category",
+      "ref": "[master-a3c686e7/CategoryKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/CategoryKey (Category)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/CategoryKey (Category)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CategoryKey (Category)]",
+          "agg": null
+        }
+      ]
+    },
+    "Category.Category Name": {
+      "master": "Category",
+      "ref": "[master-a3c686e7/Category Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/Category Name (Category)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Category Name (Category)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Category Name (SKU ∕ Product ∕ Category)]",
+          "agg": null
+        }
+      ]
+    },
+    "Vendor.VendorKey": {
+      "master": "Vendor",
+      "ref": "[master-d96159ff/VendorKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/VendorKey (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/VendorKey (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/VendorKey (Vendor)]",
+          "agg": null
+        }
+      ]
+    },
+    "Vendor.Vendor Name": {
+      "master": "Vendor",
+      "ref": "[master-d96159ff/Vendor Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/Vendor Name (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Vendor Name (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Vendor Name (Vendor)]",
+          "agg": null
+        }
+      ]
+    },
+    "Vendor.Vendor Country": {
+      "master": "Vendor",
+      "ref": "[master-d96159ff/Vendor Country]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/Vendor Country (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Vendor Country (Vendor)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Vendor Country (Vendor)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.ProductKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/ProductKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/ProductKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/ProductKey (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Product Name": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Product Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Product Name (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Product Name (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Brand": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Brand]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Brand (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Brand (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.CategoryKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/CategoryKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/CategoryKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CategoryKey (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.VendorKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/VendorKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/VendorKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/VendorKey (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.List Price": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/List Price]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/List Price (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/List Price (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Private Label": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Private Label]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Private Label (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Private Label (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.SkuKey": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/SkuKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/SkuKey (SKU)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.ProductKey": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/ProductKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/ProductKey (SKU) (2)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.Size": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/Size]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Size (SKU)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.CustomerKey": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/CustomerKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CustomerKey (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Segment": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Segment]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Segment (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Customer Region": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Customer Region]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Customer Region (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Loyalty Member": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Loyalty Member]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Loyalty Member (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.StoreKey": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/StoreKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/StoreKey (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Store Name": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Store Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Store Name (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Store Region": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Store Region]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Store Region (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Channel": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Channel]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Channel (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Sales.SalesLineKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/SalesLineKey]",
+      "agg": null
+    },
+    "Sales.Order Number": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Order Number]",
+      "agg": null
+    },
+    "Sales.OrderDateKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/OrderDateKey]",
+      "agg": null
+    },
+    "Sales.ShipDateKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/ShipDateKey]",
+      "agg": null
+    },
+    "Sales.SkuKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/SkuKey]",
+      "agg": null
+    },
+    "Sales.CustomerKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/CustomerKey]",
+      "agg": null
+    },
+    "Sales.StoreKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/StoreKey]",
+      "agg": null
+    },
+    "Sales.Quantity": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Quantity]",
+      "agg": null
+    },
+    "Sales.Unit Price": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Unit Price]",
+      "agg": null
+    },
+    "Sales.Discount": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Discount]",
+      "agg": null
+    },
+    "Sales.Unit Cost": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Unit Cost]",
+      "agg": null
+    },
+    "Sales.ProductKey (SKU)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/ProductKey (SKU)]",
+      "agg": null
+    },
+    "Sales.List Price (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/List Price (Product)]",
+      "agg": null
+    },
+    "Sales.Private Label (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Private Label (Product)]",
+      "agg": null
+    },
+    "Sales.CategoryKey (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/CategoryKey (Product)]",
+      "agg": null
+    },
+    "Sales.Category Name (Category)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Category Name (Category)]",
+      "agg": null
+    },
+    "As Of.As Of Date": {
+      "master": "As Of",
+      "ref": "[master-13b24eb2/As Of Date]",
+      "agg": null
+    },
+    "Sales.Sales Amount": {
+      "master": "Sales",
+      "ref": "[Metrics/Sales Amount]",
+      "agg": null,
+      "formula": "[Metrics/Sales Amount]"
+    },
+    "Sales.Units": {
+      "master": "Sales",
+      "ref": "[Metrics/Units]",
+      "agg": null,
+      "formula": "[Metrics/Units]"
+    },
+    "Sales.Gross Margin": {
+      "master": "Sales",
+      "ref": "[Metrics/Gross Margin]",
+      "agg": null,
+      "formula": "[Metrics/Gross Margin]"
+    },
+    "Sales.GM %": {
+      "master": "Sales",
+      "ref": "[Metrics/GM %]",
+      "agg": null,
+      "formula": "[Metrics/GM %]"
+    },
+    "Sales.Orders": {
+      "master": "Sales",
+      "ref": "[Metrics/Orders]",
+      "agg": null,
+      "formula": "[Metrics/Orders]"
+    },
+    "Sales.Avg Price": {
+      "master": "Sales",
+      "ref": "[Metrics/Avg Price]",
+      "agg": null,
+      "formula": "[Metrics/Avg Price]"
+    },
+    "Sales.Cost": {
+      "master": "Sales",
+      "ref": "[Metrics/Cost]",
+      "agg": null,
+      "formula": "[Metrics/Cost]"
+    },
+    "Sales.List Value": {
+      "master": "Sales",
+      "ref": "[Metrics/List Value]",
+      "agg": null,
+      "formula": "[Metrics/List Value]"
+    },
+    "Sales.Private Label Sales": {
+      "master": "Sales",
+      "ref": "[Metrics/Private Label Sales]",
+      "agg": null,
+      "formula": "[Metrics/Private Label Sales]"
+    },
+    "Sales.Sales by Ship Date": {
+      "master": "Sales",
+      "ref": "[Metrics/Sales by Ship Date]",
+      "agg": null,
+      "formula": "[Metrics/Sales by Ship Date]"
+    }
+  },
+  "page_fields": {
+  },
+  "conflicts": [
+    {
+      "page": "Shipping",
+      "visual": "Sales by ship month and order month",
+      "field": "Date.Month Start",
+      "class": "D",
+      "reason": "a visual mixes Date.Month Start through the inactive and the active relationship"
+    }
+  ],
+  "class_d_fields": [
+
+  ],
+  "unresolved": [
+
+  ]
+}

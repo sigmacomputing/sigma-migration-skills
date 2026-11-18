@@ -892,8 +892,11 @@ def sql_literal(v):
 class SourceIndex:
     """Model table -> its data-model element SQL; model column -> the SQL output column."""
 
-    def __init__(self, model, dm_spec, master_map=None):
+    def __init__(self, model, dm_spec, master_map=None, follow_children=False):
+        # follow_children (--shape pbi): a table's element may be a CHILD, {kind: "table", elementId} over a "(source)"
+        # base; the SQL, the warehouse path and the output columns are the root element's
         self.model = model
+        self.follow_children = follow_children
         doc = dm_spec or {}
         for key in ("sigmaDataModel", "dataModel", "spec"):
             if isinstance(doc.get(key), dict) and doc[key].get("pages"):
@@ -920,7 +923,21 @@ class SourceIndex:
             if el is not None:
                 self.table_el[t] = el
 
+    def root(self, el):
+        """The element a child chain {kind: "table", elementId} ends at (itself when it is not a child)."""
+        for _ in range(10):
+            src = (el or {}).get("source") or {}
+            nxt = self.by_id.get(src.get("elementId")) if src.get("kind") == "table" else None
+            if nxt is None:
+                break
+            el = nxt
+        return el
+
     def element(self, table):
+        el = self._element(table)
+        return self.root(el) if self.follow_children else el
+
+    def _element(self, table):
         t = self.model.table(table) or table
         if t in self.table_el:
             return self.table_el[t]

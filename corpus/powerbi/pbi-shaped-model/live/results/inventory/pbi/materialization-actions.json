@@ -1,0 +1,45 @@
+[
+ {
+  "elementId": "<element-1>",
+  "elementName": "Sales \u2013 rolling 28 days by day",
+  "requestedSchedule": {
+   "cronSpec": "0 6 * * *"
+  },
+  "status": "created",
+  "schedule": {
+   "cronSpec": "0 6 * * *",
+   "timezone": "UTC"
+  },
+  "runNow": {
+   "status": "ready",
+   "states": [
+    "conflict",
+    "pending",
+    "building",
+    "ready"
+   ],
+   "seconds": 82.5,
+   "materializationId": "<uuid-1>"
+  }
+ },
+ {
+  "elementId": "pf-37beb594a2",
+  "elementName": "Cover \u2013 summary",
+  "requestedSchedule": {
+   "cronSpec": "0 6 * * *"
+  },
+  "status": "created",
+  "schedule": {
+   "cronSpec": "0 6 * * *",
+   "timezone": "UTC"
+  },
+  "runNow": {
+   "status": "ready",
+   "states": [
+    "ready"
+   ],
+   "seconds": 0.4,
+   "materializationId": "<uuid-2>"
+  }
+ }
+]

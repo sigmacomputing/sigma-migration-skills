@@ -1,0 +1,856 @@
+{
+  "P4": {
+    "metric": "List Value = Sum([Quantity] * [List Price])",
+    "truth_rows": 13,
+    "base": {
+      "brief_form": {
+        "calc_column_formula": "[Sales (source)/SKU/Product/List Price]",
+        "readback_calc_formula": "[Sales (source)/SKU/Product/List Price]",
+        "readback_metrics": [
+          {
+            "name": "List Value",
+            "formula": "Sum([Quantity] * [List Price])",
+            "description": null
+          }
+        ],
+        "chart_metric_ref": {
+          "pass": false,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "Discontinued",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 28643116.1
+                  }
+                }
+              },
+              {
+                "key": "Personal Care",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 40265346.75
+                  }
+                }
+              },
+              {
+                "key": "Pet Supplies",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 34404513.53
+                  }
+                }
+              },
+              {
+                "key": "Produce",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 36282006.36
+                  }
+                }
+              },
+              {
+                "key": "Stationery",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 44101232.77
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Category": "Bakery",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            },
+            {
+              "Category": "Beverages",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            },
+            {
+              "Category": "Dairy",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            }
+          ],
+          "null_cells_in_actual": 1
+        },
+        "chart_inline_calc": {
+          "pass": false,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "Discontinued",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 28643116.1
+                  }
+                }
+              },
+              {
+                "key": "Personal Care",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 40265346.75
+                  }
+                }
+              },
+              {
+                "key": "Pet Supplies",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 34404513.53
+                  }
+                }
+              },
+              {
+                "key": "Produce",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 36282006.36
+                  }
+                }
+              },
+              {
+                "key": "Stationery",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 44101232.77
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Category": "Bakery",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            },
+            {
+              "Category": "Beverages",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            },
+            {
+              "Category": "Dairy",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            }
+          ],
+          "null_cells_in_actual": 1
+        }
+      },
+      "short_form": {
+        "calc_column_formula": "[SKU/Product/List Price]",
+        "readback_calc_formula": "[SKU/Product/List Price]",
+        "readback_metrics": [
+          {
+            "name": "List Value",
+            "formula": "Sum([Quantity] * [List Price])",
+            "description": null
+          }
+        ],
+        "chart_metric_ref": {
+          "pass": false,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "Discontinued",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 28643116.1
+                  }
+                }
+              },
+              {
+                "key": "Personal Care",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 40265346.75
+                  }
+                }
+              },
+              {
+                "key": "Pet Supplies",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 34404513.53
+                  }
+                }
+              },
+              {
+                "key": "Produce",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 36282006.36
+                  }
+                }
+              },
+              {
+                "key": "Stationery",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Metrics/List Value]\"",
+                    "truth": 44101232.77
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Category": "Bakery",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            },
+            {
+              "Category": "Beverages",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            },
+            {
+              "Category": "Dairy",
+              "List Value": "Reference to errored column \"[Metrics/List Value]\""
+            }
+          ],
+          "null_cells_in_actual": 1
+        },
+        "chart_inline_calc": {
+          "pass": false,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "Discontinued",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 28643116.1
+                  }
+                }
+              },
+              {
+                "key": "Personal Care",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 40265346.75
+                  }
+                }
+              },
+              {
+                "key": "Pet Supplies",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 34404513.53
+                  }
+                }
+              },
+              {
+                "key": "Produce",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 36282006.36
+                  }
+                }
+              },
+              {
+                "key": "Stationery",
+                "diffs": {
+                  "list_value": {
+                    "actual": "Reference to errored column \"[Sales (source)/List Price]\"",
+                    "truth": 44101232.77
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Category": "Bakery",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            },
+            {
+              "Category": "Beverages",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            },
+            {
+              "Category": "Dairy",
+              "List Value": "Reference to errored column \"[Sales (source)/List Price]\""
+            }
+          ],
+          "null_cells_in_actual": 1
+        }
+      }
+    },
+    "child_lookup": {
+      "calc_columns": {
+        "Product Key": "Lookup([SKU/Product Key], [Sku Key], [SKU/Sku Key])",
+        "List Price": "Lookup([Product/List Price], [Product Key], [Product/Product Key])"
+      },
+      "readback_calc_formulas": {
+        "Product Key": "Lookup([SKU/Product Key], [Sku Key], [SKU/Sku Key])",
+        "List Price": "Lookup([Product/List Price], [Product Key], [Product/Product Key])"
+      },
+      "readback_metrics": [
+        {
+          "name": "List Value",
+          "formula": "Sum([Quantity] * [List Price])",
+          "description": null
+        }
+      ],
+      "chart_metric_ref": {
+        "pass": true,
+        "rows_actual": 13,
+        "rows_truth": 13,
+        "matched": 13,
+        "null_cells_in_actual": 1
+      },
+      "chart_inline_calc": {
+        "pass": true,
+        "rows_actual": 13,
+        "rows_truth": 13,
+        "matched": 13,
+        "null_cells_in_actual": 1
+      }
+    },
+    "base_form_works": false,
+    "child_form_works": true,
+    "pass": true,
+    "decision": "only the child Lookup form works: split the fact (Sales (source) + child Sales)"
+  },
+  "P7": {
+    "readback": {
+      "Category": [
+        {
+          "name": "Row Count",
+          "formula": "Count([Category Key])",
+          "description": null
+        }
+      ],
+      "Store": [
+        {
+          "name": "Row Count",
+          "formula": "Count([Store Key])",
+          "description": null
+        }
+      ]
+    },
+    "outcome": "POST accepted; both elements keep a metric named 'Row Count'",
+    "metric_counts": {
+      "Category": 1,
+      "Store": 1
+    },
+    "chart_category": {
+      "rows": 12,
+      "sample": [
+        {
+          "Group": "Bakery",
+          "Row Count": 1.0
+        },
+        {
+          "Group": "Beverages",
+          "Row Count": 1.0
+        }
+      ]
+    },
+    "chart_store": {
+      "rows": 40,
+      "sample": [
+        {
+          "Group": "Store 01",
+          "Row Count": 1.0
+        },
+        {
+          "Group": "Store 02",
+          "Row Count": 1.0
+        }
+      ]
+    },
+    "pass": true
+  },
+  "P13": {
+    "truth": {
+      "filtered_total": 408730662.71349996,
+      "unfiltered_total": 433081226.6165,
+      "totals_differ": true,
+      "groups_filtered": 12,
+      "groups_unfiltered": 13,
+      "null_category_revenue_kept": 21774589.4535,
+      "discontinued_excluded": true
+    },
+    "variants": {
+      "lookup_list_boolean": {
+        "filter": {
+          "id": "f-keep",
+          "columnId": "e-sales/keep",
+          "kind": "list",
+          "mode": "include",
+          "values": [
+            true
+          ]
+        },
+        "category_name_column": {
+          "Category Name": "Lookup([Category/Category Name], [Category Key], [Category/Category Key])",
+          "Keep": "IsNull([Category Name]) or [Category Name] != \"Discontinued\""
+        },
+        "readback_filters": [
+          {
+            "id": "f-keep",
+            "columnId": "e-sales/keep",
+            "kind": "list",
+            "mode": "include",
+            "values": [
+              true
+            ]
+          }
+        ],
+        "chart": {
+          "pass": true,
+          "rows_actual": 12,
+          "rows_truth": 12,
+          "matched": 12,
+          "null_cells_in_actual": 1,
+          "has_null_category_group": true,
+          "has_discontinued_group": false,
+          "total_actual": 408730662.71349996,
+          "total_filtered_truth": 408730662.71349996,
+          "total_unfiltered_truth": 433081226.6165
+        }
+      },
+      "lookup_list_text_flag": {
+        "filter": {
+          "id": "f-keep",
+          "columnId": "e-sales/keep",
+          "kind": "list",
+          "mode": "include",
+          "values": [
+            "keep"
+          ]
+        },
+        "category_name_column": {
+          "Category Name": "Lookup([Category/Category Name], [Category Key], [Category/Category Key])",
+          "Keep": "If(IsNull([Category Name]) or [Category Name] != \"Discontinued\", \"keep\", \"drop\")"
+        },
+        "readback_filters": [
+          {
+            "id": "f-keep",
+            "columnId": "e-sales/keep",
+            "kind": "list",
+            "mode": "include",
+            "values": [
+              "keep"
+            ]
+          }
+        ],
+        "chart": {
+          "pass": true,
+          "rows_actual": 12,
+          "rows_truth": 12,
+          "matched": 12,
+          "null_cells_in_actual": 1,
+          "has_null_category_group": true,
+          "has_discontinued_group": false,
+          "total_actual": 408730662.71349996,
+          "total_filtered_truth": 408730662.71349996,
+          "total_unfiltered_truth": 433081226.6165
+        }
+      },
+      "lookup_text_match_incl_nulls": {
+        "filter": {
+          "id": "f-cat",
+          "columnId": "e-sales/cn",
+          "kind": "text-match",
+          "mode": "does-not-equal",
+          "value": "Discontinued",
+          "case": "sensitive",
+          "includeNulls": "always"
+        },
+        "category_name_column": {
+          "Category Name": "Lookup([Category/Category Name], [Category Key], [Category/Category Key])"
+        },
+        "readback_filters": [
+          {
+            "id": "f-cat",
+            "columnId": "e-sales/cn",
+            "kind": "text-match",
+            "mode": "does-not-equal",
+            "value": "Discontinued",
+            "case": "sensitive",
+            "includeNulls": "always"
+          }
+        ],
+        "chart": {
+          "pass": true,
+          "rows_actual": 12,
+          "rows_truth": 12,
+          "matched": 12,
+          "null_cells_in_actual": 1,
+          "has_null_category_group": true,
+          "has_discontinued_group": false,
+          "total_actual": 408730662.71349996,
+          "total_filtered_truth": 408730662.71349996,
+          "total_unfiltered_truth": 433081226.6165
+        }
+      },
+      "relpath_text_match_incl_nulls": {
+        "filter": {
+          "id": "f-cat",
+          "columnId": "e-sales/cnrel",
+          "kind": "text-match",
+          "mode": "does-not-equal",
+          "value": "Discontinued",
+          "case": "sensitive",
+          "includeNulls": "always"
+        },
+        "category_name_column": {
+          "Category Name": "[SKU/Product/Category/Category Name]"
+        },
+        "readback_filters": [
+          {
+            "id": "f-cat",
+            "columnId": "e-sales/cnrel",
+            "kind": "text-match",
+            "mode": "does-not-equal",
+            "value": "Discontinued",
+            "case": "sensitive",
+            "includeNulls": "always"
+          }
+        ],
+        "chart": {
+          "pass": false,
+          "export_error": "{\"message\":\"Export failed at: Mon Nov 16 2026 16:08:06 GMT+0000 (Coordinated Universal Time) with errors.\"}",
+          "has_null_category_group": false,
+          "has_discontinued_group": false,
+          "total_actual": null,
+          "total_filtered_truth": 408730662.71349996,
+          "total_unfiltered_truth": 433081226.6165
+        }
+      }
+    },
+    "pass": true,
+    "working_variants": [
+      "lookup_list_boolean",
+      "lookup_list_text_flag",
+      "lookup_text_match_incl_nulls"
+    ]
+  },
+  "P14": {
+    "variants": {
+      "A_metric_ids_in_folder_items": {
+        "authored_folders": [
+          {
+            "id": "f-m",
+            "name": "Counts",
+            "items": [
+              "m-n",
+              "m-r"
+            ]
+          }
+        ],
+        "authored_metric_names": [
+          "Store Count",
+          "Region Count"
+        ],
+        "dm_post_error": "{\"message\":\"2 schema errors in data model spec\",\"code\":\"invalid_request\",\"requestId\":\"<uuid-1>\",\"errors\":[{\"summary\":\"pages[0].elements[0].folders[0].items[0]: Column or folder not found: 'm-n'\"},{\"summary\":\"pages[0].elements[0].folders[0].items[1]: Column or folder not found: 'm-r'\"}]}"
+      },
+      "B_metric_ids_in_folder_and_order": {
+        "authored_folders": [
+          {
+            "id": "f-m",
+            "name": "Counts",
+            "items": [
+              "m-n",
+              "m-r"
+            ]
+          }
+        ],
+        "authored_metric_names": [
+          "Store Count",
+          "Region Count"
+        ],
+        "dm_post_error": "{\"message\":\"2 schema errors in data model spec\",\"code\":\"invalid_request\",\"requestId\":\"<uuid-2>\",\"errors\":[{\"summary\":\"pages[0].elements[0].folders[0].items[0]: Column or folder not found: 'm-n'\"},{\"summary\":\"pages[0].elements[0].folders[0].items[1]: Column or folder not found: 'm-r'\"}]}"
+      },
+      "C_column_folder_control": {
+        "authored_folders": [
+          {
+            "id": "f-c",
+            "name": "Geography",
+            "items": [
+              "e-store/STORE_REGION",
+              "e-store/CHANNEL"
+            ]
+          }
+        ],
+        "authored_metric_names": [
+          "Store Count",
+          "Region Count"
+        ],
+        "readback_folders": [
+          {
+            "id": "f-c",
+            "name": "Geography",
+            "items": [
+              "e-store/STORE_REGION",
+              "e-store/CHANNEL"
+            ]
+          }
+        ],
+        "readback_metrics": [
+          {
+            "name": "Store Count",
+            "formula": "Count([Store Key])",
+            "description": null
+          },
+          {
+            "name": "Region Count",
+            "formula": "CountDistinct([Store Region])",
+            "description": null
+          }
+        ],
+        "readback_order": [
+          "e-store/STORE_KEY",
+          "e-store/STORE_NAME",
+          "f-c"
+        ],
+        "folder_kept": true,
+        "metric_ids_kept_in_folder": false,
+        "readback_item_ids": [
+          "e-store/STORE_REGION",
+          "e-store/CHANNEL"
+        ]
+      },
+      "D_metric_description_and_name_prefix": {
+        "authored_folders": [],
+        "authored_metric_names": [
+          "Counts / Store Count",
+          "Counts / Region Count"
+        ],
+        "readback_folders": null,
+        "readback_metrics": [
+          {
+            "name": "Counts / Store Count",
+            "formula": "Count([Store Key])",
+            "description": "Folder: Counts"
+          },
+          {
+            "name": "Counts / Region Count",
+            "formula": "CountDistinct([Store Region])",
+            "description": "Folder: Counts"
+          }
+        ],
+        "readback_order": [
+          "e-store/STORE_KEY",
+          "e-store/STORE_NAME",
+          "e-store/STORE_REGION",
+          "e-store/CHANNEL"
+        ],
+        "folder_kept": false,
+        "metric_ids_kept_in_folder": false,
+        "readback_item_ids": []
+      }
+    },
+    "metric_folders_supported": false,
+    "pass": true,
+    "alternatives_that_survive_readback": [
+      "C_column_folder_control",
+      "D_metric_description_and_name_prefix"
+    ]
+  },
+  "P17": {
+    "renames": {
+      "ORDER_DATE_KEY": "OrderDateKey",
+      "UNIT_PRICE": "UnitPrice",
+      "SKU_KEY": "SkuKey",
+      "CUSTOMER_KEY (dim)": "CustomerKey",
+      "SEGMENT": "Customer Segment",
+      "DATE_KEY": "DateKey",
+      "CAL_DATE": "CalDate"
+    },
+    "tokens_tried": {
+      "auto": {
+        "readback_base_columns": {
+          "OrderDateKey": "[FACT_SALES/Order Date Key]",
+          "SkuKey": "[FACT_SALES/Sku Key]",
+          "Quantity": "[FACT_SALES/Quantity]",
+          "UnitPrice": "[FACT_SALES/Unit Price]"
+        },
+        "readback_child_columns": {
+          "OrderDateKey": "[Sales (source)/OrderDateKey]",
+          "UnitPrice": "[Sales (source)/UnitPrice]",
+          "Revenue": "[Quantity] * [UnitPrice] * (1 - [Discount])"
+        },
+        "readback_customer_columns": {
+          "CustomerKey": "[DIM_CUSTOMER/Customer Key]",
+          "Customer Segment": "[DIM_CUSTOMER/Segment]",
+          "Customer Region": "[DIM_CUSTOMER/Customer Region]",
+          "LoyaltyMember": "[DIM_CUSTOMER/Loyalty Member]"
+        },
+        "readback_metrics": [
+          {
+            "name": "Revenue Total",
+            "formula": "Sum([Revenue])",
+            "description": null
+          }
+        ],
+        "chart_region": {
+          "pass": true,
+          "rows_actual": 6,
+          "rows_truth": 6,
+          "matched": 6,
+          "null_cells_in_actual": 1
+        },
+        "chart_segment_via_metric": {
+          "pass": true,
+          "rows_actual": 5,
+          "rows_truth": 5,
+          "matched": 5,
+          "null_cells_in_actual": 1
+        },
+        "chart_month_via_renamed_date_key": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42,
+          "null_cells_in_actual": 0
+        },
+        "pass": true
+      },
+      "new": {
+        "dm_post_error": "{\"message\":\"28 schema errors in data model spec\",\"code\":\"invalid_request\",\"requestId\":\"<uuid-3>\",\"errors\":[{\"summary\":\"Cannot resolve columns on table 'e-cust': dependency not found: formula reference 'dim_customer/customerkey'\"},{\"summary\":\"Cannot resolve columns on table 'e-cust': dependency not found: formula reference 'dim_customer/customer segment'\"},{\"summary\":\"Cannot resolve columns on table 'e-cust': dependency not found: formula reference 'dim_customer/loyaltymember'\"},{\"summary\":\"Cannot resolve columns on table 'e-date': dependency not found: formula reference 'dim_date/datekey'\"},{\"summary\":\"Cannot resolve columns on table 'e-date': dependency not found"
+      },
+      "physical": {
+        "readback_base_columns": {
+          "OrderDateKey": "[FACT_SALES/Order Date Key]",
+          "SkuKey": "[FACT_SALES/Sku Key]",
+          "Quantity": "[FACT_SALES/Quantity]",
+          "UnitPrice": "[FACT_SALES/Unit Price]"
+        },
+        "readback_child_columns": {
+          "OrderDateKey": "[Sales (source)/OrderDateKey]",
+          "UnitPrice": "[Sales (source)/UnitPrice]",
+          "Revenue": "[Quantity] * [UnitPrice] * (1 - [Discount])"
+        },
+        "readback_customer_columns": {
+          "CustomerKey": "[DIM_CUSTOMER/Customer Key]",
+          "Customer Segment": "[DIM_CUSTOMER/Segment]",
+          "Customer Region": "[DIM_CUSTOMER/Customer Region]",
+          "LoyaltyMember": "[DIM_CUSTOMER/Loyalty Member]"
+        },
+        "readback_metrics": [
+          {
+            "name": "Revenue Total",
+            "formula": "Sum([Revenue])",
+            "description": null
+          }
+        ],
+        "chart_region": {
+          "pass": true,
+          "rows_actual": 6,
+          "rows_truth": 6,
+          "matched": 6,
+          "null_cells_in_actual": 1
+        },
+        "chart_segment_via_metric": {
+          "pass": true,
+          "rows_actual": 5,
+          "rows_truth": 5,
+          "matched": 5,
+          "null_cells_in_actual": 1
+        },
+        "chart_month_via_renamed_date_key": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42,
+          "null_cells_in_actual": 0
+        },
+        "pass": true
+      }
+    },
+    "working_token_form": "auto",
+    "token_forms": {
+      "auto": "[FACT_SALES/Order Date Key] (Sigma auto display name of the physical column)",
+      "new": "[FACT_SALES/OrderDateKey] (the Power BI name)",
+      "physical": "[FACT_SALES/ORDER_DATE_KEY] (physical name)"
+    },
+    "pass": true
+  },
+  "cleanup": {
+    "<uuid-4>": true,
+    "<uuid-5>": true,
+    "<uuid-6>": true,
+    "<uuid-7>": true,
+    "<uuid-8>": true,
+    "<uuid-9>": true,
+    "<uuid-10>": true,
+    "<uuid-11>": true,
+    "<uuid-12>": true,
+    "<uuid-13>": true,
+    "<uuid-14>": true,
+    "<uuid-15>": true,
+    "<uuid-16>": true,
+    "<uuid-17>": true,
+    "<uuid-18>": true,
+    "<uuid-19>": true,
+    "<uuid-20>": true,
+    "<uuid-21>": true,
+    "<uuid-22>": true,
+    "<uuid-23>": true,
+    "<uuid-24>": true,
+    "<uuid-25>": true
+  },
+  "cleanup_all_archived": true,
+  "objects_created": 22
+}

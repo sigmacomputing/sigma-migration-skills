@@ -1,0 +1,2013 @@
+{
+  "masters": {
+    "Date": {
+      "id": "id0001",
+      "element_id": "AAAAAAAAAB",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Date",
+      "columns": [
+        {
+          "id": "id0002",
+          "name": "DateKey",
+          "formula": "[Date/DateKey]"
+        },
+        {
+          "id": "id0003",
+          "name": "Date",
+          "formula": "[Date/Date]"
+        },
+        {
+          "id": "id0004",
+          "name": "Year",
+          "formula": "[Date/Year]"
+        },
+        {
+          "id": "id0005",
+          "name": "Quarter",
+          "formula": "[Date/Quarter]"
+        },
+        {
+          "id": "id0006",
+          "name": "Month Number",
+          "formula": "[Date/Month Number]"
+        },
+        {
+          "id": "id0007",
+          "name": "Month Name",
+          "formula": "[Date/Month Name]"
+        },
+        {
+          "id": "id0008",
+          "name": "Month Start",
+          "formula": "[Date/Month Start]"
+        }
+      ],
+      "metrics": [],
+      "date_columns": [
+        "DateKey",
+        "Date",
+        "Year",
+        "Quarter",
+        "Month Number",
+        "Month Name",
+        "Month Start"
+      ]
+    },
+    "Category": {
+      "id": "id0009",
+      "element_id": "AAAAAAAAAL",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Category",
+      "columns": [
+        {
+          "id": "id0010",
+          "name": "CategoryKey",
+          "formula": "[Category/CategoryKey]"
+        },
+        {
+          "id": "id0011",
+          "name": "Category Name",
+          "formula": "[Category/Category Name]"
+        }
+      ],
+      "metrics": []
+    },
+    "Product": {
+      "id": "id0012",
+      "element_id": "AAAAAAAAAS",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Product",
+      "columns": [
+        {
+          "id": "id0013",
+          "name": "ProductKey",
+          "formula": "[Product/ProductKey]"
+        },
+        {
+          "id": "id0014",
+          "name": "Product Name",
+          "formula": "[Product/Product Name]"
+        },
+        {
+          "id": "id0015",
+          "name": "Brand",
+          "formula": "[Product/Brand]"
+        },
+        {
+          "id": "id0016",
+          "name": "CategoryKey",
+          "formula": "[Product/CategoryKey]"
+        },
+        {
+          "id": "id0017",
+          "name": "VendorKey",
+          "formula": "[Product/VendorKey]"
+        },
+        {
+          "id": "id0018",
+          "name": "List Price",
+          "formula": "[Product/List Price]"
+        },
+        {
+          "id": "id0019",
+          "name": "Private Label",
+          "formula": "[Product/Private Label]"
+        },
+        {
+          "id": "id0020",
+          "name": "CategoryKey (Category)",
+          "formula": "[Product/Category/CategoryKey]"
+        },
+        {
+          "id": "id0021",
+          "name": "Category Name (Category)",
+          "formula": "[Product/Category/Category Name]"
+        }
+      ],
+      "metrics": []
+    },
+    "SKU": {
+      "id": "id0022",
+      "element_id": "AAAAAAAAAa",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "SKU",
+      "columns": [
+        {
+          "id": "id0023",
+          "name": "SkuKey",
+          "formula": "[SKU/SkuKey]"
+        },
+        {
+          "id": "id0024",
+          "name": "ProductKey",
+          "formula": "[SKU/ProductKey]"
+        },
+        {
+          "id": "id0025",
+          "name": "Size",
+          "formula": "[SKU/Size]"
+        },
+        {
+          "id": "id0026",
+          "name": "ProductKey (Product)",
+          "formula": "[SKU/Product/ProductKey]"
+        },
+        {
+          "id": "id0027",
+          "name": "Product Name (Product)",
+          "formula": "[SKU/Product/Product Name]"
+        },
+        {
+          "id": "id0028",
+          "name": "Brand (Product)",
+          "formula": "[SKU/Product/Brand]"
+        },
+        {
+          "id": "id0029",
+          "name": "CategoryKey (Product)",
+          "formula": "[SKU/Product/CategoryKey]"
+        },
+        {
+          "id": "id0030",
+          "name": "VendorKey (Product)",
+          "formula": "[SKU/Product/VendorKey]"
+        },
+        {
+          "id": "id0031",
+          "name": "List Price (Product)",
+          "formula": "[SKU/Product/List Price]"
+        },
+        {
+          "id": "id0032",
+          "name": "Private Label (Product)",
+          "formula": "[SKU/Product/Private Label]"
+        },
+        {
+          "id": "id0033",
+          "name": "CategoryKey (Category)",
+          "formula": "[SKU/Product/Category/CategoryKey]"
+        },
+        {
+          "id": "id0034",
+          "name": "Category Name (Category)",
+          "formula": "[SKU/Product/Category/Category Name]"
+        }
+      ],
+      "metrics": []
+    },
+    "Customer": {
+      "id": "id0035",
+      "element_id": "AAAAAAAAAe",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Customer",
+      "columns": [
+        {
+          "id": "id0036",
+          "name": "CustomerKey",
+          "formula": "[Customer/CustomerKey]"
+        },
+        {
+          "id": "id0037",
+          "name": "Segment",
+          "formula": "[Customer/Segment]"
+        },
+        {
+          "id": "id0038",
+          "name": "Customer Region",
+          "formula": "[Customer/Customer Region]"
+        },
+        {
+          "id": "id0039",
+          "name": "Loyalty Member",
+          "formula": "[Customer/Loyalty Member]"
+        }
+      ],
+      "metrics": []
+    },
+    "Store": {
+      "id": "id0040",
+      "element_id": "AAAAAAAAAj",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Store",
+      "columns": [
+        {
+          "id": "id0041",
+          "name": "StoreKey",
+          "formula": "[Store/StoreKey]"
+        },
+        {
+          "id": "id0042",
+          "name": "Store Name",
+          "formula": "[Store/Store Name]"
+        },
+        {
+          "id": "id0043",
+          "name": "Store Region",
+          "formula": "[Store/Store Region]"
+        },
+        {
+          "id": "id0044",
+          "name": "Channel",
+          "formula": "[Store/Channel]"
+        }
+      ],
+      "metrics": []
+    },
+    "Sales": {
+      "id": "id0045",
+      "element_id": "AAAAAAAAAos0",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales",
+      "columns": [
+        {
+          "id": "id0046",
+          "name": "SalesLineKey",
+          "formula": "[Sales/SalesLineKey]"
+        },
+        {
+          "id": "id0047",
+          "name": "Order Number",
+          "formula": "[Sales/Order Number]"
+        },
+        {
+          "id": "id0048",
+          "name": "OrderDateKey",
+          "formula": "[Sales/OrderDateKey]"
+        },
+        {
+          "id": "id0049",
+          "name": "ShipDateKey",
+          "formula": "[Sales/ShipDateKey]"
+        },
+        {
+          "id": "id0050",
+          "name": "SkuKey",
+          "formula": "[Sales/SkuKey]"
+        },
+        {
+          "id": "id0051",
+          "name": "CustomerKey",
+          "formula": "[Sales/CustomerKey]"
+        },
+        {
+          "id": "id0052",
+          "name": "StoreKey",
+          "formula": "[Sales/StoreKey]"
+        },
+        {
+          "id": "id0053",
+          "name": "Quantity",
+          "formula": "[Sales/Quantity]"
+        },
+        {
+          "id": "id0054",
+          "name": "Unit Price",
+          "formula": "[Sales/Unit Price]"
+        },
+        {
+          "id": "id0055",
+          "name": "Discount",
+          "formula": "[Sales/Discount]"
+        },
+        {
+          "id": "id0056",
+          "name": "Unit Cost",
+          "formula": "[Sales/Unit Cost]"
+        },
+        {
+          "id": "id0057",
+          "name": "ProductKey (SKU)",
+          "formula": "[Sales/ProductKey (SKU)]"
+        },
+        {
+          "id": "id0058",
+          "name": "List Price (Product)",
+          "formula": "[Sales/List Price (Product)]"
+        },
+        {
+          "id": "id0059",
+          "name": "Private Label (Product)",
+          "formula": "[Sales/Private Label (Product)]"
+        },
+        {
+          "id": "id0060",
+          "name": "CategoryKey (Product)",
+          "formula": "[Sales/CategoryKey (Product)]"
+        },
+        {
+          "id": "id0061",
+          "name": "Category Name (Category)",
+          "formula": "[Sales/Category Name (Category)]"
+        },
+        {
+          "id": "id0062",
+          "name": "Date (Date)",
+          "formula": "[Sales/Date (Date)]"
+        },
+        {
+          "id": "id0063",
+          "name": "One",
+          "formula": "[Sales/One]"
+        },
+        {
+          "id": "id0064",
+          "name": "As Of Date",
+          "formula": "[Sales/As Of Date]"
+        },
+        {
+          "id": "id0065",
+          "name": "DateKey (Date)",
+          "formula": "[Sales/Date/DateKey]"
+        },
+        {
+          "id": "id0066",
+          "name": "Date (Date) (2)",
+          "formula": "[Sales/Date/Date]"
+        },
+        {
+          "id": "id0067",
+          "name": "Year (Date)",
+          "formula": "[Sales/Date/Year]"
+        },
+        {
+          "id": "id0068",
+          "name": "Quarter (Date)",
+          "formula": "[Sales/Date/Quarter]"
+        },
+        {
+          "id": "id0069",
+          "name": "Month Number (Date)",
+          "formula": "[Sales/Date/Month Number]"
+        },
+        {
+          "id": "id0070",
+          "name": "Month Name (Date)",
+          "formula": "[Sales/Date/Month Name]"
+        },
+        {
+          "id": "id0071",
+          "name": "Month Start (Date)",
+          "formula": "[Sales/Date/Month Start]"
+        },
+        {
+          "id": "id0072",
+          "name": "SkuKey (SKU)",
+          "formula": "[Sales/SKU/SkuKey]"
+        },
+        {
+          "id": "id0073",
+          "name": "ProductKey (SKU) (2)",
+          "formula": "[Sales/SKU/ProductKey]"
+        },
+        {
+          "id": "id0074",
+          "name": "Size (SKU)",
+          "formula": "[Sales/SKU/Size]"
+        },
+        {
+          "id": "id0075",
+          "name": "CustomerKey (Customer)",
+          "formula": "[Sales/Customer/CustomerKey]"
+        },
+        {
+          "id": "id0076",
+          "name": "Segment (Customer)",
+          "formula": "[Sales/Customer/Segment]"
+        },
+        {
+          "id": "id0077",
+          "name": "Customer Region (Customer)",
+          "formula": "[Sales/Customer/Customer Region]"
+        },
+        {
+          "id": "id0078",
+          "name": "Loyalty Member (Customer)",
+          "formula": "[Sales/Customer/Loyalty Member]"
+        },
+        {
+          "id": "id0079",
+          "name": "StoreKey (Store)",
+          "formula": "[Sales/Store/StoreKey]"
+        },
+        {
+          "id": "id0080",
+          "name": "Store Name (Store)",
+          "formula": "[Sales/Store/Store Name]"
+        },
+        {
+          "id": "id0081",
+          "name": "Store Region (Store)",
+          "formula": "[Sales/Store/Store Region]"
+        },
+        {
+          "id": "id0082",
+          "name": "Channel (Store)",
+          "formula": "[Sales/Store/Channel]"
+        },
+        {
+          "id": "id0083",
+          "name": "DateKey (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/DateKey]"
+        },
+        {
+          "id": "id0084",
+          "name": "Date (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Date]"
+        },
+        {
+          "id": "id0085",
+          "name": "Year (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Year]"
+        },
+        {
+          "id": "id0086",
+          "name": "Quarter (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Quarter]"
+        },
+        {
+          "id": "id0087",
+          "name": "Month Number (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Number]"
+        },
+        {
+          "id": "id0088",
+          "name": "Month Name (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Name]"
+        },
+        {
+          "id": "id0089",
+          "name": "Month Start (Date (ShipDateKey))",
+          "formula": "[Sales/Date (ShipDateKey)/Month Start]"
+        },
+        {
+          "id": "id0090",
+          "name": "ProductKey (Product)",
+          "formula": "[Sales/SKU/Product/ProductKey]"
+        },
+        {
+          "id": "id0091",
+          "name": "Product Name (Product)",
+          "formula": "[Sales/SKU/Product/Product Name]"
+        },
+        {
+          "id": "id0092",
+          "name": "Brand (Product)",
+          "formula": "[Sales/SKU/Product/Brand]"
+        },
+        {
+          "id": "id0093",
+          "name": "CategoryKey (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/CategoryKey]"
+        },
+        {
+          "id": "id0094",
+          "name": "VendorKey (Product)",
+          "formula": "[Sales/SKU/Product/VendorKey]"
+        },
+        {
+          "id": "id0095",
+          "name": "List Price (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/List Price]"
+        },
+        {
+          "id": "id0096",
+          "name": "Private Label (SKU ∕ Product)",
+          "formula": "[Sales/SKU/Product/Private Label]"
+        },
+        {
+          "id": "id0097",
+          "name": "CategoryKey (Category)",
+          "formula": "[Sales/SKU/Product/Category/CategoryKey]"
+        },
+        {
+          "id": "id0098",
+          "name": "Category Name (SKU ∕ Product ∕ Category)",
+          "formula": "[Sales/SKU/Product/Category/Category Name]"
+        }
+      ],
+      "metrics": [
+        {
+          "name": "Sales Amount",
+          "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))"
+        },
+        {
+          "name": "Units",
+          "formula": "Sum([Quantity])"
+        },
+        {
+          "name": "Cost",
+          "formula": "Sum([Quantity] * [Unit Cost])"
+        },
+        {
+          "name": "Gross Margin",
+          "formula": "If(IsNull([Metrics/Sales Amount]) and IsNull([Metrics/Cost]), Null, Coalesce([Metrics/Sales Amount], 0) - Coalesce([Metrics/Cost], 0))"
+        },
+        {
+          "name": "GM %",
+          "formula": "([Metrics/Gross Margin]) / NullIf(([Metrics/Sales Amount]), 0)"
+        },
+        {
+          "name": "Orders",
+          "formula": "CountDistinct([Order Number])"
+        },
+        {
+          "name": "Avg Price",
+          "formula": "([Metrics/Sales Amount]) / NullIf(([Metrics/Units]), 0)"
+        },
+        {
+          "name": "List Value",
+          "formula": "Sum([Quantity] * [List Price (Product)])"
+        },
+        {
+          "name": "Private Label Sales",
+          "formula": "SumIf(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)), [Private Label (Product)] = True)"
+        },
+        {
+          "name": "Sales by Ship Date",
+          "formula": "Sum(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)))"
+        },
+        {
+          "name": "Sales YTD (As Of)",
+          "formula": "SumIf(Coalesce([Quantity], 0) * Coalesce([Unit Price], 0) * (1 - Coalesce([Discount], 0)), [Date (Date)] >= DateTrunc(\"year\", [As Of Date]) and [Date (Date)] <= [As Of Date])"
+        }
+      ],
+      "date_columns": [
+        "DateKey (Date)",
+        "Date (Date) (2)",
+        "Year (Date)",
+        "Quarter (Date)",
+        "Month Number (Date)",
+        "Month Name (Date)",
+        "Month Start (Date)",
+        "DateKey (Date (ShipDateKey))",
+        "Date (Date (ShipDateKey))",
+        "Year (Date (ShipDateKey))",
+        "Quarter (Date (ShipDateKey))",
+        "Month Number (Date (ShipDateKey))",
+        "Month Name (Date (ShipDateKey))",
+        "Month Start (Date (ShipDateKey))"
+      ]
+    },
+    "Sales – rolling 28 days by day": {
+      "id": "id0099",
+      "element_id": "AAAAAAAAAos0r5",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales – rolling 28 days by day",
+      "columns": [
+        {
+          "id": "id0100",
+          "name": "Day",
+          "formula": "[Sales – rolling 28 days by day/Day]"
+        },
+        {
+          "id": "id0101",
+          "name": "Segment",
+          "formula": "[Sales – rolling 28 days by day/Segment]"
+        },
+        {
+          "id": "id0102",
+          "name": "Store Region",
+          "formula": "[Sales – rolling 28 days by day/Store Region]"
+        },
+        {
+          "id": "id0103",
+          "name": "Customer Region",
+          "formula": "[Sales – rolling 28 days by day/Customer Region]"
+        },
+        {
+          "id": "id0104",
+          "name": "Sales R28",
+          "formula": "[Sales – rolling 28 days by day/Sales R28]"
+        }
+      ],
+      "metrics": [],
+      "day_column": "Day",
+      "date_tables": [
+        "Date"
+      ]
+    },
+    "Sales by quarter (quarter reset)": {
+      "id": "id0105",
+      "element_id": "AAAAAAAAAos0g3",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales by quarter (quarter reset)",
+      "columns": [
+        {
+          "id": "id0106",
+          "name": "Segment",
+          "formula": "[Sales by quarter (quarter reset)/Segment]"
+        },
+        {
+          "id": "id0107",
+          "name": "Store Region",
+          "formula": "[Sales by quarter (quarter reset)/Store Region]"
+        },
+        {
+          "id": "id0108",
+          "name": "Customer Region",
+          "formula": "[Sales by quarter (quarter reset)/Customer Region]"
+        },
+        {
+          "id": "id0109",
+          "name": "Quarter",
+          "formula": "[Sales by quarter (quarter reset)/Quarter]"
+        },
+        {
+          "id": "id0110",
+          "name": "Year Number",
+          "formula": "[Sales by quarter (quarter reset)/Year Number]"
+        },
+        {
+          "id": "id0111",
+          "name": "Quarter Number",
+          "formula": "[Sales by quarter (quarter reset)/Quarter Number]"
+        },
+        {
+          "id": "id0112",
+          "name": "Sales Amount",
+          "formula": "[Sales by quarter (quarter reset)/Sales Amount]"
+        },
+        {
+          "id": "id0113",
+          "name": "Sales QTD",
+          "formula": "[Sales by quarter (quarter reset)/Sales QTD]"
+        }
+      ],
+      "metrics": []
+    },
+    "Sales by quarter": {
+      "id": "id0114",
+      "element_id": "AAAAAAAAAos0g2",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales by quarter",
+      "columns": [
+        {
+          "id": "id0115",
+          "name": "Segment",
+          "formula": "[Sales by quarter/Segment]"
+        },
+        {
+          "id": "id0116",
+          "name": "Store Region",
+          "formula": "[Sales by quarter/Store Region]"
+        },
+        {
+          "id": "id0117",
+          "name": "Customer Region",
+          "formula": "[Sales by quarter/Customer Region]"
+        },
+        {
+          "id": "id0118",
+          "name": "Quarter",
+          "formula": "[Sales by quarter/Quarter]"
+        },
+        {
+          "id": "id0119",
+          "name": "Year Number",
+          "formula": "[Sales by quarter/Year Number]"
+        },
+        {
+          "id": "id0120",
+          "name": "Quarter Number",
+          "formula": "[Sales by quarter/Quarter Number]"
+        },
+        {
+          "id": "id0121",
+          "name": "Sales Amount",
+          "formula": "[Sales by quarter/Sales Amount]"
+        },
+        {
+          "id": "id0122",
+          "name": "Sales PY",
+          "formula": "[Sales by quarter/Sales PY]"
+        },
+        {
+          "id": "id0123",
+          "name": "Sales YoY % (numerator)",
+          "formula": "[Sales by quarter/Sales YoY % (numerator)]"
+        },
+        {
+          "id": "id0124",
+          "name": "Sales YoY % (denominator)",
+          "formula": "[Sales by quarter/Sales YoY % (denominator)]"
+        }
+      ],
+      "metrics": []
+    },
+    "Sales by month (month reset)": {
+      "id": "id0125",
+      "element_id": "AAAAAAAAAos0g1",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales by month (month reset)",
+      "columns": [
+        {
+          "id": "id0126",
+          "name": "Segment",
+          "formula": "[Sales by month (month reset)/Segment]"
+        },
+        {
+          "id": "id0127",
+          "name": "Store Region",
+          "formula": "[Sales by month (month reset)/Store Region]"
+        },
+        {
+          "id": "id0128",
+          "name": "Customer Region",
+          "formula": "[Sales by month (month reset)/Customer Region]"
+        },
+        {
+          "id": "id0129",
+          "name": "Month",
+          "formula": "[Sales by month (month reset)/Month]"
+        },
+        {
+          "id": "id0130",
+          "name": "Year Number",
+          "formula": "[Sales by month (month reset)/Year Number]"
+        },
+        {
+          "id": "id0131",
+          "name": "Quarter Number",
+          "formula": "[Sales by month (month reset)/Quarter Number]"
+        },
+        {
+          "id": "id0132",
+          "name": "Month Number",
+          "formula": "[Sales by month (month reset)/Month Number]"
+        },
+        {
+          "id": "id0133",
+          "name": "Sales Amount",
+          "formula": "[Sales by month (month reset)/Sales Amount]"
+        },
+        {
+          "id": "id0134",
+          "name": "Sales MTD",
+          "formula": "[Sales by month (month reset)/Sales MTD]"
+        }
+      ],
+      "metrics": []
+    },
+    "Sales by month": {
+      "id": "id0135",
+      "element_id": "AAAAAAAAAos0g0",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "Sales by month",
+      "columns": [
+        {
+          "id": "id0136",
+          "name": "Segment",
+          "formula": "[Sales by month/Segment]"
+        },
+        {
+          "id": "id0137",
+          "name": "Store Region",
+          "formula": "[Sales by month/Store Region]"
+        },
+        {
+          "id": "id0138",
+          "name": "Customer Region",
+          "formula": "[Sales by month/Customer Region]"
+        },
+        {
+          "id": "id0139",
+          "name": "Year",
+          "formula": "[Sales by month/Year]"
+        },
+        {
+          "id": "id0140",
+          "name": "Month",
+          "formula": "[Sales by month/Month]"
+        },
+        {
+          "id": "id0141",
+          "name": "Year Number",
+          "formula": "[Sales by month/Year Number]"
+        },
+        {
+          "id": "id0142",
+          "name": "Quarter Number",
+          "formula": "[Sales by month/Quarter Number]"
+        },
+        {
+          "id": "id0143",
+          "name": "Month Number",
+          "formula": "[Sales by month/Month Number]"
+        },
+        {
+          "id": "id0144",
+          "name": "Sales Amount",
+          "formula": "[Sales by month/Sales Amount]"
+        },
+        {
+          "id": "id0145",
+          "name": "Sales YTD",
+          "formula": "[Sales by month/Sales YTD]"
+        },
+        {
+          "id": "id0146",
+          "name": "Sales PY",
+          "formula": "[Sales by month/Sales PY]"
+        }
+      ],
+      "metrics": []
+    },
+    "As Of": {
+      "id": "id0147",
+      "element_id": "AAAAAAAAAJ",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "As Of",
+      "columns": [
+        {
+          "id": "id0148",
+          "name": "As Of Date",
+          "formula": "[As Of/As Of Date]"
+        },
+        {
+          "id": "id0149",
+          "name": "One",
+          "formula": "[As Of/One]"
+        }
+      ],
+      "metrics": []
+    },
+    "DIM_VENDOR": {
+      "id": "id0150",
+      "element_id": "AAAAAAAAAO",
+      "data_model": "dm-fake",
+      "direct": true,
+      "element_name": "DIM_VENDOR",
+      "columns": [
+        {
+          "id": "id0151",
+          "name": "Vendor Key",
+          "formula": "[DIM_VENDOR/Vendor Key]"
+        },
+        {
+          "id": "id0152",
+          "name": "Vendor Name",
+          "formula": "[DIM_VENDOR/Vendor Name]"
+        },
+        {
+          "id": "id0153",
+          "name": "Country",
+          "formula": "[DIM_VENDOR/Country]"
+        }
+      ],
+      "metrics": []
+    }
+  },
+  "fields": {
+    "Date.DateKey": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/DateKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/DateKey (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Date": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Date]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Date (Date) (2)]",
+          "agg": null
+        },
+        {
+          "master": "Sales – rolling 28 days by day",
+          "ref": "[master-9771576e/Day]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Year": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Year]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Year (Date)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Year Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Year Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Year Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Year Number]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Quarter": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Quarter]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Quarter (Date)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Quarter Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Quarter Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Quarter Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Quarter Number]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Number": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Number]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Number (Date)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Month Number]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Month Number]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Name": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Name (Date)]",
+          "agg": null
+        }
+      ]
+    },
+    "Date.Month Start": {
+      "master": "Date",
+      "ref": "[master-eb9a4bc1/Month Start]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Month Start (Date)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Month]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Month]",
+          "agg": null
+        }
+      ]
+    },
+    "Category.CategoryKey": {
+      "master": "Category",
+      "ref": "[master-a3c686e7/CategoryKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/CategoryKey (Category)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/CategoryKey (Category)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CategoryKey (Category)]",
+          "agg": null
+        }
+      ]
+    },
+    "Category.Category Name": {
+      "master": "Category",
+      "ref": "[master-a3c686e7/Category Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Product",
+          "ref": "[master-dd3b86d1/Category Name (Category)]",
+          "agg": null
+        },
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Category Name (Category)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Category Name (SKU ∕ Product ∕ Category)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.ProductKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/ProductKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/ProductKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/ProductKey (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Product Name": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Product Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Product Name (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Product Name (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Brand": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Brand]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Brand (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Brand (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.CategoryKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/CategoryKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/CategoryKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CategoryKey (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.VendorKey": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/VendorKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/VendorKey (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/VendorKey (Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.List Price": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/List Price]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/List Price (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/List Price (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "Product.Private Label": {
+      "master": "Product",
+      "ref": "[master-dd3b86d1/Private Label]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "SKU",
+          "ref": "[master-d59192b9/Private Label (Product)]",
+          "agg": null
+        },
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Private Label (SKU ∕ Product)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.SkuKey": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/SkuKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/SkuKey (SKU)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.ProductKey": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/ProductKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/ProductKey (SKU) (2)]",
+          "agg": null
+        }
+      ]
+    },
+    "SKU.Size": {
+      "master": "SKU",
+      "ref": "[master-d59192b9/Size]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Size (SKU)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.CustomerKey": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/CustomerKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/CustomerKey (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Segment": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Segment]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Segment (Customer)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Segment]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Segment]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Segment]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Segment]",
+          "agg": null
+        },
+        {
+          "master": "Sales – rolling 28 days by day",
+          "ref": "[master-9771576e/Segment]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Customer Region": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Customer Region]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Customer Region (Customer)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Customer Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Customer Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Customer Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Customer Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales – rolling 28 days by day",
+          "ref": "[master-9771576e/Customer Region]",
+          "agg": null
+        }
+      ]
+    },
+    "Customer.Loyalty Member": {
+      "master": "Customer",
+      "ref": "[master-0e85749a/Loyalty Member]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Loyalty Member (Customer)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.StoreKey": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/StoreKey]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/StoreKey (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Store Name": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Store Name]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Store Name (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Store Region": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Store Region]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Store Region (Store)]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Store Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Store Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Store Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Store Region]",
+          "agg": null
+        },
+        {
+          "master": "Sales – rolling 28 days by day",
+          "ref": "[master-9771576e/Store Region]",
+          "agg": null
+        }
+      ]
+    },
+    "Store.Channel": {
+      "master": "Store",
+      "ref": "[master-0d8a7046/Channel]",
+      "agg": null,
+      "alts": [
+        {
+          "master": "Sales",
+          "ref": "[master-d0edfb6e/Channel (Store)]",
+          "agg": null
+        }
+      ]
+    },
+    "Sales.SalesLineKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/SalesLineKey]",
+      "agg": null
+    },
+    "Sales.Order Number": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Order Number]",
+      "agg": null
+    },
+    "Sales.OrderDateKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/OrderDateKey]",
+      "agg": null
+    },
+    "Sales.ShipDateKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/ShipDateKey]",
+      "agg": null
+    },
+    "Sales.SkuKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/SkuKey]",
+      "agg": null
+    },
+    "Sales.CustomerKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/CustomerKey]",
+      "agg": null
+    },
+    "Sales.StoreKey": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/StoreKey]",
+      "agg": null
+    },
+    "Sales.Quantity": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Quantity]",
+      "agg": null
+    },
+    "Sales.Unit Price": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Unit Price]",
+      "agg": null
+    },
+    "Sales.Discount": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Discount]",
+      "agg": null
+    },
+    "Sales.Unit Cost": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Unit Cost]",
+      "agg": null
+    },
+    "Sales.ProductKey (SKU)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/ProductKey (SKU)]",
+      "agg": null
+    },
+    "Sales.List Price (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/List Price (Product)]",
+      "agg": null
+    },
+    "Sales.Private Label (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Private Label (Product)]",
+      "agg": null
+    },
+    "Sales.CategoryKey (Product)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/CategoryKey (Product)]",
+      "agg": null
+    },
+    "Sales.Category Name (Category)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Category Name (Category)]",
+      "agg": null
+    },
+    "Sales.Date (Date)": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/Date (Date)]",
+      "agg": null
+    },
+    "Sales.One": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/One]",
+      "agg": null
+    },
+    "Sales.As Of Date": {
+      "master": "Sales",
+      "ref": "[master-d0edfb6e/As Of Date]",
+      "agg": null
+    },
+    "Sales – rolling 28 days by day.Day": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Day]",
+      "agg": null
+    },
+    "Sales – rolling 28 days by day.Segment": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Segment]",
+      "agg": null
+    },
+    "Sales – rolling 28 days by day.Store Region": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Store Region]",
+      "agg": null
+    },
+    "Sales – rolling 28 days by day.Customer Region": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Customer Region]",
+      "agg": null
+    },
+    "Sales – rolling 28 days by day.Sales R28": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Sales R28]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Segment": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Segment]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Store Region": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Store Region]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Customer Region": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Customer Region]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Quarter": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Quarter]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Year Number": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Year Number]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Quarter Number": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Quarter Number]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Sales Amount": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Sales Amount]",
+      "agg": null
+    },
+    "Sales by quarter (quarter reset).Sales QTD": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Sales QTD]",
+      "agg": null
+    },
+    "Sales by quarter.Segment": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Segment]",
+      "agg": null
+    },
+    "Sales by quarter.Store Region": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Store Region]",
+      "agg": null
+    },
+    "Sales by quarter.Customer Region": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Customer Region]",
+      "agg": null
+    },
+    "Sales by quarter.Quarter": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Quarter]",
+      "agg": null
+    },
+    "Sales by quarter.Year Number": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Year Number]",
+      "agg": null
+    },
+    "Sales by quarter.Quarter Number": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Quarter Number]",
+      "agg": null
+    },
+    "Sales by quarter.Sales Amount": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Sales Amount]",
+      "agg": null
+    },
+    "Sales by quarter.Sales PY": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Sales PY]",
+      "agg": null
+    },
+    "Sales by quarter.Sales YoY % (numerator)": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Sales YoY % (numerator)]",
+      "agg": null
+    },
+    "Sales by quarter.Sales YoY % (denominator)": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Sales YoY % (denominator)]",
+      "agg": null
+    },
+    "Sales by month (month reset).Segment": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Segment]",
+      "agg": null
+    },
+    "Sales by month (month reset).Store Region": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Store Region]",
+      "agg": null
+    },
+    "Sales by month (month reset).Customer Region": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Customer Region]",
+      "agg": null
+    },
+    "Sales by month (month reset).Month": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Month]",
+      "agg": null
+    },
+    "Sales by month (month reset).Year Number": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Year Number]",
+      "agg": null
+    },
+    "Sales by month (month reset).Quarter Number": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Quarter Number]",
+      "agg": null
+    },
+    "Sales by month (month reset).Month Number": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Month Number]",
+      "agg": null
+    },
+    "Sales by month (month reset).Sales Amount": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Sales Amount]",
+      "agg": null
+    },
+    "Sales by month (month reset).Sales MTD": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Sales MTD]",
+      "agg": null
+    },
+    "Sales by month.Segment": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Segment]",
+      "agg": null
+    },
+    "Sales by month.Store Region": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Store Region]",
+      "agg": null
+    },
+    "Sales by month.Customer Region": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Customer Region]",
+      "agg": null
+    },
+    "Sales by month.Year": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Year]",
+      "agg": null
+    },
+    "Sales by month.Month": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Month]",
+      "agg": null
+    },
+    "Sales by month.Year Number": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Year Number]",
+      "agg": null
+    },
+    "Sales by month.Quarter Number": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Quarter Number]",
+      "agg": null
+    },
+    "Sales by month.Month Number": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Month Number]",
+      "agg": null
+    },
+    "Sales by month.Sales Amount": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Sales Amount]",
+      "agg": null
+    },
+    "Sales by month.Sales YTD": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Sales YTD]",
+      "agg": null
+    },
+    "Sales by month.Sales PY": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Sales PY]",
+      "agg": null
+    },
+    "As Of.As Of Date": {
+      "master": "As Of",
+      "ref": "[master-13b24eb2/As Of Date]",
+      "agg": null
+    },
+    "As Of.One": {
+      "master": "As Of",
+      "ref": "[master-13b24eb2/One]",
+      "agg": null
+    },
+    "DIM_VENDOR.Vendor Key": {
+      "master": "DIM_VENDOR",
+      "ref": "[master-0084de57/Vendor Key]",
+      "agg": null
+    },
+    "DIM_VENDOR.Vendor Name": {
+      "master": "DIM_VENDOR",
+      "ref": "[master-0084de57/Vendor Name]",
+      "agg": null
+    },
+    "DIM_VENDOR.Country": {
+      "master": "DIM_VENDOR",
+      "ref": "[master-0084de57/Country]",
+      "agg": null
+    },
+    "Sales.Sales Amount": {
+      "master": "Sales",
+      "ref": "[Metrics/Sales Amount]",
+      "agg": null,
+      "formula": "[Metrics/Sales Amount]",
+      "alts": [
+        {
+          "master": "Sales by month",
+          "ref": "[master-27c8ea35/Sales Amount]",
+          "agg": null,
+          "formula": "Sum([master-27c8ea35/Sales Amount])"
+        },
+        {
+          "master": "Sales by quarter (quarter reset)",
+          "ref": "[master-482d8a73/Sales Amount]",
+          "agg": null,
+          "formula": "Sum([master-482d8a73/Sales Amount])"
+        },
+        {
+          "master": "Sales by month (month reset)",
+          "ref": "[master-391ef137/Sales Amount]",
+          "agg": null,
+          "formula": "Sum([master-391ef137/Sales Amount])"
+        },
+        {
+          "master": "Sales by quarter",
+          "ref": "[master-c02f2799/Sales Amount]",
+          "agg": null,
+          "formula": "Sum([master-c02f2799/Sales Amount])"
+        }
+      ]
+    },
+    "Sales.Units": {
+      "master": "Sales",
+      "ref": "[Metrics/Units]",
+      "agg": null,
+      "formula": "[Metrics/Units]"
+    },
+    "Sales.Gross Margin": {
+      "master": "Sales",
+      "ref": "[Metrics/Gross Margin]",
+      "agg": null,
+      "formula": "[Metrics/Gross Margin]"
+    },
+    "Sales.GM %": {
+      "master": "Sales",
+      "ref": "[Metrics/GM %]",
+      "agg": null,
+      "formula": "[Metrics/GM %]"
+    },
+    "Sales.Orders": {
+      "master": "Sales",
+      "ref": "[Metrics/Orders]",
+      "agg": null,
+      "formula": "[Metrics/Orders]"
+    },
+    "Sales.Avg Price": {
+      "master": "Sales",
+      "ref": "[Metrics/Avg Price]",
+      "agg": null,
+      "formula": "[Metrics/Avg Price]"
+    },
+    "Sales.Cost": {
+      "master": "Sales",
+      "ref": "[Metrics/Cost]",
+      "agg": null,
+      "formula": "[Metrics/Cost]"
+    },
+    "Sales.List Value": {
+      "master": "Sales",
+      "ref": "[Metrics/List Value]",
+      "agg": null,
+      "formula": "[Metrics/List Value]"
+    },
+    "Sales.Private Label Sales": {
+      "master": "Sales",
+      "ref": "[Metrics/Private Label Sales]",
+      "agg": null,
+      "formula": "[Metrics/Private Label Sales]"
+    },
+    "Sales.Sales by Ship Date": {
+      "master": "Sales",
+      "ref": "[Metrics/Sales by Ship Date]",
+      "agg": null,
+      "formula": "[Metrics/Sales by Ship Date]"
+    },
+    "Sales.Sales YTD": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Sales YTD]",
+      "agg": null,
+      "formula": "Sum(If([master-27c8ea35/Month] = Max([master-27c8ea35/Month]), [master-27c8ea35/Sales YTD], Null))"
+    },
+    "Sales.Sales QTD": {
+      "master": "Sales by quarter (quarter reset)",
+      "ref": "[master-482d8a73/Sales QTD]",
+      "agg": null,
+      "formula": "Sum(If([master-482d8a73/Quarter] = Max([master-482d8a73/Quarter]), [master-482d8a73/Sales QTD], Null))"
+    },
+    "Sales.Sales MTD": {
+      "master": "Sales by month (month reset)",
+      "ref": "[master-391ef137/Sales MTD]",
+      "agg": null,
+      "formula": "Sum(If([master-391ef137/Month] = Max([master-391ef137/Month]), [master-391ef137/Sales MTD], Null))"
+    },
+    "Sales.Sales PY": {
+      "master": "Sales by month",
+      "ref": "[master-27c8ea35/Sales PY]",
+      "agg": null,
+      "formula": "Sum([master-27c8ea35/Sales PY])"
+    },
+    "Sales.Sales YoY %": {
+      "master": "Sales by quarter",
+      "ref": "[master-c02f2799/Sales YoY % (numerator)]",
+      "agg": null,
+      "formula": "Sum([master-c02f2799/Sales YoY % (numerator)]) / NullIf(Sum([master-c02f2799/Sales YoY % (denominator)]), 0)"
+    },
+    "Sales.Sales YTD (As Of)": {
+      "master": "Sales",
+      "ref": "[Metrics/Sales YTD (As Of)]",
+      "agg": null,
+      "formula": "[Metrics/Sales YTD (As Of)]"
+    },
+    "Sales.Sales R28": {
+      "master": "Sales – rolling 28 days by day",
+      "ref": "[master-9771576e/Sales R28]",
+      "agg": null,
+      "formula": "Sum(If([master-9771576e/Day] = Max([master-9771576e/Day]), [master-9771576e/Sales R28], Null))"
+    }
+  },
+  "page_fields": {},
+  "conflicts": [
+    {
+      "page": "Shipping",
+      "visual": "Sales by ship month and order month",
+      "visual_id": "ShByMonth",
+      "field": "Date.Month Start",
+      "class": "D",
+      "reason": "a visual mixes Date.Month Start through the inactive and the active relationship"
+    }
+  ],
+  "class_d_fields": [],
+  "unresolved": [],
+  "date_tables": [
+    "Date"
+  ],
+  "asof_ignore_date": [
+    {
+      "page": "Trends",
+      "visual": "Sales YTD (As Of)",
+      "visual_id": "TrAsOf"
+    }
+  ],
+  "class_d_visuals": [
+    {
+      "page": "Shipping",
+      "visual": "Sales by ship month and order month",
+      "visual_id": "ShByMonth",
+      "table": "Date",
+      "reason": "needs two relationship paths to Date: the active relationship, Date (ShipDateKey); Sigma reads one path per element"
+    },
+    {
+      "page": "Trends",
+      "visual": "Sales YTD and YTD (As Of) by month",
+      "visual_id": "TrYtdLine",
+      "table": "Sales",
+      "reason": "Sales YTD (As Of) is an as-of measure, which Power BI holds flat across the Date table (its CALCULATE filter replaces the Date filter), and this visual binds Date.Month Start; Sigma would plot one value per group; held back (class D)"
+    }
+  ],
+  "carried_alts": [
+    {
+      "element": "Sales by month",
+      "column": "Segment",
+      "field": "Customer.Segment"
+    },
+    {
+      "element": "Sales by month",
+      "column": "Store Region",
+      "field": "Store.Store Region"
+    },
+    {
+      "element": "Sales by month",
+      "column": "Customer Region",
+      "field": "Customer.Customer Region"
+    },
+    {
+      "element": "Sales by quarter (quarter reset)",
+      "column": "Segment",
+      "field": "Customer.Segment"
+    },
+    {
+      "element": "Sales by quarter (quarter reset)",
+      "column": "Store Region",
+      "field": "Store.Store Region"
+    },
+    {
+      "element": "Sales by quarter (quarter reset)",
+      "column": "Customer Region",
+      "field": "Customer.Customer Region"
+    },
+    {
+      "element": "Sales by month (month reset)",
+      "column": "Segment",
+      "field": "Customer.Segment"
+    },
+    {
+      "element": "Sales by month (month reset)",
+      "column": "Store Region",
+      "field": "Store.Store Region"
+    },
+    {
+      "element": "Sales by month (month reset)",
+      "column": "Customer Region",
+      "field": "Customer.Customer Region"
+    },
+    {
+      "element": "Sales by quarter",
+      "column": "Segment",
+      "field": "Customer.Segment"
+    },
+    {
+      "element": "Sales by quarter",
+      "column": "Store Region",
+      "field": "Store.Store Region"
+    },
+    {
+      "element": "Sales by quarter",
+      "column": "Customer Region",
+      "field": "Customer.Customer Region"
+    },
+    {
+      "element": "Sales – rolling 28 days by day",
+      "column": "Segment",
+      "field": "Customer.Segment"
+    },
+    {
+      "element": "Sales – rolling 28 days by day",
+      "column": "Store Region",
+      "field": "Store.Store Region"
+    },
+    {
+      "element": "Sales – rolling 28 days by day",
+      "column": "Customer Region",
+      "field": "Customer.Customer Region"
+    }
+  ]
+}

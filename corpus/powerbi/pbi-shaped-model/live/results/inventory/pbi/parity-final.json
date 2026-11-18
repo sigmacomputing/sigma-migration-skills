@@ -1,0 +1,31 @@
+{
+ "workbook_id": null,
+ "ran_at": "2026-11-17T01:04:48Z",
+ "source": "warehouse-sql-oracle",
+ "mode": "strict",
+ "source_timezone": null,
+ "charts_total": 4,
+ "charts_pass": 4,
+ "charts_fail": 0,
+ "charts_stale_explained": 0,
+ "charts_verified": 4,
+ "pass_names": [
+  "Vendor and Product: on hand, open POs, sales R28, cover",
+  "Products by cover bucket",
+  "On Hand (Latest)",
+  "Open PO Units"
+ ],
+ "stale_explained_names": [],
+ "fail_names": [],
+ "classifications": {
+  "Vendor and Product: on hand, open POs, sales R28, cover": "MATCH",
+  "Products by cover bucket": "MATCH",
+  "On Hand (Latest)": "MATCH",
+  "Open PO Units": "MATCH"
+ },
+ "charts_clock_skew": 0,
+ "report_clock": null,
+ "materialization_freshness": null,
+ "freshness": null,
+ "status": "PASS"
+}

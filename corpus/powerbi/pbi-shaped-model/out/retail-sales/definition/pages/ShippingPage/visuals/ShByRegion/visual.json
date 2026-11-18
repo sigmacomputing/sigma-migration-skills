@@ -1,0 +1,77 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "ShByRegion",
+  "position": {
+    "x": 16,
+    "y": 368,
+    "width": 616,
+    "height": 312,
+    "z": 1030,
+    "tabOrder": 1030
+  },
+  "visual": {
+    "visualType": "clusteredColumnChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Store"
+                    }
+                  },
+                  "Property": "Store Region"
+                }
+              },
+              "queryRef": "Store.Store Region",
+              "nativeQueryRef": "Store Region"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Sales"
+                    }
+                  },
+                  "Property": "Sales by Ship Date"
+                }
+              },
+              "queryRef": "Sales.Sales by Ship Date",
+              "nativeQueryRef": "Sales by Ship Date"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Sales by Ship Date by Store Region'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

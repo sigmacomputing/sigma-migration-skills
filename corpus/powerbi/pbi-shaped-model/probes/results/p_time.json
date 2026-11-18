@@ -1,0 +1,1198 @@
+{
+  "P8a": {
+    "as_of": "2026-06-30",
+    "truth_rows": 4,
+    "truth_ytd_qtd_mtd_pairwise_differing_regions": {
+      "ytd_vs_qtd": 4,
+      "qtd_vs_mtd": 4
+    },
+    "variants": {
+      "with_relationship_on_One": {
+        "lookup": "Lookup([As Of/As Of Date], [One], [As Of/One])",
+        "metrics": {
+          "Sales YTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"year\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales QTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"quarter\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales MTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"month\", [As Of Date]) and [Order Date] <= [As Of Date])"
+        },
+        "readback_asof_column": "Lookup([As Of/As Of Date], [One], [As Of/One])",
+        "readback_metric_formulas": {
+          "Sales Amount": "Sum([Revenue])",
+          "Sales YTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"year\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales QTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"quarter\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales MTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"month\", [As Of Date]) and [Order Date] <= [As Of Date])"
+        },
+        "chart": {
+          "pass": true,
+          "rows_actual": 4,
+          "rows_truth": 4,
+          "matched": 4
+        },
+        "export_header": [
+          "Store Region",
+          "YTD",
+          "QTD",
+          "MTD"
+        ],
+        "export_as_of_sample": null,
+        "null_cells": 0
+      },
+      "without_relationship": {
+        "lookup": "Lookup([As Of/As Of Date], [One], [As Of/One])",
+        "metrics": {
+          "Sales YTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"year\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales QTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"quarter\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales MTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"month\", [As Of Date]) and [Order Date] <= [As Of Date])"
+        },
+        "readback_asof_column": "Lookup([As Of/As Of Date], [One], [As Of/One])",
+        "readback_metric_formulas": {
+          "Sales Amount": "Sum([Revenue])",
+          "Sales YTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"year\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales QTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"quarter\", [As Of Date]) and [Order Date] <= [As Of Date])",
+          "Sales MTD AsOf": "SumIf([Revenue], [Order Date] >= DateTrunc(\"month\", [As Of Date]) and [Order Date] <= [As Of Date])"
+        },
+        "chart": {
+          "pass": true,
+          "rows_actual": 4,
+          "rows_truth": 4,
+          "matched": 4
+        },
+        "export_header": [
+          "Store Region",
+          "YTD",
+          "QTD",
+          "MTD"
+        ],
+        "export_as_of_sample": null,
+        "null_cells": 0
+      }
+    },
+    "working_variants": [
+      "with_relationship_on_One",
+      "without_relationship"
+    ],
+    "pass": true
+  },
+  "P8b_P16": {
+    "truth_months": 42,
+    "truth_januaries": 4,
+    "truth_jan_ytd_equals_sales": true,
+    "truth_first_year_py_null": true,
+    "truth_py_nonnull_months": 30,
+    "P8b": {
+      "form": {
+        "groupings": [
+          {
+            "id": "g-year",
+            "groupBy": [
+              "gm/year"
+            ],
+            "calculations": null
+          },
+          {
+            "id": "g-month",
+            "groupBy": [
+              "gm/month"
+            ],
+            "calculations": [
+              "gm/sales",
+              "gm/ytd",
+              "gm/py"
+            ]
+          }
+        ],
+        "columns": {
+          "Year": "DateTrunc(\"year\", [Sales/Order Date])",
+          "Month": "DateTrunc(\"month\", [Sales/Order Date])",
+          "Sales": "Sum([Sales/Revenue])",
+          "Sales YTD": "CumulativeSum(Sum([Sales/Revenue]))",
+          "Sales PY": "DateLookback([Sales], [Month], 1, \"year\")"
+        }
+      },
+      "readback_groupings": [
+        {
+          "id": "g-year",
+          "groupBy": [
+            "gm/year"
+          ]
+        },
+        {
+          "id": "g-month",
+          "groupBy": [
+            "gm/month"
+          ],
+          "calculations": [
+            "gm/sales",
+            "gm/ytd",
+            "gm/py"
+          ]
+        }
+      ],
+      "readback_columns": {
+        "Year": "DateTrunc(\"year\", [Sales/Order Date])",
+        "Month": "DateTrunc(\"month\", [Sales/Order Date])",
+        "Sales": "Sum([Sales/Revenue])",
+        "Sales YTD": "CumulativeSum(Sum([Sales/Revenue]))",
+        "Sales PY": "DateLookback([Sales], [Month], 1, \"year\")"
+      },
+      "export_header": [
+        "Month",
+        "Sales",
+        "YTD",
+        "PY",
+        "YTD Sum"
+      ],
+      "info_sum_instead_of_max_on_ytd": {
+        "pass": true,
+        "rows_actual": 42,
+        "rows_truth": 42,
+        "matched": 42
+      },
+      "chart_max_agg": {
+        "pass": true,
+        "rows_actual": 42,
+        "rows_truth": 42,
+        "matched": 42
+      },
+      "jan_ytd_equals_sales_in_export": true,
+      "pass": true
+    },
+    "P16": {
+      "truth_sales": "equals Sum(Revenue) at month grain",
+      "forms": {
+        "brief_form_[Metrics/Sales Amount]": {
+          "formula": "[Metrics/Sales Amount]",
+          "readback_formula": "[Metrics/Sales Amount]",
+          "chart_vs_sum_revenue_truth": {
+            "pass": true,
+            "rows_actual": 42,
+            "rows_truth": 42,
+            "matched": 42
+          },
+          "pass": true
+        },
+        "relative_[Sales Amount]": {
+          "formula": "[Sales Amount]",
+          "readback_formula": "[Sales Amount]",
+          "chart_vs_sum_revenue_truth": {
+            "pass": false,
+            "rows_actual": 42,
+            "rows_truth": 42,
+            "matched": 0,
+            "detail": {
+              "matched": 0,
+              "mismatched": [
+                {
+                  "key": "2023-01",
+                  "diffs": {
+                    "sales": {
+                      "actual": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\"",
+                      "truth": 10787861.2405
+                    }
+                  }
+                },
+                {
+                  "key": "2023-02",
+                  "diffs": {
+                    "sales": {
+                      "actual": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\"",
+                      "truth": 9685166.4595
+                    }
+                  }
+                },
+                {
+                  "key": "2023-03",
+                  "diffs": {
+                    "sales": {
+                      "actual": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\"",
+                      "truth": 10466322.9
+                    }
+                  }
+                },
+                {
+                  "key": "2023-04",
+                  "diffs": {
+                    "sales": {
+                      "actual": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\"",
+                      "truth": 10300564.4665
+                    }
+                  }
+                },
+                {
+                  "key": "2023-05",
+                  "diffs": {
+                    "sales": {
+                      "actual": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\"",
+                      "truth": 10819890.3385
+                    }
+                  }
+                }
+              ],
+              "missing": [],
+              "extra": [],
+              "duplicates": {
+                "actual": [],
+                "truth": []
+              }
+            },
+            "sample_actual": [
+              {
+                "Month": "2023-01",
+                "Sales": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\""
+              },
+              {
+                "Month": "2023-02",
+                "Sales": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\""
+              },
+              {
+                "Month": "2023-03",
+                "Sales": "Reference to errored column \"[Sales Monthly/Sales Amount Metric]\""
+              }
+            ]
+          },
+          "pass": false
+        },
+        "child_qualified_[Sales/Sales Amount]": {
+          "formula": "[Sales/Sales Amount]",
+          "dm_post_error": "{\"message\":\"1 schema error in data model spec\",\"code\":\"invalid_request\",\"requestId\":\"<uuid-1>\",\"errors\":[{\"summary\":\"Cannot resolve columns on table 'gm': dependency not found: formula reference 'sales/sales amount'\"}]}"
+        }
+      },
+      "working_forms": [
+        "brief_form_[Metrics/Sales Amount]"
+      ],
+      "pass": true,
+      "post_accepted": {
+        "brief_form_[Metrics/Sales Amount]": true,
+        "relative_[Sales Amount]": true,
+        "child_qualified_[Sales/Sales Amount]": false
+      }
+    },
+    "pass": true
+  },
+  "P8c": {
+    "truth_days_2025_on": 546,
+    "truth_days_with_sales": 529,
+    "truth_days_without_sales": 17,
+    "truth_history_days": 1277,
+    "readback": {
+      "moving_sum_formula": "MovingSum([Day Sales], 27, 0)",
+      "sql_columns": {
+        "Day": "[Custom SQL/DAY]",
+        "Day Sales": "[Custom SQL/DAY_SALES]",
+        "Rolling 28": "[Custom SQL/ROLLING_28]"
+      },
+      "sql_source_kind": "sql"
+    },
+    "customsql_all_history_rows": 1277,
+    "customsql": {
+      "pass": true,
+      "rows_actual": 546,
+      "rows_truth": 546,
+      "matched": 546
+    },
+    "customsql_all_history": {
+      "pass": true,
+      "rows_actual": 1277,
+      "rows_truth": 1277,
+      "matched": 1277
+    },
+    "movingsum": {
+      "present_day_rows_compared": 529,
+      "days_in_truth_2025_on": 546,
+      "days_missing_from_element": 17,
+      "days_where_value_differs": 344,
+      "share_of_present_days_differing": 0.6503,
+      "max_abs_diff": 1142288.4820000008,
+      "max_rel_diff": 0.1347398180078412,
+      "mean_rel_diff": 0.04945262370647113,
+      "first_five_diffs_(day,movingsum,truth)": [
+        [
+          "2025-01-25",
+          9727629.109,
+          9376913.836
+        ],
+        [
+          "2025-01-26",
+          9729937.306,
+          9376047.917
+        ],
+        [
+          "2025-01-27",
+          9707849.8895,
+          9379828.8005
+        ],
+        [
+          "2025-01-28",
+          9717470.388,
+          9370893.5105
+        ],
+        [
+          "2025-01-29",
+          9709930.0395,
+          9337902.431
+        ]
+      ],
+      "calendar_gap_days_2025_on": 17,
+      "differs_from_calendar_truth": true,
+      "matches_truth_when_no_gap_in_window": {
+        "days": 185,
+        "all_match": true
+      },
+      "note": "MovingSum counts element rows (present days), not calendar days; expected to differ after a gap. Window row order is the element's group order."
+    },
+    "movingsum_matches_truth": {
+      "pass": false,
+      "rows_actual": 529,
+      "rows_truth": 546,
+      "matched": 185,
+      "detail": {
+        "matched": 185,
+        "mismatched": [
+          {
+            "key": "2025-01-25",
+            "diffs": {
+              "rolling_28": {
+                "actual": 9727629.109,
+                "truth": 9376913.836
+              }
+            }
+          },
+          {
+            "key": "2025-01-26",
+            "diffs": {
+              "rolling_28": {
+                "actual": 9729937.306,
+                "truth": 9376047.917
+              }
+            }
+          },
+          {
+            "key": "2025-01-27",
+            "diffs": {
+              "rolling_28": {
+                "actual": 9707849.8895,
+                "truth": 9379828.8005
+              }
+            }
+          },
+          {
+            "key": "2025-01-28",
+            "diffs": {
+              "rolling_28": {
+                "actual": 9717470.388,
+                "truth": 9370893.5105
+              }
+            }
+          },
+          {
+            "key": "2025-01-29",
+            "diffs": {
+              "rolling_28": {
+                "actual": 9709930.0395,
+                "truth": 9337902.431
+              }
+            }
+          }
+        ],
+        "missing": [
+          "2025-01-24",
+          "2025-03-18",
+          "2025-04-17",
+          "2025-05-07",
+          "2025-07-12"
+        ],
+        "extra": [],
+        "duplicates": {
+          "actual": [],
+          "truth": []
+        }
+      },
+      "sample_actual": [
+        {
+          "Day": "2025-01-01",
+          "Rolling 28": 9865424.79
+        },
+        {
+          "Day": "2025-01-02",
+          "Rolling 28": 9878867.2
+        },
+        {
+          "Day": "2025-01-03",
+          "Rolling 28": 9834762.695
+        }
+      ]
+    },
+    "pass": true
+  },
+  "P15": {
+    "truth": {
+      "west_months": 42,
+      "all_months": 42,
+      "pick_changes_sales_months": 42,
+      "pick_changes_ytd_months": 42
+    },
+    "variants": {
+      "region_outer": {
+        "mode": "region_outer",
+        "groupings": [
+          {
+            "id": "g-region",
+            "groupBy": [
+              "gr/region"
+            ],
+            "calculations": null
+          },
+          {
+            "id": "g-year",
+            "groupBy": [
+              "gr/year"
+            ],
+            "calculations": null
+          },
+          {
+            "id": "g-month",
+            "groupBy": [
+              "gr/month"
+            ],
+            "calculations": [
+              "gr/sales",
+              "gr/ytd",
+              "gr/py"
+            ]
+          }
+        ],
+        "readback_groupings": [
+          {
+            "id": "g-region",
+            "groupBy": [
+              "gr/region"
+            ]
+          },
+          {
+            "id": "g-year",
+            "groupBy": [
+              "gr/year"
+            ]
+          },
+          {
+            "id": "g-month",
+            "groupBy": [
+              "gr/month"
+            ],
+            "calculations": [
+              "gr/sales",
+              "gr/ytd",
+              "gr/py"
+            ]
+          }
+        ],
+        "no_pick_vs_all_region_truth": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42
+        },
+        "west_pick_vs_west_truth": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42
+        },
+        "pick_changed_numbers_in_export": 42,
+        "west_sample": [
+          {
+            "Month": "2023-01",
+            "Sales": 2632721.134,
+            "YTD": 2632721.134,
+            "PY": null,
+            "Sales Max": 2632721.134,
+            "YTD Max": 2632721.134
+          },
+          {
+            "Month": "2023-02",
+            "Sales": 2429100.2135,
+            "YTD": 5061821.3475,
+            "PY": null,
+            "Sales Max": 2429100.2135,
+            "YTD Max": 5061821.3475
+          }
+        ],
+        "no_pick_sample": [
+          {
+            "Month": "2023-01",
+            "Sales": 10787861.2405,
+            "YTD": 10787861.2405,
+            "PY": null,
+            "Sales Max": 2759660.151,
+            "YTD Max": 2759660.151
+          },
+          {
+            "Month": "2023-02",
+            "Sales": 9685166.4595,
+            "YTD": 20473027.7,
+            "PY": null,
+            "Sales Max": 2450565.478,
+            "YTD Max": 5162451.3315
+          }
+        ],
+        "west_max_cols_vs_west_truth": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42
+        },
+        "west_max_cols_vs_all_region_truth": {
+          "pass": false,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "2023-01",
+                "diffs": {
+                  "sales": {
+                    "actual": 2632721.134,
+                    "truth": 10787861.2405
+                  },
+                  "ytd": {
+                    "actual": 2632721.134,
+                    "truth": 10787861.2405
+                  }
+                }
+              },
+              {
+                "key": "2023-02",
+                "diffs": {
+                  "sales": {
+                    "actual": 2429100.2135,
+                    "truth": 9685166.4595
+                  },
+                  "ytd": {
+                    "actual": 5061821.3475,
+                    "truth": 20473027.7
+                  }
+                }
+              },
+              {
+                "key": "2023-03",
+                "diffs": {
+                  "sales": {
+                    "actual": 2671236.497,
+                    "truth": 10466322.9
+                  },
+                  "ytd": {
+                    "actual": 7733057.8445,
+                    "truth": 30939350.6
+                  }
+                }
+              },
+              {
+                "key": "2023-04",
+                "diffs": {
+                  "sales": {
+                    "actual": 2574013.3975,
+                    "truth": 10300564.4665
+                  },
+                  "ytd": {
+                    "actual": 10307071.242,
+                    "truth": 41239915.0665
+                  }
+                }
+              },
+              {
+                "key": "2023-05",
+                "diffs": {
+                  "sales": {
+                    "actual": 2710939.94,
+                    "truth": 10819890.3385
+                  },
+                  "ytd": {
+                    "actual": 13018011.182,
+                    "truth": 52059805.405
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "month": "2023-01",
+              "sales": 2632721.134,
+              "ytd": 2632721.134
+            },
+            {
+              "month": "2023-02",
+              "sales": 2429100.2135,
+              "ytd": 5061821.3475
+            },
+            {
+              "month": "2023-03",
+              "sales": 2671236.497,
+              "ytd": 7733057.8445
+            }
+          ]
+        },
+        "west_east_pick_vs_truth": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42
+        },
+        "pass": true
+      },
+      "region_inner": {
+        "mode": "region_inner",
+        "groupings": [
+          {
+            "id": "g-year",
+            "groupBy": [
+              "gr/year"
+            ],
+            "calculations": null
+          },
+          {
+            "id": "g-month",
+            "groupBy": [
+              "gr/month"
+            ],
+            "calculations": [
+              "gr/sales",
+              "gr/ytd",
+              "gr/py"
+            ]
+          },
+          {
+            "id": "g-region",
+            "groupBy": [
+              "gr/region"
+            ],
+            "calculations": null
+          }
+        ],
+        "readback_groupings": [
+          {
+            "id": "g-year",
+            "groupBy": [
+              "gr/year"
+            ]
+          },
+          {
+            "id": "g-month",
+            "groupBy": [
+              "gr/month"
+            ],
+            "calculations": [
+              "gr/sales",
+              "gr/ytd",
+              "gr/py"
+            ]
+          },
+          {
+            "id": "g-region",
+            "groupBy": [
+              "gr/region"
+            ]
+          }
+        ],
+        "no_pick_vs_all_region_truth": {
+          "pass": false,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "2023-01",
+                "diffs": {
+                  "sales": {
+                    "actual": 43151444.962,
+                    "truth": 10787861.2405
+                  },
+                  "ytd": {
+                    "actual": 43151444.962,
+                    "truth": 10787861.2405
+                  }
+                }
+              },
+              {
+                "key": "2023-02",
+                "diffs": {
+                  "sales": {
+                    "actual": 38740665.838,
+                    "truth": 9685166.4595
+                  },
+                  "ytd": {
+                    "actual": 81892110.8,
+                    "truth": 20473027.7
+                  }
+                }
+              },
+              {
+                "key": "2023-03",
+                "diffs": {
+                  "sales": {
+                    "actual": 41865291.6,
+                    "truth": 10466322.9
+                  },
+                  "ytd": {
+                    "actual": 123757402.4,
+                    "truth": 30939350.6
+                  }
+                }
+              },
+              {
+                "key": "2023-04",
+                "diffs": {
+                  "sales": {
+                    "actual": 41202257.866,
+                    "truth": 10300564.4665
+                  },
+                  "ytd": {
+                    "actual": 164959660.266,
+                    "truth": 41239915.0665
+                  }
+                }
+              },
+              {
+                "key": "2023-05",
+                "diffs": {
+                  "sales": {
+                    "actual": 43279561.354,
+                    "truth": 10819890.3385
+                  },
+                  "ytd": {
+                    "actual": 208239221.62,
+                    "truth": 52059805.405
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Month": "2023-01",
+              "Sales": 43151444.962,
+              "YTD": 43151444.962,
+              "PY": null,
+              "Sales Max": 10787861.2405,
+              "YTD Max": 10787861.2405
+            },
+            {
+              "Month": "2023-02",
+              "Sales": 38740665.838,
+              "YTD": 81892110.8,
+              "PY": null,
+              "Sales Max": 9685166.4595,
+              "YTD Max": 20473027.7
+            },
+            {
+              "Month": "2023-03",
+              "Sales": 41865291.6,
+              "YTD": 123757402.4,
+              "PY": null,
+              "Sales Max": 10466322.9,
+              "YTD Max": 30939350.6
+            }
+          ]
+        },
+        "west_pick_vs_west_truth": {
+          "pass": false,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "2023-01",
+                "diffs": {
+                  "sales": {
+                    "actual": 10787861.2405,
+                    "truth": 2632721.134
+                  },
+                  "ytd": {
+                    "actual": 10787861.2405,
+                    "truth": 2632721.134
+                  }
+                }
+              },
+              {
+                "key": "2023-02",
+                "diffs": {
+                  "sales": {
+                    "actual": 9685166.4595,
+                    "truth": 2429100.2135
+                  },
+                  "ytd": {
+                    "actual": 20473027.7,
+                    "truth": 5061821.3475
+                  }
+                }
+              },
+              {
+                "key": "2023-03",
+                "diffs": {
+                  "sales": {
+                    "actual": 10466322.9,
+                    "truth": 2671236.497
+                  },
+                  "ytd": {
+                    "actual": 30939350.6,
+                    "truth": 7733057.8445
+                  }
+                }
+              },
+              {
+                "key": "2023-04",
+                "diffs": {
+                  "sales": {
+                    "actual": 10300564.4665,
+                    "truth": 2574013.3975
+                  },
+                  "ytd": {
+                    "actual": 41239915.0665,
+                    "truth": 10307071.242
+                  }
+                }
+              },
+              {
+                "key": "2023-05",
+                "diffs": {
+                  "sales": {
+                    "actual": 10819890.3385,
+                    "truth": 2710939.94
+                  },
+                  "ytd": {
+                    "actual": 52059805.405,
+                    "truth": 13018011.182
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Month": "2023-01",
+              "Sales": 10787861.2405,
+              "YTD": 10787861.2405,
+              "PY": null,
+              "Sales Max": 10787861.2405,
+              "YTD Max": 10787861.2405
+            },
+            {
+              "Month": "2023-02",
+              "Sales": 9685166.4595,
+              "YTD": 20473027.7,
+              "PY": null,
+              "Sales Max": 9685166.4595,
+              "YTD Max": 20473027.7
+            },
+            {
+              "Month": "2023-03",
+              "Sales": 10466322.9,
+              "YTD": 30939350.6,
+              "PY": null,
+              "Sales Max": 10466322.9,
+              "YTD Max": 30939350.6
+            }
+          ]
+        },
+        "pick_changed_numbers_in_export": 42,
+        "west_sample": [
+          {
+            "Month": "2023-01",
+            "Sales": 10787861.2405,
+            "YTD": 10787861.2405,
+            "PY": null,
+            "Sales Max": 10787861.2405,
+            "YTD Max": 10787861.2405
+          },
+          {
+            "Month": "2023-02",
+            "Sales": 9685166.4595,
+            "YTD": 20473027.7,
+            "PY": null,
+            "Sales Max": 9685166.4595,
+            "YTD Max": 20473027.7
+          }
+        ],
+        "no_pick_sample": [
+          {
+            "Month": "2023-01",
+            "Sales": 43151444.962,
+            "YTD": 43151444.962,
+            "PY": null,
+            "Sales Max": 10787861.2405,
+            "YTD Max": 10787861.2405
+          },
+          {
+            "Month": "2023-02",
+            "Sales": 38740665.838,
+            "YTD": 81892110.8,
+            "PY": null,
+            "Sales Max": 9685166.4595,
+            "YTD Max": 20473027.7
+          }
+        ],
+        "west_max_cols_vs_west_truth": {
+          "pass": false,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "2023-01",
+                "diffs": {
+                  "sales": {
+                    "actual": 10787861.2405,
+                    "truth": 2632721.134
+                  },
+                  "ytd": {
+                    "actual": 10787861.2405,
+                    "truth": 2632721.134
+                  }
+                }
+              },
+              {
+                "key": "2023-02",
+                "diffs": {
+                  "sales": {
+                    "actual": 9685166.4595,
+                    "truth": 2429100.2135
+                  },
+                  "ytd": {
+                    "actual": 20473027.7,
+                    "truth": 5061821.3475
+                  }
+                }
+              },
+              {
+                "key": "2023-03",
+                "diffs": {
+                  "sales": {
+                    "actual": 10466322.9,
+                    "truth": 2671236.497
+                  },
+                  "ytd": {
+                    "actual": 30939350.6,
+                    "truth": 7733057.8445
+                  }
+                }
+              },
+              {
+                "key": "2023-04",
+                "diffs": {
+                  "sales": {
+                    "actual": 10300564.4665,
+                    "truth": 2574013.3975
+                  },
+                  "ytd": {
+                    "actual": 41239915.0665,
+                    "truth": 10307071.242
+                  }
+                }
+              },
+              {
+                "key": "2023-05",
+                "diffs": {
+                  "sales": {
+                    "actual": 10819890.3385,
+                    "truth": 2710939.94
+                  },
+                  "ytd": {
+                    "actual": 52059805.405,
+                    "truth": 13018011.182
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "month": "2023-01",
+              "sales": 10787861.2405,
+              "ytd": 10787861.2405
+            },
+            {
+              "month": "2023-02",
+              "sales": 9685166.4595,
+              "ytd": 20473027.7
+            },
+            {
+              "month": "2023-03",
+              "sales": 10466322.9,
+              "ytd": 30939350.6
+            }
+          ]
+        },
+        "west_max_cols_vs_all_region_truth": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42
+        },
+        "west_east_pick_vs_truth": {
+          "pass": false,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 0,
+          "detail": {
+            "matched": 0,
+            "mismatched": [
+              {
+                "key": "2023-01",
+                "diffs": {
+                  "sales": {
+                    "actual": 21575722.481,
+                    "truth": 5371619.657
+                  },
+                  "ytd": {
+                    "actual": 21575722.481,
+                    "truth": 5371619.657
+                  }
+                }
+              },
+              {
+                "key": "2023-02",
+                "diffs": {
+                  "sales": {
+                    "actual": 19370332.919,
+                    "truth": 4852653.022
+                  },
+                  "ytd": {
+                    "actual": 40946055.4,
+                    "truth": 10224272.679
+                  }
+                }
+              },
+              {
+                "key": "2023-03",
+                "diffs": {
+                  "sales": {
+                    "actual": 20932645.8,
+                    "truth": 5136468.661
+                  },
+                  "ytd": {
+                    "actual": 61878701.2,
+                    "truth": 15360741.34
+                  }
+                }
+              },
+              {
+                "key": "2023-04",
+                "diffs": {
+                  "sales": {
+                    "actual": 20601128.933,
+                    "truth": 5203077.023
+                  },
+                  "ytd": {
+                    "actual": 82479830.133,
+                    "truth": 20563818.363
+                  }
+                }
+              },
+              {
+                "key": "2023-05",
+                "diffs": {
+                  "sales": {
+                    "actual": 21639780.677,
+                    "truth": 5311848.021
+                  },
+                  "ytd": {
+                    "actual": 104119610.81,
+                    "truth": 25875666.384
+                  }
+                }
+              }
+            ],
+            "missing": [],
+            "extra": [],
+            "duplicates": {
+              "actual": [],
+              "truth": []
+            }
+          },
+          "sample_actual": [
+            {
+              "Month": "2023-01",
+              "Sales": 21575722.481,
+              "YTD": 21575722.481,
+              "PY": null,
+              "Sales Max": 10787861.2405,
+              "YTD Max": 10787861.2405
+            },
+            {
+              "Month": "2023-02",
+              "Sales": 19370332.919,
+              "YTD": 40946055.4,
+              "PY": null,
+              "Sales Max": 9685166.4595,
+              "YTD Max": 20473027.7
+            },
+            {
+              "Month": "2023-03",
+              "Sales": 20932645.8,
+              "YTD": 61878701.2,
+              "PY": null,
+              "Sales Max": 10466322.9,
+              "YTD Max": 30939350.6
+            }
+          ]
+        },
+        "pass": false
+      }
+    },
+    "working_variants": [
+      "region_outer"
+    ],
+    "pass": true
+  },
+  "cleanup": {
+    "<uuid-2>": true,
+    "<uuid-3>": true,
+    "<uuid-4>": true,
+    "<uuid-5>": true,
+    "<uuid-6>": true,
+    "<uuid-7>": true,
+    "<uuid-8>": true,
+    "<uuid-9>": true,
+    "<uuid-10>": true,
+    "<uuid-11>": true,
+    "<uuid-12>": true,
+    "<uuid-13>": true,
+    "<uuid-14>": true,
+    "<uuid-15>": true,
+    "<uuid-16>": true,
+    "<uuid-17>": true
+  },
+  "cleanup_all_archived": true,
+  "objects_created": 16
+}

@@ -1,0 +1,2824 @@
+{
+  "name": "model (from Power BI)",
+  "document": {
+    "schemaVersion": 1,
+    "kind": "workbook",
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Overview"
+      },
+      {
+        "id": "id0002",
+        "name": "Shipping"
+      },
+      {
+        "id": "id0003",
+        "name": "Slicers"
+      },
+      {
+        "id": "id0004",
+        "name": "Trends"
+      },
+      {
+        "id": "id0005",
+        "name": "Rolling"
+      }
+    ],
+    "elements": [
+      {
+        "id": "id0006",
+        "kind": "kpi-chart",
+        "name": "Sales Amount",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0009",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0009",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0010",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0010",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0012",
+        "kind": "kpi-chart",
+        "name": "Units",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0013",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0013",
+            "formula": "Sum([Sales/Quantity])",
+            "name": "Units",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0014",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0014",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0015",
+        "kind": "kpi-chart",
+        "name": "Gross Margin",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0016",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0016",
+            "formula": "If(IsNull([Metrics/Sales Amount]) and IsNull([Metrics/Cost]), Null, Coalesce([Metrics/Sales Amount], 0) - Coalesce([Metrics/Cost], 0))",
+            "name": "Gross Margin",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0017",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0017",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0018",
+        "kind": "kpi-chart",
+        "name": "GM %",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0019",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0019",
+            "formula": "([Metrics/Gross Margin]) / NullIf(([Metrics/Sales Amount]), 0)",
+            "name": "GM %",
+            "format": {
+              "kind": "number",
+              "formatString": ".1%"
+            }
+          },
+          {
+            "id": "id0020",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0020",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0021",
+        "kind": "kpi-chart",
+        "name": "Orders",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0022",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0022",
+            "formula": "CountDistinct([Sales/Order Number])",
+            "name": "Orders",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0023",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0023",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0024",
+        "kind": "kpi-chart",
+        "name": "Avg Price",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0025",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0025",
+            "formula": "([Metrics/Sales Amount]) / NullIf(([Metrics/Units]), 0)",
+            "name": "Avg Price",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0026",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0026",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0027",
+        "kind": "bar-chart",
+        "name": "Sales Amount by Category",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "xAxis": {
+          "columnId": "id0028"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0029"
+          ]
+        },
+        "orientation": "horizontal",
+        "stacking": "none",
+        "dataLabel": {
+          "labels": "shown"
+        },
+        "columns": [
+          {
+            "id": "id0028",
+            "formula": "[Sales/SKU/Product/Category/Category Name]",
+            "name": "Category Name"
+          },
+          {
+            "id": "id0029",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0030",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0030",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0031",
+        "kind": "line-chart",
+        "name": "Sales Amount and Gross Margin by Month",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "xAxis": {
+          "columnId": "id0032"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0033",
+            "id0034"
+          ]
+        },
+        "columns": [
+          {
+            "id": "id0032",
+            "formula": "[Sales/Date/Month Start]",
+            "name": "Month Start",
+            "format": {
+              "kind": "datetime",
+              "formatString": "%Y-%m-%d"
+            }
+          },
+          {
+            "id": "id0033",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0034",
+            "formula": "[Metrics/Gross Margin]",
+            "name": "Gross Margin",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0035",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0035",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0036",
+        "kind": "pivot-table",
+        "name": "Brand: sales, list value, private label",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "rowsBy": [
+          {
+            "columnId": "id0037"
+          }
+        ],
+        "values": [
+          "id0038",
+          "id0039",
+          "id0040",
+          "id0041"
+        ],
+        "totals": {
+          "showGrandTotals": "shown",
+          "grandTotalFontWeight": "bold",
+          "totalPosition": "last"
+        },
+        "columns": [
+          {
+            "id": "id0037",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand"
+          },
+          {
+            "id": "id0038",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0039",
+            "formula": "[Metrics/Cost]",
+            "name": "Cost",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0040",
+            "formula": "[Metrics/List Value]",
+            "name": "List Value",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0041",
+            "formula": "[Metrics/Private Label Sales]",
+            "name": "Private Label Sales",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0042",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "cellSpacing": "medium",
+          "gridLines": "horizontal",
+          "banding": "shown"
+        },
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0042",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0043",
+        "kind": "container",
+        "style": {
+          "backgroundColor": "#0F172A",
+          "borderRadius": "round"
+        }
+      },
+      {
+        "id": "id0044",
+        "kind": "text",
+        "body": "# <span style=\"color: #FFFFFF\">Overview</span>"
+      },
+      {
+        "id": "id0045",
+        "kind": "kpi-chart",
+        "name": "Sales by Ship Date",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0046",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0046",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales by Ship Date",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0047",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0047",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0048",
+        "kind": "kpi-chart",
+        "name": "Sales Amount (2)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0049",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0049",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0050",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0050",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0051",
+        "kind": "bar-chart",
+        "name": "Sales by Ship Date by Store Region",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "xAxis": {
+          "columnId": "id0052"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0053"
+          ]
+        },
+        "stacking": "none",
+        "dataLabel": {
+          "labels": "shown"
+        },
+        "columns": [
+          {
+            "id": "id0052",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0053",
+            "formula": "[Metrics/Sales by Ship Date]",
+            "name": "Sales by Ship Date",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0054",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0054",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0055",
+        "kind": "table",
+        "name": "Channel: ship date vs order date",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "groupings": [
+          {
+            "id": "id0056",
+            "groupBy": [
+              "id0057"
+            ],
+            "calculations": [
+              "id0058",
+              "id0059",
+              "id0060"
+            ],
+            "sort": [
+              {
+                "columnId": "id0057",
+                "direction": "ascending"
+              }
+            ]
+          }
+        ],
+        "columns": [
+          {
+            "id": "id0057",
+            "formula": "[Sales/Store/Channel]",
+            "name": "Channel"
+          },
+          {
+            "id": "id0058",
+            "formula": "[Metrics/Sales by Ship Date]",
+            "name": "Sales by Ship Date",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0059",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0060",
+            "formula": "[Metrics/Units]",
+            "name": "Units",
+            "format": {
+              "kind": "number",
+              "formatString": ",.0f"
+            }
+          },
+          {
+            "id": "id0061",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)",
+            "hidden": true
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "cellSpacing": "medium",
+          "gridLines": "horizontal",
+          "banding": "shown"
+        },
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0061",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0062",
+        "kind": "container",
+        "style": {
+          "backgroundColor": "#0F172A",
+          "borderRadius": "round"
+        }
+      },
+      {
+        "id": "id0063",
+        "kind": "text",
+        "body": "# <span style=\"color: #FFFFFF\">Shipping</span>"
+      },
+      {
+        "id": "id0064",
+        "kind": "control",
+        "name": "Category Name",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0066"
+        },
+        "controlId": "CategoryNameFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0066"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0068"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0070"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0072"
+          }
+        ]
+      },
+      {
+        "id": "id0073",
+        "kind": "control",
+        "name": "Brand",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0074"
+        },
+        "controlId": "BrandFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0074"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0075"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0076"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0077"
+          }
+        ]
+      },
+      {
+        "id": "id0078",
+        "kind": "control",
+        "name": "Private Label",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0079"
+        },
+        "controlId": "PrivateLabelFilter",
+        "controlType": "list",
+        "mode": "exclude",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0079"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0080"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0081"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0082"
+          }
+        ]
+      },
+      {
+        "id": "id0083",
+        "kind": "control",
+        "name": "Customer Region",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0084"
+        },
+        "controlId": "CustomerRegionFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [
+          "West"
+        ],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0084"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0085"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0086"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0087"
+          }
+        ]
+      },
+      {
+        "id": "id0088",
+        "kind": "control",
+        "name": "Segment",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0089"
+        },
+        "controlId": "SegmentFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0089"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0090"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0091"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0092"
+          }
+        ]
+      },
+      {
+        "id": "id0093",
+        "kind": "control",
+        "name": "Loyalty Member",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0094"
+        },
+        "controlId": "LoyaltyMemberFilter",
+        "controlType": "list",
+        "mode": "exclude",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0094"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0095"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0096"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0097"
+          }
+        ]
+      },
+      {
+        "id": "id0098",
+        "kind": "control",
+        "name": "Store Region",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0099"
+        },
+        "controlId": "StoreRegionFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0099"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0100"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0101"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0102"
+          }
+        ]
+      },
+      {
+        "id": "id0103",
+        "kind": "control",
+        "name": "Channel",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0104"
+        },
+        "controlId": "ChannelFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0104"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0105"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0106"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0107"
+          }
+        ]
+      },
+      {
+        "id": "id0108",
+        "kind": "control",
+        "name": "Year",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0109"
+        },
+        "controlId": "YearFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0109"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0110"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0111"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0112"
+          }
+        ]
+      },
+      {
+        "id": "id0113",
+        "kind": "control",
+        "name": "Size",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0065"
+          },
+          "columnId": "id0114"
+        },
+        "controlId": "SizeFilter",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0065"
+            },
+            "columnId": "id0114"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0067"
+            },
+            "columnId": "id0115"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0069"
+            },
+            "columnId": "id0116"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0071"
+            },
+            "columnId": "id0117"
+          }
+        ]
+      },
+      {
+        "id": "id0065",
+        "kind": "kpi-chart",
+        "name": "Sales Amount (3)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0118",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0118",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0066",
+            "formula": "[Sales/SKU/Product/Category/Category Name]",
+            "name": "Category Name (SKU ∕ Product ∕ Category)"
+          },
+          {
+            "id": "id0074",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand (Product)"
+          },
+          {
+            "id": "id0079",
+            "formula": "If(IsNull([Sales/SKU/Product/Private Label]), Null, If([Sales/SKU/Product/Private Label], \"True\", \"False\"))",
+            "name": "Private Label (SKU ∕ Product)"
+          },
+          {
+            "id": "id0084",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)"
+          },
+          {
+            "id": "id0089",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)"
+          },
+          {
+            "id": "id0094",
+            "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))",
+            "name": "Loyalty Member (Customer)"
+          },
+          {
+            "id": "id0099",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)"
+          },
+          {
+            "id": "id0104",
+            "formula": "[Sales/Store/Channel]",
+            "name": "Channel (Store)"
+          },
+          {
+            "id": "id0109",
+            "formula": "[Sales/Date/Year]",
+            "name": "Year (Date)"
+          },
+          {
+            "id": "id0114",
+            "formula": "[Sales/SKU/Size]",
+            "name": "Size (SKU)"
+          },
+          {
+            "id": "id0119",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0119",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0067",
+        "kind": "kpi-chart",
+        "name": "Units (2)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0120",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0120",
+            "formula": "Sum([Sales/Quantity])",
+            "name": "Units",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0068",
+            "formula": "[Sales/SKU/Product/Category/Category Name]",
+            "name": "Category Name (SKU ∕ Product ∕ Category)"
+          },
+          {
+            "id": "id0075",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand (Product)"
+          },
+          {
+            "id": "id0080",
+            "formula": "If(IsNull([Sales/SKU/Product/Private Label]), Null, If([Sales/SKU/Product/Private Label], \"True\", \"False\"))",
+            "name": "Private Label (SKU ∕ Product)"
+          },
+          {
+            "id": "id0085",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)"
+          },
+          {
+            "id": "id0090",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)"
+          },
+          {
+            "id": "id0095",
+            "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))",
+            "name": "Loyalty Member (Customer)"
+          },
+          {
+            "id": "id0100",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)"
+          },
+          {
+            "id": "id0105",
+            "formula": "[Sales/Store/Channel]",
+            "name": "Channel (Store)"
+          },
+          {
+            "id": "id0110",
+            "formula": "[Sales/Date/Year]",
+            "name": "Year (Date)"
+          },
+          {
+            "id": "id0115",
+            "formula": "[Sales/SKU/Size]",
+            "name": "Size (SKU)"
+          },
+          {
+            "id": "id0121",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0121",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0069",
+        "kind": "bar-chart",
+        "name": "Sales Amount by Store Region",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "xAxis": {
+          "columnId": "id0122"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0123"
+          ]
+        },
+        "orientation": "horizontal",
+        "stacking": "none",
+        "dataLabel": {
+          "labels": "shown"
+        },
+        "columns": [
+          {
+            "id": "id0122",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0123",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0070",
+            "formula": "[Sales/SKU/Product/Category/Category Name]",
+            "name": "Category Name (SKU ∕ Product ∕ Category)"
+          },
+          {
+            "id": "id0076",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand (Product)"
+          },
+          {
+            "id": "id0081",
+            "formula": "If(IsNull([Sales/SKU/Product/Private Label]), Null, If([Sales/SKU/Product/Private Label], \"True\", \"False\"))",
+            "name": "Private Label (SKU ∕ Product)"
+          },
+          {
+            "id": "id0086",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)"
+          },
+          {
+            "id": "id0091",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)"
+          },
+          {
+            "id": "id0096",
+            "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))",
+            "name": "Loyalty Member (Customer)"
+          },
+          {
+            "id": "id0101",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)"
+          },
+          {
+            "id": "id0106",
+            "formula": "[Sales/Store/Channel]",
+            "name": "Channel (Store)"
+          },
+          {
+            "id": "id0111",
+            "formula": "[Sales/Date/Year]",
+            "name": "Year (Date)"
+          },
+          {
+            "id": "id0116",
+            "formula": "[Sales/SKU/Size]",
+            "name": "Size (SKU)"
+          },
+          {
+            "id": "id0124",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0124",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0071",
+        "kind": "table",
+        "name": "Brand: sales and units",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "groupings": [
+          {
+            "id": "id0125",
+            "groupBy": [
+              "id0126"
+            ],
+            "calculations": [
+              "id0127",
+              "id0128"
+            ],
+            "sort": [
+              {
+                "columnId": "id0126",
+                "direction": "ascending"
+              }
+            ]
+          }
+        ],
+        "columns": [
+          {
+            "id": "id0126",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand"
+          },
+          {
+            "id": "id0127",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0128",
+            "formula": "[Metrics/Units]",
+            "name": "Units",
+            "format": {
+              "kind": "number",
+              "formatString": ",.0f"
+            }
+          },
+          {
+            "id": "id0072",
+            "formula": "[Sales/SKU/Product/Category/Category Name]",
+            "name": "Category Name (SKU ∕ Product ∕ Category)",
+            "hidden": true
+          },
+          {
+            "id": "id0077",
+            "formula": "[Sales/SKU/Product/Brand]",
+            "name": "Brand (Product)",
+            "hidden": true
+          },
+          {
+            "id": "id0082",
+            "formula": "If(IsNull([Sales/SKU/Product/Private Label]), Null, If([Sales/SKU/Product/Private Label], \"True\", \"False\"))",
+            "name": "Private Label (SKU ∕ Product)",
+            "hidden": true
+          },
+          {
+            "id": "id0087",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)",
+            "hidden": true
+          },
+          {
+            "id": "id0092",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)",
+            "hidden": true
+          },
+          {
+            "id": "id0097",
+            "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))",
+            "name": "Loyalty Member (Customer)",
+            "hidden": true
+          },
+          {
+            "id": "id0102",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)",
+            "hidden": true
+          },
+          {
+            "id": "id0107",
+            "formula": "[Sales/Store/Channel]",
+            "name": "Channel (Store)",
+            "hidden": true
+          },
+          {
+            "id": "id0112",
+            "formula": "[Sales/Date/Year]",
+            "name": "Year (Date)",
+            "hidden": true
+          },
+          {
+            "id": "id0117",
+            "formula": "[Sales/SKU/Size]",
+            "name": "Size (SKU)",
+            "hidden": true
+          },
+          {
+            "id": "id0129",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)",
+            "hidden": true
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "cellSpacing": "medium",
+          "gridLines": "horizontal",
+          "banding": "shown"
+        },
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0129",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0130",
+        "kind": "container",
+        "style": {
+          "backgroundColor": "#0F172A",
+          "borderRadius": "round"
+        }
+      },
+      {
+        "id": "id0131",
+        "kind": "text",
+        "body": "# <span style=\"color: #FFFFFF\">Slicers</span>"
+      },
+      {
+        "id": "id0132",
+        "kind": "container"
+      },
+      {
+        "id": "id0133",
+        "kind": "control",
+        "name": "Year",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0134"
+          },
+          "columnId": "id0135"
+        },
+        "controlId": "YearFilter2",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0134"
+            },
+            "columnId": "id0135"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0136"
+            },
+            "columnId": "id0137"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0138"
+            },
+            "columnId": "id0139"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0140"
+            },
+            "columnId": "id0141"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0142"
+            },
+            "columnId": "id0143"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0144"
+            },
+            "columnId": "id0145"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0146"
+            },
+            "columnId": "id0147"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0148"
+            },
+            "columnId": "id0149"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0150"
+            },
+            "columnId": "id0151"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0152"
+            },
+            "columnId": "id0153"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0154"
+            },
+            "columnId": "id0155"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0156"
+            },
+            "columnId": "id0157"
+          }
+        ]
+      },
+      {
+        "id": "id0134",
+        "kind": "kpi-chart",
+        "name": "Sales Amount (4)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0158",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0158",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0135",
+            "formula": "[Sales/Date/Year]",
+            "name": "Year (Date)"
+          },
+          {
+            "id": "id0159",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0159",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0144",
+        "kind": "kpi-chart",
+        "name": "Sales YTD",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0160"
+        },
+        "value": {
+          "columnId": "id0161",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0161",
+            "formula": "Sum(If([Sales by month/Month] = Max([Sales by month/Month]), [Sales by month/Sales YTD], Null))",
+            "name": "Sales YTD",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0145",
+            "formula": "[Sales by month/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0136",
+        "kind": "kpi-chart",
+        "name": "Sales QTD",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0162"
+        },
+        "value": {
+          "columnId": "id0163",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0163",
+            "formula": "Sum(If([Sales by quarter (quarter reset)/Quarter] = Max([Sales by quarter (quarter reset)/Quarter]), [Sales by quarter (quarter reset)/Sales QTD], Null))",
+            "name": "Sales QTD",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0137",
+            "formula": "[Sales by quarter (quarter reset)/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0142",
+        "kind": "kpi-chart",
+        "name": "Sales MTD",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0164"
+        },
+        "value": {
+          "columnId": "id0165",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0165",
+            "formula": "Sum(If([Sales by month (month reset)/Month] = Max([Sales by month (month reset)/Month]), [Sales by month (month reset)/Sales MTD], Null))",
+            "name": "Sales MTD",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0143",
+            "formula": "[Sales by month (month reset)/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0146",
+        "kind": "kpi-chart",
+        "name": "Sales PY",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0160"
+        },
+        "value": {
+          "columnId": "id0166",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0166",
+            "formula": "Sum([Sales by month/Sales PY])",
+            "name": "Sales PY",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0147",
+            "formula": "[Sales by month/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0140",
+        "kind": "kpi-chart",
+        "name": "Sales YoY %",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0167"
+        },
+        "value": {
+          "columnId": "id0168",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0168",
+            "formula": "Sum([Sales by quarter/Sales YoY % (numerator)]) / NullIf(Sum([Sales by quarter/Sales YoY % (denominator)]), 0)",
+            "name": "Sales YoY %",
+            "format": {
+              "kind": "number",
+              "formatString": ".1%"
+            }
+          },
+          {
+            "id": "id0141",
+            "formula": "[Sales by quarter/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0169",
+        "kind": "kpi-chart",
+        "name": "Sales YTD (As Of)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0170",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0170",
+            "formula": "SumIf(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)), [Sales/Date (Date)] >= DateTrunc(\"year\", [Sales/As Of Date]) and [Sales/Date (Date)] <= [Sales/As Of Date])",
+            "name": "Sales YTD (As Of)",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0171",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0171",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0148",
+        "kind": "line-chart",
+        "name": "Sales Amount vs prior year by month",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0160"
+        },
+        "xAxis": {
+          "columnId": "id0172"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0173",
+            "id0174"
+          ]
+        },
+        "columns": [
+          {
+            "id": "id0172",
+            "formula": "[Sales by month/Month]",
+            "name": "Month Start",
+            "format": {
+              "kind": "datetime",
+              "formatString": "%Y-%m-%d"
+            }
+          },
+          {
+            "id": "id0173",
+            "formula": "Sum([Sales by month/Sales Amount])",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0174",
+            "formula": "Sum([Sales by month/Sales PY])",
+            "name": "Sales PY",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0149",
+            "formula": "[Sales by month/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0150",
+        "kind": "bar-chart",
+        "name": "Sales Amount and prior year by year",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0160"
+        },
+        "xAxis": {
+          "columnId": "id0175"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0176",
+            "id0177"
+          ]
+        },
+        "stacking": "none",
+        "dataLabel": {
+          "labels": "shown"
+        },
+        "columns": [
+          {
+            "id": "id0175",
+            "formula": "[Sales by month/Year Number]",
+            "name": "Year"
+          },
+          {
+            "id": "id0176",
+            "formula": "Sum([Sales by month/Sales Amount])",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0177",
+            "formula": "Sum([Sales by month/Sales PY])",
+            "name": "Sales PY",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0151",
+            "formula": "[Sales by month/Year Number]",
+            "name": "Year Number"
+          }
+        ]
+      },
+      {
+        "id": "id0138",
+        "kind": "table",
+        "name": "Quarter: sales, QTD, YoY",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0162"
+        },
+        "groupings": [
+          {
+            "id": "id0178",
+            "groupBy": [
+              "id0179",
+              "id0180"
+            ],
+            "calculations": [
+              "id0181",
+              "id0182"
+            ],
+            "sort": [
+              {
+                "columnId": "id0179",
+                "direction": "ascending"
+              }
+            ]
+          }
+        ],
+        "columns": [
+          {
+            "id": "id0179",
+            "formula": "[Sales by quarter (quarter reset)/Year Number]",
+            "name": "Year"
+          },
+          {
+            "id": "id0180",
+            "formula": "[Sales by quarter (quarter reset)/Quarter Number]",
+            "name": "Quarter"
+          },
+          {
+            "id": "id0181",
+            "formula": "Sum([Sales by quarter (quarter reset)/Sales Amount])",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0182",
+            "formula": "Sum(If([Sales by quarter (quarter reset)/Quarter] = Max([Sales by quarter (quarter reset)/Quarter]), [Sales by quarter (quarter reset)/Sales QTD], Null))",
+            "name": "Sales QTD",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0139",
+            "formula": "[Sales by quarter (quarter reset)/Year Number]",
+            "name": "Year Number",
+            "hidden": true
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "cellSpacing": "medium",
+          "gridLines": "horizontal",
+          "banding": "shown"
+        }
+      },
+      {
+        "id": "id0183",
+        "kind": "container",
+        "style": {
+          "backgroundColor": "#0F172A",
+          "borderRadius": "round"
+        }
+      },
+      {
+        "id": "id0184",
+        "kind": "text",
+        "body": "# <span style=\"color: #FFFFFF\">Trends</span>"
+      },
+      {
+        "id": "id0185",
+        "kind": "container"
+      },
+      {
+        "id": "id0186",
+        "kind": "control",
+        "controlId": "YearFilter2",
+        "controlType": "synced"
+      },
+      {
+        "id": "id0187",
+        "kind": "control",
+        "name": "Customer Region",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0188"
+          },
+          "columnId": "id0189"
+        },
+        "controlId": "CustomerRegionFilter2",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0188"
+            },
+            "columnId": "id0189"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0190"
+            },
+            "columnId": "id0191"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0152"
+            },
+            "columnId": "id0192"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0154"
+            },
+            "columnId": "id0193"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0156"
+            },
+            "columnId": "id0194"
+          }
+        ]
+      },
+      {
+        "id": "id0195",
+        "kind": "control",
+        "name": "Store Region",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0188"
+          },
+          "columnId": "id0196"
+        },
+        "controlId": "StoreRegionFilter2",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0188"
+            },
+            "columnId": "id0196"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0190"
+            },
+            "columnId": "id0197"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0152"
+            },
+            "columnId": "id0198"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0154"
+            },
+            "columnId": "id0199"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0156"
+            },
+            "columnId": "id0200"
+          }
+        ]
+      },
+      {
+        "id": "id0201",
+        "kind": "control",
+        "name": "Segment",
+        "source": {
+          "kind": "source",
+          "source": {
+            "kind": "table",
+            "elementId": "id0188"
+          },
+          "columnId": "id0202"
+        },
+        "controlId": "SegmentFilter2",
+        "controlType": "list",
+        "mode": "include",
+        "selectionMode": "multiple",
+        "values": [],
+        "filters": [
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0188"
+            },
+            "columnId": "id0202"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0190"
+            },
+            "columnId": "id0203"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0152"
+            },
+            "columnId": "id0204"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0154"
+            },
+            "columnId": "id0205"
+          },
+          {
+            "source": {
+              "kind": "table",
+              "elementId": "id0156"
+            },
+            "columnId": "id0206"
+          }
+        ]
+      },
+      {
+        "id": "id0152",
+        "kind": "kpi-chart",
+        "name": "Sales R28",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0207"
+        },
+        "value": {
+          "columnId": "id0208",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0208",
+            "formula": "Sum(If([Sales – rolling 28 days by day/Day] = Max([Sales – rolling 28 days by day/Day]), [Sales – rolling 28 days by day/Sales R28], Null))",
+            "name": "Sales R28",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0192",
+            "formula": "[Sales – rolling 28 days by day/Customer Region]",
+            "name": "Customer Region"
+          },
+          {
+            "id": "id0198",
+            "formula": "[Sales – rolling 28 days by day/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0204",
+            "formula": "[Sales – rolling 28 days by day/Segment]",
+            "name": "Segment"
+          },
+          {
+            "id": "id0153",
+            "formula": "Year([Sales – rolling 28 days by day/Day])",
+            "name": "Year (filter)"
+          }
+        ]
+      },
+      {
+        "id": "id0188",
+        "kind": "kpi-chart",
+        "name": "Sales Amount (5)",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "value": {
+          "columnId": "id0209",
+          "color": "#118DFF"
+        },
+        "layout": {
+          "titleOrient": "bottom",
+          "anchor": "center"
+        },
+        "columns": [
+          {
+            "id": "id0209",
+            "formula": "Sum(Coalesce([Sales/Quantity], 0) * Coalesce([Sales/Unit Price], 0) * (1 - Coalesce([Sales/Discount], 0)))",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.3s"
+            }
+          },
+          {
+            "id": "id0189",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)"
+          },
+          {
+            "id": "id0196",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)"
+          },
+          {
+            "id": "id0202",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)"
+          },
+          {
+            "id": "id0210",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)"
+          }
+        ],
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0210",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0154",
+        "kind": "line-chart",
+        "name": "Sales R28 by day",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0207"
+        },
+        "xAxis": {
+          "columnId": "id0211"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0212"
+          ]
+        },
+        "columns": [
+          {
+            "id": "id0211",
+            "formula": "[Sales – rolling 28 days by day/Day]",
+            "name": "Date",
+            "format": {
+              "kind": "datetime",
+              "formatString": "%Y-%m-%d"
+            }
+          },
+          {
+            "id": "id0212",
+            "formula": "Sum(If([Sales – rolling 28 days by day/Day] = Max([Sales – rolling 28 days by day/Day]), [Sales – rolling 28 days by day/Sales R28], Null))",
+            "name": "Sales R28",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0193",
+            "formula": "[Sales – rolling 28 days by day/Customer Region]",
+            "name": "Customer Region"
+          },
+          {
+            "id": "id0199",
+            "formula": "[Sales – rolling 28 days by day/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0205",
+            "formula": "[Sales – rolling 28 days by day/Segment]",
+            "name": "Segment"
+          },
+          {
+            "id": "id0155",
+            "formula": "Year([Sales – rolling 28 days by day/Day])",
+            "name": "Year (filter)"
+          }
+        ]
+      },
+      {
+        "id": "id0190",
+        "kind": "table",
+        "name": "Store Region: R28 and sales",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0008"
+        },
+        "groupings": [
+          {
+            "id": "id0213",
+            "groupBy": [
+              "id0214"
+            ],
+            "calculations": [
+              "id0215"
+            ],
+            "sort": [
+              {
+                "columnId": "id0214",
+                "direction": "ascending"
+              }
+            ]
+          }
+        ],
+        "columns": [
+          {
+            "id": "id0214",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0215",
+            "formula": "[Metrics/Sales Amount]",
+            "name": "Sales Amount",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2f"
+            }
+          },
+          {
+            "id": "id0191",
+            "formula": "[Sales/Customer/Customer Region]",
+            "name": "Customer Region (Customer)",
+            "hidden": true
+          },
+          {
+            "id": "id0197",
+            "formula": "[Sales/Store/Store Region]",
+            "name": "Store Region (Store)",
+            "hidden": true
+          },
+          {
+            "id": "id0203",
+            "formula": "[Sales/Customer/Segment]",
+            "name": "Segment (Customer)",
+            "hidden": true
+          },
+          {
+            "id": "id0216",
+            "formula": "[Sales/Category Name (Category)]",
+            "name": "Category Name (Category)",
+            "hidden": true
+          }
+        ],
+        "tableStyle": {
+          "preset": "presentation",
+          "cellSpacing": "medium",
+          "gridLines": "horizontal",
+          "banding": "shown"
+        },
+        "filters": [
+          {
+            "id": "id0011",
+            "columnId": "id0216",
+            "kind": "list",
+            "mode": "exclude",
+            "values": [
+              "Discontinued"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "id0156",
+        "kind": "bar-chart",
+        "name": "Sales R28 by Customer Region",
+        "source": {
+          "kind": "data-model",
+          "dataModelId": "id0007",
+          "elementId": "id0207"
+        },
+        "xAxis": {
+          "columnId": "id0217"
+        },
+        "yAxis": {
+          "columnIds": [
+            "id0218"
+          ]
+        },
+        "stacking": "none",
+        "dataLabel": {
+          "labels": "shown"
+        },
+        "columns": [
+          {
+            "id": "id0217",
+            "formula": "[Sales – rolling 28 days by day/Customer Region]",
+            "name": "Customer Region"
+          },
+          {
+            "id": "id0218",
+            "formula": "Sum(If([Sales – rolling 28 days by day/Day] = Max([Sales – rolling 28 days by day/Day]), [Sales – rolling 28 days by day/Sales R28], Null))",
+            "name": "Sales R28",
+            "format": {
+              "kind": "number",
+              "formatString": ",.2s"
+            }
+          },
+          {
+            "id": "id0194",
+            "formula": "[Sales – rolling 28 days by day/Customer Region]",
+            "name": "Customer Region (filter)"
+          },
+          {
+            "id": "id0200",
+            "formula": "[Sales – rolling 28 days by day/Store Region]",
+            "name": "Store Region"
+          },
+          {
+            "id": "id0206",
+            "formula": "[Sales – rolling 28 days by day/Segment]",
+            "name": "Segment"
+          },
+          {
+            "id": "id0157",
+            "formula": "Year([Sales – rolling 28 days by day/Day])",
+            "name": "Year (filter)"
+          }
+        ]
+      },
+      {
+        "id": "id0219",
+        "kind": "container",
+        "style": {
+          "backgroundColor": "#0F172A",
+          "borderRadius": "round"
+        }
+      },
+      {
+        "id": "id0220",
+        "kind": "text",
+        "body": "# <span style=\"color: #FFFFFF\">Rolling</span>"
+      },
+      {
+        "id": "id0221",
+        "kind": "container"
+      }
+    ],
+    "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-OverviewPage\">\n<Container elementId=\"band-page-OverviewPage-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-OverviewPage-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n  <Element elementId=\"el-vsalesb8849a\" gridColumn=\"1 / 6\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-vunits236825\" gridColumn=\"6 / 9\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-margin1d8aa0\" gridColumn=\"9 / 12\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-vgmpct0ce9cc\" gridColumn=\"12 / 15\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-ordersb10052\" gridColumn=\"15 / 20\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-gpricecdc992\" gridColumn=\"20 / 25\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-tegory713e3a\" gridColumn=\"1 / 13\" gridRow=\"8 / 22\"/>\n  <Element elementId=\"el-ymonthc2f545\" gridColumn=\"13 / 25\" gridRow=\"8 / 22\"/>\n  <Element elementId=\"el-matrixc06b17\" gridColumn=\"1 / 25\" gridRow=\"22 / 38\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-ShippingPage\">\n<Container elementId=\"band-page-ShippingPage-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-ShippingPage-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n  <Element elementId=\"el-ipdate737981\" gridColumn=\"1 / 14\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-erdate734ae4\" gridColumn=\"14 / 25\" gridRow=\"4 / 8\"/>\n  <Element elementId=\"el-region9782a5\" gridColumn=\"1 / 13\" gridRow=\"8 / 24\"/>\n  <Element elementId=\"el-hannel9e4093\" gridColumn=\"13 / 25\" gridRow=\"8 / 24\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-SlicersPage\">\n<Container elementId=\"band-page-SlicersPage-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-SlicersPage-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-SlicersPage-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 12\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-tegory259550\" gridColumn=\"1 / 5\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-lbrandef2bca\" gridColumn=\"5 / 9\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-elabel5dc4c3\" gridColumn=\"9 / 13\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-region04368c\" gridColumn=\"13 / 17\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-egment8c6242\" gridColumn=\"17 / 21\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-oyalty2c24f9\" gridColumn=\"21 / 25\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-regionbb5d10\" gridColumn=\"1 / 5\" gridRow=\"5 / 9\"/>\n  <Element elementId=\"el-hannel638e21\" gridColumn=\"5 / 9\" gridRow=\"5 / 9\"/>\n  <Element elementId=\"el-slyear2de98c\" gridColumn=\"9 / 13\" gridRow=\"5 / 9\"/>\n  <Element elementId=\"el-slsize767ce6\" gridColumn=\"13 / 17\" gridRow=\"5 / 9\"/>\n</Container>\n  <Element elementId=\"el-lsalesb4fb3d\" gridColumn=\"1 / 14\" gridRow=\"12 / 16\"/>\n  <Element elementId=\"el-lunitsddabd7\" gridColumn=\"14 / 25\" gridRow=\"12 / 16\"/>\n  <Element elementId=\"el-region3f2c8c\" gridColumn=\"1 / 13\" gridRow=\"16 / 38\"/>\n  <Element elementId=\"el-ybrand7aad79\" gridColumn=\"13 / 25\" gridRow=\"16 / 38\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-TrendsPage\">\n<Container elementId=\"band-page-TrendsPage-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-TrendsPage-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-TrendsPage-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 8\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-tryear87b3ec\" gridColumn=\"1 / 25\" gridRow=\"1 / 5\"/>\n</Container>\n  <Element elementId=\"el-rsales410e43\" gridColumn=\"1 / 4\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trytdacadff\" gridColumn=\"4 / 7\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trqtde40222\" gridColumn=\"7 / 12\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trmtde80a66\" gridColumn=\"12 / 15\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trpy6671ca\" gridColumn=\"15 / 18\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-tryoyb1807e\" gridColumn=\"18 / 22\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trasoff4d515\" gridColumn=\"22 / 25\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-trvspy88c088\" gridColumn=\"1 / 25\" gridRow=\"12 / 24\"/>\n  <Element elementId=\"el-byyear72abe1\" gridColumn=\"1 / 13\" gridRow=\"24 / 38\"/>\n  <Element elementId=\"el-uarter3b53a7\" gridColumn=\"13 / 25\" gridRow=\"24 / 38\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-RollingPage\">\n<Container elementId=\"band-page-RollingPage-hdr\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"band-page-RollingPage-hdrtext\" gridColumn=\"1 / 25\" gridRow=\"1 / 4\"/>\n</Container>\n<Container elementId=\"band-page-RollingPage-ctrl\" type=\"grid\" gridColumn=\"1 / 25\" gridRow=\"4 / 8\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\">\n  <Element elementId=\"el-royear82b578\" gridColumn=\"1 / 7\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-region5984d7\" gridColumn=\"7 / 13\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-region82ac56\" gridColumn=\"13 / 19\" gridRow=\"1 / 5\"/>\n  <Element elementId=\"el-egmenta16dc4\" gridColumn=\"19 / 25\" gridRow=\"1 / 5\"/>\n</Container>\n  <Element elementId=\"el-ror280e2556\" gridColumn=\"1 / 14\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-osalesf26886\" gridColumn=\"14 / 25\" gridRow=\"8 / 12\"/>\n  <Element elementId=\"el-obyday8b80a3\" gridColumn=\"1 / 25\" gridRow=\"12 / 26\"/>\n  <Element elementId=\"el-ystorefe33b6\" gridColumn=\"1 / 13\" gridRow=\"26 / 38\"/>\n  <Element elementId=\"el-region8f0ed1\" gridColumn=\"13 / 25\" gridRow=\"26 / 38\"/>\n</Page>\n",
+    "panels": [],
+    "overlays": [],
+    "settings": {
+      "theme": {
+        "name": "Light",
+        "overrides": {
+          "hasCards": "shown",
+          "borderRadius": "round",
+          "elementBorder": {
+            "color": "#E2E8F0",
+            "width": 1
+          },
+          "categoricalScheme": [
+            "#118DFF",
+            "#12239E",
+            "#E66C37",
+            "#6B007B",
+            "#E044A7",
+            "#744EC2",
+            "#D9B300",
+            "#D64550",
+            "#197278",
+            "#1AAB40",
+            "#15C6F4",
+            "#4092FF",
+            "#FFA058",
+            "#BE5DC9",
+            "#F472D0",
+            "#B5A1FF",
+            "#C4A200",
+            "#FF8080",
+            "#00DBBC",
+            "#5BD667",
+            "#0091D5",
+            "#4668C5",
+            "#FF6300",
+            "#99008A",
+            "#EC008C",
+            "#533285",
+            "#99700A",
+            "#FF4141",
+            "#1F9A85",
+            "#25891C",
+            "#0057A2",
+            "#002050",
+            "#C94F0F",
+            "#450F54",
+            "#B60064",
+            "#34124F",
+            "#6A5A29",
+            "#1AAB40",
+            "#BA141A",
+            "#0C3D37",
+            "#0B511F"
+          ],
+          "colors": {
+            "highlight": "#118DFF"
+          },
+          "space": {
+            "unit": "small",
+            "showElementPadding": "hidden"
+          }
+        }
+      }
+    }
+  },
+  "folderId": "id0222"
+}

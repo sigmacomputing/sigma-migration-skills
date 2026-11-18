@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "RoR28",
+  "position": {
+    "x": 16,
+    "y": 88,
+    "width": 304,
+    "height": 72,
+    "z": 1040,
+    "tabOrder": 1040
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Sales"
+                    }
+                  },
+                  "Property": "Sales R28"
+                }
+              },
+              "queryRef": "Sales.Sales R28",
+              "nativeQueryRef": "Sales R28"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Sales R28'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

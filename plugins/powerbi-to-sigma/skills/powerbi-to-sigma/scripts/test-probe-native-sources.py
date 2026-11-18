@@ -444,6 +444,51 @@ class MainTests(unittest.TestCase):
                             "--out", os.path.join(d, "r.json")])
             self.assertEqual(0, rc)
 
+    def test_skip_literal_rows_does_not_probe_a_statement_with_no_from(self):
+        """Task 21w: a literal-rows Custom SQL element (a DATATABLE turned into SELECT .. UNION ALL) answers the
+        probe export with HTTP 500 (~35 s per run). With --skip-literal-rows it is never sent and never a failure."""
+        lit = sql_el("e_lit", "Cover Bucket",
+                     "SELECT 'Under 7 days' AS Bucket, 0 AS MinDays UNION ALL SELECT 'FROM x' AS Bucket, 7 AS MinDays",
+                     [("Bucket", "Bucket"), ("Min Days", "MinDays")])
+        dm = copy.deepcopy(DM)
+        dm["pages"][0]["elements"].append(lit)
+        with tempfile.TemporaryDirectory() as d:
+            q_off = os.path.join(d, "q_off.json")
+            q_on = os.path.join(d, "q_on.json")
+            base = ["--dm", self.write(d, "dm.json", dm), "--tmsl", self.write(d, "m.bim", TMSL),
+                    "--probe-results", self.write(d, "p.json", by_stmt(PROBE)), "--out", os.path.join(d, "r.json")]
+            gate.main(base + ["--emit-queries", q_off])
+            gate.main(base + ["--emit-queries", q_on, "--skip-literal-rows"])
+            with open(q_off) as fh:
+                off = json.load(fh)
+            with open(q_on) as fh:
+                on = json.load(fh)
+            self.assertTrue(any(v.startswith("SELECT 'Under 7 days'") for v in off.values()))
+            self.assertFalse(any(v.startswith("SELECT 'Under 7 days'") for v in on.values()))
+            self.assertEqual(len(off) - 1, len(on))
+            with open(os.path.join(d, "r.json")) as fh:
+                rep = json.load(fh)
+            row = next(e for e in rep["elements"] if e["name"] == "Cover Bucket")
+            self.assertEqual("skipped-literal-rows", row["status"])
+            self.assertEqual("PASS", rep["status"])  # a skipped element is not a failure
+            self.assertEqual(1, rep["summary"]["skipped_literal_rows"])
+
+    def test_literal_rows_sql_ignores_from_inside_literals_and_quoted_names(self):
+        self.assertTrue(gate.literal_rows_sql("SELECT 'a FROM b' AS x UNION ALL SELECT 'c' AS x"))
+        self.assertTrue(gate.literal_rows_sql('SELECT 1 AS "FROM"'))
+        self.assertFalse(gate.literal_rows_sql("SELECT x FROM t"))
+        self.assertFalse(gate.literal_rows_sql("select x\nfrom t"))
+
+    def test_literal_rows_sql_apostrophe_in_comment_does_not_hide_from(self):
+        # An apostrophe inside a -- line comment or a /* */ block comment must not open a fake string literal.
+        self.assertFalse(gate.literal_rows_sql("-- don't touch\nSELECT a FROM t WHERE x = 'y'"))
+        self.assertFalse(gate.literal_rows_sql("SELECT 1 /* it's */ AS a FROM t WHERE n = 'x'"))
+
+    def test_literal_rows_sql_pure_rows_and_conservative_comment(self):
+        self.assertTrue(gate.literal_rows_sql("SELECT 'a' AS x UNION ALL SELECT 'b'"))
+        # Conservative: a comment that contains the word FROM makes the statement not literal-rows.
+        self.assertFalse(gate.literal_rows_sql("-- comment from here\nSELECT 'a' AS x UNION ALL SELECT 'b'"))
+
     def test_main_probes_through_sigma_with_fake_http(self):
         """End to end: gate -> Probe(types) -> fake Sigma -> report."""
         with tempfile.TemporaryDirectory() as d:

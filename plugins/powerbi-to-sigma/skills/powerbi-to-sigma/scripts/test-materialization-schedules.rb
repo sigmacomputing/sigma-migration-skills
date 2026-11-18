@@ -91,6 +91,97 @@ rescue ArgumentError
   check.call(true, 'non-IANA timezone rejected')
 end
 
+puts "\n5. run_now: 409 then pending, building, ready"
+calls = []
+slept = []
+seq = [:conflict, :conflict, 'post-ok', %w[pending], %w[building], %w[ready]]
+request = lambda do |method, path, payload|
+  calls << [method, path, payload]
+  if method == :post
+    step = seq.shift
+    raise 'POST -> 409 conflict_request: Materialization already in progress' if step == :conflict
+    { 'materializationId' => 'mat1' }
+  else
+    { 'status' => seq.shift.first }
+  end
+end
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'el1', sheet_id: 'sheet1', request: request,
+                                       sleep: ->(s) { slept << s }, poll_seconds: 5)
+check.call(res['status'] == 'ready', "ready after the conflict clears (#{res.inspect})")
+check.call(res['states'] == %w[conflict pending building ready], "states are recorded in order (#{res['states'].inspect})")
+check.call(calls.first == [:post, '/v2/dataModels/dm:materialize', { 'sheetId' => 'sheet1' }], 'the POST carries sheetId')
+check.call(calls.any? { |m, p, _| m == :get && p == '/v2/dataModels/dm/materializations/mat1' }, 'the materialization is polled by id')
+check.call(slept.length == 4 && res['seconds'] >= 20, 'it sleeps between retries and polls')
+
+puts "\n6. run_now: skipped is terminal; failed is reported; element id is the default sheetId"
+seq = ['post-ok', %w[pending], %w[skipped]]
+sent = nil
+request = lambda do |method, _path, payload|
+  if method == :post
+    seq.shift
+    sent = payload
+    { 'materializationId' => 'm2' }
+  else
+    { 'status' => seq.shift.first }
+  end
+end
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'wh', request: request, sleep: ->(_s) {})
+check.call(res['status'] == 'skipped' && sent == { 'sheetId' => 'wh' }, 'skipped (a warehouse-table element) ends the run')
+seq = ['post-ok', %w[building], %w[failed]]
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'x', request: request, sleep: ->(_s) {})
+check.call(res['status'] == 'failed', 'a failed run is reported')
+
+puts "\n7. run_now: a cap timeout, and a non-409 error"
+polls = 0
+request = lambda do |method, _path, _payload|
+  next { 'materializationId' => 'm3' } if method == :post
+  polls += 1
+  { 'status' => 'building' }
+end
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'slow', request: request, sleep: ->(_s) {},
+                                       cap_seconds: 60, poll_seconds: 10)
+check.call(res['status'] == 'timeout' && polls <= 8 && res['seconds'] >= 60, "gives up at the cap (#{res['status']}, #{polls} polls)")
+request = ->(_m, _p, _b) { raise 'POST -> 409 Materialization already in progress' }
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'busy', request: request, sleep: ->(_s) {},
+                                       cap_seconds: 30, poll_seconds: 10)
+check.call(res['status'] == 'timeout', 'a permanent 409 times out too')
+request = ->(_m, _p, _b) { raise 'POST -> 403 not_permitted' }
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'e', request: request, sleep: ->(_s) { raise 'must not sleep' })
+check.call(res['status'] == 'error' && res['error'].include?('403'), 'a non-409 error returns at once')
+request = ->(_m, _p, _b) { raise 'POST /v2/dataModels/dm4090:materialize -> 500 Server Error: element 409 failed' }
+res = MaterializationSchedules.run_now(data_model_id: 'dm', element_id: 'e', request: request, sleep: ->(_s) { raise 'must not sleep' })
+check.call(res['status'] == 'error', 'a 409 substring elsewhere in the message is not a conflict')
+
+puts "\n8. select_elements: default mode is Custom SQL only; pbi mode takes any kind"
+specs = [
+  { 'name' => 'Summary', 'source' => { 'kind' => 'sql' } },
+  { 'name' => 'Sales', 'source' => { 'kind' => 'warehouse-table' } },
+  { 'name' => 'Sales (flattened)', 'source' => { 'kind' => 'table' } }
+]
+paired = specs.each_with_index.map { |s, i| { 'id' => "srv#{i}", 'name' => s['name'] } }
+sel, err = MaterializationSchedules.select_elements(specs, paired, selectors: [])
+check.call(sel.map { |s, _| s['name'] } == ['Summary'] && err.empty?, 'default mode: no list selects Custom SQL elements only')
+sel, err = MaterializationSchedules.select_elements(specs, paired, selectors: ['Sales'])
+check.call(sel.empty? && err.size == 1 && err[0]['error'].include?('Custom SQL'), 'default mode: a warehouse-table element is not selectable')
+targets = ['Summary', 'Sales (flattened)']
+sel, = MaterializationSchedules.select_elements(specs, paired, selectors: [], targets: targets)
+check.call(sel.map { |s, _| s['name'] } == ['Summary', 'Sales (flattened)'], 'pbi mode: no list uses the targets (summaries, flattened), not the plain fact')
+sel, err = MaterializationSchedules.select_elements(specs, paired, selectors: ['Sales'], targets: targets)
+check.call(sel.map { |s, _| s['name'] } == ['Sales'] && err.empty? && sel[0][1]['id'] == 'srv1', 'pbi mode: an explicit list accepts any element kind (non-SQL)')
+sel, = MaterializationSchedules.select_elements(specs, paired, selectors: ['all-sql'], targets: targets)
+check.call(sel.map { |s, _| s['name'] } == ['Summary'], 'pbi mode: all-sql still means Custom SQL')
+requests = []
+request = lambda do |method, path, payload|
+  requests << [method, path]
+  method == :get ? { 'entries' => [] } : { 'schedule' => payload['schedule'] }
+end
+acts = MaterializationSchedules.reconcile(data_model_id: 'dm', elements: [sel.first.last], cron: '0 2 * * *', request: request)
+check.call(acts[0]['status'] == 'created', 'a selected element reconciles through the same call')
+sel, = MaterializationSchedules.select_elements(specs, paired, selectors: ['Sales'], targets: targets)
+acts = MaterializationSchedules.reconcile(data_model_id: 'dm', elements: sel.map(&:last), cron: '0 2 * * *', request: request)
+check.call(requests.any? { |m, p| m == :post && p.include?('/elements/srv1/') } && acts[0]['status'] == 'created',
+           'test_pbi_mode_materializes_non_sql_elements: a warehouse-table fact gets its schedule POST')
+
 puts "\n#{fails.empty? ? 'ALL PASS' : "#{fails.size} FAILURE(S)"}"
 fails.each { |failure| puts "  - #{failure}" }
 exit(fails.empty? ? 0 : 1)

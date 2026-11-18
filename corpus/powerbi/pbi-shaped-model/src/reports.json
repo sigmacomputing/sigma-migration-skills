@@ -1,0 +1,1887 @@
+{
+ "schema": "ZZ_CLAUDE_PBI_SHAPED",
+ "tables": {
+  "Date": {
+   "source": "DIM_DATE",
+   "category": "Time",
+   "columns": [
+    [
+     "DateKey",
+     "DATE_KEY",
+     "int64"
+    ],
+    [
+     "Date",
+     "CAL_DATE",
+     "dateTime",
+     "none",
+     "yyyy-mm-dd",
+     {
+      "isKey": true
+     }
+    ],
+    [
+     "Year",
+     "YEAR_NUM",
+     "int64"
+    ],
+    [
+     "Quarter",
+     "QUARTER_NUM",
+     "int64"
+    ],
+    [
+     "Month Number",
+     "MONTH_NUM",
+     "int64"
+    ],
+    [
+     "Month Name",
+     "MONTH_NAME",
+     "string",
+     "none",
+     null,
+     {
+      "sortByColumn": "Month Number"
+     }
+    ]
+   ],
+   "calc": [
+    {
+     "name": "Month Start",
+     "dataType": "dateTime",
+     "expression": "DATE(YEAR([Date]), MONTH([Date]), 1)",
+     "formatString": "yyyy-mm-dd"
+    }
+   ]
+  },
+  "As Of": {
+   "source": "AS_OF",
+   "columns": [
+    [
+     "As Of Date",
+     "AS_OF_DATE",
+     "dateTime",
+     "none",
+     "yyyy-mm-dd"
+    ]
+   ]
+  },
+  "Category": {
+   "source": "DIM_CATEGORY",
+   "columns": [
+    [
+     "CategoryKey",
+     "CATEGORY_KEY",
+     "int64"
+    ],
+    [
+     "Category Name",
+     "CATEGORY_NAME",
+     "string"
+    ]
+   ]
+  },
+  "Vendor": {
+   "source": "DIM_VENDOR",
+   "columns": [
+    [
+     "VendorKey",
+     "VENDOR_KEY",
+     "int64"
+    ],
+    [
+     "Vendor Name",
+     "VENDOR_NAME",
+     "string"
+    ],
+    [
+     "Vendor Country",
+     "COUNTRY",
+     "string"
+    ]
+   ]
+  },
+  "Product": {
+   "source": "DIM_PRODUCT",
+   "columns": [
+    [
+     "ProductKey",
+     "PRODUCT_KEY",
+     "int64"
+    ],
+    [
+     "Product Name",
+     "PRODUCT_NAME",
+     "string"
+    ],
+    [
+     "Brand",
+     "BRAND",
+     "string"
+    ],
+    [
+     "CategoryKey",
+     "CATEGORY_KEY",
+     "int64"
+    ],
+    [
+     "VendorKey",
+     "VENDOR_KEY",
+     "int64"
+    ],
+    [
+     "List Price",
+     "LIST_PRICE",
+     "double",
+     "none",
+     "#,0.00"
+    ],
+    [
+     "Private Label",
+     "IS_PRIVATE_LABEL",
+     "boolean"
+    ]
+   ]
+  },
+  "SKU": {
+   "source": "DIM_SKU",
+   "columns": [
+    [
+     "SkuKey",
+     "SKU_KEY",
+     "int64"
+    ],
+    [
+     "ProductKey",
+     "PRODUCT_KEY",
+     "int64"
+    ],
+    [
+     "Size",
+     "SIZE",
+     "string"
+    ]
+   ]
+  },
+  "Customer": {
+   "source": "DIM_CUSTOMER",
+   "columns": [
+    [
+     "CustomerKey",
+     "CUSTOMER_KEY",
+     "int64"
+    ],
+    [
+     "Segment",
+     "SEGMENT",
+     "string"
+    ],
+    [
+     "Customer Region",
+     "CUSTOMER_REGION",
+     "string"
+    ],
+    [
+     "Loyalty Member",
+     "LOYALTY_MEMBER",
+     "boolean"
+    ]
+   ]
+  },
+  "Store": {
+   "source": "DIM_STORE",
+   "columns": [
+    [
+     "StoreKey",
+     "STORE_KEY",
+     "int64"
+    ],
+    [
+     "Store Name",
+     "STORE_NAME",
+     "string"
+    ],
+    [
+     "Store Region",
+     "STORE_REGION",
+     "string"
+    ],
+    [
+     "Channel",
+     "CHANNEL",
+     "string"
+    ]
+   ]
+  },
+  "Sales": {
+   "source": "FACT_SALES",
+   "columns": [
+    [
+     "SalesLineKey",
+     "SALES_LINE_KEY",
+     "int64"
+    ],
+    [
+     "Order Number",
+     "ORDER_NUMBER",
+     "string"
+    ],
+    [
+     "OrderDateKey",
+     "ORDER_DATE_KEY",
+     "int64"
+    ],
+    [
+     "ShipDateKey",
+     "SHIP_DATE_KEY",
+     "int64"
+    ],
+    [
+     "SkuKey",
+     "SKU_KEY",
+     "int64"
+    ],
+    [
+     "CustomerKey",
+     "CUSTOMER_KEY",
+     "int64"
+    ],
+    [
+     "StoreKey",
+     "STORE_KEY",
+     "int64"
+    ],
+    [
+     "Quantity",
+     "QUANTITY",
+     "int64",
+     "sum",
+     "#,0"
+    ],
+    [
+     "Unit Price",
+     "UNIT_PRICE",
+     "double",
+     "none",
+     "#,0.00"
+    ],
+    [
+     "Discount",
+     "DISCOUNT",
+     "double",
+     "none",
+     "0.00"
+    ],
+    [
+     "Unit Cost",
+     "UNIT_COST",
+     "double",
+     "none",
+     "#,0.00"
+    ]
+   ]
+  },
+  "Inventory": {
+   "source": "FACT_INVENTORY",
+   "columns": [
+    [
+     "DateKey",
+     "DATE_KEY",
+     "int64"
+    ],
+    [
+     "SkuKey",
+     "SKU_KEY",
+     "int64"
+    ],
+    [
+     "StoreKey",
+     "STORE_KEY",
+     "int64"
+    ],
+    [
+     "Units",
+     "ON_HAND_UNITS",
+     "int64",
+     "sum",
+     "#,0"
+    ]
+   ]
+  },
+  "Purchase Orders": {
+   "source": "FACT_PURCHASE_ORDER",
+   "columns": [
+    [
+     "PO Number",
+     "PO_NUMBER",
+     "string"
+    ],
+    [
+     "VendorKey",
+     "VENDOR_KEY",
+     "int64"
+    ],
+    [
+     "SkuKey",
+     "SKU_KEY",
+     "int64"
+    ],
+    [
+     "OrderDateKey",
+     "ORDER_DATE_KEY",
+     "int64"
+    ],
+    [
+     "ExpectedDateKey",
+     "EXPECTED_DATE_KEY",
+     "int64"
+    ],
+    [
+     "Ordered Units",
+     "ORDERED_UNITS",
+     "int64",
+     "sum",
+     "#,0"
+    ],
+    [
+     "Received Units",
+     "RECEIVED_UNITS",
+     "int64",
+     "sum",
+     "#,0"
+    ],
+    [
+     "Status",
+     "STATUS",
+     "string"
+    ]
+   ]
+  }
+ },
+ "calcTables": {
+  "Cover Bucket": {
+   "columns": [
+    [
+     "Bucket",
+     "string"
+    ],
+    [
+     "Min Days",
+     "int64"
+    ],
+    [
+     "Max Days",
+     "int64"
+    ],
+    [
+     "Sort",
+     "int64"
+    ]
+   ],
+   "sortBy": {
+    "Bucket": "Sort"
+   },
+   "expression": "DATATABLE(\"Bucket\", STRING, \"Min Days\", INTEGER, \"Max Days\", INTEGER, \"Sort\", INTEGER, {{\"Under 7 days\", 0, 7, 1}, {\"7 to 14 days\", 7, 14, 2}, {\"14 to 28 days\", 14, 28, 3}, {\"28 days or more\", 28, 100000, 4}})"
+  }
+ },
+ "measureSets": {
+  "sales": {
+   "Sales": [
+    [
+     "Sales Amount",
+     "SUMX(Sales, Sales[Quantity] * Sales[Unit Price] * (1 - Sales[Discount]))",
+     "#,0.00",
+     "Sales"
+    ],
+    [
+     "Units",
+     "SUM(Sales[Quantity])",
+     "#,0",
+     "Sales"
+    ],
+    [
+     "Cost",
+     "SUMX(Sales, Sales[Quantity] * Sales[Unit Cost])",
+     "#,0.00",
+     "Sales"
+    ],
+    [
+     "Gross Margin",
+     "[Sales Amount] - [Cost]",
+     "#,0.00",
+     "Sales"
+    ],
+    [
+     "GM %",
+     "DIVIDE([Gross Margin], [Sales Amount])",
+     "0.0%",
+     "Sales"
+    ],
+    [
+     "Orders",
+     "DISTINCTCOUNT(Sales[Order Number])",
+     "#,0",
+     "Sales"
+    ],
+    [
+     "Avg Price",
+     "DIVIDE([Sales Amount], Sales[Units])",
+     "#,0.00",
+     "Sales"
+    ],
+    [
+     "List Value",
+     "SUMX(Sales, Sales[Quantity] * RELATED(Product[List Price]))",
+     "#,0.00",
+     "Product"
+    ],
+    [
+     "Private Label Sales",
+     "CALCULATE([Sales Amount], Product[Private Label] = TRUE())",
+     "#,0.00",
+     "Product"
+    ],
+    [
+     "Sales by Ship Date",
+     "CALCULATE([Sales Amount], USERELATIONSHIP(Sales[ShipDateKey], 'Date'[DateKey]))",
+     "#,0.00",
+     "Shipping"
+    ],
+    [
+     "Sales YTD",
+     "TOTALYTD([Sales Amount], 'Date'[Date])",
+     "#,0.00",
+     "Time"
+    ],
+    [
+     "Sales QTD",
+     "TOTALQTD([Sales Amount], 'Date'[Date])",
+     "#,0.00",
+     "Time"
+    ],
+    [
+     "Sales MTD",
+     "TOTALMTD([Sales Amount], 'Date'[Date])",
+     "#,0.00",
+     "Time"
+    ],
+    [
+     "Sales PY",
+     "CALCULATE([Sales Amount], SAMEPERIODLASTYEAR('Date'[Date]))",
+     "#,0.00",
+     "Time"
+    ],
+    [
+     "Sales YoY %",
+     "DIVIDE([Sales Amount] - [Sales PY], [Sales PY])",
+     "0.0%",
+     "Time"
+    ],
+    [
+     "Sales R28",
+     "CALCULATE([Sales Amount], DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -28, DAY))",
+     "#,0.00",
+     "Time"
+    ],
+    [
+     "Sales YTD (As Of)",
+     "VAR asof = MAX('As Of'[As Of Date]) RETURN CALCULATE([Sales Amount], DATESBETWEEN('Date'[Date], DATE(YEAR(asof), 1, 1), asof))",
+     "#,0.00",
+     "Time"
+    ]
+   ]
+  },
+  "inventory": {
+   "Inventory": [
+    [
+     "On Hand (Latest)",
+     "VAR d = CALCULATE(MAX(Inventory[DateKey]), ALL(Inventory)) RETURN CALCULATE(SUM(Inventory[Units]), Inventory[DateKey] = d)",
+     "#,0",
+     "Inventory"
+    ],
+    [
+     "Open PO Units",
+     "CALCULATE(SUMX('Purchase Orders', 'Purchase Orders'[Ordered Units] - 'Purchase Orders'[Received Units]), 'Purchase Orders'[Status] = \"Open\")",
+     "#,0",
+     "Inventory"
+    ],
+    [
+     "Sales R28 Units",
+     "CALCULATE(SUM(Sales[Quantity]), DATESINPERIOD('Date'[Date], MAX('Date'[Date]), -28, DAY))",
+     "#,0",
+     "Inventory"
+    ],
+    [
+     "Days of Cover",
+     "DIVIDE([On Hand (Latest)], DIVIDE([Sales R28 Units], 28))",
+     "#,0.0",
+     "Inventory"
+    ],
+    [
+     "Products by Cover Bucket",
+     "VAR lo = MIN('Cover Bucket'[Min Days]) VAR hi = MAX('Cover Bucket'[Max Days]) RETURN COUNTROWS(FILTER(VALUES(Product[ProductKey]), VAR c = [Days of Cover] RETURN NOT ISBLANK(c) && c >= lo && c < hi))",
+     "#,0",
+     "Inventory"
+    ]
+   ]
+  },
+  "rls": {
+   "Store": [
+    [
+     "Store Count",
+     "COUNTROWS(Store)",
+     "#,0",
+     "Counts"
+    ]
+   ],
+   "Customer": [
+    [
+     "Customer Count",
+     "COUNTROWS(Customer)",
+     "#,0",
+     "Counts"
+    ]
+   ]
+  }
+ },
+ "models": [
+  {
+   "slug": "retail-sales-model",
+   "name": "Retail Sales Model",
+   "tables": [
+    "Date",
+    "As Of",
+    "Category",
+    "Vendor",
+    "Product",
+    "SKU",
+    "Customer",
+    "Store",
+    "Sales"
+   ],
+   "relationships": [
+    [
+     "Sales_OrderDate",
+     "Sales",
+     "OrderDateKey",
+     "Date",
+     "DateKey"
+    ],
+    [
+     "Sales_ShipDate",
+     "Sales",
+     "ShipDateKey",
+     "Date",
+     "DateKey",
+     false
+    ],
+    [
+     "Sales_SKU",
+     "Sales",
+     "SkuKey",
+     "SKU",
+     "SkuKey"
+    ],
+    [
+     "Sales_Customer",
+     "Sales",
+     "CustomerKey",
+     "Customer",
+     "CustomerKey"
+    ],
+    [
+     "Sales_Store",
+     "Sales",
+     "StoreKey",
+     "Store",
+     "StoreKey"
+    ],
+    [
+     "SKU_Product",
+     "SKU",
+     "ProductKey",
+     "Product",
+     "ProductKey"
+    ],
+    [
+     "Product_Category",
+     "Product",
+     "CategoryKey",
+     "Category",
+     "CategoryKey"
+    ],
+    [
+     "Product_Vendor",
+     "Product",
+     "VendorKey",
+     "Vendor",
+     "VendorKey"
+    ]
+   ],
+   "measureSets": [
+    "sales"
+   ]
+  },
+  {
+   "slug": "retail-sales-trends-model",
+   "name": "Retail Sales Trends Model",
+   "tables": [
+    "Date",
+    "As Of",
+    "Category",
+    "Vendor",
+    "Product",
+    "SKU",
+    "Customer",
+    "Store",
+    "Sales"
+   ],
+   "relationships": [
+    [
+     "Sales_OrderDate",
+     "Sales",
+     "OrderDateKey",
+     "Date",
+     "DateKey"
+    ],
+    [
+     "Sales_ShipDate",
+     "Sales",
+     "ShipDateKey",
+     "Date",
+     "DateKey",
+     false
+    ],
+    [
+     "Sales_SKU",
+     "Sales",
+     "SkuKey",
+     "SKU",
+     "SkuKey"
+    ],
+    [
+     "Sales_Customer",
+     "Sales",
+     "CustomerKey",
+     "Customer",
+     "CustomerKey"
+    ],
+    [
+     "Sales_Store",
+     "Sales",
+     "StoreKey",
+     "Store",
+     "StoreKey"
+    ],
+    [
+     "SKU_Product",
+     "SKU",
+     "ProductKey",
+     "Product",
+     "ProductKey"
+    ],
+    [
+     "Product_Category",
+     "Product",
+     "CategoryKey",
+     "Category",
+     "CategoryKey"
+    ],
+    [
+     "Product_Vendor",
+     "Product",
+     "VendorKey",
+     "Vendor",
+     "VendorKey"
+    ]
+   ],
+   "measureSets": [
+    "sales"
+   ]
+  },
+  {
+   "slug": "retail-inventory-model",
+   "name": "Retail Inventory Model",
+   "tables": [
+    "Date",
+    "As Of",
+    "Category",
+    "Vendor",
+    "Product",
+    "SKU",
+    "Customer",
+    "Store",
+    "Sales",
+    "Inventory",
+    "Purchase Orders"
+   ],
+   "calcTables": [
+    "Cover Bucket"
+   ],
+   "relationships": [
+    [
+     "Sales_OrderDate",
+     "Sales",
+     "OrderDateKey",
+     "Date",
+     "DateKey"
+    ],
+    [
+     "Sales_ShipDate",
+     "Sales",
+     "ShipDateKey",
+     "Date",
+     "DateKey",
+     false
+    ],
+    [
+     "Sales_SKU",
+     "Sales",
+     "SkuKey",
+     "SKU",
+     "SkuKey"
+    ],
+    [
+     "Sales_Customer",
+     "Sales",
+     "CustomerKey",
+     "Customer",
+     "CustomerKey"
+    ],
+    [
+     "Sales_Store",
+     "Sales",
+     "StoreKey",
+     "Store",
+     "StoreKey"
+    ],
+    [
+     "SKU_Product",
+     "SKU",
+     "ProductKey",
+     "Product",
+     "ProductKey"
+    ],
+    [
+     "Product_Category",
+     "Product",
+     "CategoryKey",
+     "Category",
+     "CategoryKey"
+    ],
+    [
+     "Product_Vendor",
+     "Product",
+     "VendorKey",
+     "Vendor",
+     "VendorKey"
+    ],
+    [
+     "Inventory_Date",
+     "Inventory",
+     "DateKey",
+     "Date",
+     "DateKey"
+    ],
+    [
+     "Inventory_SKU",
+     "Inventory",
+     "SkuKey",
+     "SKU",
+     "SkuKey"
+    ],
+    [
+     "Inventory_Store",
+     "Inventory",
+     "StoreKey",
+     "Store",
+     "StoreKey"
+    ],
+    [
+     "PO_OrderDate",
+     "Purchase Orders",
+     "OrderDateKey",
+     "Date",
+     "DateKey"
+    ],
+    [
+     "PO_ExpectedDate",
+     "Purchase Orders",
+     "ExpectedDateKey",
+     "Date",
+     "DateKey",
+     false
+    ],
+    [
+     "PO_SKU",
+     "Purchase Orders",
+     "SkuKey",
+     "SKU",
+     "SkuKey"
+    ]
+   ],
+   "measureSets": [
+    "sales",
+    "inventory"
+   ]
+  },
+  {
+   "slug": "retail-sales-model-rls",
+   "name": "Retail Sales Model (RLS)",
+   "tables": [
+    "Store",
+    "Customer"
+   ],
+   "relationships": [],
+   "measureSets": [
+    "rls"
+   ],
+   "roles": [
+    {
+     "name": "West Stores",
+     "modelPermission": "read",
+     "tablePermissions": [
+      {
+       "name": "Store",
+       "filterExpression": "[Store Region] = \"West\""
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "reports": [
+  {
+   "slug": "retail-sales",
+   "name": "Retail Sales",
+   "model": "Retail Sales Model",
+   "filters": [
+    {
+     "name": "ReportNotDiscontinued",
+     "table": "Category",
+     "column": "Category Name",
+     "mode": "exclude",
+     "values": [
+      "Discontinued"
+     ]
+    }
+   ],
+   "pages": [
+    {
+     "id": "OverviewPage",
+     "name": "Overview",
+     "visuals": [
+      {
+       "id": "OvSales",
+       "type": "card",
+       "at": [
+        0,
+        0,
+        2,
+        2
+       ],
+       "title": "Sales Amount",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "OvUnits",
+       "type": "card",
+       "at": [
+        2,
+        0,
+        2,
+        2
+       ],
+       "title": "Units",
+       "fields": {
+        "Values": [
+         "m:Sales.Units"
+        ]
+       }
+      },
+      {
+       "id": "OvMargin",
+       "type": "card",
+       "at": [
+        4,
+        0,
+        2,
+        2
+       ],
+       "title": "Gross Margin",
+       "fields": {
+        "Values": [
+         "m:Sales.Gross Margin"
+        ]
+       }
+      },
+      {
+       "id": "OvGmPct",
+       "type": "card",
+       "at": [
+        6,
+        0,
+        2,
+        2
+       ],
+       "title": "GM %",
+       "fields": {
+        "Values": [
+         "m:Sales.GM %"
+        ]
+       }
+      },
+      {
+       "id": "OvOrders",
+       "type": "card",
+       "at": [
+        8,
+        0,
+        2,
+        2
+       ],
+       "title": "Orders",
+       "fields": {
+        "Values": [
+         "m:Sales.Orders"
+        ]
+       }
+      },
+      {
+       "id": "OvAvgPrice",
+       "type": "card",
+       "at": [
+        10,
+        0,
+        2,
+        2
+       ],
+       "title": "Avg Price",
+       "fields": {
+        "Values": [
+         "m:Sales.Avg Price"
+        ]
+       }
+      },
+      {
+       "id": "OvByCategory",
+       "type": "clusteredBarChart",
+       "at": [
+        0,
+        2,
+        6,
+        7
+       ],
+       "title": "Sales Amount by Category",
+       "fields": {
+        "Category": [
+         "c:Category.Category Name"
+        ],
+        "Y": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "OvByMonth",
+       "type": "lineChart",
+       "at": [
+        6,
+        2,
+        6,
+        7
+       ],
+       "title": "Sales Amount and Gross Margin by Month",
+       "fields": {
+        "Category": [
+         "c:Date.Month Start"
+        ],
+        "Y": [
+         "m:Sales.Sales Amount",
+         "m:Sales.Gross Margin"
+        ]
+       }
+      },
+      {
+       "id": "OvBrandMatrix",
+       "type": "pivotTable",
+       "at": [
+        0,
+        9,
+        12,
+        8
+       ],
+       "title": "Brand: sales, list value, private label",
+       "fields": {
+        "Rows": [
+         "c:Product.Brand"
+        ],
+        "Values": [
+         "m:Sales.Sales Amount",
+         "m:Sales.Cost",
+         "m:Sales.List Value",
+         "m:Sales.Private Label Sales"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "id": "ShippingPage",
+     "name": "Shipping",
+     "visuals": [
+      {
+       "id": "ShShipDate",
+       "type": "card",
+       "at": [
+        0,
+        0,
+        3,
+        2
+       ],
+       "title": "Sales by Ship Date",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales by Ship Date"
+        ]
+       }
+      },
+      {
+       "id": "ShOrderDate",
+       "type": "card",
+       "at": [
+        3,
+        0,
+        3,
+        2
+       ],
+       "title": "Sales Amount",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "ShByMonth",
+       "type": "lineChart",
+       "at": [
+        0,
+        2,
+        12,
+        7
+       ],
+       "title": "Sales by ship month and order month",
+       "fields": {
+        "Category": [
+         "c:Date.Month Start"
+        ],
+        "Y": [
+         "m:Sales.Sales by Ship Date",
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "ShByRegion",
+       "type": "clusteredColumnChart",
+       "at": [
+        0,
+        9,
+        6,
+        8
+       ],
+       "title": "Sales by Ship Date by Store Region",
+       "fields": {
+        "Category": [
+         "c:Store.Store Region"
+        ],
+        "Y": [
+         "m:Sales.Sales by Ship Date"
+        ]
+       }
+      },
+      {
+       "id": "ShByChannel",
+       "type": "tableEx",
+       "at": [
+        6,
+        9,
+        6,
+        8
+       ],
+       "title": "Channel: ship date vs order date",
+       "fields": {
+        "Values": [
+         "c:Store.Channel",
+         "m:Sales.Sales by Ship Date",
+         "m:Sales.Sales Amount",
+         "m:Sales.Units"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "id": "SlicersPage",
+     "name": "Slicers",
+     "visuals": [
+      {
+       "id": "SlCategory",
+       "type": "slicer",
+       "at": [
+        0,
+        0,
+        2.4,
+        2
+       ],
+       "title": "Category Name",
+       "fields": {
+        "Values": [
+         "c:Category.Category Name"
+        ]
+       }
+      },
+      {
+       "id": "SlBrand",
+       "type": "slicer",
+       "at": [
+        2.4,
+        0,
+        2.4,
+        2
+       ],
+       "title": "Brand",
+       "fields": {
+        "Values": [
+         "c:Product.Brand"
+        ]
+       }
+      },
+      {
+       "id": "SlPrivateLabel",
+       "type": "slicer",
+       "at": [
+        4.8,
+        0,
+        2.4,
+        2
+       ],
+       "title": "Private Label",
+       "fields": {
+        "Values": [
+         "c:Product.Private Label"
+        ]
+       }
+      },
+      {
+       "id": "SlCustomerRegion",
+       "type": "slicer",
+       "at": [
+        7.2,
+        0,
+        2.4,
+        2
+       ],
+       "title": "Customer Region",
+       "fields": {
+        "Values": [
+         "c:Customer.Customer Region"
+        ]
+       },
+       "select": [
+        "West"
+       ]
+      },
+      {
+       "id": "SlSegment",
+       "type": "slicer",
+       "at": [
+        9.6,
+        0,
+        2.4,
+        2
+       ],
+       "title": "Segment",
+       "fields": {
+        "Values": [
+         "c:Customer.Segment"
+        ]
+       }
+      },
+      {
+       "id": "SlLoyalty",
+       "type": "slicer",
+       "at": [
+        0,
+        2,
+        2.4,
+        2
+       ],
+       "title": "Loyalty Member",
+       "fields": {
+        "Values": [
+         "c:Customer.Loyalty Member"
+        ]
+       }
+      },
+      {
+       "id": "SlStoreRegion",
+       "type": "slicer",
+       "at": [
+        2.4,
+        2,
+        2.4,
+        2
+       ],
+       "title": "Store Region",
+       "fields": {
+        "Values": [
+         "c:Store.Store Region"
+        ]
+       }
+      },
+      {
+       "id": "SlChannel",
+       "type": "slicer",
+       "at": [
+        4.8,
+        2,
+        2.4,
+        2
+       ],
+       "title": "Channel",
+       "fields": {
+        "Values": [
+         "c:Store.Channel"
+        ]
+       }
+      },
+      {
+       "id": "SlYear",
+       "type": "slicer",
+       "at": [
+        7.2,
+        2,
+        2.4,
+        2
+       ],
+       "title": "Year",
+       "fields": {
+        "Values": [
+         "c:Date.Year"
+        ]
+       }
+      },
+      {
+       "id": "SlSize",
+       "type": "slicer",
+       "at": [
+        9.6,
+        2,
+        2.4,
+        2
+       ],
+       "title": "Size",
+       "fields": {
+        "Values": [
+         "c:SKU.Size"
+        ]
+       }
+      },
+      {
+       "id": "SlSales",
+       "type": "card",
+       "at": [
+        0,
+        4,
+        3,
+        2
+       ],
+       "title": "Sales Amount",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "SlUnits",
+       "type": "card",
+       "at": [
+        3,
+        4,
+        3,
+        2
+       ],
+       "title": "Units",
+       "fields": {
+        "Values": [
+         "m:Sales.Units"
+        ]
+       }
+      },
+      {
+       "id": "SlByStoreRegion",
+       "type": "clusteredBarChart",
+       "at": [
+        0,
+        6,
+        6,
+        11
+       ],
+       "title": "Sales Amount by Store Region",
+       "fields": {
+        "Category": [
+         "c:Store.Store Region"
+        ],
+        "Y": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "SlByBrand",
+       "type": "tableEx",
+       "at": [
+        6,
+        6,
+        6,
+        11
+       ],
+       "title": "Brand: sales and units",
+       "fields": {
+        "Values": [
+         "c:Product.Brand",
+         "m:Sales.Sales Amount",
+         "m:Sales.Units"
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "slug": "sales-trends",
+   "name": "Sales Trends",
+   "model": "Retail Sales Trends Model",
+   "pages": [
+    {
+     "id": "TrendsPage",
+     "name": "Trends",
+     "visuals": [
+      {
+       "id": "TrYear",
+       "type": "slicer",
+       "at": [
+        0,
+        0,
+        3,
+        2
+       ],
+       "title": "Year",
+       "fields": {
+        "Values": [
+         "c:Date.Year"
+        ]
+       },
+       "sync": "SyncYear"
+      },
+      {
+       "id": "TrSales",
+       "type": "card",
+       "at": [
+        0.0,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales Amount",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "TrYtd",
+       "type": "card",
+       "at": [
+        1.7,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales YTD",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales YTD"
+        ]
+       }
+      },
+      {
+       "id": "TrQtd",
+       "type": "card",
+       "at": [
+        3.4,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales QTD",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales QTD"
+        ]
+       }
+      },
+      {
+       "id": "TrMtd",
+       "type": "card",
+       "at": [
+        5.1,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales MTD",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales MTD"
+        ]
+       }
+      },
+      {
+       "id": "TrPy",
+       "type": "card",
+       "at": [
+        6.8,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales PY",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales PY"
+        ]
+       }
+      },
+      {
+       "id": "TrYoy",
+       "type": "card",
+       "at": [
+        8.5,
+        2,
+        1.7,
+        2
+       ],
+       "title": "Sales YoY %",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales YoY %"
+        ]
+       }
+      },
+      {
+       "id": "TrAsOf",
+       "type": "card",
+       "at": [
+        10.2,
+        2,
+        1.8,
+        2
+       ],
+       "title": "Sales YTD (As Of)",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales YTD (As Of)"
+        ]
+       }
+      },
+      {
+       "id": "TrVsPy",
+       "type": "lineChart",
+       "at": [
+        0,
+        4,
+        6,
+        6
+       ],
+       "title": "Sales Amount vs prior year by month",
+       "fields": {
+        "Category": [
+         "c:Date.Month Start"
+        ],
+        "Y": [
+         "m:Sales.Sales Amount",
+         "m:Sales.Sales PY"
+        ]
+       }
+      },
+      {
+       "id": "TrYtdLine",
+       "type": "lineChart",
+       "at": [
+        6,
+        4,
+        6,
+        6
+       ],
+       "title": "Sales YTD and YTD (As Of) by month",
+       "fields": {
+        "Category": [
+         "c:Date.Month Start"
+        ],
+        "Y": [
+         "m:Sales.Sales YTD",
+         "m:Sales.Sales YTD (As Of)"
+        ]
+       }
+      },
+      {
+       "id": "TrByYear",
+       "type": "clusteredColumnChart",
+       "at": [
+        0,
+        10,
+        6,
+        7
+       ],
+       "title": "Sales Amount and prior year by year",
+       "fields": {
+        "Category": [
+         "c:Date.Year"
+        ],
+        "Y": [
+         "m:Sales.Sales Amount",
+         "m:Sales.Sales PY"
+        ]
+       }
+      },
+      {
+       "id": "TrQuarter",
+       "type": "tableEx",
+       "at": [
+        6,
+        10,
+        6,
+        7
+       ],
+       "title": "Quarter: sales, QTD, YoY",
+       "fields": {
+        "Values": [
+         "c:Date.Year",
+         "c:Date.Quarter",
+         "m:Sales.Sales Amount",
+         "m:Sales.Sales QTD",
+         "m:Sales.Sales YoY %"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "id": "RollingPage",
+     "name": "Rolling",
+     "visuals": [
+      {
+       "id": "RoYear",
+       "type": "slicer",
+       "at": [
+        0,
+        0,
+        3,
+        2
+       ],
+       "title": "Year",
+       "fields": {
+        "Values": [
+         "c:Date.Year"
+        ]
+       },
+       "sync": "SyncYear"
+      },
+      {
+       "id": "RoCustomerRegion",
+       "type": "slicer",
+       "at": [
+        3,
+        0,
+        3,
+        2
+       ],
+       "title": "Customer Region",
+       "fields": {
+        "Values": [
+         "c:Customer.Customer Region"
+        ]
+       }
+      },
+      {
+       "id": "RoStoreRegion",
+       "type": "slicer",
+       "at": [
+        6,
+        0,
+        3,
+        2
+       ],
+       "title": "Store Region",
+       "fields": {
+        "Values": [
+         "c:Store.Store Region"
+        ]
+       }
+      },
+      {
+       "id": "RoSegment",
+       "type": "slicer",
+       "at": [
+        9,
+        0,
+        3,
+        2
+       ],
+       "title": "Segment",
+       "fields": {
+        "Values": [
+         "c:Customer.Segment"
+        ]
+       }
+      },
+      {
+       "id": "RoR28",
+       "type": "card",
+       "at": [
+        0,
+        2,
+        3,
+        2
+       ],
+       "title": "Sales R28",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales R28"
+        ]
+       }
+      },
+      {
+       "id": "RoSales",
+       "type": "card",
+       "at": [
+        3,
+        2,
+        3,
+        2
+       ],
+       "title": "Sales Amount",
+       "fields": {
+        "Values": [
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "RoByDay",
+       "type": "lineChart",
+       "at": [
+        0,
+        4,
+        12,
+        7
+       ],
+       "title": "Sales R28 by day",
+       "fields": {
+        "Category": [
+         "c:Date.Date"
+        ],
+        "Y": [
+         "m:Sales.Sales R28"
+        ]
+       }
+      },
+      {
+       "id": "RoByStore",
+       "type": "tableEx",
+       "at": [
+        0,
+        11,
+        6,
+        6
+       ],
+       "title": "Store Region: R28 and sales",
+       "fields": {
+        "Values": [
+         "c:Store.Store Region",
+         "m:Sales.Sales R28",
+         "m:Sales.Sales Amount"
+        ]
+       }
+      },
+      {
+       "id": "RoByCustRegion",
+       "type": "clusteredColumnChart",
+       "at": [
+        6,
+        11,
+        6,
+        6
+       ],
+       "title": "Sales R28 by Customer Region",
+       "fields": {
+        "Category": [
+         "c:Customer.Customer Region"
+        ],
+        "Y": [
+         "m:Sales.Sales R28"
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "slug": "inventory-and-purchasing",
+   "name": "Inventory and Purchasing",
+   "model": "Retail Inventory Model",
+   "pages": [
+    {
+     "id": "CoverPage",
+     "name": "Cover",
+     "visuals": [
+      {
+       "id": "CvVendorCountry",
+       "type": "slicer",
+       "at": [
+        0,
+        0,
+        4,
+        2
+       ],
+       "title": "Vendor Country",
+       "fields": {
+        "Values": [
+         "c:Vendor.Vendor Country"
+        ]
+       }
+      },
+      {
+       "id": "CvBrand",
+       "type": "slicer",
+       "at": [
+        4,
+        0,
+        4,
+        2
+       ],
+       "title": "Brand",
+       "fields": {
+        "Values": [
+         "c:Product.Brand"
+        ]
+       }
+      },
+      {
+       "id": "CvStoreRegion",
+       "type": "slicer",
+       "at": [
+        8,
+        0,
+        4,
+        2
+       ],
+       "title": "Store Region",
+       "fields": {
+        "Values": [
+         "c:Store.Store Region"
+        ]
+       }
+      },
+      {
+       "id": "CvMatrix",
+       "type": "pivotTable",
+       "at": [
+        0,
+        2,
+        8,
+        15
+       ],
+       "title": "Vendor and Product: on hand, open POs, sales R28, cover",
+       "fields": {
+        "Rows": [
+         "c:Vendor.Vendor Name",
+         "c:Product.Product Name"
+        ],
+        "Values": [
+         "m:Inventory.On Hand (Latest)",
+         "m:Inventory.Open PO Units",
+         "m:Inventory.Sales R28 Units",
+         "m:Inventory.Days of Cover"
+        ]
+       }
+      },
+      {
+       "id": "CvBuckets",
+       "type": "clusteredBarChart",
+       "at": [
+        8,
+        2,
+        4,
+        7
+       ],
+       "title": "Products by cover bucket",
+       "fields": {
+        "Category": [
+         "c:Cover Bucket.Bucket"
+        ],
+        "Y": [
+         "m:Inventory.Products by Cover Bucket"
+        ]
+       }
+      },
+      {
+       "id": "CvOnHand",
+       "type": "card",
+       "at": [
+        8,
+        9,
+        2,
+        2
+       ],
+       "title": "On Hand (Latest)",
+       "fields": {
+        "Values": [
+         "m:Inventory.On Hand (Latest)"
+        ]
+       }
+      },
+      {
+       "id": "CvOpenPo",
+       "type": "card",
+       "at": [
+        10,
+        9,
+        2,
+        2
+       ],
+       "title": "Open PO Units",
+       "fields": {
+        "Values": [
+         "m:Inventory.Open PO Units"
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -182,6 +182,13 @@ check(argv.each_cons(2).include?(['--probe-cache-max-age-hours', '2']), 'argv ca
 argv = PbiProbeGate.command('s.py', dm_path: 'd', tmsl_path: 't', out_path: 'o', state_path: 'st', connection: 'c', folder: 'f', dialect: 'snowflake')
 check(!argv.include?('--probe-cache-max-age-hours'), 'the flag is omitted when not given (the script default of 24h applies)')
 
+puts "\n11b. command() skips literal-rows SQL only when asked (pbi shape); views argv is unchanged"
+argv = PbiProbeGate.command('s.py', dm_path: 'd', tmsl_path: 't', out_path: 'o', state_path: 'st', connection: 'c', folder: 'f', dialect: 'snowflake', skip_literal_rows: true)
+check(argv.include?('--skip-literal-rows'), 'skip_literal_rows: true adds --skip-literal-rows')
+check(!PbiProbeGate.command('s.py', dm_path: 'd', tmsl_path: 't', out_path: 'o', state_path: 'st', connection: 'c', folder: 'f', dialect: 'snowflake').include?('--skip-literal-rows'), 'the default (views) argv has no --skip-literal-rows')
+orch = File.read(File.join(File.dirname(__FILE__), 'migrate-powerbi.rb'))
+check(orch.include?("skip_literal_rows: opts[:model_shape] == 'pbi'"), 'the orchestrator passes it for the pbi shape only')
+
 puts "\n12. dialect_for / ANSI fallback (Enter-data SQL)"
 check(PbiProbeGate.dialect_for('snowflake') == 'snowflake' && PbiProbeGate.dialect_for('databricks') == 'databricks' && PbiProbeGate.dialect_for('bigquery') == 'bigquery', 'the three probe dialects are unchanged')
 check(PbiProbeGate.dialect_for('postgres') == 'snowflake', 'the PROBE still defaults unknown warehouses to snowflake (it only runs on a Sigma connection)')

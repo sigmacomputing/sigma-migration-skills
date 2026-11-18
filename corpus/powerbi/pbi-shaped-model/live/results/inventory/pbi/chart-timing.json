@@ -1,0 +1,41 @@
+{
+ "samples_per_chart": 3,
+ "note": "Sigma element export (POST /v2/workbooks/{id}/export + download); repeats may be served from Sigma's result cache; no cache-bust applied. Rerun of Task 21d. Materialized (FRESH) elements: `Sales - rolling 28 days by day` and `Cover - summary`; every chart reads the Cover summary.",
+ "charts": {
+  "Vendor and Product: on hand, open POs, sales R28, cover [pivot-table]": {
+   "samples_s": [
+    3.145,
+    4.513,
+    4.249
+   ],
+   "median_s": 4.249
+  },
+  "Products by cover bucket [bar-chart]": {
+   "samples_s": [
+    3.152,
+    3.086,
+    3.03
+   ],
+   "median_s": 3.086
+  },
+  "On Hand (Latest) [kpi-chart]": {
+   "samples_s": [
+    2.011,
+    3.114,
+    4.297
+   ],
+   "median_s": 3.114
+  },
+  "Open PO Units [kpi-chart]": {
+   "samples_s": [
+    4.182,
+    3.079,
+    3.262
+   ],
+   "median_s": 3.262
+  }
+ },
+ "median_of_chart_medians_s": 3.1879999999999997,
+ "max_chart_median_s": 4.249,
+ "chart_count": 4
+}

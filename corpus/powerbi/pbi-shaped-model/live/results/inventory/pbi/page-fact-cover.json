@@ -1,0 +1,148 @@
+{
+ "version": 1,
+ "page": "Cover",
+ "page_id": "CoverPage",
+ "name": "Cover \u2013 summary",
+ "columns": [
+  {
+   "name": "Vendor Name",
+   "out": "G_VENDOR_NAME",
+   "role": "grain",
+   "field": "Vendor.Vendor Name",
+   "description": "Grain: Vendor[Vendor Name]"
+  },
+  {
+   "name": "Product Name",
+   "out": "G_PRODUCT_NAME",
+   "role": "grain",
+   "field": "Product.Product Name",
+   "description": "Grain: Product[Product Name]"
+  },
+  {
+   "name": "Bucket",
+   "out": "G_BUCKET",
+   "role": "grain",
+   "field": "Cover Bucket.Bucket",
+   "description": "Grain: Cover Bucket[Bucket]"
+  },
+  {
+   "name": "Vendor Country",
+   "out": "G_VENDOR_COUNTRY",
+   "role": "grain",
+   "field": "Vendor.Vendor Country",
+   "description": "Grain: Vendor[Vendor Country]"
+  },
+  {
+   "name": "Brand",
+   "out": "G_BRAND",
+   "role": "grain",
+   "field": "Product.Brand",
+   "description": "Grain: Product[Brand]"
+  },
+  {
+   "name": "On Hand Units",
+   "out": "ON_HAND_UNITS",
+   "role": "component",
+   "fact": "Inventory",
+   "aggregate": "SUM",
+   "measure": "On Hand (Latest)",
+   "description": "Feeds On Hand (Latest) and Days of Cover: units on the latest snapshot date in scope"
+  },
+  {
+   "name": "Open PO Units",
+   "out": "OPEN_PO_UNITS",
+   "role": "component",
+   "fact": "Purchase Orders",
+   "aggregate": "SUM",
+   "measure": "Open PO Units",
+   "description": "Feeds Open PO Units: ordered minus received on open purchase orders (a blank counts as 0)"
+  },
+  {
+   "name": "Sales R28 Units",
+   "out": "SALES_R28_UNITS",
+   "role": "component",
+   "fact": "Sales",
+   "aggregate": "SUM",
+   "measure": "Sales R28 Units",
+   "description": "Feeds Sales R28 Units and Days of Cover: units sold in the 28 days ending on the Date table's last day"
+  },
+  {
+   "name": "Products in Bucket",
+   "out": "PRODUCTS_IN_BUCKET",
+   "role": "component",
+   "fact": "Product",
+   "aggregate": "SUM",
+   "measure": "Products by Cover Bucket",
+   "description": "Feeds Products by Cover Bucket: 1 on each product row whose Days of Cover falls in the row's bucket"
+  }
+ ],
+ "fields": {
+  "Inventory.On Hand (Latest)": {
+   "ref": "Sum({C:On Hand Units})"
+  },
+  "Inventory.Open PO Units": {
+   "ref": "Sum({C:Open PO Units})"
+  },
+  "Inventory.Sales R28 Units": {
+   "ref": "Sum({C:Sales R28 Units})"
+  },
+  "Inventory.Days of Cover": {
+   "ref": "Sum({C:On Hand Units}) / NullIf(Sum({C:Sales R28 Units}) / 28, 0)"
+  },
+  "Inventory.Products by Cover Bucket": {
+   "ref": "Sum({C:Products in Bucket})"
+  }
+ },
+ "dims": {
+  "Vendor.Vendor Name": "Vendor Name",
+  "Product.Product Name": "Product Name",
+  "Cover Bucket.Bucket": "Bucket",
+  "Vendor.Vendor Country": "Vendor Country",
+  "Product.Brand": "Brand"
+ },
+ "facts": [
+  "Inventory",
+  "Purchase Orders",
+  "Date",
+  "Sales",
+  "Cover Bucket",
+  "Product"
+ ],
+ "todo": [],
+ "slicers": [
+  {
+   "element_id": "el-ountryc7132a",
+   "visual_id": "CvVendorCountry",
+   "title": "Vendor Country",
+   "field": "Vendor.Vendor Country",
+   "query_ref": "Vendor.Vendor Country",
+   "blank_policy": "row",
+   "in_grain": true,
+   "column_type": "string",
+   "saved_selection": null
+  },
+  {
+   "element_id": "el-vbrand74025a",
+   "visual_id": "CvBrand",
+   "title": "Brand",
+   "field": "Product.Brand",
+   "query_ref": "Product.Brand",
+   "blank_policy": "row",
+   "in_grain": true,
+   "column_type": "string",
+   "saved_selection": null
+  },
+  {
+   "element_id": "el-region93ca8d",
+   "visual_id": "CvStoreRegion",
+   "title": "Store Region",
+   "field": "Store.Store Region",
+   "query_ref": "Store.Store Region",
+   "blank_policy": "row",
+   "in_grain": false,
+   "column_type": "string",
+   "saved_selection": null
+  }
+ ],
+ "description": "Reproduces Power BI measures: On Hand (Latest), Open PO Units, Sales R28 Units, Days of Cover, Products by Cover Bucket. Grain: Vendor[Vendor Name], Product[Product Name], Cover Bucket[Bucket]."
+}

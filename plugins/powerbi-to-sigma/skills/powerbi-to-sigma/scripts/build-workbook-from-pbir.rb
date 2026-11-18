@@ -57,8 +57,10 @@ require_relative 'lib/coverage_catalog'
 require_relative 'lib/trellis_emit' # shared native-trellis emitter (supported-kind gate + fallbacks)
 require_relative 'lib/metric_binding' # shared DM-metric binder ([Metrics/<name>] over inline re-derive)
 require_relative 'lib/pbi_model_scope' # model scoping: unread-master pruning
+require_relative 'lib/pbi_direct_sources' # opt-in --direct-sources: charts read the data model elements, no Data page
 require_relative 'lib/pbi_reportbuild' # report-build hardening: one-base-table-per-page, boolean controls, friendly names
 require_relative 'lib/pbi_field_alts' # G28: a field's own parenthetical survives the View alias
+require_relative 'lib/pbi_report_clock' # one clock for "today": pin Today()/Now() to the report timezone
 # Ruby 2.6 floor (macOS system ruby): this file uses a 2.7+ Enumerable
 # method. Polyfilled rather than rewritten — see shared/lib/ruby_compat.rb.
 require_relative 'lib/ruby_compat'
@@ -88,6 +90,9 @@ OptionParser.new do |p|
   p.on('--layout MODE', 'clean (default: opinionated Sigma-native grid — dark header, KPI row, uniform 2-up chart grid) | pbi (flat canvas-proportional, matches the PBI page 1:1) | banded (legacy row-band containers)') { |v| opts[:layout_mode] = v }
   p.on('--data-model ID')    { |v| opts[:dm] = v }
   p.on('--out PATH')         { |v| opts[:out] = v }
+  p.on('--report-timezone IANA', 'pin every Today()/Now() in the built workbook to this report clock ' \
+                                 '(default: report-clock.json beside --master-map, written by migrate-powerbi.rb)') { |v| opts[:report_tz] = v }
+  p.on('--report-clock PATH', 'report-clock.json to read the report timezone from and record the workbook pins in') { |v| opts[:report_clock] = v }
   p.on('--layout-out PATH')  { |v| opts[:layout_out] = v }
   p.on('--name NAME')        { |v| opts[:name] = v }
   # The SOURCE report/dashboard display name (e.g. "EMPLOYEE DASHBOARD") —
@@ -114,6 +119,9 @@ OptionParser.new do |p|
   # keeps every page on the shared master (legacy; conflicting defaults then empty the source).
   opts[:page_local] = true
   p.on('--no-page-local-masters') { opts[:page_local] = false }
+  # Power BI-shaped model: inline the Data-page masters so every chart reads its data model element directly
+  # (needs a direct master-map). Implies --no-page-local-masters and --source-mode per-visual.
+  p.on('--direct-sources') { opts[:direct_sources] = true }
   # Where the migration COVERAGE report lands (the aggregated drop/approx ledger
   # migrate-powerbi.rb surfaces + assert-visual-compare.rb gates on). Default:
   # coverage.json next to --out.
@@ -128,6 +136,10 @@ OptionParser.new do |p|
        'per-visual: legacy per-visual master selection') { |v| opts[:source_mode] = v }
 end.parse!
 %i[sig mmap out].each { |k| abort("missing --#{k.to_s.tr('_','-')}") unless opts[k] }
+if opts[:direct_sources]
+  opts[:page_local] = false
+  opts[:source_mode] = 'per-visual'
+end
 opts[:source_mode] ||= 'page-base'
 $page_base_mode = (opts[:source_mode] == 'page-base')
 
@@ -274,6 +286,7 @@ end
 # unresolvable column is dropped LOUDLY, never wired to a wrong column and
 # never shipped dead) so the sidecar carries the full source-signal story.
 $control_scope = []
+$asof_ignore = {} # element id => true: elements whose measures are all as-of metrics (date controls are not targeted at them, C1)
 $control_unbound = []
 $used_control_ids = Hash.new(0)
 $sync_control_groups = {}
@@ -1319,15 +1332,29 @@ UNRESOLVED_REF = %r{\A\[[^\]/]*\.[^\]]*\]\z}.freeze
 
 # Prune a set of column ids from an element: remove them from `columns` AND from
 # every role reference build_element emits (value / xAxis(+sort) / yAxis(2) /
-# groupings / rowsBy / columnsBy / values). Shared by the unresolved-ref drop and
-# the cross-master drop so both prune identically.
+# groupings(+sort) / table sort / rowsBy(+sort) / columnsBy(+sort) / values / color(+sort)).
+# Shared by the unresolved-ref drop and the cross-master drop so both prune identically.
+#
+# Sort entries matter as much as role bindings: apply_sort nests a grouped table's sort
+# in groupings[0].sort, and PBI's default table sort is the FIRST column ascending —
+# usually the dimension that gets dropped here. A sort left pointing at a pruned id is a
+# 400 on the workbook POST ("groupings[0].sort[0].columnId: references column '<id>'
+# which is not declared in columns."), which sends the whole report to the agent path.
+#
+# Returns the pruned ids whose SORT was removed while the sorted structure survived, so
+# the caller can record the lost ordering in coverage.
 def prune_columns!(el, bad_ids)
-  return if bad_ids.empty?
+  return [] if bad_ids.empty?
   has_bad = ->(x) { bad_ids.include?(x.is_a?(Hash) ? (x['columnId'] || x['id']) : x) }
+  lost_sorts = []
   el['columns'] = Array(el['columns']).reject { |c| bad_ids.include?(c['id']) }
   el.delete('value') if bad_ids.include?(el.dig('value', 'columnId')) || bad_ids.include?(el.dig('value', 'id'))
   if el['xAxis'].is_a?(Hash)
-    el['xAxis'].delete('sort') if bad_ids.include?(el.dig('xAxis', 'sort', 'by'))
+    sort_by = el.dig('xAxis', 'sort', 'by')
+    if bad_ids.include?(sort_by)
+      el['xAxis'].delete('sort')
+      lost_sorts << sort_by unless bad_ids.include?(el['xAxis']['columnId'])
+    end
     el.delete('xAxis') if bad_ids.include?(el['xAxis']['columnId'])
   end
   %w[yAxis yAxis2].each do |ax|
@@ -1340,15 +1367,38 @@ def prune_columns!(el, bad_ids)
       bad_ids.include?(el['color']['columnId']) ||
       bad_ids.include?(el['color']['id']))
     el.delete('color')
+  elsif el['color'].is_a?(Hash) && bad_ids.include?(el.dig('color', 'sort', 'by'))
+    lost_sorts << el['color'].delete('sort')['by']
+  end
+  # sort: [{columnId, direction}] on a grouping or an ungrouped table. Returns the
+  # surviving entries (nil when none are left, so the caller drops the key).
+  prune_sort = lambda do |sorts|
+    kept, gone = Array(sorts).partition { |s| !(s.is_a?(Hash) && bad_ids.include?(s['columnId'])) }
+    [kept.empty? ? nil : kept, gone.map { |s| s['columnId'] }]
   end
   Array(el['groupings']).each do |g|
     g['groupBy'] = Array(g['groupBy']).reject(&has_bad) if g['groupBy']
     g['calculations'] = Array(g['calculations']).reject(&has_bad) if g['calculations']
+    next unless g.key?('sort')
+    kept, gone = prune_sort.call(g['sort'])
+    if kept then g['sort'] = kept else g.delete('sort') end
+    # a grouping that loses every key AND calculation is removed below; its sort goes with it
+    lost_sorts.concat(gone) unless Array(g['groupBy']).empty? && Array(g['calculations']).empty?
   end
   el['groupings']&.reject! { |g| Array(g['groupBy']).empty? && Array(g['calculations']).empty? }
+  if el['sort'].is_a?(Array)
+    kept, gone = prune_sort.call(el['sort'])
+    if kept then el['sort'] = kept else el.delete('sort') end
+    lost_sorts.concat(gone)
+  end
   %w[rowsBy columnsBy].each do |k|
     next unless el[k].is_a?(Array)
     el[k] = el[k].reject(&has_bad)
+    # a surviving shelf entry may be SORTED BY a pruned column (by: <id> | "row-count")
+    el[k].each do |x|
+      next unless x.is_a?(Hash) && bad_ids.include?(x.dig('sort', 'by'))
+      lost_sorts << x.delete('sort')['by']
+    end
     el.delete(k) if el[k].empty?
   end
   el['values'] = Array(el['values']).reject(&has_bad) if el['values'].is_a?(Array)
@@ -1361,6 +1411,16 @@ def prune_columns!(el, bad_ids)
     end
     el.delete('conditionalFormats') if el['conditionalFormats'].empty?
   end
+  lost_sorts.compact.uniq
+end
+
+# Coverage suffix for a drop that also removed the element's sort on a dropped column
+# (prune_columns!'s return), so the lost row/axis order is on record, not just the field.
+def sort_loss_note(bad_cols, lost_ids)
+  return '' if lost_ids.empty?
+  names = bad_cols.select { |c| lost_ids.include?(c['id']) }.map { |c| c['name'] }.compact.uniq
+  "; the sort on #{names.empty? ? 'the dropped column' : names.join(', ')} was removed with it " \
+    '(Sigma rejects a sort on a column the element does not declare), so the source row order is not kept'
 end
 
 # GUARANTEE no element ships an unresolved literal-ref column (bead miu7; mirrors
@@ -1373,7 +1433,7 @@ def drop_unresolved_columns!(el, rec, kind)
   bad = cols.select { |c| c['formula'].to_s =~ UNRESOLVED_REF }
   return if bad.empty?
   bad_ids = bad.map { |c| c['id'] }
-  prune_columns!(el, bad_ids)
+  lost_sorts = prune_columns!(el, bad_ids)
   leaves = bad.map { |c| c['name'] }.compact.join(', ')
   # Entity = the part before the first dot in the unresolved `[Entity.Leaf]` ref
   # (e.g. "Dim Region"), used to attribute the drop to an ungranted schema.
@@ -1382,7 +1442,7 @@ def drop_unresolved_columns!(el, rec, kind)
                     sigma_kind: kind, severity: 'dropped', recoverable: true, entity: entities,
                     role_class: rec['role_class'], visual_id: rec['visual_id'],
                     detail: "field(s) #{leaves} could not be resolved to a master column — dropped " \
-                            '(would have shipped as a type=error column)',
+                            "(would have shipped as a type=error column)#{sort_loss_note(bad, lost_sorts)}",
                     action: "Map the PBI queryRef(s) for #{leaves} to a master column in master-map.json and re-run.")
 end
 
@@ -1429,7 +1489,7 @@ def drop_cross_master_columns!(el, name, master_ids, by_name)
     !foreign.empty?
   end
   return [] if bad.empty?
-  prune_columns!(el, bad.map { |c| c['id'] })
+  lost_sorts = prune_columns!(el, bad.map { |c| c['id'] })
   leaves = bad.map { |c| c['name'] }.compact.uniq.join(', ')
   warn "[build-workbook] WARN visual '#{name}': column(s) #{leaves} referenced a DIFFERENT master than " \
        "the element's source (#{src}) — cross-master formulas compile to type \"error\" in Sigma, so they " \
@@ -1438,7 +1498,7 @@ def drop_cross_master_columns!(el, name, master_ids, by_name)
   record_unresolved(visual: name, pbi_type: 'cross-master', sigma_kind: el['kind'],
                     severity: 'dropped', recoverable: true, role_class: role_class_for_kind(el['kind']),
                     detail: "column(s) #{leaves} referenced a master other than the element's source — " \
-                            'dropped (cross-master formula would compile to type=error)',
+                            "dropped (cross-master formula would compile to type=error)#{sort_loss_note(bad, lost_sorts)}",
                     action: 'Add the field to this element\'s source master (or build a joined page base ' \
                             'that carries every measure the page\'s visuals reference), then re-run.')
   bad.map { |c| c['name'] }
@@ -2057,6 +2117,14 @@ def build_element_raw(rec, fields, masters, extra_data = [], forced_master = nil
         pseudo = MODEL_TABLES.any? && real.empty?      # derived/restructured element
         in_scope = (real & reach).any? || mname == pmaster
         col = match_master_column(mrec, leaf, ent)
+        # I2: a direct master (--model-shape pbi) carries the sliced field through the map's own binding (the field's ref on its
+        # master, or its alt on this one), never through a column that merely shares the leaf's name: the grouped
+        # time-intelligence elements' DateTrunc "Year" is a date, the Power BI Year field is an integer.
+        if mrec['direct'] == true && fs
+          ref = mname == pmaster ? fs['ref'] : Array(fs['alts']).find { |a| a['master'] == mname }&.dig('ref')
+          bound = ref && ref[%r{\A\[[^/\]]+/(.+)\]\z}, 1]
+          col = bound && (mrec['columns'] || []).find { |c| c['name'] == bound }
+        end
         # pseudo elements: only when they actually carry the sliced column —
         # column-name evidence is the best provenance we have for restructured
         # (Dense Rank / time-intel / calc-table SQL) elements.
@@ -2075,12 +2143,7 @@ def build_element_raw(rec, fields, masters, extra_data = [], forced_master = nil
              'cover visuals whose fields live only on the base. Add the sliced column to the base master.'
       end
     end
-    unless unwired.empty?
-      warn "[build-workbook] WARN slicer '#{name}': master(s) #{unwired.join(', ')} are in the " \
-           "slicer's relationship scope but carry no column matching '#{leaf}' — NOT wired. " \
-           'Charts on those masters will not respond to this control; add the related column ' \
-           'to the master (cross-element ref) to wire it.'
-    end
+    PbiReportBuild.unwired_slicer_lines(name, leaf, unwired, masters, ent).each { |l| warn l }
     ctl_id = (title_leaf(qr) || leaf).gsub(/[^A-Za-z0-9]/, '') + 'Filter'
     n = ($used_control_ids[ctl_id] += 1)
     ctl_id = "#{ctl_id}#{n}" if n > 1     # two slicers on one column: unique ids
@@ -2158,6 +2221,7 @@ def build_element_raw(rec, fields, masters, extra_data = [], forced_master = nil
       # `slicer-self`, e.g. "exclude blank" on its member list), which only restricts the
       # list's members.
       is_bool = tmsl_boolean_column?(ent, leaf)
+      el['_boolean'] = true if is_bool # read by the --direct-sources pass, stripped before the spec is written
       d = PbiReportBuild.list_default(is_bool: is_bool,
                                       type: PbiReportBuild.value_type(tmsl_column_type(ent, leaf)),
                                       state: rec['slicer_state'], qr: qr)
@@ -3105,6 +3169,32 @@ signals['pages'].each do |pg|
        "#{part['unverified'].size} kept (no bookmark data on this route)."
 end
 
+# CLASS D VISUALS (pbi shape, Task 21x). A visual that needs two relationship paths to one table (an order-date measure and a
+# USERELATIONSHIP ship-date measure on one Date axis) cannot be one Sigma element: it reads one path per element, so a chart
+# built on the active path would show the wrong numbers for the inactive-path series. The direct master-map lists such visuals
+# under `class_d_visuals`; they are HELD BACK and recorded as dropped, unless a page fact (master `page_fact` == the page)
+# summarizes the page, in which case they bind to the summary like any class D visual.
+if opts[:direct_sources] && mmap['class_d_visuals'].is_a?(Array) && !mmap['class_d_visuals'].empty?
+  fact_pages = (mmap['masters'] || {}).values.map { |m| m.is_a?(Hash) ? m['page_fact'] : nil }.compact
+  signals['pages'].each do |pg|
+    next if fact_pages.include?(pg['page_title'])
+    held = Array(mmap['class_d_visuals']).select { |c| c['page'].to_s == pg['page_title'].to_s }
+    next if held.empty?
+    pg['visuals'] = Array(pg['visuals']).reject do |v|
+      hit = held.find { |c| (c['visual_id'] && c['visual_id'] == v['visual_id']) || (c['visual_id'].nil? && c['visual'] == v['title']) }
+      next false unless hit
+      vk = SIGMA_KIND[v['sigma_kind']] || v['sigma_kind']
+      vlabel = v['title'].to_s.strip.empty? ? v['visual_id'] : v['title']
+      warn "[build-workbook] page '#{pg['page_title']}': visual '#{vlabel}' HELD BACK (class D): #{hit['reason']}"
+      record_unresolved(visual: vlabel, pbi_type: v['visual_type'], sigma_kind: vk,
+                        severity: 'dropped', recoverable: true, role_class: role_class_for_kind(vk), visual_id: v['visual_id'],
+                        detail: "class D visual held back (not built): #{hit['reason']}",
+                        action: 'Draft the page summary with --scaffold-page-facts, complete it, and rerun with --page-facts <dir>; the summary carries every measure of this visual on one path.')
+      true
+    end
+  end
+end
+
 # G31 — a saved selection on ANY member of a synced-slicer group is the group's default (only the
 # primary control carries values; members are minimal synced copies).
 PbiReportBuild.sync_group_defaults!(signals['pages'], lambda { |v|
@@ -3150,6 +3240,9 @@ content_pages = signals['pages'].map do |pg|
     list.concat(primary.filter_map { |element| build_drill_control(element) })
     list.concat(primary.filter_map { |element| build_legend_control(element) })
     vis_elements[v['visual_id']] = primary.map { |e| e['id'] }
+    if Array(mmap['asof_ignore_date']).any? { |c| c['page'].to_s == pg['page_title'].to_s && c['visual_id'] == v['visual_id'] }
+      primary.each { |e| $asof_ignore[e['id']] = true }
+    end
     # Track 3b: apply this visual's own Filters-pane filters onto its element(s).
     if v['filters'].is_a?(Array) && !v['filters'].empty?
       vlabel = (v['title'].to_s.strip.empty? ? v['visual_id'] : v['title'])
@@ -3385,6 +3478,28 @@ if opts[:page_local]
                       severity: 'degraded', recoverable: true, role_class: 'control',
                       detail: "control '#{nm}' targets no element on its own page after page-local masters — inert",
                       action: 'Bind the slicer column on a master the page\'s visuals source, then re-run.')
+  end
+end
+
+# --direct-sources: inline the masters (charts read their data model element; controls target the charts).
+# Runs here so the control scope, coverage and layout below see the final element set.
+if opts[:direct_sources]
+  ds = PbiDirectSources.inline!(content_pages, data_elements, masters, opts[:dm], $asof_ignore)
+  # a control not targeted at an element (an as-of-only element under a date control, or an element with no column reaching the
+  # control's field) leaves the control's scope: listed as excluded, with the reason (I6)
+  PbiDirectSources.exclude_unreached!($control_scope, ds)
+  warn "[build-workbook] direct sources: #{ds['sources_rewritten']} element(s) read the data model directly, " \
+       "#{ds['refs_rewritten']} master ref(s) resolved, #{ds['filter_columns_added']} filter column(s) added, " \
+       "#{ds['controls_retargeted']} control(s) retargeted, #{ds['data_elements_left'].size} helper element(s) left on the Data page"
+  ds['unresolved_refs'].uniq.each { |r| warn "[build-workbook] WARN direct sources: #{r} names no master column - left as written" }
+  ds['unreachable'].each do |u|
+    warn "[build-workbook] WARN control '#{u['name']}' (#{u['control']}) on page '#{u['page']}' reaches no element - dropped, not wired elsewhere"
+    $control_scope.reject! { |sc| sc['controlId'] == u['controlId'] }
+    $control_unbound << { 'sourceName' => "control #{u['name']} (#{u['control']})", 'status' => 'unreachable', 'reason' => u['reason'] }
+    record_unresolved(visual: u['name'] || u['control'], pbi_type: 'slicer', sigma_kind: 'control',
+                      severity: 'dropped', recoverable: true, role_class: 'control',
+                      detail: "control '#{u['name']}' reaches no element on page '#{u['page']}' once the Data page is gone - not wired",
+                      action: 'Put a visual that reads the sliced table on the page, or add the control by hand.')
   end
 end
 
@@ -3811,8 +3926,8 @@ end.compact.join("\n")
 data_layout = data_elements.each_with_index.map do |el, i|
   SigmaLayout.le(el['id'], 1, 25, i * 10 + 1, i * 10 + 11)
 end.join("\n")
-data_page_xml = SigmaLayout.page_xml('page-data', data_layout)
-layout_xml = %(<?xml version="1.0" encoding="utf-8"?>\n#{data_page_xml}\n#{pages_xml}\n)
+data_page_xml = data_elements.empty? ? nil : SigmaLayout.page_xml('page-data', data_layout)
+layout_xml = %(<?xml version="1.0" encoding="utf-8"?>\n#{data_page_xml ? data_page_xml + "\n" : ''}#{pages_xml}\n)
 
 # G32 — never emit an empty layout container (an empty <Container> makes PUT /v2/workbooks/{id}/contents
 # answer HTTP 500 service_error) and never place an element the spec does not hold. Every band whose
@@ -3855,7 +3970,7 @@ document = {
   'kind' => 'workbook',
   # Workbook pages are metadata only. Every element is document-global and its
   # page/container/tab membership is expressed exactly once by layout XML.
-  'pages' => [{ 'id' => 'page-data', 'name' => 'Data', 'visibility' => 'hidden' }] +
+  'pages' => (data_elements.empty? ? [] : [{ 'id' => 'page-data', 'name' => 'Data', 'visibility' => 'hidden' }]) +
              content_pages.map { |p| p.reject { |k, _| k == 'elements' } },
   'elements' => data_elements + content_pages.flat_map { |p| p['elements'] || [] },
   'layout' => layout_xml,
@@ -3896,6 +4011,29 @@ spec = {
   'document' => document
 }
 spec['folderId'] = opts[:folder] if opts[:folder]
+
+# One clock for "today": master-map measures (converter metrics AND agent-authored
+# gap-scout formulas) reach the workbook with Sigma's bare Today()/Now(), which
+# follow the Sigma account time zone. Pin them to the report clock.
+clock_path = opts[:report_clock] ||
+             (opts[:mmap] && File.join(File.dirname(File.expand_path(opts[:mmap])), 'report-clock.json'))
+clock_rec = clock_path && File.exist?(clock_path) ? (JSON.parse(File.read(clock_path)) rescue {}) : {}
+clock_tz = opts[:report_tz] || clock_rec['report_timezone']
+if clock_tz
+  begin
+    clock_audit = PbiReportClock.apply!(spec, timezone: clock_tz, scope: 'workbook',
+                                        dialect: clock_rec['dialect'] || 'snowflake')
+  rescue ArgumentError => e
+    abort "[build-workbook] #{e.message}"
+  end
+  PbiReportClock.merge_record!(clock_path, 'workbook', clock_audit) if clock_path && File.exist?(clock_path)
+  warn "[build-workbook] report clock #{clock_tz}: pinned #{clock_audit['pinned'].size} workbook formula(s), " \
+       "#{clock_audit['already_pinned']} already pinned"
+else
+  bare = PbiReportClock.scan(spec)
+  warn "[build-workbook] \u26A0 #{bare.size} workbook formula(s) read Sigma's Today()/Now() (Sigma account time zone) " \
+       'and no report clock was given (--report-timezone / report-clock.json): today-relative parity will refuse them' unless bare.empty?
+end
 
 File.binwrite(opts[:out], JSON.pretty_generate(spec))
 warn "[build-workbook] wrote #{opts[:out]} (#{data_elements.size} master(s), " \

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "OvAvgPrice",
+  "position": {
+    "x": 1056,
+    "y": 8,
+    "width": 200,
+    "height": 72,
+    "z": 1050,
+    "tabOrder": 1050
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Sales"
+                    }
+                  },
+                  "Property": "Avg Price"
+                }
+              },
+              "queryRef": "Sales.Avg Price",
+              "nativeQueryRef": "Avg Price"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Avg Price'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1366 @@
+{
+  "name": "Retail Inventory Model",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "AAAAAAAADK",
+      "name": "Page 1",
+      "elements": [
+        {
+          "id": "AAAAAAAAAB",
+          "kind": "table",
+          "name": "DIM_DATE",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_DATE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY",
+              "formula": "[DATE/Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAD/CAL_DATE",
+              "formula": "[DATE/Cal Date]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAE/YEAR_NUM",
+              "formula": "[DATE/Year Num]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAF/QUARTER_NUM",
+              "formula": "[DATE/Quarter Num]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAG/MONTH_NUM",
+              "formula": "[DATE/Month Num]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAH/MONTH_NAME",
+              "formula": "[DATE/Month Name]"
+            },
+            {
+              "id": "AAAAAAAAAI",
+              "formula": "MakeDate(Year([Cal Date]), Month([Cal Date]), 1)",
+              "name": "Month Start"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAD/CAL_DATE",
+            "inode-AAAAAAAAAAAAAAAAAAAAAE/YEAR_NUM",
+            "inode-AAAAAAAAAAAAAAAAAAAAAF/QUARTER_NUM",
+            "inode-AAAAAAAAAAAAAAAAAAAAAG/MONTH_NUM",
+            "inode-AAAAAAAAAAAAAAAAAAAAAH/MONTH_NAME",
+            "AAAAAAAAAI"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAJ",
+          "kind": "table",
+          "name": "AS_OF",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "AS_OF"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAK/AS_OF_DATE",
+              "formula": "[AS OF/As of Date]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAK/AS_OF_DATE"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAL",
+          "kind": "table",
+          "name": "DIM_CATEGORY",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_CATEGORY"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAM/CATEGORY_KEY",
+              "formula": "[CATEGORY/Category Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAN/CATEGORY_NAME",
+              "formula": "[CATEGORY/Category Name]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAM/CATEGORY_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAN/CATEGORY_NAME"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAO",
+          "kind": "table",
+          "name": "DIM_VENDOR",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_VENDOR"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAP/VENDOR_KEY",
+              "formula": "[VENDOR/Vendor Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAQ/VENDOR_NAME",
+              "formula": "[VENDOR/Vendor Name]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAR/COUNTRY",
+              "formula": "[VENDOR/Country]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAP/VENDOR_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAQ/VENDOR_NAME",
+            "inode-AAAAAAAAAAAAAAAAAAAAAR/COUNTRY"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAS",
+          "kind": "table",
+          "name": "DIM_PRODUCT",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_PRODUCT"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAT/PRODUCT_KEY",
+              "formula": "[PRODUCT/Product Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAU/PRODUCT_NAME",
+              "formula": "[PRODUCT/Product Name]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAV/BRAND",
+              "formula": "[PRODUCT/Brand]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAW/CATEGORY_KEY",
+              "formula": "[PRODUCT/Category Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAX/VENDOR_KEY",
+              "formula": "[PRODUCT/Vendor Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAY/LIST_PRICE",
+              "formula": "[PRODUCT/List Price]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAZ/IS_PRIVATE_LABEL",
+              "formula": "[PRODUCT/Is Private Label]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAT/PRODUCT_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAU/PRODUCT_NAME",
+            "inode-AAAAAAAAAAAAAAAAAAAAAV/BRAND",
+            "inode-AAAAAAAAAAAAAAAAAAAAAW/CATEGORY_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAX/VENDOR_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAY/LIST_PRICE",
+            "inode-AAAAAAAAAAAAAAAAAAAAAZ/IS_PRIVATE_LABEL"
+          ],
+          "relationships": [
+            {
+              "id": "AAAAAAAABd",
+              "targetElementId": "AAAAAAAAAL",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAW/CATEGORY_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAM/CATEGORY_KEY"
+                }
+              ],
+              "name": "Category"
+            },
+            {
+              "id": "AAAAAAAABe",
+              "targetElementId": "AAAAAAAAAO",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAX/VENDOR_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAP/VENDOR_KEY"
+                }
+              ],
+              "name": "Vendor"
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAAAa",
+          "kind": "table",
+          "name": "DIM_SKU",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_SKU"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAb/SKU_KEY",
+              "formula": "[SKU/Sku Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAc/PRODUCT_KEY",
+              "formula": "[SKU/Product Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAd/SIZE",
+              "formula": "[SKU/Size]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAb/SKU_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAc/PRODUCT_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAd/SIZE"
+          ],
+          "relationships": [
+            {
+              "id": "AAAAAAAABc",
+              "targetElementId": "AAAAAAAAAS",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAc/PRODUCT_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAT/PRODUCT_KEY"
+                }
+              ],
+              "name": "Product"
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAAAe",
+          "kind": "table",
+          "name": "DIM_CUSTOMER",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_CUSTOMER"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAf/CUSTOMER_KEY",
+              "formula": "[CUSTOMER/Customer Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAg/SEGMENT",
+              "formula": "[CUSTOMER/Segment]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAh/CUSTOMER_REGION",
+              "formula": "[CUSTOMER/Customer Region]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAi/LOYALTY_MEMBER",
+              "formula": "[CUSTOMER/Loyalty Member]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAf/CUSTOMER_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAg/SEGMENT",
+            "inode-AAAAAAAAAAAAAAAAAAAAAh/CUSTOMER_REGION",
+            "inode-AAAAAAAAAAAAAAAAAAAAAi/LOYALTY_MEMBER"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAj",
+          "kind": "table",
+          "name": "DIM_STORE",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "DIM_STORE"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAk/STORE_KEY",
+              "formula": "[STORE/Store Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAl/STORE_NAME",
+              "formula": "[STORE/Store Name]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAm/STORE_REGION",
+              "formula": "[STORE/Store Region]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAn/CHANNEL",
+              "formula": "[STORE/Channel]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAk/STORE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAl/STORE_NAME",
+            "inode-AAAAAAAAAAAAAAAAAAAAAm/STORE_REGION",
+            "inode-AAAAAAAAAAAAAAAAAAAAAn/CHANNEL"
+          ]
+        },
+        {
+          "id": "AAAAAAAAAo",
+          "kind": "table",
+          "name": "FACT_SALES",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "FACT_SALES"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAp/SALES_LINE_KEY",
+              "formula": "[SALES/Sales Line Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAq/ORDER_NUMBER",
+              "formula": "[SALES/Order Number]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAr/ORDER_DATE_KEY",
+              "formula": "[SALES/Order Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAs/SHIP_DATE_KEY",
+              "formula": "[SALES/Ship Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAt/SKU_KEY",
+              "formula": "[SALES/Sku Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAu/CUSTOMER_KEY",
+              "formula": "[SALES/Customer Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAv/STORE_KEY",
+              "formula": "[SALES/Store Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAw/QUANTITY",
+              "formula": "[SALES/Quantity]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAx/UNIT_PRICE",
+              "formula": "[SALES/Unit Price]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAy/DISCOUNT",
+              "formula": "[SALES/Discount]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAAAz/UNIT_COST",
+              "formula": "[SALES/Unit Cost]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAAAp/SALES_LINE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAq/ORDER_NUMBER",
+            "inode-AAAAAAAAAAAAAAAAAAAAAr/ORDER_DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAs/SHIP_DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAt/SKU_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAu/CUSTOMER_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAv/STORE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAw/QUANTITY",
+            "inode-AAAAAAAAAAAAAAAAAAAAAx/UNIT_PRICE",
+            "inode-AAAAAAAAAAAAAAAAAAAAAy/DISCOUNT",
+            "inode-AAAAAAAAAAAAAAAAAAAAAz/UNIT_COST"
+          ],
+          "metrics": [
+            {
+              "id": "AAAAAAAAA0",
+              "formula": "Sum([Quantity] * [Unit Price] * (1 - [Discount]))",
+              "name": "Sales Amount",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "AAAAAAAAA1",
+              "formula": "Sum([Quantity])",
+              "name": "Units",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f"
+              }
+            },
+            {
+              "id": "AAAAAAAAA2",
+              "formula": "Sum([Quantity] * [Unit Cost])",
+              "name": "Cost",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "AAAAAAAAA3",
+              "formula": "[Sales Amount] - [Cost]",
+              "name": "Gross Margin",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            },
+            {
+              "id": "AAAAAAAAA4",
+              "formula": "([Gross Margin]) / NullIf(([Sales Amount]), 0)",
+              "name": "GM %",
+              "format": {
+                "kind": "number",
+                "formatString": ",.1%"
+              }
+            },
+            {
+              "id": "AAAAAAAAA5",
+              "formula": "CountDistinct([Order Number])",
+              "name": "Orders",
+              "format": {
+                "kind": "number",
+                "formatString": ",.0f"
+              }
+            },
+            {
+              "id": "AAAAAAAAA6",
+              "formula": "([Sales Amount]) / NullIf(([Units]), 0)",
+              "name": "Avg Price",
+              "format": {
+                "kind": "number",
+                "formatString": ",.2f"
+              }
+            }
+          ],
+          "relationships": [
+            {
+              "id": "AAAAAAAABX",
+              "targetElementId": "AAAAAAAAAB",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAr/ORDER_DATE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY"
+                }
+              ],
+              "name": "Date"
+            },
+            {
+              "id": "AAAAAAAABY",
+              "targetElementId": "AAAAAAAAAB",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAs/SHIP_DATE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY"
+                }
+              ],
+              "name": "DATE_VIA_SHIPDATEKEY"
+            },
+            {
+              "id": "AAAAAAAABZ",
+              "targetElementId": "AAAAAAAAAa",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAt/SKU_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAb/SKU_KEY"
+                }
+              ],
+              "name": "SKU"
+            },
+            {
+              "id": "AAAAAAAABa",
+              "targetElementId": "AAAAAAAAAe",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAu/CUSTOMER_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAf/CUSTOMER_KEY"
+                }
+              ],
+              "name": "Customer"
+            },
+            {
+              "id": "AAAAAAAABb",
+              "targetElementId": "AAAAAAAAAj",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAv/STORE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAk/STORE_KEY"
+                }
+              ],
+              "name": "Store"
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAABE",
+          "kind": "table",
+          "name": "FACT_INVENTORY",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "FACT_INVENTORY"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABF/DATE_KEY",
+              "formula": "[INVENTORY/Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABG/SKU_KEY",
+              "formula": "[INVENTORY/Sku Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABH/STORE_KEY",
+              "formula": "[INVENTORY/Store Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABI/ON_HAND_UNITS",
+              "formula": "[INVENTORY/On Hand Units]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAABF/DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABG/SKU_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABH/STORE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABI/ON_HAND_UNITS"
+          ],
+          "relationships": [
+            {
+              "id": "AAAAAAAABf",
+              "targetElementId": "AAAAAAAAAB",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAABF/DATE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY"
+                }
+              ],
+              "name": "Date"
+            },
+            {
+              "id": "AAAAAAAABg",
+              "targetElementId": "AAAAAAAAAa",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAABG/SKU_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAb/SKU_KEY"
+                }
+              ],
+              "name": "SKU"
+            },
+            {
+              "id": "AAAAAAAABh",
+              "targetElementId": "AAAAAAAAAj",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAABH/STORE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAk/STORE_KEY"
+                }
+              ],
+              "name": "Store"
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAABM",
+          "kind": "table",
+          "name": "FACT_PURCHASE_ORDER",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "warehouse-table",
+            "path": [
+              "SAMPLE_DB",
+              "ZZ_CLAUDE_PBI_SHAPED",
+              "FACT_PURCHASE_ORDER"
+            ]
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABN/PO_NUMBER",
+              "formula": "[PURCHASE ORDERS/Po Number]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABO/VENDOR_KEY",
+              "formula": "[PURCHASE ORDERS/Vendor Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABP/SKU_KEY",
+              "formula": "[PURCHASE ORDERS/Sku Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABQ/ORDER_DATE_KEY",
+              "formula": "[PURCHASE ORDERS/Order Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABR/EXPECTED_DATE_KEY",
+              "formula": "[PURCHASE ORDERS/Expected Date Key]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABS/ORDERED_UNITS",
+              "formula": "[PURCHASE ORDERS/Ordered Units]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABT/RECEIVED_UNITS",
+              "formula": "[PURCHASE ORDERS/Received Units]"
+            },
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABU/STATUS",
+              "formula": "[PURCHASE ORDERS/Status]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAABN/PO_NUMBER",
+            "inode-AAAAAAAAAAAAAAAAAAAABO/VENDOR_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABP/SKU_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABQ/ORDER_DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABR/EXPECTED_DATE_KEY",
+            "inode-AAAAAAAAAAAAAAAAAAAABS/ORDERED_UNITS",
+            "inode-AAAAAAAAAAAAAAAAAAAABT/RECEIVED_UNITS",
+            "inode-AAAAAAAAAAAAAAAAAAAABU/STATUS"
+          ],
+          "relationships": [
+            {
+              "id": "AAAAAAAABi",
+              "targetElementId": "AAAAAAAAAB",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAABQ/ORDER_DATE_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAC/DATE_KEY"
+                }
+              ],
+              "name": "Date"
+            },
+            {
+              "id": "AAAAAAAABj",
+              "targetElementId": "AAAAAAAAAa",
+              "keys": [
+                {
+                  "sourceColumnId": "inode-AAAAAAAAAAAAAAAAAAAABP/SKU_KEY",
+                  "targetColumnId": "inode-AAAAAAAAAAAAAAAAAAAAAb/SKU_KEY"
+                }
+              ],
+              "name": "SKU"
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAABV",
+          "kind": "table",
+          "source": {
+            "connectionId": "00000000-0000-0000-0000-000000000000",
+            "kind": "sql",
+            "statement": "SELECT 'Under 7 days' AS \"Bucket\" UNION ALL SELECT 0 AS \"Bucket\" UNION ALL SELECT 7 AS \"Bucket\" UNION ALL SELECT 1 AS \"Bucket\""
+          },
+          "columns": [
+            {
+              "id": "inode-AAAAAAAAAAAAAAAAAAAABW/BUCKET",
+              "formula": "[Custom SQL/Bucket]"
+            }
+          ],
+          "order": [
+            "inode-AAAAAAAAAAAAAAAAAAAABW/BUCKET"
+          ],
+          "ok": false
+        },
+        {
+          "id": "AAAAAAAABw",
+          "kind": "table",
+          "name": "DIM_PRODUCT View",
+          "source": {
+            "kind": "table",
+            "elementId": "AAAAAAAAAS"
+          },
+          "columns": [
+            {
+              "id": "AAAAAAAABk",
+              "formula": "[DIM_PRODUCT/Product Key]"
+            },
+            {
+              "id": "AAAAAAAABl",
+              "formula": "[DIM_PRODUCT/Product Name]"
+            },
+            {
+              "id": "AAAAAAAABm",
+              "formula": "[DIM_PRODUCT/Brand]"
+            },
+            {
+              "id": "AAAAAAAABn",
+              "formula": "[DIM_PRODUCT/Category Key]"
+            },
+            {
+              "id": "AAAAAAAABo",
+              "formula": "[DIM_PRODUCT/Vendor Key]"
+            },
+            {
+              "id": "AAAAAAAABp",
+              "formula": "[DIM_PRODUCT/List Price]"
+            },
+            {
+              "id": "AAAAAAAABq",
+              "formula": "[DIM_PRODUCT/Is Private Label]"
+            },
+            {
+              "id": "AAAAAAAABr",
+              "formula": "[DIM_PRODUCT/Category/Category Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAABt",
+              "formula": "[DIM_PRODUCT/Vendor/Vendor Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAABv",
+              "formula": "[DIM_PRODUCT/Vendor/Country]",
+              "hidden": true
+            }
+          ],
+          "order": [
+            "AAAAAAAABk",
+            "AAAAAAAABl",
+            "AAAAAAAABm",
+            "AAAAAAAABn",
+            "AAAAAAAABo",
+            "AAAAAAAABp",
+            "AAAAAAAABq",
+            "AAAAAAAABr",
+            "AAAAAAAABt",
+            "AAAAAAAABv"
+          ],
+          "folders": [
+            {
+              "id": "AAAAAAAABs",
+              "name": "DIM_CATEGORY",
+              "items": [
+                "AAAAAAAABr"
+              ]
+            },
+            {
+              "id": "AAAAAAAABu",
+              "name": "DIM_VENDOR",
+              "items": [
+                "AAAAAAAABt",
+                "AAAAAAAABv"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAAB7",
+          "kind": "table",
+          "name": "DIM_SKU View",
+          "source": {
+            "kind": "table",
+            "elementId": "AAAAAAAAAa"
+          },
+          "columns": [
+            {
+              "id": "AAAAAAAABx",
+              "formula": "[DIM_SKU/Sku Key]"
+            },
+            {
+              "id": "AAAAAAAABy",
+              "formula": "[DIM_SKU/Product Key]"
+            },
+            {
+              "id": "AAAAAAAABz",
+              "formula": "[DIM_SKU/Size]"
+            },
+            {
+              "id": "AAAAAAAAB0",
+              "formula": "[DIM_SKU/Product/Product Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAAB2",
+              "formula": "[DIM_SKU/Product/Brand]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAAB3",
+              "formula": "[DIM_SKU/Product/Category Key]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAAB4",
+              "formula": "[DIM_SKU/Product/Vendor Key]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAAB5",
+              "formula": "[DIM_SKU/Product/List Price]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAAB6",
+              "formula": "[DIM_SKU/Product/Is Private Label]",
+              "hidden": true
+            }
+          ],
+          "order": [
+            "AAAAAAAABx",
+            "AAAAAAAABy",
+            "AAAAAAAABz",
+            "AAAAAAAAB0",
+            "AAAAAAAAB2",
+            "AAAAAAAAB3",
+            "AAAAAAAAB4",
+            "AAAAAAAAB5",
+            "AAAAAAAAB6"
+          ],
+          "folders": [
+            {
+              "id": "AAAAAAAAB1",
+              "name": "DIM_PRODUCT",
+              "items": [
+                "AAAAAAAAB0",
+                "AAAAAAAAB2",
+                "AAAAAAAAB3",
+                "AAAAAAAAB4",
+                "AAAAAAAAB5",
+                "AAAAAAAAB6"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAACh",
+          "kind": "table",
+          "name": "FACT_SALES View",
+          "source": {
+            "kind": "table",
+            "elementId": "AAAAAAAAAo"
+          },
+          "columns": [
+            {
+              "id": "AAAAAAAAB8",
+              "formula": "[FACT_SALES/Sales Line Key]"
+            },
+            {
+              "id": "AAAAAAAAB9",
+              "formula": "[FACT_SALES/Order Number]"
+            },
+            {
+              "id": "AAAAAAAACA",
+              "formula": "[FACT_SALES/Order Date Key]"
+            },
+            {
+              "id": "AAAAAAAACB",
+              "formula": "[FACT_SALES/Ship Date Key]"
+            },
+            {
+              "id": "AAAAAAAACC",
+              "formula": "[FACT_SALES/Sku Key]"
+            },
+            {
+              "id": "AAAAAAAACD",
+              "formula": "[FACT_SALES/Customer Key]"
+            },
+            {
+              "id": "AAAAAAAACE",
+              "formula": "[FACT_SALES/Store Key]"
+            },
+            {
+              "id": "AAAAAAAACF",
+              "formula": "[FACT_SALES/Quantity]"
+            },
+            {
+              "id": "AAAAAAAACG",
+              "formula": "[FACT_SALES/Unit Price]"
+            },
+            {
+              "id": "AAAAAAAACH",
+              "formula": "[FACT_SALES/Discount]"
+            },
+            {
+              "id": "AAAAAAAACI",
+              "formula": "[FACT_SALES/Unit Cost]"
+            },
+            {
+              "id": "AAAAAAAACJ",
+              "formula": "[FACT_SALES/Date/Cal Date]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACL",
+              "formula": "[FACT_SALES/Date/Year Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACM",
+              "formula": "[FACT_SALES/Date/Quarter Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACN",
+              "formula": "[FACT_SALES/Date/Month Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACO",
+              "formula": "[FACT_SALES/Date/Month Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACP",
+              "formula": "[FACT_SALES/Date/Month Start]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACQ",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Cal Date]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACR",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Year Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACS",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Quarter Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACT",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Month Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACU",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Month Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACV",
+              "formula": "[FACT_SALES/DATE_VIA_SHIPDATEKEY/Month Start]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACW",
+              "formula": "[FACT_SALES/SKU/Product Key]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACY",
+              "formula": "[FACT_SALES/SKU/Size]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACZ",
+              "formula": "[FACT_SALES/Customer/Segment]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACb",
+              "formula": "[FACT_SALES/Customer/Customer Region]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACc",
+              "formula": "[FACT_SALES/Customer/Loyalty Member]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACd",
+              "formula": "[FACT_SALES/Store/Store Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACf",
+              "formula": "[FACT_SALES/Store/Store Region]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACg",
+              "formula": "[FACT_SALES/Store/Channel]",
+              "hidden": true
+            }
+          ],
+          "order": [
+            "AAAAAAAAB8",
+            "AAAAAAAAB9",
+            "AAAAAAAACA",
+            "AAAAAAAACB",
+            "AAAAAAAACC",
+            "AAAAAAAACD",
+            "AAAAAAAACE",
+            "AAAAAAAACF",
+            "AAAAAAAACG",
+            "AAAAAAAACH",
+            "AAAAAAAACI",
+            "AAAAAAAACJ",
+            "AAAAAAAACL",
+            "AAAAAAAACM",
+            "AAAAAAAACN",
+            "AAAAAAAACO",
+            "AAAAAAAACP",
+            "AAAAAAAACQ",
+            "AAAAAAAACR",
+            "AAAAAAAACS",
+            "AAAAAAAACT",
+            "AAAAAAAACU",
+            "AAAAAAAACV",
+            "AAAAAAAACW",
+            "AAAAAAAACY",
+            "AAAAAAAACZ",
+            "AAAAAAAACb",
+            "AAAAAAAACc",
+            "AAAAAAAACd",
+            "AAAAAAAACf",
+            "AAAAAAAACg"
+          ],
+          "folders": [
+            {
+              "id": "AAAAAAAACK",
+              "name": "DIM_DATE",
+              "items": [
+                "AAAAAAAACJ",
+                "AAAAAAAACL",
+                "AAAAAAAACM",
+                "AAAAAAAACN",
+                "AAAAAAAACO",
+                "AAAAAAAACP",
+                "AAAAAAAACQ",
+                "AAAAAAAACR",
+                "AAAAAAAACS",
+                "AAAAAAAACT",
+                "AAAAAAAACU",
+                "AAAAAAAACV"
+              ]
+            },
+            {
+              "id": "AAAAAAAACX",
+              "name": "DIM_SKU",
+              "items": [
+                "AAAAAAAACW",
+                "AAAAAAAACY"
+              ]
+            },
+            {
+              "id": "AAAAAAAACa",
+              "name": "DIM_CUSTOMER",
+              "items": [
+                "AAAAAAAACZ",
+                "AAAAAAAACb",
+                "AAAAAAAACc"
+              ]
+            },
+            {
+              "id": "AAAAAAAACe",
+              "name": "DIM_STORE",
+              "items": [
+                "AAAAAAAACd",
+                "AAAAAAAACf",
+                "AAAAAAAACg"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAAC0",
+          "kind": "table",
+          "name": "FACT_INVENTORY View",
+          "source": {
+            "kind": "table",
+            "elementId": "AAAAAAAABE"
+          },
+          "columns": [
+            {
+              "id": "AAAAAAAACi",
+              "formula": "[FACT_INVENTORY/Date Key]"
+            },
+            {
+              "id": "AAAAAAAACj",
+              "formula": "[FACT_INVENTORY/Sku Key]"
+            },
+            {
+              "id": "AAAAAAAACk",
+              "formula": "[FACT_INVENTORY/Store Key]"
+            },
+            {
+              "id": "AAAAAAAACl",
+              "formula": "[FACT_INVENTORY/On Hand Units]"
+            },
+            {
+              "id": "AAAAAAAACm",
+              "formula": "[FACT_INVENTORY/Date/Cal Date]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACo",
+              "formula": "[FACT_INVENTORY/Date/Year Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACp",
+              "formula": "[FACT_INVENTORY/Date/Quarter Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACq",
+              "formula": "[FACT_INVENTORY/Date/Month Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACr",
+              "formula": "[FACT_INVENTORY/Date/Month Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACs",
+              "formula": "[FACT_INVENTORY/Date/Month Start]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACt",
+              "formula": "[FACT_INVENTORY/SKU/Product Key]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACv",
+              "formula": "[FACT_INVENTORY/SKU/Size]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACw",
+              "formula": "[FACT_INVENTORY/Store/Store Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACy",
+              "formula": "[FACT_INVENTORY/Store/Store Region]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAACz",
+              "formula": "[FACT_INVENTORY/Store/Channel]",
+              "hidden": true
+            }
+          ],
+          "order": [
+            "AAAAAAAACi",
+            "AAAAAAAACj",
+            "AAAAAAAACk",
+            "AAAAAAAACl",
+            "AAAAAAAACm",
+            "AAAAAAAACo",
+            "AAAAAAAACp",
+            "AAAAAAAACq",
+            "AAAAAAAACr",
+            "AAAAAAAACs",
+            "AAAAAAAACt",
+            "AAAAAAAACv",
+            "AAAAAAAACw",
+            "AAAAAAAACy",
+            "AAAAAAAACz"
+          ],
+          "folders": [
+            {
+              "id": "AAAAAAAACn",
+              "name": "DIM_DATE",
+              "items": [
+                "AAAAAAAACm",
+                "AAAAAAAACo",
+                "AAAAAAAACp",
+                "AAAAAAAACq",
+                "AAAAAAAACr",
+                "AAAAAAAACs"
+              ]
+            },
+            {
+              "id": "AAAAAAAACu",
+              "name": "DIM_SKU",
+              "items": [
+                "AAAAAAAACt",
+                "AAAAAAAACv"
+              ]
+            },
+            {
+              "id": "AAAAAAAACx",
+              "name": "DIM_STORE",
+              "items": [
+                "AAAAAAAACw",
+                "AAAAAAAACy",
+                "AAAAAAAACz"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "AAAAAAAADJ",
+          "kind": "table",
+          "name": "FACT_PURCHASE_ORDER View",
+          "source": {
+            "kind": "table",
+            "elementId": "AAAAAAAABM"
+          },
+          "columns": [
+            {
+              "id": "AAAAAAAAC1",
+              "formula": "[FACT_PURCHASE_ORDER/Po Number]"
+            },
+            {
+              "id": "AAAAAAAAC2",
+              "formula": "[FACT_PURCHASE_ORDER/Vendor Key]"
+            },
+            {
+              "id": "AAAAAAAAC3",
+              "formula": "[FACT_PURCHASE_ORDER/Sku Key]"
+            },
+            {
+              "id": "AAAAAAAAC4",
+              "formula": "[FACT_PURCHASE_ORDER/Order Date Key]"
+            },
+            {
+              "id": "AAAAAAAAC5",
+              "formula": "[FACT_PURCHASE_ORDER/Expected Date Key]"
+            },
+            {
+              "id": "AAAAAAAAC6",
+              "formula": "[FACT_PURCHASE_ORDER/Ordered Units]"
+            },
+            {
+              "id": "AAAAAAAAC7",
+              "formula": "[FACT_PURCHASE_ORDER/Received Units]"
+            },
+            {
+              "id": "AAAAAAAAC8",
+              "formula": "[FACT_PURCHASE_ORDER/Status]"
+            },
+            {
+              "id": "AAAAAAAAC9",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Cal Date]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADB",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Year Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADC",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Quarter Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADD",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Month Num]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADE",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Month Name]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADF",
+              "formula": "[FACT_PURCHASE_ORDER/Date/Month Start]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADG",
+              "formula": "[FACT_PURCHASE_ORDER/SKU/Product Key]",
+              "hidden": true
+            },
+            {
+              "id": "AAAAAAAADI",
+              "formula": "[FACT_PURCHASE_ORDER/SKU/Size]",
+              "hidden": true
+            }
+          ],
+          "order": [
+            "AAAAAAAAC1",
+            "AAAAAAAAC2",
+            "AAAAAAAAC3",
+            "AAAAAAAAC4",
+            "AAAAAAAAC5",
+            "AAAAAAAAC6",
+            "AAAAAAAAC7",
+            "AAAAAAAAC8",
+            "AAAAAAAAC9",
+            "AAAAAAAADB",
+            "AAAAAAAADC",
+            "AAAAAAAADD",
+            "AAAAAAAADE",
+            "AAAAAAAADF",
+            "AAAAAAAADG",
+            "AAAAAAAADI"
+          ],
+          "folders": [
+            {
+              "id": "AAAAAAAADA",
+              "name": "DIM_DATE",
+              "items": [
+                "AAAAAAAAC9",
+                "AAAAAAAADB",
+                "AAAAAAAADC",
+                "AAAAAAAADD",
+                "AAAAAAAADE",
+                "AAAAAAAADF"
+              ]
+            },
+            {
+              "id": "AAAAAAAADH",
+              "name": "DIM_SKU",
+              "items": [
+                "AAAAAAAADG",
+                "AAAAAAAADI"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

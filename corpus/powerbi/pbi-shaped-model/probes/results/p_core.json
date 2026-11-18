@@ -1,0 +1,718 @@
+{
+  "variants": {
+    "direct+reader": {
+      "readback_controls": [
+        {
+          "controlId": "Region",
+          "id": "ctl-region",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "data-model",
+              "dataModelId": "<uuid-1>",
+              "elementId": "e-cust"
+            },
+            "columnId": "e-cust/CUSTOMER_REGION"
+          }
+        },
+        {
+          "controlId": "Loyalty",
+          "id": "ctl-loy",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-loy"
+            },
+            "columnId": "l-txt"
+          }
+        },
+        {
+          "controlId": "RegionOne",
+          "id": "ctl-single",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "single",
+          "value": "West",
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-cat"
+            },
+            "columnId": "c-reg"
+          }
+        }
+      ],
+      "readback_columns": {
+        "tbl-cust": [
+          [
+            "Customer Region",
+            "[Customer/Customer Region]"
+          ]
+        ],
+        "ch-cat": [
+          [
+            "Category",
+            "[Sales/SKU/Product/Category/Category Name]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-ship": [
+          [
+            "Ship Month",
+            "[Sales/Date (Ship Date Key)/Month]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-rel": [
+          [
+            "Brand",
+            "[Sales/SKU/Product/Brand]"
+          ],
+          [
+            "Store Region",
+            "[Sales/Store/Store Region]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-loy": [
+          [
+            "Segment",
+            "[Sales/Customer/Segment]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Loyalty Text",
+            "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))"
+          ]
+        ],
+        "ch-vals": [
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ],
+          [
+            "Quantity",
+            "Sum([Sales/Quantity])"
+          ]
+        ]
+      },
+      "checks": {
+        "P1": {
+          "pass": true,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 13,
+          "formula": "[Sales/SKU/Product/Category/Category Name]",
+          "raw_header": [
+            "Category",
+            "Revenue"
+          ]
+        },
+        "P6": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42,
+          "ship_vs_order_truth_months_differing": 42,
+          "truth_distinguishes_relationships": true,
+          "formula": "[Sales/Date (Ship Date Key)/Month]"
+        },
+        "P2": {
+          "chart_cat_no_pick": {
+            "pass": true,
+            "rows_actual": 13,
+            "rows_truth": 13,
+            "matched": 13
+          },
+          "chart_cat_west": {
+            "pass": true,
+            "rows_actual": 13,
+            "rows_truth": 13,
+            "matched": 13
+          },
+          "chart_ship_west": {
+            "pass": true,
+            "rows_actual": 42,
+            "rows_truth": 42,
+            "matched": 42
+          },
+          "multi_pick_forms_informational": {
+            "comma": {
+              "pass": true,
+              "rows_actual": 13,
+              "rows_truth": 13,
+              "matched": 13
+            },
+            "json_array_string": {
+              "pass": false,
+              "rows_actual": 0,
+              "rows_truth": 13,
+              "matched": 0,
+              "detail": {
+                "matched": 0,
+                "mismatched": [],
+                "missing": [
+                  "Pet Supplies",
+                  "Frozen",
+                  "Seasonal",
+                  "Personal Care",
+                  "Bakery"
+                ],
+                "extra": [],
+                "duplicates": {
+                  "actual": [],
+                  "truth": []
+                }
+              },
+              "sample_actual": []
+            }
+          },
+          "west_vs_unfiltered_truth_differing": {
+            "category": 13,
+            "ship_month": 42
+          },
+          "pass": true,
+          "control_form": "list, selectionMode multiple, values [], filters -> [chart column Customer Region] x2; export parameters {\"Region\": \"West\"} (value is a STRING; an array is rejected 400)"
+        },
+        "P2b_single_default_value": {
+          "pass": true,
+          "rows_actual": 32,
+          "rows_truth": 32,
+          "matched": 32,
+          "west_vs_unfiltered_truth_differing": 32,
+          "readback": [
+            {
+              "controlId": "RegionOne",
+              "id": "ctl-single",
+              "controlType": "list",
+              "mode": "include",
+              "selectionMode": "single",
+              "value": "West",
+              "source": {
+                "kind": "source",
+                "source": {
+                  "kind": "table",
+                  "elementId": "ch-cat"
+                },
+                "columnId": "c-reg"
+              }
+            }
+          ]
+        },
+        "P5": {
+          "pass": true,
+          "rows_actual": 32,
+          "rows_truth": 32,
+          "matched": 32,
+          "note": "related columns [Sales/Store/Store Region], [Sales/SKU/Product/Brand] read from the child; values compared under the single-select West default"
+        },
+        "P12": {
+          "True": {
+            "pass": true,
+            "rows_actual": 4,
+            "rows_truth": 4,
+            "matched": 4,
+            "differs_from_unfiltered_truth": 5
+          },
+          "False": {
+            "pass": true,
+            "rows_actual": 4,
+            "rows_truth": 4,
+            "matched": 4,
+            "differs_from_unfiltered_truth": 5
+          },
+          "blank": {
+            "pass": true,
+            "rows_actual": 5,
+            "rows_truth": 5,
+            "matched": 5
+          },
+          "blank_means": "no selection (unfiltered state: every row incl. NULL loyalty), not a null pick",
+          "pass": true,
+          "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))"
+        },
+        "P3_value_list": {
+          "control_source_readback": [
+            {
+              "kind": "source",
+              "source": {
+                "kind": "data-model",
+                "dataModelId": "<uuid-1>",
+                "elementId": "e-cust"
+              },
+              "columnId": "e-cust/CUSTOMER_REGION"
+            }
+          ],
+          "listed_from_chart_column": {
+            "pass": true,
+            "rows_actual": 6,
+            "rows_truth": 6,
+            "matched": 6
+          },
+          "truth_distinct_incl_null": [
+            "Central",
+            "East",
+            "None",
+            "North",
+            "South",
+            "West"
+          ],
+          "control_source_expected": {
+            "kind": "source",
+            "source": {
+              "kind": "data-model",
+              "dataModelId": "<uuid-1>",
+              "elementId": "e-cust"
+            },
+            "columnId": "e-cust/CUSTOMER_REGION"
+          },
+          "control_source_matches_intended": true,
+          "controls_endpoint": {
+            "entries": [
+              {
+                "name": "Loyalty",
+                "valueType": "text-list"
+              },
+              {
+                "name": "Region",
+                "valueType": "text-list"
+              },
+              {
+                "name": "RegionOne",
+                "valueType": "text"
+              }
+            ],
+            "total": 3,
+            "nextPage": null
+          },
+          "pass": true,
+          "direct_element_column": {
+            "listed": [
+              "Central",
+              "East",
+              "North",
+              "South",
+              "West"
+            ],
+            "truth": [
+              "Central",
+              "East",
+              "North",
+              "South",
+              "West"
+            ],
+            "pass": true
+          }
+        }
+      }
+    },
+    "fallback": {
+      "readback_controls": [
+        {
+          "controlId": "Region",
+          "id": "ctl-region",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-cat"
+            },
+            "columnId": "c-reg"
+          }
+        },
+        {
+          "controlId": "Loyalty",
+          "id": "ctl-loy",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-loy"
+            },
+            "columnId": "l-txt"
+          }
+        },
+        {
+          "controlId": "RegionOne",
+          "id": "ctl-single",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "single",
+          "value": "West",
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-cat"
+            },
+            "columnId": "c-reg"
+          }
+        }
+      ],
+      "readback_columns": {
+        "ch-cat": [
+          [
+            "Category",
+            "[Sales/SKU/Product/Category/Category Name]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-ship": [
+          [
+            "Ship Month",
+            "[Sales/Date (Ship Date Key)/Month]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-rel": [
+          [
+            "Brand",
+            "[Sales/SKU/Product/Brand]"
+          ],
+          [
+            "Store Region",
+            "[Sales/Store/Store Region]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ]
+        ],
+        "ch-loy": [
+          [
+            "Segment",
+            "[Sales/Customer/Segment]"
+          ],
+          [
+            "Revenue",
+            "Sum([Sales/Revenue])"
+          ],
+          [
+            "Loyalty Text",
+            "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))"
+          ]
+        ],
+        "ch-vals": [
+          [
+            "Customer Region",
+            "[Sales/Customer/Customer Region]"
+          ],
+          [
+            "Quantity",
+            "Sum([Sales/Quantity])"
+          ]
+        ]
+      },
+      "checks": {
+        "P1": {
+          "pass": true,
+          "rows_actual": 13,
+          "rows_truth": 13,
+          "matched": 13,
+          "formula": "[Sales/SKU/Product/Category/Category Name]",
+          "raw_header": [
+            "Category",
+            "Revenue"
+          ]
+        },
+        "P6": {
+          "pass": true,
+          "rows_actual": 42,
+          "rows_truth": 42,
+          "matched": 42,
+          "ship_vs_order_truth_months_differing": 42,
+          "truth_distinguishes_relationships": true,
+          "formula": "[Sales/Date (Ship Date Key)/Month]"
+        },
+        "P2": {
+          "chart_cat_no_pick": {
+            "pass": true,
+            "rows_actual": 13,
+            "rows_truth": 13,
+            "matched": 13
+          },
+          "chart_cat_west": {
+            "pass": true,
+            "rows_actual": 13,
+            "rows_truth": 13,
+            "matched": 13
+          },
+          "chart_ship_west": {
+            "pass": true,
+            "rows_actual": 42,
+            "rows_truth": 42,
+            "matched": 42
+          },
+          "multi_pick_forms_informational": {
+            "comma": {
+              "pass": true,
+              "rows_actual": 13,
+              "rows_truth": 13,
+              "matched": 13
+            },
+            "json_array_string": {
+              "pass": false,
+              "rows_actual": 0,
+              "rows_truth": 13,
+              "matched": 0,
+              "detail": {
+                "matched": 0,
+                "mismatched": [],
+                "missing": [
+                  "Pet Supplies",
+                  "Frozen",
+                  "Seasonal",
+                  "Personal Care",
+                  "Bakery"
+                ],
+                "extra": [],
+                "duplicates": {
+                  "actual": [],
+                  "truth": []
+                }
+              },
+              "sample_actual": []
+            }
+          },
+          "west_vs_unfiltered_truth_differing": {
+            "category": 13,
+            "ship_month": 42
+          },
+          "pass": true,
+          "control_form": "list, selectionMode multiple, values [], filters -> [chart column Customer Region] x2; export parameters {\"Region\": \"West\"} (value is a STRING; an array is rejected 400)"
+        },
+        "P2b_single_default_value": {
+          "pass": true,
+          "rows_actual": 32,
+          "rows_truth": 32,
+          "matched": 32,
+          "west_vs_unfiltered_truth_differing": 32,
+          "readback": [
+            {
+              "controlId": "RegionOne",
+              "id": "ctl-single",
+              "controlType": "list",
+              "mode": "include",
+              "selectionMode": "single",
+              "value": "West",
+              "source": {
+                "kind": "source",
+                "source": {
+                  "kind": "table",
+                  "elementId": "ch-cat"
+                },
+                "columnId": "c-reg"
+              }
+            }
+          ]
+        },
+        "P5": {
+          "pass": true,
+          "rows_actual": 32,
+          "rows_truth": 32,
+          "matched": 32,
+          "note": "related columns [Sales/Store/Store Region], [Sales/SKU/Product/Brand] read from the child; values compared under the single-select West default"
+        },
+        "P12": {
+          "True": {
+            "pass": true,
+            "rows_actual": 4,
+            "rows_truth": 4,
+            "matched": 4,
+            "differs_from_unfiltered_truth": 5
+          },
+          "False": {
+            "pass": true,
+            "rows_actual": 4,
+            "rows_truth": 4,
+            "matched": 4,
+            "differs_from_unfiltered_truth": 5
+          },
+          "blank": {
+            "pass": true,
+            "rows_actual": 5,
+            "rows_truth": 5,
+            "matched": 5
+          },
+          "blank_means": "no selection (unfiltered state: every row incl. NULL loyalty), not a null pick",
+          "pass": true,
+          "formula": "If(IsNull([Sales/Customer/Loyalty Member]), Null, If([Sales/Customer/Loyalty Member], \"True\", \"False\"))"
+        },
+        "P3_value_list": {
+          "control_source_readback": [
+            {
+              "kind": "source",
+              "source": {
+                "kind": "table",
+                "elementId": "ch-cat"
+              },
+              "columnId": "c-reg"
+            }
+          ],
+          "listed_from_chart_column": {
+            "pass": true,
+            "rows_actual": 6,
+            "rows_truth": 6,
+            "matched": 6
+          },
+          "truth_distinct_incl_null": [
+            "Central",
+            "East",
+            "None",
+            "North",
+            "South",
+            "West"
+          ],
+          "control_source_expected": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "ch-cat"
+            },
+            "columnId": "c-reg",
+            "column_formula": "[Sales/Customer/Customer Region]"
+          },
+          "control_source_matches_intended": true,
+          "controls_endpoint": {
+            "entries": [
+              {
+                "name": "Loyalty",
+                "valueType": "text-list"
+              },
+              {
+                "name": "Region",
+                "valueType": "text-list"
+              },
+              {
+                "name": "RegionOne",
+                "valueType": "text"
+              }
+            ],
+            "total": 3,
+            "nextPage": null
+          },
+          "pass": true
+        }
+      }
+    }
+  },
+  "dry_runs": {
+    "direct": {
+      "ok": false,
+      "error": "{\"dryRun\":true,\"valid\":false,\"errors\":[{\"summary\":\"elements[5]: Dependency not found: '<uuid-1>/e-cust'\"}],\"warnings\":[]}"
+    },
+    "direct+reader": {
+      "ok": true,
+      "warnings": []
+    },
+    "fallback": {
+      "ok": true,
+      "warnings": []
+    }
+  },
+  "checks": {},
+  "dm_elements": [
+    "Category",
+    "Product",
+    "SKU",
+    "Store",
+    "Customer",
+    "Date",
+    "Sales (source)",
+    "Sales"
+  ],
+  "dm_relationships_readback": {
+    "Product": [
+      "Category"
+    ],
+    "SKU": [
+      "Product"
+    ],
+    "Sales (source)": [
+      "SKU",
+      "Store",
+      "Customer",
+      "Date",
+      "Date (Ship Date Key)"
+    ],
+    "Sales": [
+      "SKU",
+      "Store",
+      "Customer",
+      "Date",
+      "Date (Ship Date Key)"
+    ]
+  },
+  "p3": {
+    "direct_ok": false,
+    "direct_with_reader_ok": true,
+    "fallback_ok": true,
+    "direct_error": "{\"dryRun\":true,\"valid\":false,\"errors\":[{\"summary\":\"elements[5]: Dependency not found: '<uuid-1>/e-cust'\"}],\"warnings\":[]}"
+  },
+  "cleanup": {
+    "<uuid-1>": true,
+    "<uuid-2>": true,
+    "<uuid-3>": true
+  },
+  "cleanup_all_archived": true
+}

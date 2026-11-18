@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "TrQtd",
+  "position": {
+    "x": 369.6,
+    "y": 88,
+    "width": 168.8,
+    "height": 72,
+    "z": 1030,
+    "tabOrder": 1030
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Sales"
+                    }
+                  },
+                  "Property": "Sales QTD"
+                }
+              },
+              "queryRef": "Sales.Sales QTD",
+              "nativeQueryRef": "Sales QTD"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Sales QTD'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

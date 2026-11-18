@@ -460,11 +460,59 @@ def run_chart(cfg, base_dir, defaults):
         all_cells=defaults["all_cells"], ci_keys=defaults["ci_keys"])
 
 
-def build_final(results, workbook_id, mode):
+def _read_json(path):
+    try:
+        return json.loads(_read_text(path))
+    except (OSError, ValueError):
+        return None
+
+
+def workdir_gates(workdir):
+    """The clock and materialization gates of phase6-parity-pbi.rb --finalize, for the page-fact
+    path. Page facts carry no per-chart clock flags, so ANY clock site left off the report clock
+    refuses (CLOCK-SKEW); scheduled materializations must be checked FRESH (or UNKNOWN accepted
+    with --allow-unknown). Returns (report_clock, materialization_freshness, refusal status, reason)."""
+    report_clock = None
+    clock_path = os.path.join(workdir, "report-clock.json")
+    rec = _read_json(clock_path) if os.path.exists(clock_path) else None
+    status, reason = None, None
+    if isinstance(rec, dict):
+        unpinned = list((rec.get("data_model") or {}).get("unpinned") or []) + \
+            list((rec.get("workbook") or {}).get("unpinned") or [])
+        report_clock = {"report_timezone": rec.get("report_timezone"),
+                        "report_timezone_source": rec.get("report_timezone_source"),
+                        "record": clock_path, "unpinned_sites": len(unpinned),
+                        "today_relative_charts": [], "clock_skew": []}
+        if unpinned:
+            status = "CLOCK-SKEW"
+            reason = (f"report-clock.json lists {len(unpinned)} clock site(s) off the report clock; page-fact parity "
+                      "cannot tell which charts read them — pin them (migrate-powerbi.rb --report-timezone)")
+    mat_block = None
+    actions = _read_json(os.path.join(workdir, "materialization-actions.json")) or []
+    scheduled = [a for a in actions if isinstance(a, dict) and a.get("status") in ("created", "updated", "unchanged")]
+    mat_path = os.path.join(workdir, "materialization-freshness.json")
+    mat = _read_json(mat_path) if os.path.exists(mat_path) else None
+    if isinstance(mat, dict):
+        mat_block = {"status": mat.get("status"), "checked_at": mat.get("checked_at"), "path": mat_path}
+        ok = mat.get("status") in ("FRESH", "NONE") or (mat.get("status") == "UNKNOWN" and mat.get("allow_unknown") is True)
+        if not ok:
+            status, reason = "STALE-MATERIALIZATION", f"materialization freshness is {mat.get('status')}"
+    elif scheduled:
+        mat_block = {"status": "NOT-CHECKED", "path": mat_path,
+                     "scheduled": [a.get("elementName") for a in scheduled]}
+        status = "STALE-MATERIALIZATION"
+        reason = "materialization schedules exist but check-materialization-freshness.rb never ran"
+    return report_clock, mat_block, status, reason
+
+
+def build_final(results, workbook_id, mode, report_clock=None, mat_block=None, refusal=None):
     """The parity-final.json document, key order identical to phase6-parity-pbi.rb --finalize."""
     passed = [r["chart"] for r in results if r["classification"] == "MATCH"]
     failed = [r["chart"] for r in results if r["classification"] != "MATCH"]
     total = len(results)
+    status = "PASS" if total and len(passed) == total else "FAIL"
+    if refusal == "STALE-MATERIALIZATION" or (refusal == "CLOCK-SKEW" and status == "PASS"):
+        status = refusal
     return {
         "workbook_id": workbook_id,
         "ran_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -480,8 +528,12 @@ def build_final(results, workbook_id, mode):
         "stale_explained_names": [],
         "fail_names": failed,
         "classifications": {r["chart"]: r["classification"] for r in results},
+        # same keys as phase6-parity-pbi.rb --finalize (report clock / materialization gates live there)
+        "charts_clock_skew": 0,
+        "report_clock": report_clock,
+        "materialization_freshness": mat_block,
         "freshness": None,
-        "status": "PASS" if total and len(passed) == total else "FAIL",
+        "status": status,
     }
 
 
@@ -528,6 +580,8 @@ def main(argv=None):
     ap.add_argument("--blank-zero", action="store_true", help="a blank cell equals 0")
     ap.add_argument("--ci-keys", action="store_true", help="compare key text case-insensitively")
     ap.add_argument("--all-cells", action="store_true", help="list every cell, not just divergent ones")
+    ap.add_argument("--workdir", help="migration workdir with report-clock.json / materialization-*.json "
+                                      "(default: --out-dir)")
     a = ap.parse_args(argv)
 
     defaults = {"rel_tol": a.extract_tol if a.extract_mode else a.rel_tol, "abs_tol": a.abs_tol,
@@ -555,7 +609,10 @@ def main(argv=None):
 
     results = [run_chart(c, base_dir, defaults) for c in charts]
     mode = "extract" if a.extract_mode else "strict"
-    final = build_final(results, a.workbook_id, mode)
+    report_clock, mat_block, refusal, reason = workdir_gates(a.workdir or a.out_dir)
+    if refusal:
+        print(f"[parity-from-oracle] {refusal}: {reason}", file=sys.stderr)
+    final = build_final(results, a.workbook_id, mode, report_clock, mat_block, refusal)
     os.makedirs(a.out_dir, exist_ok=True)
     _write_private_json(os.path.join(a.out_dir, "parity-final.json"), final)
     detail = {"schema": SCHEMA, "mode": mode,

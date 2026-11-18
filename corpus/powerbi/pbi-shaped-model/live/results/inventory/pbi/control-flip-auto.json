@@ -1,0 +1,12 @@
+[
+ {
+  "control": "VendorCountryFilter",
+  "result": "SKIP",
+  "note": "column \"Vendor Country\" not in export of el-matrix7fb6de \u2014 pass --value"
+ },
+ {
+  "control": "BrandFilter",
+  "result": "SKIP",
+  "note": "column \"Brand\" not in export of el-matrix7fb6de \u2014 pass --value"
+ }
+]

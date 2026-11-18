@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "CvOnHand",
+  "position": {
+    "x": 848,
+    "y": 368,
+    "width": 200,
+    "height": 72,
+    "z": 1050,
+    "tabOrder": 1050
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Inventory"
+                    }
+                  },
+                  "Property": "On Hand (Latest)"
+                }
+              },
+              "queryRef": "Inventory.On Hand (Latest)",
+              "nativeQueryRef": "On Hand (Latest)"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'On Hand (Latest)'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

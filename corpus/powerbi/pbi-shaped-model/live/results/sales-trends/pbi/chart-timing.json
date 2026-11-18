@@ -1,0 +1,137 @@
+{
+ "samples_per_chart": 3,
+ "note": "Sigma element export (POST /v2/workbooks/{id}/export + download); repeats may be served from Sigma's result cache; no cache-bust applied. The live helper table of the Rolling page is listed but excluded from the medians. Rerun of Task 21d. Materialized (FRESH) elements: `Sales - rolling 28 days by day` and `Trends - summary`; the Trends page charts read the summary, the Rolling page charts read the live (not materialized) element, KPIs on Sales read the warehouse table.",
+ "charts": {
+  "Sales Amount [kpi-chart]": {
+   "samples_s": [
+    2.991,
+    8.976,
+    3.074
+   ],
+   "median_s": 3.074
+  },
+  "Sales YTD [kpi-chart]": {
+   "samples_s": [
+    3.123,
+    3.112,
+    3.081
+   ],
+   "median_s": 3.112
+  },
+  "Sales QTD [kpi-chart]": {
+   "samples_s": [
+    4.311,
+    2.36,
+    3.158
+   ],
+   "median_s": 3.158
+  },
+  "Sales MTD [kpi-chart]": {
+   "samples_s": [
+    5.526,
+    4.193,
+    3.041
+   ],
+   "median_s": 4.193
+  },
+  "Sales PY [kpi-chart]": {
+   "samples_s": [
+    4.277,
+    3.123,
+    3.028
+   ],
+   "median_s": 3.123
+  },
+  "Sales YoY % [kpi-chart]": {
+   "samples_s": [
+    4.362,
+    3.04,
+    4.275
+   ],
+   "median_s": 4.275
+  },
+  "Sales YTD (As Of) [kpi-chart]": {
+   "samples_s": [
+    9.134,
+    3.106,
+    4.292
+   ],
+   "median_s": 4.292
+  },
+  "Sales Amount vs prior year by month [line-chart]": {
+   "samples_s": [
+    3.136,
+    4.518,
+    4.304
+   ],
+   "median_s": 4.304
+  },
+  "Sales YTD and YTD (As Of) by month [line-chart]": {
+   "samples_s": [
+    3.1,
+    3.084,
+    5.47
+   ],
+   "median_s": 3.1
+  },
+  "Sales Amount and prior year by year [bar-chart]": {
+   "samples_s": [
+    4.257,
+    3.18,
+    3.051
+   ],
+   "median_s": 3.18
+  },
+  "Quarter: sales, QTD, YoY [table]": {
+   "samples_s": [
+    1.85,
+    5.4,
+    7.879
+   ],
+   "median_s": 5.4
+  },
+  "Sales R28 [kpi-chart]": {
+   "samples_s": [
+    3.025,
+    3.104,
+    3.102
+   ],
+   "median_s": 3.102
+  },
+  "Sales Amount (2) [kpi-chart]": {
+   "samples_s": [
+    4.323,
+    3.084,
+    3.151
+   ],
+   "median_s": 3.151
+  },
+  "Sales R28 by day [line-chart]": {
+   "samples_s": [
+    5.506,
+    4.319,
+    3.04
+   ],
+   "median_s": 4.319
+  },
+  "Store Region: R28 and sales [table]": {
+   "samples_s": [
+    4.307,
+    5.556,
+    1.917
+   ],
+   "median_s": 4.307
+  },
+  "Sales \u2013 rolling 28 days by day \u2013 live, filtered by your slicer picks [table]": {
+   "samples_s": [
+    3.135,
+    4.348,
+    3.205
+   ],
+   "median_s": 3.205
+  }
+ },
+ "median_of_chart_medians_s": 3.18,
+ "max_chart_median_s": 5.4,
+ "chart_count": 15
+}

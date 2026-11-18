@@ -1,0 +1,37 @@
+{
+  "models": [
+    {
+      "slug": "retail-sales-model",
+      "displayName": "Retail Sales Model"
+    },
+    {
+      "slug": "retail-sales-trends-model",
+      "displayName": "Retail Sales Trends Model"
+    },
+    {
+      "slug": "retail-inventory-model",
+      "displayName": "Retail Inventory Model"
+    },
+    {
+      "slug": "retail-sales-model-rls",
+      "displayName": "Retail Sales Model (RLS)"
+    }
+  ],
+  "reports": [
+    {
+      "slug": "retail-sales",
+      "displayName": "Retail Sales",
+      "model": "Retail Sales Model"
+    },
+    {
+      "slug": "sales-trends",
+      "displayName": "Sales Trends",
+      "model": "Retail Sales Trends Model"
+    },
+    {
+      "slug": "inventory-and-purchasing",
+      "displayName": "Inventory and Purchasing",
+      "model": "Retail Inventory Model"
+    }
+  ]
+}

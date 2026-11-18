@@ -249,6 +249,154 @@ module PbiCalcTableSql
     { source_table: table, columns: columns, function: fn }
   end
 
+  # ---- DATATABLE ------------------------------------------------------------
+
+  # DATATABLE("Col", TYPE, ..., {{v, v}, {v, v}}) -> { columns: [names], rows: [[sql literal]] } or nil.
+  # Only literal cells (string, number, TRUE/FALSE, BLANK()) are carried; anything else (a function call,
+  # a nested expression, a flat one-column list) is nil so the converter's output and the gate stay as they are.
+  def parse_datatable(dax, dialect = nil)
+    c = call(braces_to_parens(strip_comments(dax).strip))
+    return nil unless c && c[0] == 'DATATABLE' && c[1].size >= 3 && c[1].size.odd?
+
+    pairs = c[1][0...-1].each_slice(2).to_a
+    names = pairs.map { |label, _type| string_literal(label) }
+    return nil if names.any?(&:nil?) || names.map(&:downcase).uniq.size != names.size
+    return nil unless pairs.all? { |_label, type| type =~ /\A[A-Za-z0-9_]+\z/ }
+
+    rows = brace_rows(c[1].last)
+    return nil if rows.nil? || rows.empty? || rows.any? { |r| r.size != names.size }
+
+    types = pairs.map { |_label, type| type.upcase }
+    literals = rows.map { |r| r.each_with_index.map { |cell, i| sql_literal(cell, types[i], dialect) } }
+    return nil if literals.flatten.any?(&:nil?)
+
+    { columns: names, rows: literals }
+  end
+
+  # "(( a, b ), ( c, d ))" (braces already turned into parentheses) -> [["a", "b"], ["c", "d"]]; nil unless every row is a group.
+  def brace_rows(text)
+    t = text.to_s.strip
+    return nil unless t.start_with?('(') && matching_paren(t, 0) == t.length - 1
+
+    split_args(t[1...-1]).map do |row|
+      r = row.strip
+      return nil unless r.start_with?('(') && matching_paren(r, 0) == r.length - 1
+
+      split_args(r[1...-1])
+    end
+  end
+
+  # { } outside string literals and [names] become ( ) so the call/arg scanner can see the row groups.
+  def braces_to_parens(text)
+    out = +''
+    i = 0
+    while i < text.length
+      c = text[i]
+      if c == '"' || c == "'"
+        j = i + 1
+        while j < text.length
+          if text[j] == c
+            if text[j + 1] == c then j += 2 else break end
+          else
+            j += 1
+          end
+        end
+        out << text[i..j].to_s
+        i = j + 1
+      else
+        out << (c == '{' ? '(' : (c == '}' ? ')' : c))
+        i += 1
+      end
+    end
+    out
+  end
+
+  DT_NUMBER_TYPES = %w[INTEGER INT64 DOUBLE CURRENCY DECIMAL NUMBER].freeze
+  NO_BACKSLASH_ESCAPE = %w[postgres postgresql redshift sqlserver mssql].freeze
+
+  # One DATATABLE cell as a typed SQL literal, using the column's declared type. nil when the cell cannot be carried
+  # literally for that type (the table is then skipped, never guessed): a string in a number column, a DATE() call, ...
+  # BLANK() is NULL for every type. nil dialect = Snowflake. Snowflake, Databricks, BigQuery (and MySQL) treat a
+  # backslash in a single-quoted literal as an escape, so it is doubled there; Postgres-family dialects do not.
+  def sql_literal(cell, type = nil, dialect = nil)
+    t = cell.to_s.strip
+    return 'NULL' if t =~ /\ABLANK\(\s*\)\z/i
+
+    str = string_literal(t)
+    num = t =~ /\A-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?\z/
+    bool = t =~ /\A(?:TRUE|FALSE)\z/i
+    type = type.to_s.upcase
+    if type == 'STRING' || type == 'TEXT'
+      return quote_sql(str, dialect) if str
+      return quote_sql(t, dialect) if num || bool
+
+      nil
+    elsif DT_NUMBER_TYPES.include?(type)
+      num ? t : nil
+    elsif type == 'BOOLEAN'
+      bool ? t.upcase : nil
+    elsif type == 'DATETIME'
+      return nil unless str && str =~ /\A\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?\z/
+
+      "CAST(#{quote_sql(str, dialect)} AS #{%w[bigquery mysql].include?(dialect.to_s.downcase) ? 'DATETIME' : 'TIMESTAMP'})"
+    else # VARIANT / unknown: infer from the literal's shape
+      return quote_sql(str, dialect) if str
+      return t if num
+      return t.upcase if bool
+
+      nil
+    end
+  end
+
+  # Databricks/Spark and BigQuery (and MySQL) do not read '' as an escaped quote ('' is two adjacent literals on Spark,
+  # rejected on BigQuery), so their apostrophe is \' with the backslash doubled first. Snowflake and the Postgres
+  # family keep ''.
+  BACKSLASH_QUOTE_ESCAPE = %w[databricks bigquery mysql].freeze
+
+  def quote_sql(str, dialect)
+    d = dialect.to_s.downcase
+    s = if BACKSLASH_QUOTE_ESCAPE.include?(d)
+          str.gsub('\\') { '\\\\' }.gsub("'") { "\\'" }
+        else
+          q = str.gsub("'", "''")
+          NO_BACKSLASH_ESCAPE.include?(d) ? q : q.gsub('\\') { '\\\\' }
+        end
+    "'#{s}'"
+  end
+
+  # Rewrites the converter's flattened DATATABLE element (one column, the rows run together) into one
+  # SELECT per DATATABLE row with every column. Returns the audit record, or a String (the skip reason).
+  def convert_datatable!(table, element, dt, taken_ids, new_col_ids, converted_elements, dialect)
+    return 'DATATABLE table has calculated columns' if (table['columns'] || []).any? { |c| c['type'] == 'calculated' }
+    return 'converter did not emit a placeholder element' unless placeholder?(element)
+
+    model_cols = physical_columns(table)
+    pairs = dt[:columns].map { |label| { name: label, source_column: label } }
+    model_names = model_cols.empty? ? dt[:columns] : (model_cols.size == dt[:columns].size && pair_by_name(model_cols, pairs))
+    return 'DATATABLE columns cannot be paired with the model columns by name' unless model_names
+
+    q = ->(ident) { PbiNativeQuery.quote_ident(ident, dialect) }
+    aliases = model_names.map { |n| n.gsub('/', '_') }
+    first, *rest = dt[:rows]
+    sql = ["SELECT #{first.zip(aliases).map { |v, a| "#{v} AS #{q.call(a)}" }.join(', ')}",
+           *rest.map { |r| "SELECT #{r.join(', ')}" }].join(' UNION ALL ')
+    name = table['name']
+    cols = model_names.each_with_index.map do |n, i|
+      id = unique_id("#{name}/#{n}", 22, taken_ids, 'inode-')
+      new_col_ids[[name.downcase, n.downcase]] = id
+      { 'id' => id, 'formula' => "[Custom SQL/#{aliases[i]}]", 'name' => n }
+    end
+    element['name'] = name
+    element['source'] = { 'connectionId' => element.dig('source', 'connectionId'), 'kind' => 'sql', 'statement' => sql }
+    element['columns'] = cols
+    element['order'] = cols.map { |c| c['id'] }
+    element.delete('ok')
+    converted_elements[name.downcase] = element
+    { 'table' => name, 'elementId' => element['id'], 'function' => 'DATATABLE', 'source_table' => nil,
+      'source_columns' => dt[:columns], 'columns' => model_names, 'sql' => sql,
+      'notes' => ["literal DATATABLE rows (#{dt[:rows].size}) as one SELECT per row"], 'pending_calculated_columns' => [] }
+  end
+
   # ---- DM rewrite -----------------------------------------------------------
 
   PLACEHOLDER = '_placeholder'
@@ -351,6 +499,16 @@ module PbiCalcTableSql
       skip = lambda do |reason|
         result['skipped'] << { 'table' => name, 'reason' => reason }
         nil
+      end
+      dt = parse_datatable(dax_text(table), dialect)
+      if dt
+        done = convert_datatable!(table, elements[idx], dt, taken_ids, new_col_ids, converted_elements, dialect)
+        next skip.call(done) if done.is_a?(String)
+
+        result['converted'] << done
+        pattern = /\ACalculated table "#{Regexp.escape(name)}"/
+        conv_warnings.reject! { |w| w.to_s.sub(/\A[⚠⛔ℹ]\s*/, '') =~ pattern }
+        next
       end
       parsed = parse(dax_text(table))
       next skip.call('DAX is not a recognized DISTINCT/VALUES/SUMMARIZE shape') unless parsed
