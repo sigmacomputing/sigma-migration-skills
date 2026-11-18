@@ -813,6 +813,17 @@ jobs:
             plugins/omni-to-sigma/skills/omni-to-sigma/test/test-convert-dm.rb
             plugins/omni-to-sigma/skills/omni-to-sigma/test/test-build-workbook.rb
             plugins/omni-to-sigma/skills/omni-to-sigma/test/test-omni-pipeline.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-lightdash-formula.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-lightdash-rest.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-fixture-consistency.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-convert-dm.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-discover.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-build-workbook.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-post-lightdash-dm.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-rls.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-parity.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-migrate-dry-run.rb
+            plugins/lightdash-to-sigma/skills/lightdash-to-sigma/test/test-migrate-live-paths.rb
           )
           fail=0
           for t in "${tests[@]}"; do
@@ -984,6 +995,7 @@ jobs:
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_metric_reference.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_rs_document_report.py
             plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_sql_datasets.py
+            plugins/microstrategy-to-sigma/skills/microstrategy-to-sigma/tests/test_derived_metrics.py
             plugins/thoughtspot-to-sigma/skills/thoughtspot-to-sigma/tests/test_metric_reference.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_jaql.py
             plugins/sisense-to-sigma/skills/sisense-to-sigma/tests/test_convert.py

@@ -1,0 +1,29 @@
+name: Payments by Method
+tableName: orders
+metricQuery:
+  exploreName: orders
+  dimensions:
+    - payments_payment_method
+  metrics:
+    - payments_total_payment_amount
+  filters: {}
+  sorts:
+    - fieldId: payments_total_payment_amount
+      descending: true
+  limit: 50
+  tableCalculations: []
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: pie
+  config:
+    groupFieldIds:
+      - payments_payment_method
+    metricId: payments_total_payment_amount
+    isDonut: true
+    showLegend: true
+slug: payments-by-method
+spaceSlug: jaffle-shop
+version: 1
+updatedAt: '2026-11-01T12:00:00.000Z'
+downloadedAt: '2026-11-17T12:00:00.000Z'

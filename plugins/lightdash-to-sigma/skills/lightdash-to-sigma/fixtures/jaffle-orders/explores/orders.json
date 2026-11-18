@@ -1,0 +1,580 @@
+{
+  "status": "ok",
+  "results": {
+    "name": "orders",
+    "label": "Orders",
+    "baseTable": "orders",
+    "joinedTables": [
+      {
+        "table": "customers",
+        "sqlOn": "${orders.customer_id} = ${customers.customer_id}",
+        "compiledSqlOn": "`orders`.customer_id = `customers`.customer_id",
+        "type": "left",
+        "relationship": "many-to-one",
+        "fields": [
+          "first_name",
+          "last_name",
+          "segment",
+          "customer_count"
+        ]
+      },
+      {
+        "table": "payments",
+        "sqlOn": "${orders.order_id} = ${payments.order_id}",
+        "compiledSqlOn": "`orders`.order_id = `payments`.order_id",
+        "type": "left",
+        "relationship": "one-to-many"
+      }
+    ],
+    "tables": {
+      "orders": {
+        "name": "orders",
+        "label": "Orders",
+        "description": "One row per order.",
+        "database": "acme-analytics",
+        "schema": "jaffle_shop",
+        "sqlTable": "`acme-analytics`.`jaffle_shop`.`orders`",
+        "dimensions": {
+          "order_id": {
+            "fieldType": "dimension",
+            "name": "order_id",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_id",
+            "compiledSql": "`orders`.order_id",
+            "hidden": false
+          },
+          "customer_id": {
+            "fieldType": "dimension",
+            "name": "customer_id",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.customer_id",
+            "compiledSql": "`orders`.customer_id",
+            "hidden": true
+          },
+          "order_date_day": {
+            "fieldType": "dimension",
+            "name": "order_date_day",
+            "type": "date",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_date",
+            "compiledSql": "DATE_TRUNC(`orders`.order_date, DAY)",
+            "hidden": false,
+            "timeInterval": "DAY",
+            "timeIntervalBaseDimensionName": "order_date"
+          },
+          "order_date_week": {
+            "fieldType": "dimension",
+            "name": "order_date_week",
+            "type": "date",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_date",
+            "compiledSql": "DATE_TRUNC(`orders`.order_date, WEEK)",
+            "hidden": false,
+            "timeInterval": "WEEK",
+            "timeIntervalBaseDimensionName": "order_date"
+          },
+          "order_date_month": {
+            "fieldType": "dimension",
+            "name": "order_date_month",
+            "type": "date",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_date",
+            "compiledSql": "DATE_TRUNC(`orders`.order_date, MONTH)",
+            "hidden": false,
+            "timeInterval": "MONTH",
+            "timeIntervalBaseDimensionName": "order_date"
+          },
+          "order_date_quarter": {
+            "fieldType": "dimension",
+            "name": "order_date_quarter",
+            "type": "date",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_date",
+            "compiledSql": "DATE_TRUNC(`orders`.order_date, QUARTER)",
+            "hidden": false,
+            "timeInterval": "QUARTER",
+            "timeIntervalBaseDimensionName": "order_date"
+          },
+          "order_date_year": {
+            "fieldType": "dimension",
+            "name": "order_date_year",
+            "type": "date",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_date",
+            "compiledSql": "DATE_TRUNC(`orders`.order_date, YEAR)",
+            "hidden": false,
+            "timeInterval": "YEAR",
+            "timeIntervalBaseDimensionName": "order_date"
+          },
+          "order_year_str": {
+            "fieldType": "dimension",
+            "name": "order_year_str",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "CAST(EXTRACT(YEAR FROM ${TABLE}.order_date) AS STRING)",
+            "compiledSql": "CAST(EXTRACT(YEAR FROM `orders`.order_date) AS STRING)",
+            "hidden": false,
+            "label": "Order Year (text)"
+          },
+          "status": {
+            "fieldType": "dimension",
+            "name": "status",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.status",
+            "compiledSql": "`orders`.status",
+            "hidden": false,
+            "label": "Status"
+          },
+          "region": {
+            "fieldType": "dimension",
+            "name": "region",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.region",
+            "compiledSql": "`orders`.region",
+            "hidden": false,
+            "label": "Region"
+          },
+          "channel": {
+            "fieldType": "dimension",
+            "name": "channel",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "CASE WHEN ${TABLE}.channel IN ('web', 'app') THEN 'Online' ELSE 'Offline' END",
+            "compiledSql": "CASE WHEN `orders`.channel IN ('web', 'app') THEN 'Online' ELSE 'Offline' END",
+            "hidden": false,
+            "label": "Channel Group"
+          },
+          "is_returned": {
+            "fieldType": "dimension",
+            "name": "is_returned",
+            "type": "boolean",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.is_returned",
+            "compiledSql": "`orders`.is_returned",
+            "hidden": false,
+            "label": "Is Returned"
+          },
+          "internal_notes": {
+            "fieldType": "dimension",
+            "name": "internal_notes",
+            "type": "string",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.internal_notes",
+            "compiledSql": "`orders`.internal_notes",
+            "hidden": true
+          },
+          "margin": {
+            "fieldType": "dimension",
+            "name": "margin",
+            "type": "number",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.margin",
+            "compiledSql": "`orders`.margin",
+            "hidden": false,
+            "label": "Margin",
+            "requiredAttributes": {
+              "is_finance": "true"
+            }
+          },
+          "amount": {
+            "fieldType": "dimension",
+            "name": "amount",
+            "type": "number",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Amount",
+            "format": "[$$]#,##0.00"
+          }
+        },
+        "metrics": {
+          "total_orders": {
+            "fieldType": "metric",
+            "name": "total_orders",
+            "type": "count_distinct",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_id",
+            "compiledSql": "`orders`.order_id",
+            "hidden": false,
+            "label": "Total Orders"
+          },
+          "order_rows": {
+            "fieldType": "metric",
+            "name": "order_rows",
+            "type": "count",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_id",
+            "compiledSql": "`orders`.order_id",
+            "hidden": false,
+            "label": "Order Rows"
+          },
+          "completed_orders": {
+            "fieldType": "metric",
+            "name": "completed_orders",
+            "type": "count_distinct",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.order_id",
+            "compiledSql": "`orders`.order_id",
+            "hidden": false,
+            "label": "Completed Orders",
+            "filters": [
+              {
+                "id": "f-status",
+                "target": {
+                  "fieldRef": "status"
+                },
+                "operator": "equals",
+                "values": [
+                  "completed"
+                ]
+              }
+            ]
+          },
+          "total_order_amount": {
+            "fieldType": "metric",
+            "name": "total_order_amount",
+            "type": "sum",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Total Order Amount",
+            "format": "[$$]#,##0"
+          },
+          "avg_order_amount": {
+            "fieldType": "metric",
+            "name": "avg_order_amount",
+            "type": "average",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Average Order Amount"
+          },
+          "min_order_amount": {
+            "fieldType": "metric",
+            "name": "min_order_amount",
+            "type": "min",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Smallest Order"
+          },
+          "max_order_amount": {
+            "fieldType": "metric",
+            "name": "max_order_amount",
+            "type": "max",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Largest Order"
+          },
+          "median_order_amount": {
+            "fieldType": "metric",
+            "name": "median_order_amount",
+            "type": "median",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Median Order Amount"
+          },
+          "completed_amount": {
+            "fieldType": "metric",
+            "name": "completed_amount",
+            "type": "sum",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Completed Amount",
+            "filters": [
+              {
+                "id": "f-status",
+                "target": {
+                  "fieldRef": "status"
+                },
+                "operator": "equals",
+                "values": [
+                  "completed"
+                ]
+              }
+            ]
+          },
+          "kept_amount": {
+            "fieldType": "metric",
+            "name": "kept_amount",
+            "type": "sum",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`orders`.amount",
+            "hidden": false,
+            "label": "Kept Amount",
+            "filters": [
+              {
+                "id": "f-status",
+                "target": {
+                  "fieldRef": "status"
+                },
+                "operator": "notEquals",
+                "values": [
+                  "returned"
+                ]
+              }
+            ]
+          },
+          "pct_of_total_amount": {
+            "fieldType": "metric",
+            "name": "pct_of_total_amount",
+            "type": "percent_of_total",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${total_order_amount}",
+            "compiledSql": "${total_order_amount}",
+            "hidden": false,
+            "label": "Percent of Total Amount"
+          },
+          "completion_rate": {
+            "fieldType": "metric",
+            "name": "completion_rate",
+            "type": "number",
+            "table": "orders",
+            "tableLabel": "Orders",
+            "sql": "${completed_orders} / NULLIF(${total_orders}, 0)",
+            "compiledSql": "${completed_orders} / NULLIF(${total_orders}, 0)",
+            "hidden": false,
+            "label": "Completion Rate",
+            "format": "0.0%"
+          }
+        },
+        "sqlWhere": "${TABLE}.region IN (${lightdash.attributes.region})"
+      },
+      "customers": {
+        "name": "customers",
+        "label": "Customers",
+        "description": "One row per customer.",
+        "database": "acme-analytics",
+        "schema": "jaffle_shop",
+        "sqlTable": "`acme-analytics`.`jaffle_shop`.`customers`",
+        "dimensions": {
+          "customer_id": {
+            "fieldType": "dimension",
+            "name": "customer_id",
+            "type": "string",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.customer_id",
+            "compiledSql": "`customers`.customer_id",
+            "hidden": false
+          },
+          "first_name": {
+            "fieldType": "dimension",
+            "name": "first_name",
+            "type": "string",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.first_name",
+            "compiledSql": "`customers`.first_name",
+            "hidden": false,
+            "label": "First Name"
+          },
+          "last_name": {
+            "fieldType": "dimension",
+            "name": "last_name",
+            "type": "string",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.last_name",
+            "compiledSql": "`customers`.last_name",
+            "hidden": false,
+            "label": "Last Name"
+          },
+          "segment": {
+            "fieldType": "dimension",
+            "name": "segment",
+            "type": "string",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.segment",
+            "compiledSql": "`customers`.segment",
+            "hidden": false,
+            "label": "Customer Segment"
+          },
+          "signup_date_day": {
+            "fieldType": "dimension",
+            "name": "signup_date_day",
+            "type": "date",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.signup_date",
+            "compiledSql": "DATE_TRUNC(`customers`.signup_date, DAY)",
+            "hidden": false,
+            "timeInterval": "DAY",
+            "timeIntervalBaseDimensionName": "signup_date"
+          },
+          "signup_date_week": {
+            "fieldType": "dimension",
+            "name": "signup_date_week",
+            "type": "date",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.signup_date",
+            "compiledSql": "DATE_TRUNC(`customers`.signup_date, WEEK)",
+            "hidden": false,
+            "timeInterval": "WEEK",
+            "timeIntervalBaseDimensionName": "signup_date"
+          },
+          "signup_date_month": {
+            "fieldType": "dimension",
+            "name": "signup_date_month",
+            "type": "date",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.signup_date",
+            "compiledSql": "DATE_TRUNC(`customers`.signup_date, MONTH)",
+            "hidden": false,
+            "timeInterval": "MONTH",
+            "timeIntervalBaseDimensionName": "signup_date"
+          },
+          "signup_date_quarter": {
+            "fieldType": "dimension",
+            "name": "signup_date_quarter",
+            "type": "date",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.signup_date",
+            "compiledSql": "DATE_TRUNC(`customers`.signup_date, QUARTER)",
+            "hidden": false,
+            "timeInterval": "QUARTER",
+            "timeIntervalBaseDimensionName": "signup_date"
+          },
+          "signup_date_year": {
+            "fieldType": "dimension",
+            "name": "signup_date_year",
+            "type": "date",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.signup_date",
+            "compiledSql": "DATE_TRUNC(`customers`.signup_date, YEAR)",
+            "hidden": false,
+            "timeInterval": "YEAR",
+            "timeIntervalBaseDimensionName": "signup_date"
+          }
+        },
+        "metrics": {
+          "customer_count": {
+            "fieldType": "metric",
+            "name": "customer_count",
+            "type": "count_distinct",
+            "table": "customers",
+            "tableLabel": "Customers",
+            "sql": "${TABLE}.customer_id",
+            "compiledSql": "`customers`.customer_id",
+            "hidden": false,
+            "label": "Customer Count"
+          }
+        }
+      },
+      "payments": {
+        "name": "payments",
+        "label": "Payments",
+        "description": "One row per payment against an order.",
+        "database": "acme-analytics",
+        "schema": "jaffle_shop",
+        "sqlTable": "`acme-analytics`.`jaffle_shop`.`payments`",
+        "dimensions": {
+          "payment_id": {
+            "fieldType": "dimension",
+            "name": "payment_id",
+            "type": "string",
+            "table": "payments",
+            "tableLabel": "Payments",
+            "sql": "${TABLE}.payment_id",
+            "compiledSql": "`payments`.payment_id",
+            "hidden": false
+          },
+          "order_id": {
+            "fieldType": "dimension",
+            "name": "order_id",
+            "type": "string",
+            "table": "payments",
+            "tableLabel": "Payments",
+            "sql": "${TABLE}.order_id",
+            "compiledSql": "`payments`.order_id",
+            "hidden": false
+          },
+          "payment_method": {
+            "fieldType": "dimension",
+            "name": "payment_method",
+            "type": "string",
+            "table": "payments",
+            "tableLabel": "Payments",
+            "sql": "${TABLE}.payment_method",
+            "compiledSql": "`payments`.payment_method",
+            "hidden": false,
+            "label": "Payment Method"
+          },
+          "amount": {
+            "fieldType": "dimension",
+            "name": "amount",
+            "type": "number",
+            "table": "payments",
+            "tableLabel": "Payments",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`payments`.amount",
+            "hidden": false,
+            "label": "Payment Amount"
+          }
+        },
+        "metrics": {
+          "total_payment_amount": {
+            "fieldType": "metric",
+            "name": "total_payment_amount",
+            "type": "sum",
+            "table": "payments",
+            "tableLabel": "Payments",
+            "sql": "${TABLE}.amount",
+            "compiledSql": "`payments`.amount",
+            "hidden": false,
+            "label": "Total Payment Amount",
+            "format": "[$$]#,##0"
+          }
+        }
+      }
+    },
+    "targetDatabase": "bigquery",
+    "warehouse": "bigquery"
+  }
+}

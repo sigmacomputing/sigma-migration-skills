@@ -1,0 +1,83 @@
+{
+  "schema": "sigma-platform-differences-history/v1",
+  "generated_by": "tools/gen-catalog-history.rb (do not edit by hand; CI runs it with --check)",
+  "entry_hash": "sha256 of the entry as canonical JSON: keys sorted, no whitespace, non-printable-ASCII as lowercase \\uXXXX",
+  "catalogs": [
+    {
+      "sha256": "768b52722461d4820d4255f066cef205317a29ce4056a96c9a60d58dc66436f4",
+      "entries": {
+        "refline-caption-always-shown": "75711523c345ecbbc89623cb717b0b0284054569ced6e91ffa9c964375ddc287",
+        "list-control-placeholder-text": "afc85f96905ede328739e1faa17c4544f4244e62f293b8933cf8a5b48cbbdb37",
+        "basemap-labels": "2aba541dcd754f0e02d1b4b5c6f84252129623f9fc59a55a25fe72666c00c524",
+        "pivot-value-column-width": "5ecdfe5a4b148f1fc8751e7975cf0e1cfd53ce59b3f9d01d528e01bc13a82546",
+        "tableau-overflow-hash-vs-ellipsis": "4ba9a89f9b3ca2ab4c3bf8d2b6e7fba2b529bd759abf3a4d8297564df0bc10fe"
+      }
+    },
+    {
+      "sha256": "1e64a9cffc5394d66670f0336d13125f3aed2de3a573b630a6d2301d378749aa",
+      "entries": {
+        "list-control-placeholder-text": "c708ea9dbf7d8421d2fa96c04e5774a0ddd370867d3b0fab5b8cb0ed99ec88ad"
+      }
+    },
+    {
+      "sha256": "7c1051f6e2bc3943b7c1dbe4da229694455681b8875a346c99279e555edb733f",
+      "entries": {}
+    },
+    {
+      "sha256": "b7c9e52fb10c1af49c16d6cbef3dc27f4c267ba84e1a7fa90d9fc5f57c903dc4",
+      "entries": {
+        "list-control-all-placeholder": "2fea3e424861accd87009ed001a3d6f878af3dde9f4eb3a9fd4c71ce443e0ef7",
+        "map-title-overlay": "39264eaad1b549aa66a769b92e70c63db8966c0655de35782f9f8433459a00bf",
+        "horizontal-axis-title-orientation": "18f68cf15c1b55b8867f1766989804abb770694f6837df712ce7f4e8d0fff228",
+        "overflow-hash-vs-ellipsis": "a929a3a98289bda9c2681b7789090a330beec14ebae910cfe594dfeeb16a3946",
+        "nav-button-style": "25fd273311b1f04207f9bf13b9e03b49c7cb72da245661d108718f5fa8b94b82",
+        "font-family": "eeb96eada96ba4dd711d16be003ae779c9e38a992f22ef7ae41e7a00781d0cf2",
+        "bar-label-outside-end": "91f03f307bec0011ba15e4822523bd0813af3793dd3c9f7236f980284bd69c3b",
+        "table-null-blank": "88d8a29d3c12b148a236d0488cd6c2424e71a40771c54668709f66f08e9f295f"
+      }
+    },
+    {
+      "sha256": "63485eee06e7d1db632127fd577f41c7e25c0eb3f8d73202792318ad081589c4",
+      "entries": {
+        "list-control-all-placeholder": "2fea3e424861accd87009ed001a3d6f878af3dde9f4eb3a9fd4c71ce443e0ef7",
+        "map-basemap-labels": "08ed78eac36ca07dcf1b2badb5d68ccd649f9ada3423974d3abbf79827ede358",
+        "horizontal-axis-title-orientation": "18f68cf15c1b55b8867f1766989804abb770694f6837df712ce7f4e8d0fff228",
+        "overflow-hash-vs-ellipsis": "c0883638f40254932c02a98d6357c909e4bdd6be51d09a5accd752762cc6bad1",
+        "nav-button-style": "25fd273311b1f04207f9bf13b9e03b49c7cb72da245661d108718f5fa8b94b82",
+        "font-family": "f210c7b6326ef08b63973cae9f9fe8d3eeb1d3fa2d007c0860b805204164a144",
+        "bar-label-outside-end": "91f03f307bec0011ba15e4822523bd0813af3793dd3c9f7236f980284bd69c3b",
+        "table-null-blank": "6f2c5284427018e939cdb0cc81fd18f14806a475ac8a0c829f1e6c0c994896c4"
+      }
+    },
+    {
+      "sha256": "7a9f0b59bb3b4ac5cf6b1fff2bb13ecad30e2ceb0fcc8ad7aa0b74c0a72c6216",
+      "entries": {
+        "list-control-all-placeholder": "2fea3e424861accd87009ed001a3d6f878af3dde9f4eb3a9fd4c71ce443e0ef7",
+        "map-basemap-labels": "08ed78eac36ca07dcf1b2badb5d68ccd649f9ada3423974d3abbf79827ede358",
+        "horizontal-axis-title-orientation": "18f68cf15c1b55b8867f1766989804abb770694f6837df712ce7f4e8d0fff228",
+        "overflow-hash-vs-ellipsis": "c0883638f40254932c02a98d6357c909e4bdd6be51d09a5accd752762cc6bad1",
+        "nav-button-style": "25fd273311b1f04207f9bf13b9e03b49c7cb72da245661d108718f5fa8b94b82",
+        "font-family": "f210c7b6326ef08b63973cae9f9fe8d3eeb1d3fa2d007c0860b805204164a144",
+        "bar-label-outside-end": "91f03f307bec0011ba15e4822523bd0813af3793dd3c9f7236f980284bd69c3b",
+        "table-null-blank": "6f2c5284427018e939cdb0cc81fd18f14806a475ac8a0c829f1e6c0c994896c4",
+        "pivot-row-height-fixed": "3851188315e9048c21e649596320f04bd9dc3a2857a00baf354e0ca50cb46aac"
+      }
+    },
+    {
+      "sha256": "9adabdacce751ffdd389f8d113659d4a8cb6ff192823f7e0f67619943fcec7ae",
+      "entries": {
+        "list-control-all-placeholder": "2fea3e424861accd87009ed001a3d6f878af3dde9f4eb3a9fd4c71ce443e0ef7",
+        "map-basemap-labels": "08ed78eac36ca07dcf1b2badb5d68ccd649f9ada3423974d3abbf79827ede358",
+        "horizontal-axis-title-orientation": "18f68cf15c1b55b8867f1766989804abb770694f6837df712ce7f4e8d0fff228",
+        "overflow-hash-vs-ellipsis": "c0883638f40254932c02a98d6357c909e4bdd6be51d09a5accd752762cc6bad1",
+        "nav-button-style": "25fd273311b1f04207f9bf13b9e03b49c7cb72da245661d108718f5fa8b94b82",
+        "font-family": "f210c7b6326ef08b63973cae9f9fe8d3eeb1d3fa2d007c0860b805204164a144",
+        "bar-label-outside-end": "91f03f307bec0011ba15e4822523bd0813af3793dd3c9f7236f980284bd69c3b",
+        "table-null-blank": "6f2c5284427018e939cdb0cc81fd18f14806a475ac8a0c829f1e6c0c994896c4",
+        "pivot-row-height-fixed": "3851188315e9048c21e649596320f04bd9dc3a2857a00baf354e0ca50cb46aac",
+        "map-basemap-washout": "0f0c18845db5563763b5b421d230898898d46c453b4c7a100815acb0da07981a",
+        "map-stepped-color-scale": "23e93dd14c55a95a2e0c7d23a320ffbfab75b50cb0a4de9199670b483b5d0d1f"
+      }
+    }
+  ]
+}

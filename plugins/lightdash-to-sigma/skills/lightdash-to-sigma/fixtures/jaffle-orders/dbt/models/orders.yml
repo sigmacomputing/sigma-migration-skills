@@ -1,0 +1,138 @@
+version: 2
+models:
+  - name: orders
+    description: One row per order.
+    config:
+      meta:
+        label: Orders
+        sql_filter: ${TABLE}.region IN (${lightdash.attributes.region})
+        joins:
+          - join: customers
+            type: left
+            sql_on: ${orders.customer_id} = ${customers.customer_id}
+            relationship: many-to-one
+            fields: [first_name, last_name, segment, customer_count]
+          - join: payments
+            type: left
+            sql_on: ${orders.order_id} = ${payments.order_id}
+            relationship: one-to-many
+        metrics:
+          completion_rate:
+            type: number
+            label: Completion Rate
+            sql: ${completed_orders} / NULLIF(${total_orders}, 0)
+            format: '0.0%'
+    columns:
+      - name: order_id
+        description: Primary key.
+        config:
+          meta:
+            dimension:
+              type: string
+            metrics:
+              total_orders:
+                type: count_distinct
+                label: Total Orders
+              order_rows:
+                type: count
+                label: Order Rows
+              completed_orders:
+                type: count_distinct
+                label: Completed Orders
+                filters:
+                  - status: completed
+      - name: customer_id
+        config:
+          meta:
+            dimension:
+              type: string
+              hidden: true
+      - name: order_date
+        config:
+          meta:
+            dimension:
+              type: date
+              label: Order Date
+              time_intervals: [DAY, WEEK, MONTH, QUARTER, YEAR]
+            additional_dimensions:
+              order_year_str:
+                type: string
+                label: Order Year (text)
+                sql: CAST(EXTRACT(YEAR FROM ${TABLE}.order_date) AS STRING)
+      - name: status
+        config:
+          meta:
+            dimension:
+              type: string
+              label: Status
+      - name: region
+        config:
+          meta:
+            dimension:
+              type: string
+              label: Region
+      - name: channel
+        config:
+          meta:
+            dimension:
+              type: string
+              label: Channel Group
+              sql: CASE WHEN ${TABLE}.channel IN ('web', 'app') THEN 'Online' ELSE 'Offline' END
+      - name: is_returned
+        config:
+          meta:
+            dimension:
+              type: boolean
+              label: Is Returned
+      - name: internal_notes
+        config:
+          meta:
+            dimension:
+              type: string
+              hidden: true
+      - name: margin
+        config:
+          meta:
+            dimension:
+              type: number
+              label: Margin
+              required_attributes:
+                is_finance: 'true'
+      - name: amount
+        config:
+          meta:
+            dimension:
+              type: number
+              label: Amount
+              format: '[$$]#,##0.00'
+            metrics:
+              total_order_amount:
+                type: sum
+                label: Total Order Amount
+                format: '[$$]#,##0'
+              avg_order_amount:
+                type: average
+                label: Average Order Amount
+              min_order_amount:
+                type: min
+                label: Smallest Order
+              max_order_amount:
+                type: max
+                label: Largest Order
+              median_order_amount:
+                type: median
+                label: Median Order Amount
+              completed_amount:
+                type: sum
+                label: Completed Amount
+                filters:
+                  - status: completed
+              kept_amount:
+                type: sum
+                label: Kept Amount
+                filters:
+                  - status: '!returned'
+              pct_of_total_amount:
+                type: percent_of_total
+                label: Percent of Total Amount
+                sql: ${total_order_amount}

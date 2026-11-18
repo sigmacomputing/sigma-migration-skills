@@ -1,0 +1,127 @@
+name: Jaffle Overview
+description: Orders, revenue and payments at a glance.
+slug: jaffle-overview
+spaceSlug: jaffle-shop
+version: 1
+tabs:
+  - uuid: 0f8d1c2a-1111-4a00-9000-000000000001
+    name: Overview
+    order: 0
+  - uuid: 0f8d1c2a-2222-4a00-9000-000000000002
+    name: Details
+    order: 1
+tiles:
+  - x: 0
+    'y': 0
+    h: 3
+    w: 36
+    tabUuid: 0f8d1c2a-1111-4a00-9000-000000000001
+    type: markdown
+    properties:
+      title: About this dashboard
+      content: Revenue figures exclude nothing; use the filters above to slice by region and segment.
+  - x: 0
+    'y': 3
+    h: 5
+    w: 12
+    tabUuid: 0f8d1c2a-1111-4a00-9000-000000000001
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: total-orders-kpi
+    tileSlug: total-orders-kpi
+  - x: 12
+    'y': 3
+    h: 9
+    w: 24
+    tabUuid: 0f8d1c2a-1111-4a00-9000-000000000001
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: monthly-revenue
+    tileSlug: monthly-revenue
+  - x: 0
+    'y': 8
+    h: 9
+    w: 12
+    tabUuid: 0f8d1c2a-1111-4a00-9000-000000000001
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: revenue-by-segment
+    tileSlug: revenue-by-segment
+  - x: 0
+    'y': 0
+    h: 10
+    w: 36
+    tabUuid: 0f8d1c2a-2222-4a00-9000-000000000002
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: orders-by-region-table
+    tileSlug: orders-by-region-table
+  - x: 0
+    'y': 10
+    h: 9
+    w: 18
+    tabUuid: 0f8d1c2a-2222-4a00-9000-000000000002
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: payments-by-method
+    tileSlug: payments-by-method
+  - x: 18
+    'y': 10
+    h: 9
+    w: 18
+    tabUuid: 0f8d1c2a-2222-4a00-9000-000000000002
+    type: saved_chart
+    properties:
+      title: ''
+      hideTitle: false
+      chartSlug: completed-revenue-by-region
+    tileSlug: completed-revenue-by-region
+filters:
+  dimensions:
+    - id: 3c9e5d70-aaaa-4b11-8c00-000000000001
+      target:
+        fieldId: orders_region
+        tableName: orders
+        fieldName: region
+      operator: equals
+      values:
+        - north
+        - south
+      disabled: false
+      tileTargets: {}
+    - id: 3c9e5d70-bbbb-4b11-8c00-000000000002
+      target:
+        fieldId: customers_segment
+        tableName: customers
+        fieldName: segment
+      operator: equals
+      values:
+        - Enterprise
+      disabled: false
+      tileTargets:
+        revenue-by-segment:
+          fieldId: customers_segment
+          tableName: customers
+        monthly-revenue:
+          fieldId: customers_segment
+          tableName: customers
+        total-orders-kpi: false
+        orders-by-region-table: false
+        payments-by-method: false
+        completed-revenue-by-region: false
+  metrics: []
+  tableCalculations: []
+config:
+  isDateZoomDisabled: false
+downloadedAt: '2026-11-17T12:00:00.000Z'
+updatedAt: '2026-11-01T12:00:00.000Z'
