@@ -1,0 +1,313 @@
+{
+ "_source": "GET /api/model/documents/{id} on Strategy's public demo Library (MicroStrategy Tutorial project, guest login), 2026-11-16. Trimmed to a few derivedMetrics; shapes unmodified.",
+ "datasets": [
+  {
+   "information": {
+    "objectId": "B7E14BD6439AC1F680AD298860D1F16D",
+    "name": "Executive Business User Data",
+    "subType": "report_grid"
+   },
+   "derivedMetrics": [
+    {
+     "information": {
+      "objectId": "20D785064484D6489168C1928A94F9EE",
+      "subType": "metric",
+      "name": "Variance",
+      "isEmbedded": true
+     },
+     "expression": {
+      "text": "Revenue - {Revenue Forecast}",
+      "tree": {
+       "function": "minus",
+       "children": [
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "4C05177011D3E877C000B3B2D86C964F",
+          "subType": "metric",
+          "name": "Revenue"
+         },
+         "isIndependent": 0
+        },
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "8D7D59C144AB891C57FEFA873ABE1C92",
+          "subType": "metric",
+          "name": "Revenue Forecast"
+         },
+         "isIndependent": 0
+        }
+       ],
+       "text": "Revenue - {Revenue Forecast}",
+       "functionName": "-",
+       "type": "operator"
+      }
+     },
+     "embeddedObjects": []
+    },
+    {
+     "information": {
+      "objectId": "F6AD4E8242ACB3E0A3C680A5FF9CC1D6",
+      "subType": "metric",
+      "name": "Percent to Total (Revenue)",
+      "isEmbedded": true
+     },
+     "expression": {
+      "text": "Revenue / Sum(Revenue)",
+      "tree": {
+       "function": "divide",
+       "children": [
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "4C05177011D3E877C000B3B2D86C964F",
+          "subType": "metric",
+          "name": "Revenue"
+         },
+         "isIndependent": 0
+        },
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "AAB508A04CB29DCA93E677930C87C6DF",
+          "subType": "metric",
+          "isEmbedded": true
+         },
+         "isIndependent": 0
+        }
+       ],
+       "text": "Revenue / Sum(Revenue)",
+       "functionName": "/",
+       "type": "operator"
+      }
+     },
+     "embeddedObjects": [
+      {
+       "id": "AAB508A04CB29DCA93E677930C87C6DF",
+       "subType": "metric",
+       "expression": {
+        "text": "Sum(Revenue)",
+        "tree": {
+         "type": "object_reference",
+         "target": {
+          "objectId": "C1EE74E04959FF243B2EF7A570E674FF",
+          "subType": "agg_metric",
+          "isEmbedded": true
+         },
+         "isIndependent": 0
+        }
+       },
+       "dimty": {
+        "dimtyUnits": [
+         {
+          "dimtyUnitType": "attribute",
+          "target": {
+           "objectId": "8D679D3711D3E4981000E787EC6DE8A4",
+           "subType": "attribute",
+           "name": "Category"
+          },
+          "aggregation": "normal",
+          "filtering": "none",
+          "groupBy": true
+         }
+        ],
+        "excludeAttribute": false,
+        "allowAddingUnit": true
+       },
+       "conditionality": {
+        "embedMethod": "report_into_metric_filter",
+        "removeElements": true
+       }
+      },
+      {
+       "id": "C1EE74E04959FF243B2EF7A570E674FF",
+       "subType": "agg_metric",
+       "expression": {
+        "text": "Sum(Revenue)",
+        "tree": {
+         "function": "sum",
+         "functionProperties": [
+          {
+           "name": "UseLookupForAttributes",
+           "value": {
+            "type": "boolean",
+            "value": "true"
+           }
+          }
+         ],
+         "children": [
+          {
+           "type": "object_reference",
+           "target": {
+            "objectId": "4C05177011D3E877C000B3B2D86C964F",
+            "subType": "metric",
+            "name": "Revenue"
+           },
+           "isIndependent": 0
+          }
+         ],
+         "text": "Sum(Revenue)",
+         "functionName": "Sum",
+         "type": "operator"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "information": {
+      "objectId": "76C1BA934B6ACDEE4A42258135E8933C",
+      "subType": "metric",
+      "name": "% Variance Revenue",
+      "isEmbedded": true
+     },
+     "expression": {
+      "text": "(Revenue - {Revenue Forecast}) / {Revenue Forecast}",
+      "tree": {
+       "function": "divide",
+       "children": [
+        {
+         "function": "minus",
+         "children": [
+          {
+           "type": "object_reference",
+           "target": {
+            "objectId": "4C05177011D3E877C000B3B2D86C964F",
+            "subType": "metric",
+            "name": "Revenue"
+           },
+           "isIndependent": 0
+          },
+          {
+           "type": "object_reference",
+           "target": {
+            "objectId": "8D7D59C144AB891C57FEFA873ABE1C92",
+            "subType": "metric",
+            "name": "Revenue Forecast"
+           },
+           "isIndependent": 0
+          }
+         ],
+         "text": "(Revenue - {Revenue Forecast})",
+         "functionName": "-",
+         "type": "operator"
+        },
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "8D7D59C144AB891C57FEFA873ABE1C92",
+          "subType": "metric",
+          "name": "Revenue Forecast"
+         },
+         "isIndependent": 0
+        }
+       ],
+       "text": "(Revenue - {Revenue Forecast}) / {Revenue Forecast}",
+       "functionName": "/",
+       "type": "operator"
+      }
+     },
+     "embeddedObjects": []
+    },
+    {
+     "information": {
+      "objectId": "D775874F4DEEF0E1CE4D0D9765D42FC8",
+      "subType": "metric",
+      "name": "Revenue  (K$)",
+      "isEmbedded": true
+     },
+     "expression": {
+      "text": "Revenue / 1000",
+      "tree": {
+       "function": "divide",
+       "children": [
+        {
+         "type": "object_reference",
+         "target": {
+          "objectId": "4C05177011D3E877C000B3B2D86C964F",
+          "subType": "metric",
+          "name": "Revenue"
+         },
+         "isIndependent": 0
+        },
+        {
+         "type": "constant",
+         "variant": {
+          "type": "int32",
+          "value": "1000"
+         }
+        }
+       ],
+       "text": "Revenue / 1000",
+       "functionName": "/",
+       "type": "operator"
+      }
+     },
+     "embeddedObjects": []
+    },
+    {
+     "information": {
+      "objectId": "B2E7378F49AC9F8324A28E8735AA6BFA",
+      "subType": "metric",
+      "name": "Row Count",
+      "isEmbedded": true
+     },
+     "expression": {
+      "text": "Count(\"*\")",
+      "tree": {
+       "type": "object_reference",
+       "target": {
+        "objectId": "E937409F46DAA9318BE2C89B7F4C7C02",
+        "subType": "agg_metric",
+        "isEmbedded": true
+       },
+       "isIndependent": 0
+      }
+     },
+     "embeddedObjects": [
+      {
+       "id": "E937409F46DAA9318BE2C89B7F4C7C02",
+       "subType": "agg_metric",
+       "expression": {
+        "text": "Count(\"*\")",
+        "tree": {
+         "function": "count",
+         "functionProperties": [
+          {
+           "name": "UseLookupForAttributes",
+           "value": {
+            "type": "boolean",
+            "value": "false"
+           }
+          },
+          {
+           "name": "Null",
+           "value": {
+            "type": "boolean",
+            "value": "true"
+           }
+          }
+         ],
+         "children": [
+          {
+           "type": "constant",
+           "variant": {
+            "type": "string",
+            "value": "*"
+           }
+          }
+         ],
+         "text": "Count(\"*\")",
+         "functionName": "Count",
+         "type": "operator"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "derivedAttributes": []
+  }
+ ]
+}
