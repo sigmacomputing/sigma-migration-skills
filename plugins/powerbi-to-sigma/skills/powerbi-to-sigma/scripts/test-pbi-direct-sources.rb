@@ -41,6 +41,8 @@ def build(dir, signals, map, flag: true)
           '--data-model', 'dm-x', '--name', 'T', '--out', File.join(dir, 'wb.json'),
           '--layout-out', File.join(dir, 'l.xml'), '--coverage-out', File.join(dir, 'cov.json')]
   args << '--direct-sources' if flag
+  # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, st = Open3.capture2e(*args)
   r = { ok: st.success?, out: out, dir: dir, spec: File.join(dir, 'wb.json') }
   return r unless st.success?
@@ -67,6 +69,8 @@ def controls(doc)
 end
 
 def lint(spec)
+  # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   out, _st = Open3.capture2e(RbConfig.ruby, File.join(__dir__, 'lib', 'preflight_lint.rb'), spec)
   out
 end

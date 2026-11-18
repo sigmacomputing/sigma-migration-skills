@@ -141,6 +141,8 @@ module PbiShapeRun
       # so a key check or freshness compare never passes on counts from an earlier run.
       cmd = [*py_argv, script, '--connection-id', connection, '--folder-id', folder, '--in', qpath, '--out', rpath,
              '--dialect', dialect, '--state', File.join(dir, "#{stage}-state.json"), '--cleanup']
+      # Not a shell: an argv array that runs this plugin's sigma-sql-probe.py with the configured Python.
+      # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
       _out, err, st = Open3.capture3(*cmd)
       results = File.exist?(rpath) ? (JSON.parse(File.read(rpath)) rescue {}) : {}
       # a failed probe is never "no result": every key that did not come back ok carries sigma-sql-probe's

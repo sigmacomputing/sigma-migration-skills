@@ -127,6 +127,8 @@ def run_report(dir, extra = [])
   sig = wj(dir, 'signals.json', signals_doc)
   args = [RbConfig.ruby, REPORT, '--tmsl', tmsl, '--signals', sig,
           '--dm-spec', File.join(dir, 'dm-spec.json'), '--wb-spec', File.join(dir, 'workbook-spec.json'), '--out-dir', dir] + extra
+  # Test harness: runs a fixed script from this skill with literal arguments and temp-dir paths.
+  # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
   Open3.capture2e(*args)
 end
 

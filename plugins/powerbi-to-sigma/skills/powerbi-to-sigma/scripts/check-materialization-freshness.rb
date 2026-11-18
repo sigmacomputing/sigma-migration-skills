@@ -239,6 +239,8 @@ module FreshnessCLI
                '--connection-id', connection_id, '--folder-id', folder_id, '--name', sql_scratch_name,
                '--state', state, '--cleanup', '--no-cache']
         begin
+          # Not a shell: an argv array that runs this plugin's sigma-sql-probe.py with the resolved Python.
+          # nosemgrep: ruby.lang.security.dangerous-exec.dangerous-exec
           _o, err, _st = Open3.capture3(*cmd)
         ensure
           FreshnessCLI.cleanup_probe_state(state, ->(id) { req(:delete, "/v2/files/#{id}") })

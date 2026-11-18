@@ -116,7 +116,9 @@ def run_sql(sql):
         cmd = [sys.executable, "-I", SQL_PROBE, "--connection-id", _env("PROBE_CONNECTION_ID"),
                "--folder-id", _env("PROBE_FOLDER_ID"), "--dialect", "snowflake",
                "--state", state, "--sql", sql]
-        p = subprocess.run(cmd, capture_output=True, text=True)
+        # Not a shell: an argv list that runs this skill's sigma-sql-probe.py with this Python (-I). The
+        # environment values are its --connection-id / --folder-id option values (live-only probe tooling).
+        p = subprocess.run(cmd, capture_output=True, text=True)  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         try:
             with open(state, encoding="utf-8") as fh:
                 wb_id = json.load(fh).get("workbookId")
@@ -163,7 +165,8 @@ def _cli_status():
         cmd = ["sigma", "auth", "status"]
         if os.environ.get("SIGMA_CLI_PROFILE"):  # the CLI has no env fallback for the profile
             cmd += ["-p", os.environ["SIGMA_CLI_PROFILE"]]
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout
+        # Not a shell: an argv list for `sigma auth status`; the profile name is an option value.
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
     except Exception:
         return ""
 
