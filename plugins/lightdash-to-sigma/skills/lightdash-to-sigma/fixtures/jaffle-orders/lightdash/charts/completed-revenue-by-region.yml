@@ -1,0 +1,48 @@
+name: Completed Revenue by Region
+description: Horizontal bar with a chart-level status filter.
+tableName: orders
+metricQuery:
+  exploreName: orders
+  dimensions:
+    - orders_region
+  metrics:
+    - orders_total_order_amount
+  filters:
+    dimensions:
+      id: 5b1c2f0e-3a54-4d0f-9a36-0c1d7e2a8b01
+      and:
+        - id: 9d7a4c10-6e2b-4f55-8b0a-2f3c6d1e9a02
+          target:
+            fieldId: orders_status
+          operator: equals
+          values:
+            - completed
+  sorts:
+    - fieldId: orders_total_order_amount
+      descending: true
+  limit: 10
+  tableCalculations: []
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: cartesian
+  config:
+    layout:
+      xField: orders_region
+      yField:
+        - orders_total_order_amount
+      flipAxes: true
+    eChartsConfig:
+      series:
+        - type: bar
+          yAxisIndex: 0
+          encode:
+            xRef:
+              field: orders_region
+            yRef:
+              field: orders_total_order_amount
+slug: completed-revenue-by-region
+spaceSlug: jaffle-shop
+version: 1
+updatedAt: '2026-11-01T12:00:00.000Z'
+downloadedAt: '2026-11-17T12:00:00.000Z'

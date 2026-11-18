@@ -1,0 +1,24 @@
+name: Total Orders
+tableName: orders
+metricQuery:
+  exploreName: orders
+  dimensions: []
+  metrics:
+    - orders_total_orders
+  filters: {}
+  sorts: []
+  limit: 1
+  tableCalculations: []
+  additionalMetrics: []
+  customDimensions: []
+chartConfig:
+  type: big_number
+  config:
+    label: Orders
+    selectedField: orders_total_orders
+    showComparison: false
+slug: total-orders-kpi
+spaceSlug: jaffle-shop
+version: 1
+updatedAt: '2026-11-01T12:00:00.000Z'
+downloadedAt: '2026-11-17T12:00:00.000Z'

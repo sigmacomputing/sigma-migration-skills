@@ -1,0 +1,475 @@
+{
+  "workbook": {
+    "name": "Jaffle Overview",
+    "folderId": "fixture-folder",
+    "document": {
+      "schemaVersion": 1,
+      "kind": "workbook",
+      "pages": [
+        {
+          "id": "page-data",
+          "name": "Data",
+          "hidden": true
+        },
+        {
+          "id": "page-1",
+          "name": "Overview"
+        },
+        {
+          "id": "page-2",
+          "name": "Details"
+        }
+      ],
+      "elements": [
+        {
+          "id": "tbl-master",
+          "kind": "table",
+          "name": "Lightdash Data",
+          "source": {
+            "kind": "data-model",
+            "dataModelId": "fixture-dm",
+            "elementId": "el-explore-orders"
+          },
+          "columns": [
+            {
+              "id": "m-Order-Id",
+              "name": "Order Id",
+              "formula": "[Orders (Explore)/Order Id]"
+            },
+            {
+              "id": "m-Order-Date-Month",
+              "name": "Order Date Month",
+              "formula": "[Orders (Explore)/Order Date Month]"
+            },
+            {
+              "id": "m-Region",
+              "name": "Region",
+              "formula": "[Orders (Explore)/Region]"
+            },
+            {
+              "id": "m-Payment-Method",
+              "name": "Payment Method",
+              "formula": "[Orders (Explore)/Payment Method]"
+            },
+            {
+              "id": "m-Status",
+              "name": "Status",
+              "formula": "[Orders (Explore)/Status]"
+            },
+            {
+              "id": "m-Customer-Segment",
+              "name": "Customer Segment",
+              "formula": "[Orders (Explore)/Customer Segment]"
+            }
+          ]
+        },
+        {
+          "id": "tbl-base-1",
+          "kind": "table",
+          "name": "Lightdash Base 1",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-master"
+          },
+          "columns": [
+            {
+              "id": "tbl-base-1-Order-Date-Month",
+              "name": "Order Date Month",
+              "formula": "[Lightdash Data/Order Date Month]"
+            },
+            {
+              "id": "tbl-base-1-Customer-Segment",
+              "name": "Customer Segment",
+              "formula": "[Lightdash Data/Customer Segment]"
+            }
+          ]
+        },
+        {
+          "id": "ctl-orders_region",
+          "kind": "control",
+          "controlId": "ctl_orders_region",
+          "name": "Region",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [
+            "north",
+            "south"
+          ],
+          "filters": [
+            {
+              "source": {
+                "kind": "table",
+                "elementId": "tbl-master"
+              },
+              "columnId": "m-Region"
+            }
+          ],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "tbl-master"
+            },
+            "columnId": "m-Region"
+          }
+        },
+        {
+          "id": "ctl-customers_segment",
+          "kind": "control",
+          "controlId": "ctl_customers_segment",
+          "name": "Customer Segment",
+          "controlType": "list",
+          "mode": "include",
+          "selectionMode": "multiple",
+          "values": [
+            "Enterprise"
+          ],
+          "filters": [
+            {
+              "source": {
+                "kind": "table",
+                "elementId": "tbl-base-1"
+              },
+              "columnId": "tbl-base-1-Customer-Segment"
+            }
+          ],
+          "source": {
+            "kind": "source",
+            "source": {
+              "kind": "table",
+              "elementId": "tbl-base-1"
+            },
+            "columnId": "tbl-base-1-Customer-Segment"
+          }
+        },
+        {
+          "id": "el-markdown-1",
+          "kind": "text",
+          "body": "### About this dashboard\n\nRevenue figures exclude nothing; use the filters above to slice by region and segment.",
+          "name": "About this dashboard"
+        },
+        {
+          "id": "el-total-orders-kpi",
+          "kind": "kpi-chart",
+          "name": "Total Orders",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-master"
+          },
+          "value": {
+            "columnId": "el-total-orders-kpi-c-orders_total_orders"
+          },
+          "columns": [
+            {
+              "id": "el-total-orders-kpi-c-orders_total_orders",
+              "name": "Orders",
+              "formula": "CountDistinct([Lightdash Data/Order Id])"
+            }
+          ]
+        },
+        {
+          "id": "el-monthly-revenue",
+          "kind": "line-chart",
+          "name": "Monthly Revenue",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-base-1"
+          },
+          "xAxis": {
+            "columnId": "el-monthly-revenue-c-orders_order_date_month",
+            "sort": {
+              "by": "el-monthly-revenue-c-orders_order_date_month",
+              "direction": "ascending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "el-monthly-revenue-c-orders_total_order_amount"
+            ]
+          },
+          "columns": [
+            {
+              "id": "el-monthly-revenue-c-orders_order_date_month",
+              "name": "Order Date Month",
+              "formula": "[Lightdash Base 1/Order Date Month]"
+            },
+            {
+              "id": "el-monthly-revenue-c-orders_total_order_amount",
+              "name": "Total Order Amount",
+              "formula": "[Metrics/Total Order Amount]",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.0f",
+                "currencySymbol": "$"
+              }
+            }
+          ]
+        },
+        {
+          "id": "el-revenue-by-segment",
+          "kind": "bar-chart",
+          "name": "Revenue by Customer Segment",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-base-1"
+          },
+          "xAxis": {
+            "columnId": "el-revenue-by-segment-c-customers_segment",
+            "sort": {
+              "by": "el-revenue-by-segment-c-orders_total_order_amount",
+              "direction": "descending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "el-revenue-by-segment-c-orders_total_order_amount"
+            ]
+          },
+          "columns": [
+            {
+              "id": "el-revenue-by-segment-c-customers_segment",
+              "name": "Customer Segment",
+              "formula": "[Lightdash Base 1/Customer Segment]"
+            },
+            {
+              "id": "el-revenue-by-segment-c-orders_total_order_amount",
+              "name": "Total Order Amount",
+              "formula": "[Metrics/Total Order Amount]",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.0f",
+                "currencySymbol": "$"
+              }
+            }
+          ],
+          "filters": [
+            {
+              "id": "el-revenue-by-segment-f-1",
+              "columnId": "el-revenue-by-segment-c-orders_total_order_amount",
+              "kind": "top-n",
+              "rankingFunction": "rank",
+              "mode": "top-n",
+              "rowCount": 500,
+              "includeNulls": "when-no-value-is-selected"
+            }
+          ]
+        },
+        {
+          "id": "el-orders-by-region-table",
+          "kind": "table",
+          "name": "Revenue by Region and Month",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-master"
+          },
+          "groupings": [
+            {
+              "id": "grp-1",
+              "groupBy": [
+                "el-orders-by-region-table-c-orders_order_date_month",
+                "el-orders-by-region-table-c-orders_region"
+              ],
+              "calculations": [
+                "el-orders-by-region-table-c-orders_total_order_amount",
+                "el-orders-by-region-table-c-orders_completion_rate"
+              ],
+              "sort": [
+                {
+                  "columnId": "el-orders-by-region-table-c-orders_order_date_month",
+                  "direction": "descending"
+                }
+              ]
+            }
+          ],
+          "columns": [
+            {
+              "id": "el-orders-by-region-table-c-orders_order_date_month",
+              "name": "Order Date Month",
+              "formula": "[Lightdash Data/Order Date Month]"
+            },
+            {
+              "id": "el-orders-by-region-table-c-orders_region",
+              "name": "Region",
+              "formula": "[Lightdash Data/Region]"
+            },
+            {
+              "id": "el-orders-by-region-table-c-orders_total_order_amount",
+              "name": "Total Order Amount",
+              "formula": "[Metrics/Total Order Amount]",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.0f",
+                "currencySymbol": "$"
+              }
+            },
+            {
+              "id": "el-orders-by-region-table-c-orders_completion_rate",
+              "name": "Completion Rate",
+              "formula": "[Metrics/Completion Rate]",
+              "format": {
+                "kind": "number",
+                "formatString": ".1%"
+              }
+            }
+          ],
+          "order": [
+            "el-orders-by-region-table-c-orders_order_date_month",
+            "el-orders-by-region-table-c-orders_region",
+            "el-orders-by-region-table-c-orders_total_order_amount",
+            "el-orders-by-region-table-c-orders_completion_rate"
+          ]
+        },
+        {
+          "id": "el-payments-by-method",
+          "kind": "donut-chart",
+          "name": "Payments by Method",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-master"
+          },
+          "value": {
+            "columnId": "el-payments-by-method-c-payments_total_payment_amount"
+          },
+          "color": {
+            "columnId": "el-payments-by-method-c-payments_payment_method",
+            "sort": {
+              "by": "el-payments-by-method-c-payments_total_payment_amount",
+              "direction": "descending"
+            }
+          },
+          "columns": [
+            {
+              "id": "el-payments-by-method-c-payments_payment_method",
+              "name": "Payment Method",
+              "formula": "[Lightdash Data/Payment Method]"
+            },
+            {
+              "id": "el-payments-by-method-c-payments_total_payment_amount",
+              "name": "Total Payment Amount",
+              "formula": "[Metrics/Total Payment Amount]",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.0f",
+                "currencySymbol": "$"
+              }
+            }
+          ],
+          "filters": [
+            {
+              "id": "el-payments-by-method-f-1",
+              "columnId": "el-payments-by-method-c-payments_total_payment_amount",
+              "kind": "top-n",
+              "rankingFunction": "rank",
+              "mode": "top-n",
+              "rowCount": 50,
+              "includeNulls": "when-no-value-is-selected"
+            }
+          ]
+        },
+        {
+          "id": "el-completed-revenue-by-region",
+          "kind": "bar-chart",
+          "name": "Completed Revenue by Region",
+          "source": {
+            "kind": "table",
+            "elementId": "tbl-master"
+          },
+          "xAxis": {
+            "columnId": "el-completed-revenue-by-region-c-orders_region",
+            "sort": {
+              "by": "el-completed-revenue-by-region-c-orders_total_order_amount",
+              "direction": "descending"
+            }
+          },
+          "yAxis": {
+            "columnIds": [
+              "el-completed-revenue-by-region-c-orders_total_order_amount"
+            ]
+          },
+          "orientation": "horizontal",
+          "columns": [
+            {
+              "id": "el-completed-revenue-by-region-c-orders_region",
+              "name": "Region",
+              "formula": "[Lightdash Data/Region]"
+            },
+            {
+              "id": "el-completed-revenue-by-region-c-orders_total_order_amount",
+              "name": "Total Order Amount",
+              "formula": "[Metrics/Total Order Amount]",
+              "format": {
+                "kind": "number",
+                "formatString": "$,.0f",
+                "currencySymbol": "$"
+              }
+            },
+            {
+              "id": "el-completed-revenue-by-region-c-orders_status",
+              "name": "Status",
+              "formula": "[Lightdash Data/Status]"
+            }
+          ],
+          "filters": [
+            {
+              "kind": "list",
+              "mode": "include",
+              "values": [
+                "completed"
+              ],
+              "id": "el-completed-revenue-by-region-f-1",
+              "columnId": "el-completed-revenue-by-region-c-orders_status"
+            },
+            {
+              "id": "el-completed-revenue-by-region-f-2",
+              "columnId": "el-completed-revenue-by-region-c-orders_total_order_amount",
+              "kind": "top-n",
+              "rankingFunction": "rank",
+              "mode": "top-n",
+              "rowCount": 10,
+              "includeNulls": "when-no-value-is-selected"
+            }
+          ]
+        }
+      ],
+      "layout": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-data\">\n  <Element elementId=\"tbl-master\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n  <Element elementId=\"tbl-base-1\" gridColumn=\"1 / 25\" gridRow=\"11 / 21\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-1\">\n  <Element elementId=\"ctl-orders_region\" gridColumn=\"1 / 13\" gridRow=\"1 / 3\"/>\n  <Element elementId=\"ctl-customers_segment\" gridColumn=\"13 / 25\" gridRow=\"1 / 3\"/>\n  <Element elementId=\"el-markdown-1\" gridColumn=\"1 / 25\" gridRow=\"3 / 6\"/>\n  <Element elementId=\"el-total-orders-kpi\" gridColumn=\"1 / 9\" gridRow=\"6 / 11\"/>\n  <Element elementId=\"el-monthly-revenue\" gridColumn=\"9 / 25\" gridRow=\"6 / 15\"/>\n  <Element elementId=\"el-revenue-by-segment\" gridColumn=\"1 / 9\" gridRow=\"11 / 20\"/>\n</Page>\n<Page type=\"grid\" gridTemplateColumns=\"repeat(24, 1fr)\" gridTemplateRows=\"auto\" id=\"page-2\">\n  <Element elementId=\"el-orders-by-region-table\" gridColumn=\"1 / 25\" gridRow=\"1 / 11\"/>\n  <Element elementId=\"el-payments-by-method\" gridColumn=\"1 / 13\" gridRow=\"11 / 20\"/>\n  <Element elementId=\"el-completed-revenue-by-region\" gridColumn=\"13 / 25\" gridRow=\"11 / 20\"/>\n</Page>"
+    }
+  },
+  "stats": {
+    "tiles": 7,
+    "charts": 6,
+    "controls": 2,
+    "placeholders": 0,
+    "gaps": 2
+  },
+  "warnings": [
+    "no --dm-lookup: using authoring element id; re-run with the post-lightdash-dm.rb lookup to bind the live element id",
+    "ECharts styling: series colors, axis titles/labels, legends, smoothing and other ECharts styling are not carried over (Sigma theme defaults apply)",
+    "chart monthly-revenue: row limit 500 (Lightdash default cap) not applied",
+    "dashboard filter customers_segment: tileTargets: tiles not listed are filtered by default and `false` tiles are excluded (Lightdash semantics, not verified against a live instance)"
+  ],
+  "gaps": [
+    {
+      "class": "scope-cut",
+      "item": "chart orders-by-region-table: field running_total_amount",
+      "reason": "table calculation running_total_amount is not simple arithmetic; original SQL: SUM(${orders.total_order_amount}) OVER (PARTITION BY ${orders.region} ORDER BY ${orders.order_date_month} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)",
+      "source_artifact": "build-lightdash-workbook"
+    },
+    {
+      "class": "quality-waiver",
+      "item": "chart orders-by-region-table",
+      "reason": "row limit 100 not applied (only a descending metric-sorted chart gets a top-N filter)",
+      "source_artifact": "build-lightdash-workbook"
+    }
+  ],
+  "notes": [
+    {
+      "item": "ECharts styling",
+      "reason": "series colors, axis titles/labels, legends, smoothing and other ECharts styling are not carried over (Sigma theme defaults apply)"
+    },
+    {
+      "item": "dashboard filter customers_segment",
+      "reason": "tileTargets: tiles not listed are filtered by default and `false` tiles are excluded (Lightdash semantics, not verified against a live instance)"
+    }
+  ]
+}

@@ -1,0 +1,549 @@
+{
+  "sigmaDataModel": {
+    "name": "Orders (Lightdash)",
+    "schemaVersion": 1,
+    "pages": [
+      {
+        "id": "id0001",
+        "name": "Data",
+        "elements": [
+          {
+            "id": "id0002",
+            "kind": "table",
+            "name": "orders",
+            "source": {
+              "kind": "warehouse-table",
+              "connectionId": "fixture-connection",
+              "path": [
+                "acme-analytics",
+                "jaffle_shop",
+                "orders"
+              ]
+            },
+            "columns": [
+              {
+                "id": "id0003",
+                "name": "Order Id",
+                "formula": "[orders/Order Id]",
+                "description": "Primary key."
+              },
+              {
+                "id": "id0004",
+                "name": "Customer Id",
+                "formula": "[orders/Customer Id]",
+                "hidden": true
+              },
+              {
+                "id": "id0005",
+                "name": "Order Date",
+                "formula": "[orders/Order Date]"
+              },
+              {
+                "id": "id0006",
+                "name": "Order Date Day",
+                "formula": "DateTrunc(\"day\", [Order Date])"
+              },
+              {
+                "id": "id0007",
+                "name": "Order Date Week",
+                "formula": "DateTrunc(\"week\", [Order Date])"
+              },
+              {
+                "id": "id0008",
+                "name": "Order Date Month",
+                "formula": "DateTrunc(\"month\", [Order Date])"
+              },
+              {
+                "id": "id0009",
+                "name": "Order Date Quarter",
+                "formula": "DateTrunc(\"quarter\", [Order Date])"
+              },
+              {
+                "id": "id0010",
+                "name": "Order Date Year",
+                "formula": "DateTrunc(\"year\", [Order Date])"
+              },
+              {
+                "id": "id0011",
+                "name": "Order Year (text)",
+                "formula": "Text(Year([orders/Order Date]))"
+              },
+              {
+                "id": "id0012",
+                "name": "Status",
+                "formula": "[orders/Status]"
+              },
+              {
+                "id": "id0013",
+                "name": "Region",
+                "formula": "[orders/Region]"
+              },
+              {
+                "id": "id0014",
+                "name": "Channel Group",
+                "formula": "If(In([orders/Channel], \"web\", \"app\"), \"Online\", \"Offline\")"
+              },
+              {
+                "id": "id0015",
+                "name": "Is Returned",
+                "formula": "[orders/Is Returned]"
+              },
+              {
+                "id": "id0016",
+                "name": "Internal Notes",
+                "formula": "[orders/Internal Notes]",
+                "hidden": true
+              },
+              {
+                "id": "id0017",
+                "name": "Margin",
+                "formula": "[orders/Margin]"
+              },
+              {
+                "id": "id0018",
+                "name": "Amount",
+                "formula": "[orders/Amount]",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.2f",
+                  "currencySymbol": "$"
+                }
+              }
+            ],
+            "relationships": [
+              {
+                "id": "id0019",
+                "name": "Customers",
+                "targetElementId": "id0020",
+                "relationshipType": "N:1",
+                "keys": [
+                  {
+                    "sourceColumnId": "id0004",
+                    "targetColumnId": "id0021"
+                  }
+                ]
+              },
+              {
+                "id": "id0022",
+                "name": "Payments",
+                "targetElementId": "id0023",
+                "relationshipType": "1:N",
+                "keys": [
+                  {
+                    "sourceColumnId": "id0003",
+                    "targetColumnId": "id0024"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "id0020",
+            "kind": "table",
+            "name": "customers",
+            "source": {
+              "kind": "warehouse-table",
+              "connectionId": "fixture-connection",
+              "path": [
+                "acme-analytics",
+                "jaffle_shop",
+                "customers"
+              ]
+            },
+            "columns": [
+              {
+                "id": "id0021",
+                "name": "Customer Id",
+                "formula": "[customers/Customer Id]"
+              },
+              {
+                "id": "id0025",
+                "name": "First Name",
+                "formula": "[customers/First Name]"
+              },
+              {
+                "id": "id0026",
+                "name": "Last Name",
+                "formula": "[customers/Last Name]"
+              },
+              {
+                "id": "id0027",
+                "name": "Customer Segment",
+                "formula": "[customers/Segment]"
+              },
+              {
+                "id": "id0028",
+                "name": "Signup Date",
+                "formula": "[customers/Signup Date]"
+              },
+              {
+                "id": "id0029",
+                "name": "Signup Date Day",
+                "formula": "DateTrunc(\"day\", [Signup Date])"
+              },
+              {
+                "id": "id0030",
+                "name": "Signup Date Week",
+                "formula": "DateTrunc(\"week\", [Signup Date])"
+              },
+              {
+                "id": "id0031",
+                "name": "Signup Date Month",
+                "formula": "DateTrunc(\"month\", [Signup Date])"
+              },
+              {
+                "id": "id0032",
+                "name": "Signup Date Quarter",
+                "formula": "DateTrunc(\"quarter\", [Signup Date])"
+              },
+              {
+                "id": "id0033",
+                "name": "Signup Date Year",
+                "formula": "DateTrunc(\"year\", [Signup Date])"
+              }
+            ]
+          },
+          {
+            "id": "id0023",
+            "kind": "table",
+            "name": "payments",
+            "source": {
+              "kind": "warehouse-table",
+              "connectionId": "fixture-connection",
+              "path": [
+                "acme-analytics",
+                "jaffle_shop",
+                "payments"
+              ]
+            },
+            "columns": [
+              {
+                "id": "id0034",
+                "name": "Payment Id",
+                "formula": "[payments/Payment Id]"
+              },
+              {
+                "id": "id0024",
+                "name": "Order Id",
+                "formula": "[payments/Order Id]"
+              },
+              {
+                "id": "id0035",
+                "name": "Payment Method",
+                "formula": "[payments/Payment Method]"
+              },
+              {
+                "id": "id0036",
+                "name": "Payment Amount",
+                "formula": "[payments/Amount]"
+              }
+            ]
+          },
+          {
+            "id": "id0037",
+            "kind": "table",
+            "name": "Orders (Explore)",
+            "source": {
+              "kind": "table",
+              "elementId": "id0002"
+            },
+            "columns": [
+              {
+                "id": "id0038",
+                "name": "Order Id",
+                "formula": "[orders/Order Id]"
+              },
+              {
+                "id": "id0039",
+                "name": "Customer Id",
+                "formula": "[orders/Customer Id]",
+                "hidden": true
+              },
+              {
+                "id": "id0040",
+                "name": "Order Date",
+                "formula": "[orders/Order Date]"
+              },
+              {
+                "id": "id0041",
+                "name": "Order Date Day",
+                "formula": "[orders/Order Date Day]"
+              },
+              {
+                "id": "id0042",
+                "name": "Order Date Week",
+                "formula": "[orders/Order Date Week]"
+              },
+              {
+                "id": "id0043",
+                "name": "Order Date Month",
+                "formula": "[orders/Order Date Month]"
+              },
+              {
+                "id": "id0044",
+                "name": "Order Date Quarter",
+                "formula": "[orders/Order Date Quarter]"
+              },
+              {
+                "id": "id0045",
+                "name": "Order Date Year",
+                "formula": "[orders/Order Date Year]"
+              },
+              {
+                "id": "id0046",
+                "name": "Order Year (text)",
+                "formula": "[orders/Order Year (text)]"
+              },
+              {
+                "id": "id0047",
+                "name": "Status",
+                "formula": "[orders/Status]"
+              },
+              {
+                "id": "id0048",
+                "name": "Region",
+                "formula": "[orders/Region]"
+              },
+              {
+                "id": "id0049",
+                "name": "Channel Group",
+                "formula": "[orders/Channel Group]"
+              },
+              {
+                "id": "id0050",
+                "name": "Is Returned",
+                "formula": "[orders/Is Returned]"
+              },
+              {
+                "id": "id0051",
+                "name": "Internal Notes",
+                "formula": "[orders/Internal Notes]",
+                "hidden": true
+              },
+              {
+                "id": "id0052",
+                "name": "Margin",
+                "formula": "[orders/Margin]"
+              },
+              {
+                "id": "id0053",
+                "name": "Amount",
+                "formula": "[orders/Amount]",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.2f",
+                  "currencySymbol": "$"
+                }
+              },
+              {
+                "id": "id0054",
+                "name": "Customers Customer Id",
+                "formula": "[orders/Customers/Customer Id]",
+                "hidden": true
+              },
+              {
+                "id": "id0055",
+                "name": "First Name",
+                "formula": "[orders/Customers/First Name]"
+              },
+              {
+                "id": "id0056",
+                "name": "Last Name",
+                "formula": "[orders/Customers/Last Name]"
+              },
+              {
+                "id": "id0057",
+                "name": "Customer Segment",
+                "formula": "[orders/Customers/Customer Segment]"
+              },
+              {
+                "id": "id0058",
+                "name": "Signup Date",
+                "formula": "[orders/Customers/Signup Date]",
+                "hidden": true
+              },
+              {
+                "id": "id0059",
+                "name": "Signup Date Day",
+                "formula": "[orders/Customers/Signup Date Day]",
+                "hidden": true
+              },
+              {
+                "id": "id0060",
+                "name": "Signup Date Week",
+                "formula": "[orders/Customers/Signup Date Week]",
+                "hidden": true
+              },
+              {
+                "id": "id0061",
+                "name": "Signup Date Month",
+                "formula": "[orders/Customers/Signup Date Month]",
+                "hidden": true
+              },
+              {
+                "id": "id0062",
+                "name": "Signup Date Quarter",
+                "formula": "[orders/Customers/Signup Date Quarter]",
+                "hidden": true
+              },
+              {
+                "id": "id0063",
+                "name": "Signup Date Year",
+                "formula": "[orders/Customers/Signup Date Year]",
+                "hidden": true
+              },
+              {
+                "id": "id0064",
+                "name": "Payment Id",
+                "formula": "[orders/Payments/Payment Id]"
+              },
+              {
+                "id": "id0065",
+                "name": "Payments Order Id",
+                "formula": "[orders/Payments/Order Id]"
+              },
+              {
+                "id": "id0066",
+                "name": "Payment Method",
+                "formula": "[orders/Payments/Payment Method]"
+              },
+              {
+                "id": "id0067",
+                "name": "Payment Amount",
+                "formula": "[orders/Payments/Payment Amount]"
+              }
+            ],
+            "metrics": [
+              {
+                "id": "id0068",
+                "name": "Total Orders",
+                "formula": "CountDistinct([Order Id])"
+              },
+              {
+                "id": "id0069",
+                "name": "Order Rows",
+                "formula": "Count([Order Id])"
+              },
+              {
+                "id": "id0070",
+                "name": "Completed Orders",
+                "formula": "CountDistinctIf([Order Id], [Status] = \"completed\")"
+              },
+              {
+                "id": "id0071",
+                "name": "Total Order Amount",
+                "formula": "Sum([Amount])",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.0f",
+                  "currencySymbol": "$"
+                }
+              },
+              {
+                "id": "id0072",
+                "name": "Average Order Amount",
+                "formula": "Avg([Amount])"
+              },
+              {
+                "id": "id0073",
+                "name": "Smallest Order",
+                "formula": "Min([Amount])"
+              },
+              {
+                "id": "id0074",
+                "name": "Largest Order",
+                "formula": "Max([Amount])"
+              },
+              {
+                "id": "id0075",
+                "name": "Median Order Amount",
+                "formula": "Median([Amount])"
+              },
+              {
+                "id": "id0076",
+                "name": "Completed Amount",
+                "formula": "SumIf([Amount], [Status] = \"completed\")"
+              },
+              {
+                "id": "id0077",
+                "name": "Kept Amount",
+                "formula": "SumIf([Amount], [Status] != \"returned\")"
+              },
+              {
+                "id": "id0078",
+                "name": "Completion Rate",
+                "formula": "(CountDistinctIf([Order Id], [Status] = \"completed\")) / NullIf((CountDistinct([Order Id])), 0)",
+                "format": {
+                  "kind": "number",
+                  "formatString": ".1%"
+                }
+              },
+              {
+                "id": "id0079",
+                "name": "Customer Count",
+                "formula": "CountDistinct([Customers Customer Id])"
+              },
+              {
+                "id": "id0080",
+                "name": "Total Payment Amount",
+                "formula": "Sum([Payment Amount])",
+                "format": {
+                  "kind": "number",
+                  "formatString": "$,.0f",
+                  "currencySymbol": "$"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stats": {
+    "models": 3,
+    "elements": 4,
+    "columns": 60,
+    "metrics": 13,
+    "relationships": 2,
+    "fields_mapped": 35,
+    "fields_skipped": 7,
+    "gaps": 1
+  },
+  "warnings": [
+    "explore column \"Customer Id\" from customers collides with an earlier column; renamed \"Customers Customer Id\"",
+    "explore column \"Order Id\" from payments collides with an earlier column; renamed \"Payments Order Id\"",
+    "metric orders.pct_of_total_amount -- metric type percent_of_total is a post-calculation (relative to other result rows) with no data-model equivalent; rebuild as a workbook calculation",
+    "WEEK intervals use DateTrunc(\"week\"); Lightdash truncates to the project week_start_day -- verify the first day of week against Sigma before relying on weekly totals",
+    "row/column security (sql_filter, required_attributes) recorded under `security`; not applied to the data model"
+  ],
+  "gaps": [
+    {
+      "class": "scope-cut",
+      "item": "metric orders.pct_of_total_amount",
+      "reason": "metric type percent_of_total is a post-calculation (relative to other result rows) with no data-model equivalent; rebuild as a workbook calculation",
+      "source_artifact": "convert-dm"
+    }
+  ],
+  "security": {
+    "explore": "orders",
+    "models": {
+      "orders": {
+        "sql_filter": "${TABLE}.region IN (${lightdash.attributes.region})"
+      }
+    },
+    "column_required_attributes": [
+      {
+        "model": "orders",
+        "table": "orders",
+        "field": "margin",
+        "column_id": "id0052",
+        "element_id": "id0037",
+        "required_attributes": {
+          "is_finance": "true"
+        }
+      }
+    ]
+  },
+  "dialect": "bigquery",
+  "explore": "orders"
+}

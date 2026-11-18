@@ -204,6 +204,13 @@
       "description": "Solver (Solver Global / BI360) → Sigma. Rebuilds a report from its Live Reporting download as a Sigma data model and workbook, with parity against an executed run, plus a read-only estate assessment. Scaffold — untranslatable cells are reported, not guessed.",
       "category": "migration",
       "keywords": ["solver", "bi360", "migration", "financial-reporting"]
+    },
+    {
+      "name": "lightdash-to-sigma",
+      "source": "./plugins/lightdash-to-sigma",
+      "description": "Lightdash → Sigma. dbt semantic layer (meta) + charts and dashboards to a Sigma data model and workbook, with an RLS gate and warehouse parity, plus a scaffold assessment. Foundation — offline path tested on fixtures; live discovery and parity are unvalidated; table calcs and unsupported charts are ledgered, not guessed.",
+      "category": "migration",
+      "keywords": ["lightdash", "migration", "bi"]
     }
   ]
 }

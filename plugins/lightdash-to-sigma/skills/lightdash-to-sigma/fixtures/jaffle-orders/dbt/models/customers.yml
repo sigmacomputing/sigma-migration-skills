@@ -1,0 +1,35 @@
+version: 2
+models:
+  - name: customers
+    description: One row per customer.
+    meta:
+      label: Customers
+    columns:
+      - name: customer_id
+        meta:
+          dimension:
+            type: string
+          metrics:
+            customer_count:
+              type: count_distinct
+              label: Customer Count
+      - name: first_name
+        meta:
+          dimension:
+            type: string
+            label: First Name
+      - name: last_name
+        meta:
+          dimension:
+            type: string
+            label: Last Name
+      - name: segment
+        meta:
+          dimension:
+            type: string
+            label: Customer Segment
+      - name: signup_date
+        meta:
+          dimension:
+            type: date
+            label: Signup Date

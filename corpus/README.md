@@ -53,6 +53,7 @@ corpus/
 | metabase/orders-overview | synthetic Metabase model + dashboard REST JSON | MBQL model + wrapped workbook with controls, native funnel, and authoritative layout |
 | spotfire/retail-smoke | synthetic authoritative Application API manifest + warehouse source map | DM + wrapped workbook + complete layout + structured gap report |
 | omni/orders-overview | synthetic Omni views + topic + dashboard export | DM (orders/users join, 3 metrics) + workbook (line, KPI, date control) |
+| lightdash/jaffle-orders | synthetic BigQuery dbt project + Lightdash charts/dashboard | DM (orders explore, 13 metrics, 2 joins) + workbook (hidden master/base tables, 6 charts, 2 controls) + RLS gate |
 
 ## Runner
 
