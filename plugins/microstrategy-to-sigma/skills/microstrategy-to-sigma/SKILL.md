@@ -189,8 +189,14 @@ python3 scripts/extract.py <dossierId> bundle.json
 ```
 
 Walks dossier definition → dataset reports (`showExpressionAs=tokens`) →
-referenced attributes / metrics (compound bases included via a second pass) /
-facts / logical tables / hierarchy relationships. The bundle is the converter
+referenced attributes / metrics (compound/derived chains of any depth) /
+facts / logical tables / hierarchy relationships. **Derived metrics** (built
+inside a report or dossier, not schema objects) 404 on `/model/metrics/{id}`;
+that is never fatal: `extract.py` recovers dossier-level arithmetic formulas
+from `/model/documents/{id}` and parks the rest (report-level formulas are not
+exposed) in `bundle.unresolvedMetrics`, which `convert.py` skips with a
+`⚠ derived metric` warning; hand-author those (`refs/mstr-rest-api.md`
+§Derived metrics). The bundle is the converter
 contract — `fixtures/bundle.json` is a real, validated example. A dataset
 written as hand-written **Freeform SQL** has no schema objects: `extract.py`
 parks it in `bundle.sqlDatasets` (captured without executing the report) and

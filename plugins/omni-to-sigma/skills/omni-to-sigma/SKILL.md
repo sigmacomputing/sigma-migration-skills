@@ -49,12 +49,24 @@ Keep `exportVersion` `"0.1"`.
 ## Phase 1.5 — Reuse-check (C3)
 
 `convert-dm.rb` writes `omni-signature.json` (warehouse tables, columns,
-measures). Before creating a DM, score existing Sigma DMs and reuse on a
-strong match:
+measures). Before creating a DM, score existing Sigma DMs:
 
 ```bash
-ruby scripts/find-or-pick-dm.rb --workbook-signature omni-signature.json --auto-pick
+ruby scripts/find-or-pick-dm.rb --workbook-signature omni-signature.json --auto-pick --refresh --out dm-match.json
 ```
+
+Exit 0 = a recommended match, exit 1 with `dm-match.json` = no match (create a
+new DM); anything else is a failed scan. `migrate-omni.rb` runs this scan on
+**every** run (a previous run's `dm-mode.json` / `dm-match.json` is never the
+answer) and writes `dm-mode.json` from the result:
+
+- no match → `{"mode":"create"}`, the run continues.
+- a match → the run **stops** at `reuse-check` and names the candidate. Re-run
+  with `--reuse-dm <id>` to build on it (`{"mode":"reuse"}`: nothing is POSTed
+  or PUT; `post-omni-dm.rb` reads it back and pairs elements/columns by name,
+  failing if any converted element or column is missing), or `--new-dm [REASON]`
+  to create one anyway (recorded as a `skip-flag-waived` record in
+  `offramps.jsonl`, so the verdict is never GREEN on that waiver).
 
 ## Phase 2 — Convert (C4)
 
