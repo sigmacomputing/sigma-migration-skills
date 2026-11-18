@@ -1,0 +1,137 @@
+{
+  "name": "Composite Demo",
+  "compatibilityLevel": 1600,
+  "model": {
+    "culture": "en-US",
+    "tables": [
+      {
+        "name": "Harbor Sales",
+        "columns": [
+          {
+            "name": "Region",
+            "dataType": "string",
+            "sourceColumn": "Region"
+          },
+          {
+            "name": "Order Date",
+            "dataType": "dateTime",
+            "sourceColumn": "Order Date"
+          }
+        ],
+        "measures": [
+          {
+            "name": "Remote Revenue",
+            "expression": "EXTERNALMEASURE(\"Net Revenue\", DOUBLE, \"DirectQuery to AS - Harbor Sales Model\")"
+          },
+          {
+            "name": "Remote Margin",
+            "expression": "EXTERNALMEASURE(\"Gross Margin\", DOUBLE, \"DirectQuery to AS - Harbor Finance Model\")"
+          },
+          {
+            "name": "Remote Revenue K",
+            "expression": "DIVIDE([Remote Revenue], 1000)"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Harbor Sales",
+            "mode": "directQuery",
+            "source": {
+              "type": "entity",
+              "entityName": "Sales",
+              "expressionSource": "DirectQuery to AS - Harbor Sales Model"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Targets",
+        "columns": [
+          {
+            "name": "Region",
+            "dataType": "string",
+            "sourceColumn": "REGION"
+          },
+          {
+            "name": "Target",
+            "dataType": "double",
+            "sourceColumn": "TARGET"
+          }
+        ],
+        "measures": [
+          {
+            "name": "Total Target",
+            "expression": "SUM(Targets[Target])"
+          },
+          {
+            "name": "Revenue vs Target",
+            "expression": "DIVIDE([Remote Revenue], [Total Target])"
+          },
+          {
+            "name": "Revenue Gap",
+            "expression": "[Revenue vs Target] - 1"
+          },
+          {
+            "name": "Remote Order Count",
+            "expression": "COUNTROWS('Harbor Sales')"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Targets",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "    Source = Snowflake.Databases(\"example-account.snowflakecomputing.com\", \"EXAMPLE_WH\"),",
+                "    DB = Source{[Name = \"SAMPLE_DB\", Kind = \"Database\"]}[Data],",
+                "    SCH = DB{[Name = \"DEMO\", Kind = \"Schema\"]}[Data],",
+                "    T = SCH{[Name = \"TARGETS\", Kind = \"Table\"]}[Data]",
+                "in",
+                "    T"
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "name": "rel_targets_sales",
+        "fromTable": "Harbor Sales",
+        "fromColumn": "Region",
+        "toTable": "Targets",
+        "toColumn": "Region",
+        "crossFilteringBehavior": "oneDirection",
+        "isActive": true
+      }
+    ],
+    "expressions": [
+      {
+        "name": "DirectQuery to AS - Harbor Sales Model",
+        "kind": "m",
+        "expression": [
+          "let",
+          "    Source = AnalysisServices.Database(\"powerbi://api.powerbi.com/v1.0/myorg/Demo Workspace\", \"Harbor Sales Model\"),",
+          "    Cubes = Table.ToRows(Source),",
+          "    Cube = Cubes{0}{1}",
+          "in",
+          "    Cube"
+        ]
+      },
+      {
+        "name": "DirectQuery to AS - Harbor Finance Model",
+        "kind": "m",
+        "expression": [
+          "let",
+          "    Source = AnalysisServices.Database(\"powerbi://api.powerbi.com/v1.0/myorg/Finance Demo\", \"Harbor Finance Model\"),",
+          "    Cubes = Table.ToRows(Source),",
+          "    Cube = Cubes{0}{1}",
+          "in",
+          "    Cube"
+        ]
+      }
+    ]
+  }
+}

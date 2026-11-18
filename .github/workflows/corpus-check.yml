@@ -669,12 +669,14 @@ jobs:
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-native-query.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-parse.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-sql.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-calc-table-measures.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-dm-resolver.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-name-sanitize.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-extract-cache.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-probe-gate.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-pbi-orchestrator-speed.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-composite-gate.rb
+            plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-external-measure.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-convert-model-reprefix.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-warehouse-column-refs.rb
             plugins/powerbi-to-sigma/skills/powerbi-to-sigma/scripts/test-materialization-schedules.rb

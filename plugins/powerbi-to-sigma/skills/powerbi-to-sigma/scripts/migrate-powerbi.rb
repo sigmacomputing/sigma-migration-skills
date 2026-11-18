@@ -115,8 +115,10 @@ require 'coverage_gate' # workbook-build coverage.json → consolidated report +
 require 'pbi_element_match' # converter→readback element pairing (POST reorders; regression-tested)
 require 'pbi_timeintel_route' # time-intel fallback-router fact-provenance guard (regression-tested)
 require 'pbi_calc_table_sql' # DISTINCT/VALUES/SUMMARIZE calculated tables -> Custom SQL
+require 'pbi_calc_table_measures' # measures homed on a calculated table (the converter drops them)
 require 'pbi_native_query' # preserve Value.NativeQuery/Query= SQL around the pinned converter
 require 'pbi_composite' # remote-model detection; NativeQuery is warehouse SQL
+require 'pbi_external_measure' # EXTERNALMEASURE pointers into a remote model: stop, or Null gaps (issue #97)
 require 'pbi_dm_resolver' # deterministic converter-output fixer (D1-D8) -> <WORK>/dm-resolver.json
 require 'pbi_name_sanitize' # F13: "/" in column/measure names -> U+2215 before conversion
 require 'materialization_schedules' # opt-in DM element schedule lifecycle
@@ -238,9 +240,15 @@ OptionParser.new do |o|
   o.on('--skip-control-flip [REASON]', 'waive Phase 6b (runtime control-flip proof); the reason MUST be named in your migration report') { |v| opts[:skip_control_flip] = v || true }
   # COMPOSITE guard escape hatch. The Fabric --tmsl path GATES (exit 10) when the
   # extracted model looks like a composite / live-connected-to-remote model,
-  # because getDefinition returns an INCOMPLETE model for those — the complete
-  # model lives in the local .pbix (prefer --pbix). Pass this to proceed anyway
-  # on the (known-incomplete) Fabric model.
+  # because getDefinition returns an INCOMPLETE model for those (the report-local
+  # part lives in the local .pbix: prefer --pbix). Every route also STOPS when the
+  # model's measures are EXTERNALMEASURE pointers into a remote semantic model
+  # (their DAX is in neither file) or its tables are DirectQuery proxies of one
+  # (entity partitions: their rows are in no warehouse table). Pass this to
+  # proceed anyway; the pointer measures and everything built on them or on a
+  # proxy table then ship as Null metrics and each proxy table as a zero-row
+  # Custom SQL placeholder, reported as gaps (external-measures.json + a
+  # skip-flag-waived escape in the ledger).
   o.on('--allow-incomplete-model') { opts[:allow_incomplete_model] = true }
   # Native SQL followed by Table.RenameColumns/Table.SelectRows/etc. cannot be
   # represented by preserving the SQL alone. Gate by default; this override is
@@ -594,7 +602,9 @@ end
 # element/table in the POST output back to its source-path schema and return a
 # concrete GRANT action so the user isn't left decoding an opaque 400. Returns nil
 # when the failure isn't an unreadable-table error.
-def explain_unreadable_tables(out, dm_spec_path, conn)
+# skip: table names reported elsewhere (DirectQuery proxy tables of a remote
+# semantic model: no GRANT can make them readable), left out of the GRANT advice.
+def explain_unreadable_tables(out, dm_spec_path, conn, skip: [])
   spec = (JSON.parse(File.read(dm_spec_path)) rescue nil)
   return nil unless spec
   els = (spec['elements'] || []) + (spec['pages'] || []).flat_map { |p| p['elements'] || [] }
@@ -615,6 +625,9 @@ def explain_unreadable_tables(out, dm_spec_path, conn)
     sch = parts.size >= 3 ? "#{parts[0]}.#{parts[-2]}" : parts[-2]
     hits[sch] << parts[-1]
   end
+  skip_keys = skip.map { |n| PbiExternalMeasure.name_key(n) }
+  hits.each_value { |tbls| tbls.reject! { |t| skip_keys.include?(PbiExternalMeasure.name_key(t)) } }
+  hits.reject! { |_sch, tbls| tbls.empty? }
   return nil if hits.empty?
   hits.map { |sch, tbls| "   │    • #{sch}  (table(s): #{tbls.uniq.first(6).join(', ')}) — grant to connection #{conn || '<the DM connection>'}" }.join("\n")
 end
@@ -672,13 +685,18 @@ if opts[:pbix]
   puts
   puts '── Phase 0/6 · Local .pbix extract (no Fabric) ──'
   # Cheap stdlib-only probe (no pbixray): is this a composite / live-connected
-  # .pbix? If so, using the LOCAL file (which carries the complete composite
-  # model) is exactly right — note it so the choice is visible.
+  # .pbix? The local file carries the report-local model (more than a Fabric
+  # getDefinition of the bound dataset returns), but NOT the DAX of measures that
+  # live in a remote semantic model: those are EXTERNALMEASURE pointers, checked
+  # after extraction (REMOTE MEASURES, below). Note it so the choice is visible.
   comp_out, comp_st = Open3.capture2e(*PY_ARGV, File.join(HERE, 'extract-model-pbix.py'),
                                       '--pbix', opts[:pbix], '--detect-composite')
+  # The probe's tell (the Connections member's RemoteArtifacts) is also present in
+  # any .pbix downloaded from the service, so word the note to be true either way.
   if comp_st.success? && (JSON.parse(comp_out)['composite'] rescue false)
-    puts '   composite / live-connected .pbix detected — the local file carries the COMPLETE'
-    puts '   model (a Fabric getDefinition of the bound dataset would be incomplete). Using it.'
+    puts '   the .pbix references a published Power BI dataset (a composite or live-connected'
+    puts '   report, or a file downloaded from the service). Using its local model; measures that'
+    puts '   live in a remote semantic model are only EXTERNALMEASURE pointers, checked after extraction.'
   end
   model_bim = File.join(WORK, 'model.bim')
   if extract_cache['reuse']
@@ -906,10 +924,35 @@ if native_transform_gaps.any? && !opts[:allow_native_m_transforms]
   exit 10
 end
 
-# COMPOSITE GATE (Fabric --tmsl path only; --pbix already IS the complete local
+# REMOTE MEASURES AND TABLES (issue #97). A composite report over a published
+# Power BI semantic model keeps each remote measure as EXTERNALMEASURE("<measure>",
+# <type>, "DirectQuery to AS - <model>"): the DAX lives in the remote model, in
+# neither the .pbix nor a Fabric getDefinition. Each remote table it uses is a
+# DirectQuery proxy table (an 'entity' partition whose expressionSource is that
+# shared expression): its rows live in the remote model, so the converter's
+# --database/--schema + table-name fallback is a guess. Scanned on the model the
+# converter will see (after MODEL SCOPE), naming the remote models from the full
+# model's shared expressions. STOPS here, except on a Fabric model the composite
+# gate below stops anyway (it names them too). --allow-incomplete-model
+# continues: after conversion the pointers and everything built on them or on a
+# proxy table become Null metrics, and each proxy table a zero-row Custom SQL
+# placeholder, all reported as gaps (external-measures.json).
+ext_measures_path = File.join(WORK, 'external-measures.json')
+ext_scan = PbiExternalMeasure.scan(scoped_model || model, expressions: model['expressions'])
+FileUtils.rm_f(ext_measures_path) unless PbiExternalMeasure.any?(ext_scan) # a previous run's record is stale
+if PbiExternalMeasure.any?(ext_scan) && !opts[:allow_incomplete_model] &&
+   (opts[:pbix] || PbiComposite.incomplete_reasons(model).empty?)
+  File.write(ext_measures_path, JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked')))
+  puts
+  PbiExternalMeasure.stop_lines(ext_scan).each { |l| puts l }
+  puts "   (full list: #{ext_measures_path}). No Sigma objects were created."
+  exit 10
+end
+
+# COMPOSITE GATE (Fabric --tmsl path only: the .pbix carries the report-local
 # model). getDefinition returns an INCOMPLETE model for composite / live-
-# connected reports — the full model lives in the local .pbix. Detect it and
-# PROMPT for the .pbix instead of silently building a broken DM. --allow-
+# connected reports — the report-local part lives in the local .pbix. Detect it
+# and PROMPT for the .pbix instead of silently building a broken DM. --allow-
 # incomplete-model overrides. This is what MOTIVATES the local front door.
 unless opts[:pbix] || opts[:allow_incomplete_model]
   composite_reasons = PbiComposite.incomplete_reasons(model)
@@ -923,7 +966,18 @@ unless opts[:pbix] || opts[:allow_incomplete_model]
     puts '│  only the report-BOUND model, which is INCOMPLETE (it misses the report-local'
     puts '│  measures / calc tables, or is not resolvable standalone). Power BI also BLOCKS'
     puts '│  export-to-.pbix for live-connected reports, so device-auth cannot download it.'
-    puts '│  The COMPLETE model lives in the local .pbix on the author\'s machine.'
+    puts '│  The report-local model lives in the local .pbix on the author\'s machine.'
+    if PbiExternalMeasure.any?(ext_scan)
+      File.write(ext_measures_path, JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked')))
+      puts '│'
+      puts "│  #{ext_scan['pointers'].size} measure(s) are EXTERNALMEASURE pointers and #{ext_scan['proxy_tables'].size} table(s) " \
+           'are DirectQuery proxies of remote semantic model(s):'
+      ext_scan['remote_models'].first(6).each do |r|
+        puts "│    • #{PbiExternalMeasure.model_label(r)}: #{r['pointers'].size} pointer(s), #{r['tables'].size} table(s)"
+      end
+      ext_scan['proxy_tables'].first(6).each { |p| puts "│        table #{PbiExternalMeasure.table_label(p)}" }
+      puts '│  The .pbix carries the same pointers and proxies, not their DAX or rows: migrate those models first.'
+    end
     puts '│'
     puts '│  ACTION: ask the user for the local .pbix and re-run through the local front door:'
     puts "│      ruby scripts/migrate-powerbi.rb --pbix <that file.pbix> \\"
@@ -1053,6 +1107,48 @@ conv = JSON.parse(File.read(File.join(WORK, 'conv-meta.json')))
 dm_model = conv['model']
 conv_warnings = conv['warnings'] || []
 conv_stats = conv['stats'] || {}
+# REMOTE MEASURES AND TABLES, on the converter output itself: never ship an
+# EXTERNALMEASURE pointer as a Sigma formula. A pointer the scoped TMSL scan did
+# not see (a --converter-out made from the full model) still stops the run here,
+# named from the full model. Under --allow-incomplete-model the pointers and
+# everything built on them or on a proxy table become Null metrics (like a measure
+# with no Sigma equivalent); the ones the converter dropped are added back as Null
+# metrics so their visuals still bind. Each proxy table's partition becomes a
+# zero-row typed SELECT, which the NativeQuery restore just below turns into the
+# element's Custom SQL source, so its columns still bind and no guessed
+# --database/--schema path ships (dropping the element instead would unbind every
+# field on it and the field-loss gate would ask for a rebuild that the remote
+# model makes impossible). All are reported as gaps.
+ext_dm_hits = PbiExternalMeasure.dm_pointers(dm_model)
+if !ext_dm_hits.empty? && !PbiExternalMeasure.any?(ext_scan)
+  ext_scan = PbiExternalMeasure.scan(model, proxy_model: scoped_model || model)
+end
+if !ext_dm_hits.empty? && !opts[:allow_incomplete_model]
+  File.write(ext_measures_path,
+             JSON.pretty_generate(PbiExternalMeasure.record(ext_scan, status: 'blocked', dm_hits: ext_dm_hits)))
+  puts
+  PbiExternalMeasure.stop_lines(ext_scan, dm_hits: ext_dm_hits).each { |l| puts l }
+  puts "   (full list: #{ext_measures_path}). No Sigma objects were created."
+  exit 10
+end
+ext_report_gaps = nil
+if PbiExternalMeasure.any?(ext_scan) || !ext_dm_hits.empty?
+  _ext_els = (dm_model['pages'] || []).flat_map { |pg| pg['elements'] || [] }
+  _ext_tables = (scoped_model || model)['tables'] || []
+  # Warehouse-path match first; a proxy or calculated table (no M path) by table order, only when it lines up.
+  _ext_home = PbiExternalMeasure.home_elements(_ext_els, _ext_tables, PbiMasterKey.table_names(_ext_els, _ext_tables))
+  ext_gaps = PbiExternalMeasure.neutralize!(dm_model, ext_scan) +
+             PbiExternalMeasure.place_missing!(dm_model, ext_scan, home: _ext_home)
+  # Rewrites the proxy tables' partitions in the in-memory model the NativeQuery restore below reads.
+  ext_table_gaps = PbiExternalMeasure.placeholder_partitions!(scoped_model || model, ext_scan, opts[:wh_type])
+  # No restructure recovers a measure whose DAX is in another model: neither the DAX gate nor the coverage gate may ask for one.
+  conv_warnings = PbiExternalMeasure.relabel_warnings(conv_warnings, ext_scan)
+  conv['warnings'] = conv_warnings
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  ext_report_gaps = ext_table_gaps + ext_gaps
+end
 native_result = PbiNativeQuery.apply!(dm_model, scoped_model || model, dialect: opts[:wh_type])
 native_blockers = native_result['blockers'].reject do |blocker|
   opts[:allow_native_m_transforms] &&
@@ -1068,6 +1164,25 @@ if native_result['converted'].any?
   conv['model'] = dm_model
   File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
   puts "   restored #{native_result['converted'].size} NativeQuery source(s) as Custom SQL"
+end
+# REMOTE MEASURES AND TABLES report (--allow-incomplete-model): after the NativeQuery restore,
+# which renames each placeholder table's element, so every gap names the element as posted.
+if ext_report_gaps
+  PbiExternalMeasure.refresh_elements!(ext_report_gaps, dm_model, native_result['converted'])
+  File.write(ext_measures_path, JSON.pretty_generate(
+    PbiExternalMeasure.record(ext_scan, status: 'accepted_incomplete', gaps: ext_report_gaps, dm_hits: ext_dm_hits)
+  ))
+  ext_models = ext_scan['remote_models'].map { |r| PbiExternalMeasure.model_label(r) }
+  ext_models = ['(not named in the model: see external-measures.json)'] if ext_models.empty?
+  ext_tables_note = ext_table_gaps.empty? ? '' : " and #{ext_table_gaps.size} remote table(s) as zero-row Custom SQL placeholders"
+  warn "   \u26A0 REMOTE MEASURES AND TABLES (--allow-incomplete-model): #{ext_gaps.size} metric(s)/column(s) ship as Null gaps" \
+       "#{ext_tables_note}, not migrated (#{ext_measures_path}). Remote model(s): #{ext_models.join(', ')}"
+  ext_report_gaps.first(40).each { |g| warn "      - #{g['name']} (#{g['element']}): #{g['reason']}" }
+  warn "      … #{ext_report_gaps.size - 40} more in external-measures.json" if ext_report_gaps.size > 40
+  ext_what = ["#{ext_gaps.size} metric(s) built from EXTERNALMEASURE pointers or remote tables ship as Null"]
+  ext_what << "#{ext_table_gaps.size} remote table(s) ship as zero-row Custom SQL placeholders" unless ext_table_gaps.empty?
+  Offramp.log(WORK, kind: 'skip-flag-waived', detail: '--allow-incomplete-model',
+                    reason: "#{ext_what.join('; ')}; remote model(s): #{ext_models.join(', ')} (external-measures.json)")
 end
 
 # MODEL SCOPE: drop converter Views no visual / helper / relocated column needs.
@@ -1222,6 +1337,28 @@ unless calc_sql_result['converted'].empty?
   end
 end
 
+# Measures homed on a calculated table: the converter's calculated-table branch skips its
+# measure loop, so they were dropped with no warning naming them. Translate them with the
+# converter's own pbiDaxToSigma, carry each onto its table's element, and report (⛔/⚠,
+# naming the measure) every one that cannot be carried, so the DAX gate below asks about
+# it. Runs after the Custom SQL conversion above so the element's columns are final.
+# Record: <WORK>/calc-table-measures.json.
+calc_measure_model = scoped_model || model
+calc_measure_result = PbiCalcTableMeasures.apply!(
+  dm_model, calc_measure_model, conv_warnings,
+  PbiCalcTableMeasures.translate(calc_measure_model, CONV_MODULE, WORK)
+)
+unless calc_measure_result['attached'].empty? && calc_measure_result['reported'].empty?
+  File.write(File.join(WORK, 'calc-table-measures.json'), JSON.pretty_generate(calc_measure_result))
+  File.write(File.join(WORK, 'dm-raw.json'), JSON.pretty_generate(dm_model))
+  conv['model'] = dm_model
+  conv['warnings'] = conv_warnings
+  File.write(File.join(WORK, 'conv-meta.json'), JSON.pretty_generate(conv))
+  puts "   calculated-table measures: #{calc_measure_result['attached'].size} carried onto their table's element, " \
+       "#{calc_measure_result['reported'].size} not carried (calc-table-measures.json)"
+  calc_measure_result['reported'].each { |r| warn "   ⚠ measure #{r['measure']} (calculated table #{r['table']}) not carried; the DAX decisions list it" }
+end
+
 # Fail closed on calculated tables that only look converted. A CALENDAR spine
 # with NULL event flags is queryable and can pass shape/readback checks, but
 # every Black-Friday/Easter/etc. filter is wrong. Unlike ordinary DAX measure
@@ -1246,12 +1383,12 @@ unless calc_table_issues.empty?
   calc_table_issues.each { |issue| warn "      - #{issue}" }
 end
 _conv_els = (dm_model['pages'] || []).flat_map { |p| p['elements'] || [] }
-if dropped_views.to_a.empty? && !dm_resolver_changed
+if dropped_views.to_a.empty? && !dm_resolver_changed && calc_measure_result['attached'].empty?
   _n_els = conv_stats['elements']
   _n_cols = conv_stats['columns']
   _n_mets = conv_stats['metrics']
 else
-  # Views were dropped / the resolver changed the model after conversion: the converter's stats are stale.
+  # Views were dropped / the resolver changed the model / calculated-table measures were carried after conversion: the converter's stats are stale.
   _n_els = _conv_els.size
   _n_cols = _conv_els.sum { |e| (e['columns'] || []).size }
   _n_mets = _conv_els.sum { |e| (e['metrics'] || []).size }
@@ -1801,7 +1938,18 @@ _dm_post = ['ruby', File.join(HERE, 'post-and-readback.rb'), '--type', 'datamode
 _dm_out, _dm_st = Open3.capture2e(ENV.to_h, *_dm_post)
 _dm_out.each_line { |l| puts "   #{l.rstrip}" } unless _dm_out.strip.empty?
 unless _dm_st.success?
-  hint = explain_unreadable_tables(_dm_out, dm_spec, opts[:conn])
+  # A DirectQuery proxy of a remote semantic model that still carries the converter's fallback
+  # path is unreadable because no such warehouse table exists, not for a missing GRANT: say so
+  # first (proxy tables of the full model), and keep it out of the GRANT advice.
+  _post_spec = (JSON.parse(File.read(dm_spec)) rescue {})
+  _post_els = Array(_post_spec['elements']) + Array(_post_spec['pages']).flat_map { |p| p['elements'] || [] }
+  remote_failed = PbiExternalMeasure.failure_proxies(_dm_out, _post_els,
+                                                     PbiExternalMeasure.scan(model, expressions: model['expressions']))
+  unless remote_failed.empty?
+    warn ''
+    PbiExternalMeasure.failure_lines(remote_failed).each { |l| warn l }
+  end
+  hint = explain_unreadable_tables(_dm_out, dm_spec, opts[:conn], skip: remote_failed.map { |p| p['table'] })
   if hint
     warn ''
     warn '   ┌─ UNREADABLE WAREHOUSE TABLE(S): the data-model POST failed because the'

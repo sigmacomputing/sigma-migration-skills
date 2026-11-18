@@ -39,6 +39,7 @@ require 'optparse'
 require 'open3'
 require_relative 'dax-restructure-patterns'
 require_relative 'lib/warehouse_column_refs'
+require_relative 'lib/pbi_external_measure'
 
 opts = {}
 OptionParser.new do |p|
@@ -95,6 +96,20 @@ raw = JSON.parse(File.read(opts[:cvt]))
 # handle all three (and a sigmaDataModel that itself nests model).
 dm = raw['sigmaDataModel'] || raw['model'] || raw
 dm = dm['model'] if dm.is_a?(Hash) && dm['model']
+
+# A composite model's remote measures arrive as EXTERNALMEASURE(...) pointers whose DAX lives
+# in another semantic model (issue #97). migrate-powerbi.rb stops on them or, under
+# --allow-incomplete-model, turns them into Null gaps before calling this script, so a pointer
+# here means the run.sh / hand-run route: refuse rather than ship the pointer as a formula.
+ext_hits = PbiExternalMeasure.dm_pointers(dm)
+unless ext_hits.empty?
+  warn "STOP: #{ext_hits.size} formula(s) in the converter output are EXTERNALMEASURE pointers into a remote " \
+       "Power BI semantic model (their DAX is not in this model): " \
+       "#{ext_hits.first(8).map { |h| "#{h['name']} (#{h['element']})" }.join(', ')}#{ext_hits.size > 8 ? ', ...' : ''}."
+  warn '      Run scripts/migrate-powerbi.rb instead: it stops and names the remote models, or with'
+  warn '      --allow-incomplete-model ships them as Null metrics reported as gaps. No spec was written.'
+  exit 10
+end
 
 # Harvest folderId/ownerId from a reference DM unless both supplied.
 folder, owner = opts[:folder], opts[:owner]

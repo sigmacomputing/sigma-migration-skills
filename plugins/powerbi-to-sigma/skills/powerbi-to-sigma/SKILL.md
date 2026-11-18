@@ -52,14 +52,25 @@ directories is also registered in CI, so a new suite cannot be added and silentl
 >   shared dataset. For these, `getDefinition` of the report's bound model is
 >   **INCOMPLETE** (it misses the report-local measures/calc tables, or isn't a
 >   resolvable standalone model), and Power BI **blocks export-to-`.pbix`** for
->   live-connected reports, so device-auth can't download it. The COMPLETE model is
->   in the author's local `.pbix`. The orchestrator DETECTS this (Fabric-path TMSL
+>   live-connected reports, so device-auth can't download it. The report-local model
+>   is in the author's local `.pbix`. The orchestrator DETECTS this (Fabric-path TMSL
 >   shows `entity` proxy partitions or M/`expressionSource` references to a remote
   Power BI / AS dataset — plain DirectQuery to a warehouse does NOT trip it) and STOPS with an OPEN
 >   QUESTION (exit 10) asking for the local `.pbix` — do **not** silently build a DM
 >   from the incomplete model. Ask the user for the file and re-run with `--pbix`
 >   (offline tell in a `.pbix`: its `Connections` member's `RemoteArtifacts`). Only
 >   pass `--allow-incomplete-model` if the user knowingly accepts the partial model.
+>   **Remote measures and remote tables stop on every route, `--pbix` too.** In a
+>   composite over a published semantic model, each remote measure is an
+>   `EXTERNALMEASURE("<measure>", <type>, "DirectQuery to AS - <model>")` pointer whose
+>   DAX is in neither file, and each remote table is a DirectQuery proxy (an `entity`
+>   partition) whose rows live in the remote model, not in any warehouse table. The
+>   orchestrator STOPS (exit 10) before conversion, naming each remote model, its
+>   workspace, its pointers and its proxy tables. Migrate those models first, or rerun
+>   with `--allow-incomplete-model`: the pointers and everything built on them or on a
+>   remote table ship as Null metrics, and each remote table as a zero-row Custom SQL
+>   placeholder (never a guessed `--database/--schema` path), all reported as gaps in
+>   `external-measures.json`. See `refs/local-pbix.md`.
 > - **FULLY-LOCAL `.pbix` (no Fabric / no tenant / not published).** When the user
 >   has only a local `.pbix` on disk, skip the CONNECT/EXTRACT steps entirely — run
 >   the orchestrator with `--pbix` and it extracts BOTH halves locally (Phase 0):
@@ -236,7 +247,10 @@ resume with `--converter-out`. The hosted MCP is a fallback, not the default pat
   `GENERATE`/`ROW` remain blocked. The orchestrator fails before POST on
   placeholder SQL, calendar `NULL AS`, or dropped calculated-table columns;
   `--yes` cannot bypass it. An intentional exception requires
-  `--allow-incomplete-calculated-tables "<reason>"`.
+  `--allow-incomplete-calculated-tables "<reason>"`. Measures homed on a
+  calculated table (the converter drops them) are re-translated and carried onto
+  its element; any that cannot be carried become DAX decisions
+  (`<WORK>/calc-table-measures.json`, `refs/dax-to-sigma-coverage.md`).
 - **PromoteHeaders**: if `pbi-dm-signature.py` reports `promoted_header_tables` (the model's M-query used `Table.PromoteHeaders`), the warehouse table's real columns are auto-named (`C1`, `C2`, …) with the semantic names in row 0 — the TMSL `sourceColumn` names will NOT resolve. Verify the landed table's real columns and remap with `convert-model.rb --table-map` (in Sigma formulas the columns appear as `C 1`, `C 2`, … and in JOIN SQL alias them, e.g. `c.C2 AS CUSTOMER_NAME`).
 - **Known gap `j89`**: the Snowflake `Snowflake.Databases(...) + Navigation` M pattern isn't parsed → pass `database`/`schema` explicitly until fixed.
 - **Non-warehouse sources (Fabric Dataflow / Lakehouse / OneLake / Dataverse / file)**: when a table's M source is a `PowerPlatform.Dataflows` / `Lakehouse.Contents` / `CommonDataService` / `Excel.Workbook`-style connector, the data is NOT in a warehouse Sigma can query and the dataflow's transform logic is NOT in the semantic model (so it can't be translated). The converter flags each such table with a `⛔` warning + a placeholder path and reports `stats.nonWarehouseSourcedTables`; `migrate-powerbi.rb` surfaces a **`non_warehouse_source` decision** at the checkpoint. **Handoff:** run the **`powerbi-import-to-snowflake`** skill to land the data (it works for Import-mode models — the dataflow already materialized the rows), then re-run **Phase 3 Build** with `convert-model.rb --table-map <manifest.json>` — the loader reads the landing manifest directly (no manual map) and repoints the elements. The `powerbi-assessment` readout flags these tables up front under "Data-source patterns".

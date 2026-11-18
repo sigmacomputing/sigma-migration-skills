@@ -214,3 +214,36 @@ formula-only rewrite.
 Regression source: `fixtures/fixture_10_retail_calendar.bim`; converter and
 gate assertions: `scripts/test-retail-calendar.rb` and
 `scripts/test-dax-gate.rb`.
+
+## 2026-11 update — measures homed on a calculated table
+
+The pinned converter builds a calculated table's element (DATATABLE, GENERATESERIES,
+CALENDAR, a literal list, or the DISTINCT/VALUES/SUMMARIZE shapes that
+`lib/pbi_calc_table_sql.rb` turns into Custom SQL) in a branch that skips its
+measure loop. Every measure homed on such a table, e.g. `SUM(Targets[Target])` on
+a `DATATABLE` targets table, was dropped with no warning naming it.
+
+`migrate-powerbi.rb` now carries them (`lib/pbi_calc_table_measures.rb`), after the
+Custom SQL conversion so the element's columns are final:
+
+- Each measure is translated with the converter's own exported `pbiDaxToSigma`
+  (all model measures as context, as the converter's measure loop does) and attached
+  as a metric on its calculated table's element. Column refs are rewritten to the
+  element's column names; a GENERATESERIES column renamed in the model maps to the
+  SQL output (`[Value]`).
+- A ref that is not a column or metric of that element drops the measure, the same
+  rule the converter applies to warehouse-table measures. A ref to another table's
+  measure or column gets the converter's cross-table ⚠ wording; a ref to a column of
+  the calculated table that is not on its element gets ⛔. A sibling measure built on
+  a dropped measure is dropped and reported too.
+- Never silently lost: an untranslatable measure (RANKX, a window result,
+  CROSSFILTER/USERELATIONSHIP), a measure on a table that is still a placeholder, or
+  any measure when no local converter is available gets a warning naming it, so the
+  DAX gate asks about it. Audit: `<WORK>/calc-table-measures.json`.
+- A measure the data model already has as a metric is left alone, so the step stays
+  a no-op if the converter starts emitting these measures itself.
+
+Not carried: the converter's name-based metric format inference (`inferSigmaFormat`
+is not exported), so these metrics have no DM-level format.
+
+Regression: `scripts/test-pbi-calc-table-measures.rb`.

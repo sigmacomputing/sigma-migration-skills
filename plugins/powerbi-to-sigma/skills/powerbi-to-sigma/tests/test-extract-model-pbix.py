@@ -253,6 +253,187 @@ def test_composite_detection():
     print("  ok [composite]: RemoteArtifacts/pbiazure => composite; local import => not; CLI probe works")
 
 
+def test_composite_pointers_reach_model_bim():
+    """Issue #97 contract: in a composite model pbixray's m_parameters is the whole
+    Expression table, so a `DirectQuery to AS - <model>` shared expression reaches
+    model.expressions, and an EXTERNALMEASURE pointer measure keeps its text.
+    migrate-powerbi.rb (lib/pbi_external_measure.rb) names the remote model from
+    both. Characterizes existing behavior the orchestrator now relies on."""
+    mod = _load_module()
+    as_m = ('let\n    Source = AnalysisServices.Database("powerbi://api.powerbi.com/v1.0/myorg/Demo Workspace", '
+            '"Harbor Sales Model"),\n    Cubes = Table.ToRows(Source),\n    Cube = Cubes{0}{1}\nin\n    Cube')
+    pointer = 'EXTERNALMEASURE("Net Revenue", DOUBLE, "DirectQuery to AS - Harbor Sales Model")'
+    tmsl = mod.assemble_tmsl(
+        "Composite Demo",
+        [{"TableName": "Harbor Sales", "ColumnName": "Region", "PandasDataType": "object"}],
+        [{"TableName": "Harbor Sales", "Name": "Remote Revenue", "Expression": pointer}],
+        [],
+        parameter_recs=[{"ParameterName": "DirectQuery to AS - Harbor Sales Model", "Expression": as_m}])
+    m = tmsl["model"]
+    assert m["expressions"] == [{"name": "DirectQuery to AS - Harbor Sales Model", "kind": "m", "expression": as_m}], \
+        m.get("expressions")
+    assert m["tables"][0]["measures"] == [{"name": "Remote Revenue", "expression": pointer}], m["tables"][0]["measures"]
+    print("  ok [composite pointers]: the AS shared expression and the EXTERNALMEASURE text reach model.bim")
+
+
+# --- DirectQuery-to-AS proxy tables (composite model over published semantic models) ---
+def _as_expr(model, workspace):
+    return ('let\n    Source = AnalysisServices.Database("powerbi://api.powerbi.com/v1.0/myorg/' + workspace +
+            '", "' + model + '"),\n    Cubes = Table.ToRows(Source),\n    Cube = Cubes{0}{1}\nin\n    Cube')
+
+
+TARGETS_M = ('let\n    Source = Snowflake.Databases("example-account.snowflakecomputing.com", "EXAMPLE_WH"),\n'
+             '    DB = Source{[Name = "SAMPLE_DB", Kind = "Database"]}[Data],\n'
+             '    SCH = DB{[Name = "DEMO", Kind = "Schema"]}[Data],\n'
+             '    T = SCH{[Name = "TARGETS", Kind = "Table"]}[Data]\nin\n    T')
+
+
+class _FakeMetadataDB:
+    """pbixray's metadata database (PBIXRay._metadata.source._db): .query(sql) -> DataFrame."""
+    def __init__(self, rows):
+        self.rows, self.sql = rows, []
+
+    def query(self, sql):
+        self.sql.append(sql)
+        return FakeDF(self.rows)
+
+
+class _Obj:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class ProxyPBIXRay:
+    """A composite .pbix over two published semantic models (all names invented).
+    'Harbor Sales' and 'Harbor Orders' are DirectQuery-to-AS proxy tables: their
+    partitions are entity partitions (TOM PartitionSourceType 5, mode DirectQuery 1)
+    whose QueryDefinition is the remote table's name. They have no VertiPaq storage,
+    so pbixray's schema / tables (built from column storage) do not list them; their
+    columns are only in tmschema_columns. pbixray 0.15's tmschema_partitions has no
+    ExpressionSourceID, so which shared expression (remote model) each one uses is
+    only in the metadata database, served here by _FakeMetadataDB."""
+    tables = ["Targets"]
+    schema = FakeDF([
+        {"TableName": "Targets", "ColumnName": "Region", "PandasDataType": "string"},
+        {"TableName": "Targets", "ColumnName": "Target", "PandasDataType": "Float64"},
+    ])
+    dax_measures = FakeDF([
+        {"TableName": "Harbor Sales", "Name": "Remote Revenue",
+         "Expression": 'EXTERNALMEASURE("Net Revenue", DOUBLE, "DirectQuery to AS - Harbor Sales Model")'},
+        {"TableName": "Targets", "Name": "Total Target", "Expression": "SUM(Targets[Target])"},
+    ])
+    dax_columns = FakeDF([])
+    dax_tables = FakeDF([])
+    relationships = FakeDF([])
+    power_query = FakeDF([{"TableName": "Targets", "Expression": TARGETS_M}])
+    m_parameters = FakeDF([
+        {"ParameterName": "DirectQuery to AS - Harbor Sales Model", "Expression": _as_expr("Harbor Sales Model", "Demo Workspace")},
+        {"ParameterName": "DirectQuery to AS - Harbor Orders Model", "Expression": _as_expr("Harbor Orders Model", "Ops Demo")},
+    ])
+    tmschema_partitions = FakeDF([
+        {"TableName": "Harbor Sales", "Name": "Harbor Sales", "Type": 5, "Mode": 1, "QueryDefinition": "Sales"},
+        {"TableName": "Harbor Orders", "Name": "Harbor Orders-0a1b", "Type": 5, "Mode": 1, "QueryDefinition": "Orders"},
+        {"TableName": "Targets", "Name": "Targets", "Type": 4, "Mode": 0, "QueryDefinition": TARGETS_M},
+    ])
+    tmschema_columns = FakeDF([
+        {"TableName": "Harbor Orders", "Name": "Order Id", "Type": 1, "DataType": 6, "SourceColumn": "Order Id"},
+        {"TableName": "Harbor Sales", "Name": "Region", "Type": 1, "DataType": 2, "SourceColumn": "Region"},
+        {"TableName": "Harbor Sales", "Name": "Order Date", "Type": 1, "DataType": 9, "SourceColumn": "Order Date"},
+        {"TableName": "Harbor Sales", "Name": "Net Amount", "Type": 1, "DataType": 10, "SourceColumn": "Net Amount"},
+        {"TableName": "Harbor Sales", "Name": "Amount K", "Type": 2, "DataType": 8, "SourceColumn": None},
+        {"TableName": "Targets", "Name": "Region", "Type": 1, "DataType": 2, "SourceColumn": "Region"},
+        {"TableName": "Targets", "Name": "Target", "Type": 1, "DataType": 8, "SourceColumn": "Target"},
+    ])
+
+    def __init__(self, db_rows=None):
+        if db_rows is not None:
+            self.db = _FakeMetadataDB(db_rows)
+            self._metadata = _Obj(source=_Obj(_db=self.db))
+
+
+PROXY_DB_ROWS = [
+    {"TableName": "Harbor Sales", "Name": "Harbor Sales", "Type": 5, "Mode": 1, "QueryDefinition": "Sales",
+     "ExpressionSource": "DirectQuery to AS - Harbor Sales Model", "SchemaName": None},
+    {"TableName": "Harbor Orders", "Name": "Harbor Orders-0a1b", "Type": 5, "Mode": 1, "QueryDefinition": "Orders",
+     "ExpressionSource": "DirectQuery to AS - Harbor Orders Model", "SchemaName": None},
+]
+
+
+def _tables(tmsl):
+    return {t["name"]: t for t in tmsl["model"]["tables"]}
+
+
+def test_dq_to_as_proxy_tables():
+    """A DirectQuery-to-AS proxy table is emitted as a Fabric model.bim has it: an
+    entity partition (entityName = the remote table, expressionSource = the
+    `DirectQuery to AS - <model>` shared expression), with its columns from
+    tmschema_columns, instead of the `no Power Query (M) captured` placeholder that
+    sent the converter to --database/--schema + the table name."""
+    mod = _load_module()
+    pbi = ProxyPBIXRay(PROXY_DB_ROWS)
+    tmsl = mod.build_model_from_pbixray(pbi, "Composite Demo")
+    t = _tables(tmsl)
+    assert {"Harbor Sales", "Harbor Orders", "Targets"} <= set(t), sorted(t)
+    assert t["Harbor Sales"]["partitions"] == [{
+        "name": "Harbor Sales", "mode": "directQuery",
+        "source": {"type": "entity", "entityName": "Sales",
+                   "expressionSource": "DirectQuery to AS - Harbor Sales Model"}}], t["Harbor Sales"]["partitions"]
+    assert t["Harbor Orders"]["partitions"][0]["name"] == "Harbor Orders-0a1b", t["Harbor Orders"]["partitions"]
+    assert t["Harbor Orders"]["partitions"][0]["source"]["expressionSource"] == "DirectQuery to AS - Harbor Orders Model"
+    assert any("ExpressionSourceID" in s for s in pbi.db.sql), pbi.db.sql
+    assert [(c["name"], c["dataType"], c["sourceColumn"]) for c in t["Harbor Sales"]["columns"]] == [
+        ("Region", "string", "Region"), ("Order Date", "dateTime", "Order Date"), ("Net Amount", "decimal", "Net Amount")], \
+        t["Harbor Sales"]["columns"]
+    assert [c["name"] for c in t["Harbor Orders"]["columns"]] == ["Order Id"], t["Harbor Orders"]["columns"]
+    assert [m["name"] for m in t["Harbor Sales"]["measures"]] == ["Remote Revenue"]
+    assert t["Targets"]["partitions"][0]["source"] == {"type": "m", "expression": TARGETS_M}, t["Targets"]["partitions"]
+    assert [c["name"] for c in t["Targets"]["columns"]] == ["Region", "Target"], "a stored table's columns are not duplicated"
+    blob = json.dumps(tmsl)
+    assert "no Power Query (M) captured" not in blob, "a proxy table must not get the warehouse-fallback placeholder"
+    assert "annotations" not in t["Harbor Sales"], "a resolved proxy table needs no extraction note"
+    warns = mod.extract_warnings(tmsl)
+    assert any(w.startswith("Harbor Sales:") and '"Sales"' in w and "Harbor Sales Model" in w for w in warns), warns
+    assert any(w.startswith("Harbor Orders:") for w in warns), warns
+
+    # Without the metadata database (pbixray's public API only) and two remote
+    # models, the remote model is not guessed: no expressionSource, a note that
+    # names both candidates.
+    tmsl2 = mod.build_model_from_pbixray(ProxyPBIXRay(), "Composite Demo")
+    t2 = _tables(tmsl2)
+    src = t2["Harbor Sales"]["partitions"][0]["source"]
+    assert src == {"type": "entity", "entityName": "Sales"}, src
+    notes = [a["value"] for a in t2["Harbor Sales"].get("annotations", [])]
+    assert any("DirectQuery to AS - Harbor Sales Model" in n and "DirectQuery to AS - Harbor Orders Model" in n for n in notes), notes
+
+    # ... and with a single remote model, the proxy table is bound to it (noted).
+    class OneModel(ProxyPBIXRay):
+        m_parameters = FakeDF([{"ParameterName": "DirectQuery to AS - Harbor Sales Model",
+                                "Expression": _as_expr("Harbor Sales Model", "Demo Workspace")}])
+        tmschema_partitions = FakeDF([r for r in ProxyPBIXRay.tmschema_partitions.to_dict() if r["TableName"] != "Harbor Orders"])
+    t3 = _tables(mod.build_model_from_pbixray(OneModel(), "Composite Demo"))
+    assert t3["Harbor Sales"]["partitions"][0]["source"]["expressionSource"] == "DirectQuery to AS - Harbor Sales Model", \
+        t3["Harbor Sales"]["partitions"]
+    assert any("only" in a["value"] for a in t3["Harbor Sales"].get("annotations", [])), t3["Harbor Sales"].get("annotations")
+
+    # A metadata database that cannot answer (another pbixray layout, an older
+    # schema) falls back to the public records; a Type given by name works too.
+    class Broken(ProxyPBIXRay):
+        tmschema_partitions = FakeDF([dict(r, Type="Entity") if r["Type"] == 5 else r
+                                      for r in ProxyPBIXRay.tmschema_partitions.to_dict()])
+
+        def __init__(self):
+            self._metadata = _Obj(source=_Obj(_db=_Obj(query=lambda sql: (_ for _ in ()).throw(RuntimeError("no such column")))))
+    t4 = _tables(mod.build_model_from_pbixray(Broken(), "Composite Demo"))
+    assert t4["Harbor Sales"]["partitions"][0]["source"]["type"] == "entity", t4["Harbor Sales"]["partitions"]
+
+    # Old pbixray without tmschema_partitions: unchanged (the warehouse fallback).
+    class Old(ProxyPBIXRay):
+        tmschema_partitions = None
+    t5 = _tables(mod.build_model_from_pbixray(Old(), "Composite Demo"))
+    assert "Harbor Sales" in t5 and t5["Harbor Sales"]["partitions"][0]["source"]["type"] == "m"
+    print("  ok [proxy tables]: entity partition + expressionSource + columns; ambiguous model named, not guessed")
+
+
 # --- full-fidelity model (Enter-data tables, incremental refresh, RLS, ...) ---
 def _enter_data_m(rows, columns, tail):
     """The M an "Enter data" table carries: rows as base64(raw-deflate(JSON))."""
@@ -766,6 +947,8 @@ def main():
     tmsl = test_assembly()
     test_converts(tmsl)
     test_composite_detection()
+    test_composite_pointers_reach_model_bim()
+    test_dq_to_as_proxy_tables()
     test_phantom_calculated_columns()
     test_source_column_and_datatype()
     test_sort_by_column()

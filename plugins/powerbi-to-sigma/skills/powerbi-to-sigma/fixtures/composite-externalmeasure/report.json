@@ -1,0 +1,60 @@
+{
+  "sections": [
+    {
+      "name": "S1",
+      "displayName": "Overview",
+      "width": 1280,
+      "height": 720,
+      "visualContainers": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 120,
+          "z": 0,
+          "config": "{\"name\": \"v1\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Harbor Sales.Remote Revenue\"}]}}}"
+        },
+        {
+          "x": 0,
+          "y": 130,
+          "width": 300,
+          "height": 120,
+          "z": 1,
+          "config": "{\"name\": \"v2\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Targets.Revenue Gap\"}]}}}"
+        },
+        {
+          "x": 0,
+          "y": 260,
+          "width": 300,
+          "height": 120,
+          "z": 2,
+          "config": "{\"name\": \"v3\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Targets.Total Target\"}]}}}"
+        },
+        {
+          "x": 0,
+          "y": 390,
+          "width": 300,
+          "height": 120,
+          "z": 3,
+          "config": "{\"name\": \"v4\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Harbor Sales.Remote Margin\"}]}}}"
+        },
+        {
+          "x": 320,
+          "y": 0,
+          "width": 300,
+          "height": 120,
+          "z": 4,
+          "config": "{\"name\": \"v5\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Harbor Sales.Remote Revenue K\"}]}}}"
+        },
+        {
+          "x": 320,
+          "y": 130,
+          "width": 300,
+          "height": 120,
+          "z": 5,
+          "config": "{\"name\": \"v6\", \"singleVisual\": {\"visualType\": \"card\", \"projections\": {\"Values\": [{\"queryRef\": \"Targets.Remote Order Count\"}]}}}"
+        }
+      ]
+    }
+  ]
+}
